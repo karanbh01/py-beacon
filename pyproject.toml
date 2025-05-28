@@ -120,8 +120,8 @@ classifiers = [
 #
 # For an analysis of this field vs pip's requirements files see:
 # https://packaging.python.org/discussions/install-requires-vs-requirements/
-dependencies = ["pandas", "numpy", "scipy", "matplotlib", "seaborn", "statsmodels",
-                "scikit-optimize", "seaborn"]
+dependencies = ["pandas", "numpy", "scipy", "matplotlib", "seaborn",
+                "scikit-optimize"]
 
 # List additional groups of dependencies here (e.g. development
 # dependencies). Users will be able to install these using the "extras"

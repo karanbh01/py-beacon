@@ -58,4 +58,7 @@ docs/_build/
 # AI
 .roo/
 /.roomodes
+/.rooignore
+
 planning/
+testing/
