@@ -90,7 +90,7 @@ class RebalanceRule(BacktestRule):
             return current_date.year != previous_rebalance_date.year
         # Add more frequencies as needed, or use pandas.tseries.offsets for robust date calculations
         # e.g., if current_date >= previous_rebalance_date + pd.offsets.MonthEnd(1) for end of month
-        return False # Default if frequency not recognized or not yet time
+        return False # Default to no rebalance
 
     def apply(self,
               current_date: pd.Timestamp,
@@ -113,13 +113,6 @@ class RebalanceRule(BacktestRule):
             A tuple containing the new list of constituent assets and their target weights.
             If no rebalance occurs, it might return the existing constituents/weights or signal no change.
         """
-        # This method would typically be called by the BacktestEngine, which would know the *portfolio's*
-        # last rebalance date. For now, this is a simplified placeholder.
-        # A more robust implementation would involve the engine managing rebalance dates.
-
-        # Placeholder: For simplicity, assume it decides to rebalance.
-        # In a real engine, the engine would check if it's a rebalance day.
-        # This `apply` method would then *perform* the rebalancing.
 
         # 1. Select new constituents from the provided universe based on eligibility rules.
         #    The `current_universe` argument here likely means the overall pool of available assets.
@@ -134,6 +127,5 @@ class RebalanceRule(BacktestRule):
             current_date=current_date
         )
 
-        # The rule itself doesn't change the portfolio, it just provides the new target.
         # The BacktestEngine would use this output to generate trades.
         return new_constituents, new_target_weights

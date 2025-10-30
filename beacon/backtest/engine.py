@@ -220,11 +220,11 @@ class BacktestEngine:
 
         # Initialize results storage
         # Columns: Date, PortfolioValue, Cash, Asset1_Weight, Asset1_Price, ..., AssetN_Weight, AssetN_Price
-        # This will grow dynamically, which is not ideal for performance but simpler for now.
+        # This will grow dynamically, which is not ideal for performance but simpler.
         history = []
 
         # Determine the date range for the backtest (e.g., daily frequency)
-        # This should ideally use a market calendar. For now, all weekdays.
+        # This should ideally use a market calendar. For now, weekdays.
         trading_days = pd.date_range(start=self.start_date, end=self.end_date, freq='B') # Business days
 
         if trading_days.empty:
@@ -268,10 +268,6 @@ class BacktestEngine:
             current_weights = self.portfolio.get_weights(self.data_provider, self._current_date)
             for asset, weight in current_weights.items():
                 daily_record[f"{asset.asset_id}_weight"] = weight
-                # Optionally, record prices used for valuation
-                # price_data = self.data_provider.fetch_prices(asset.ticker, self._current_date.strftime('%Y-%m-%d'), self._current_date.strftime('%Y-%m-%d'))
-                # if not price_data.empty:
-                #    daily_record[f"{asset.asset_id}_price"] = price_data['Close'].iloc[0]
 
 
             history.append(daily_record)

@@ -88,10 +88,6 @@ class ETF(IndexFund):
         logger.debug(f"Simulated market price for ETF '{self.etf_ticker}' on "
                      f"{current_date.strftime('%Y-%m-%d')}: {self.market_price:.2f} (based on NAV)")
         # Add more complex logic here later, e.g., premium/discount simulation
-        # if market_factors and 'premium_discount_stddev' in market_factors:
-        #     import numpy as np
-        #     noise = np.random.normal(0, market_factors['premium_discount_stddev'])
-        #     self.market_price = nav_per_share * (1 + noise)
         return self.market_price
 
 
