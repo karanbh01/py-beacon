@@ -28,18 +28,28 @@ class MarketData:
     enabling fast ``.loc`` slicing by identifier or list of identifiers.
     """
 
-    def __init__(self, 
-                 file_path: str, 
+    def __init__(self,
+                 file_path: str,
                  date_format: str = "%Y-%m-%d"):
         df = _read_file(file_path)
+        self._df = self._prepare(df, date_format)
 
+    @classmethod
+    def from_dataframe(cls, df: pd.DataFrame, date_format: str = "%Y-%m-%d"):
+        """Create a MarketData instance from an existing DataFrame."""
+        instance = object.__new__(cls)
+        instance._df = cls._prepare(df.copy(), date_format)
+        return instance
+
+    @staticmethod
+    def _prepare(df: pd.DataFrame, date_format: str) -> pd.DataFrame:
         missing = [c for c in ("IDENTIFIER", "DATE") if c not in df.columns]
         if missing:
             raise ValueError(f"Missing required column(s): {', '.join(missing)}")
 
         df["DATE"] = pd.to_datetime(df["DATE"], format=date_format)
         df = df.set_index(["IDENTIFIER", "DATE"]).sort_index()
-        self._df = df
+        return df
 
     # -- properties ----------------------------------------------------------
 
@@ -134,7 +144,17 @@ class ReferenceData:
 
     def __init__(self, file_path: str):
         df = _read_file(file_path)
+        self._df = self._prepare(df)
 
+    @classmethod
+    def from_dataframe(cls, df: pd.DataFrame):
+        """Create a ReferenceData instance from an existing DataFrame."""
+        instance = object.__new__(cls)
+        instance._df = cls._prepare(df.copy())
+        return instance
+
+    @staticmethod
+    def _prepare(df: pd.DataFrame) -> pd.DataFrame:
         missing = [c for c in ("IDENTIFIER", "DATE_FROM") if c not in df.columns]
         if missing:
             raise ValueError(f"Missing required column(s): {', '.join(missing)}")
@@ -146,7 +166,7 @@ class ReferenceData:
             df["DATE_TO"] = pd.NaT
 
         df = df.set_index("IDENTIFIER").sort_index()
-        self._df = df
+        return df
 
     # -- properties ----------------------------------------------------------
 

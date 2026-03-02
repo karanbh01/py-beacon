@@ -52,13 +52,11 @@ class DataFetcher:
 
     # -- market data ---------------------------------------------------------
 
-    def fetch_market_data(
-        self,
-        identifier: Union[str, List[str]],
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        columns: Optional[List[str]] = None,
-    ) -> pd.DataFrame:
+    def fetch_market_data(self,
+                          identifier: Union[str, List[str]],
+                          start_date: Optional[str] = None,
+                          end_date: Optional[str] = None,
+                          columns: Optional[List[str]] = None) -> pd.DataFrame:
         """Fetch time-series market data for one or more identifiers.
 
         Parameters
@@ -81,12 +79,10 @@ class DataFetcher:
 
     # -- reference data ------------------------------------------------------
 
-    def fetch_reference_data(
-        self,
-        identifier: Union[str, List[str]],
-        date: Optional[str] = None,
-        columns: Optional[List[str]] = None,
-    ) -> pd.DataFrame:
+    def fetch_reference_data(self,
+                             identifier: Union[str, List[str]],
+                             date: Optional[str] = None,
+                             columns: Optional[List[str]] = None) -> pd.DataFrame:
         """Fetch reference data for one or more identifiers.
 
         Parameters
