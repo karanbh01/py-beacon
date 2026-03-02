@@ -3,13 +3,25 @@ Environment configuration dataclasses and the central Environment class.
 """
 
 from dataclasses import dataclass, fields, asdict
+import pandas as pd
 from typing import Optional
 
+@dataclass
+class DataSourceConfig:
+    MARKET_DATA_PATH: Optional[str] = None
+    REFERENCE_DATA_PATH: Optional[str] = None
+    FUNDAMENTALS_DATA_PATH: Optional[str] = None
+    CORPORATE_ACTIONS_DATA_PATH: Optional[str] = None
+    FX_RATES_DATA_PATH: Optional[str] = None
+    MARKET_DATA: Optional[pd.DataFrame] = None
+    REFERENCE_DATA: Optional[pd.DataFrame] = None
+    FUNDAMENTALS_DATA: Optional[pd.DataFrame] = None
+    CORPORATE_ACTIONS_DATA: Optional[pd.DataFrame] = None
+    FX_RATES_DATA: Optional[pd.DataFrame] = None
+    
 
 @dataclass
 class DataConfig:
-    MARKET_DATA_PATH: Optional[str] = None
-    REFERENCE_DATA_PATH: Optional[str] = None
     DATE_FORMAT: str = "%Y-%m-%d"
 
 @dataclass
@@ -27,6 +39,7 @@ class IndexConfig:
     pass
 
 _CATEGORIES = {
+    "data_source": DataSourceConfig,
     "data": DataConfig,
     "calendar": CalendarConfig,
     "simulation": SimulationConfig,
@@ -41,6 +54,7 @@ class Environment:
     """
 
     def __init__(self):
+        self.data_source = DataSourceConfig()
         self.data = DataConfig()
         self.calendar = CalendarConfig()
         self.simulation = SimulationConfig()
@@ -74,7 +88,12 @@ class Environment:
 
     def summary(self) -> dict:
         """Return all current settings as a nested dict."""
-        return {
-            attr: asdict(getattr(self, attr))
-            for attr in _CATEGORIES
-        }
+        result = {}
+        for attr in _CATEGORIES:
+            instance = getattr(self, attr)
+            result[attr] = {
+                f.name: getattr(instance, f.name)
+                for f in fields(type(instance))
+                if not isinstance(getattr(instance, f.name), pd.DataFrame)
+            }
+        return result
