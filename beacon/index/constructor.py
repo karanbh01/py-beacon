@@ -25,7 +25,7 @@ class IndexDefinition:
                  currency: str,
                  eligibility_rules: List['EligibilityRuleBase'],
                  weighting_scheme: 'WeightingSchemeBase',
-                 rebalancing_frequency: str, # e.g., 'QUARTERLY', 'MONTHLY', 'ANNUALLY'
+                 rebalancing_frequency: str, # e.g., 'QUARTERLY', 'MONTHLY', 'SEMI-ANNUAL', 'ANNUAL'
                  description: Optional[str] = None,
                  universe_identifiers: Optional[List[str]] = None
                 ):
@@ -43,7 +43,7 @@ class IndexDefinition:
             weighting_scheme: A WeightingSchemeBase object that defines how
                               constituents are weighted.
             rebalancing_frequency: A string indicating how often the index is rebalanced
-                                   (e.g., 'QUARTERLY', 'MONTHLY', 'SEMI-ANNUALLY', 'ANNUALLY').
+                                   (e.g., 'QUARTERLY', 'MONTHLY', 'SEMI-ANNUAL', 'ANNUAL').
                                    More complex schedules (e.g. "Third Friday of March, June...")
                                    would require a more sophisticated scheduler.
             description: Optional textual description of the index.
