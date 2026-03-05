@@ -9,8 +9,6 @@ import logging
 # Avoid circular imports for type hinting
 if TYPE_CHECKING:
     from .methodology import EligibilityRuleBase, WeightingSchemeBase
-    # from ..asset.asset_base import Asset # If needed for universe definition
-    # from ..data.data_fetcher import DataFetcher # If needed for universe definition
 
 
 logger = logging.getLogger(__name__)
@@ -28,8 +26,8 @@ class IndexDefinition:
                  eligibility_rules: List['EligibilityRuleBase'],
                  weighting_scheme: 'WeightingSchemeBase',
                  rebalancing_frequency: str, # e.g., 'QUARTERLY', 'MONTHLY', 'ANNUALLY'
-                 description: Optional[str] = None
-                 # initial_universe: Optional[List['Asset']] = None, # Consider how universe is managed
+                 description: Optional[str] = None,
+                 universe_identifiers: Optional[List[str]] = None
                 ):
         """
         Initializes an IndexDefinition.
@@ -49,7 +47,8 @@ class IndexDefinition:
                                    More complex schedules (e.g. "Third Friday of March, June...")
                                    would require a more sophisticated scheduler.
             description: Optional textual description of the index.
-            # initial_universe: Optional list of assets forming the starting pool for selection.
+            universe_identifiers: Optional list of string identifiers (e.g., tickers, ISINs)
+                                  defining the asset universe from which constituents are selected.
         """
         if not index_id: raise ValueError("index_id cannot be empty.")
         if not index_name: raise ValueError("index_name cannot be empty.")
@@ -59,7 +58,8 @@ class IndexDefinition:
         if not eligibility_rules: logger.warning(f"Index '{index_name}' defined with no eligibility rules.")
         if not weighting_scheme: raise ValueError("weighting_scheme must be provided.")
         if not rebalancing_frequency: raise ValueError("rebalancing_frequency cannot be empty.")
-
+        if universe_identifiers is not None and not universe_identifiers:
+            raise ValueError("universe_identifiers, when provided, must be a non-empty list.")
 
         self.index_id: str = index_id
         self.index_name: str = index_name
@@ -70,22 +70,9 @@ class IndexDefinition:
         self.weighting_scheme: 'WeightingSchemeBase' = weighting_scheme
         self.rebalancing_frequency: str = rebalancing_frequency.upper()
         self.description: Optional[str] = description
-        # self.initial_universe: List['Asset'] = initial_universe if initial_universe else []
+        self.universe_identifiers: Optional[List[str]] = universe_identifiers
 
         logger.info(f"IndexDefinition for '{self.index_name}' ({self.index_id}) created successfully.")
-
-    # Placeholder for how the broad universe of assets might be defined or fetched.
-    # This is a complex area: Is it a fixed list? Dynamically fetched based on criteria (e.g., all stocks on an exchange)?
-    # def get_eligible_universe(self, current_date: pd.Timestamp, data_provider: 'DataFetcher') -> List['Asset']:
-    # """
-    # Returns the broad list of assets from which constituents can be selected
-    # before applying eligibility rules. This might involve fetching all assets
-    # listed on a specific exchange or a pre-defined list.
-    # """
-    # # This needs to be implemented based on how the universe is sourced.
-    # # For example, it could be configured with a list of tickers, or rules to query a DataFetcher.
-    # logger.warning("get_eligible_universe is a placeholder and needs concrete implementation.")
-    # return [] # Return an empty list as a placeholder
 
     def get_rebalance_dates(self, start_date: str, end_date: str) -> List[pd.Timestamp]:
         """
@@ -149,6 +136,8 @@ class IndexDefinition:
         return rebalance_dates
 
     def __repr__(self) -> str:
+        universe_size = len(self.universe_identifiers) if self.universe_identifiers else 0
         return (f"IndexDefinition(index_id='{self.index_id}', index_name='{self.index_name}', "
                 f"base_date='{self.base_date.strftime('%Y-%m-%d')}', base_value={self.base_value}, "
-                f"currency='{self.currency}', rebalancing_frequency='{self.rebalancing_frequency}')")
+                f"currency='{self.currency}', rebalancing_frequency='{self.rebalancing_frequency}', "
+                f"universe_size={universe_size})")
