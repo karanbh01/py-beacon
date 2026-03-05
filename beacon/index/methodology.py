@@ -17,31 +17,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-class MethodologyRule(ABC):
-    """
-    Base class for a generic methodology rule.
-    Could be used to categorize different types of rules if needed,
-    though specific base classes like EligibilityRuleBase are more direct.
-    """
-    def __init__(self, rule_type: str):
-        self.rule_type = rule_type
-
-    @abstractmethod
-    def apply(self, *args: Any, **kwargs: Any) -> Any:
-        """Generic apply method to be implemented by subclasses."""
-        pass
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(rule_type='{self.rule_type}')"
-
-
-class EligibilityRuleBase(MethodologyRule):
+class EligibilityRuleBase(ABC):
     """
     Abstract base class for an eligibility rule.
     Eligibility rules determine if an asset can be part of an index.
     """
     def __init__(self, rule_name: str):
-        super().__init__(rule_type="ELIGIBILITY")
         self.rule_name = rule_name
 
     @abstractmethod
@@ -49,7 +30,6 @@ class EligibilityRuleBase(MethodologyRule):
                     asset: 'Asset',
                     current_date: pd.Timestamp,
                     market_data_provider: 'DataFetcher',
-                    # Optional: context from index definition (e.g., universe constraints)
                     context: Optional[Dict[str, Any]] = None
                    ) -> bool:
         """
@@ -66,10 +46,6 @@ class EligibilityRuleBase(MethodologyRule):
             True if the asset is eligible, False otherwise.
         """
         pass
-
-    # Override apply to match specific use if needed, or remove if is_eligible is preferred interface
-    def apply(self, asset: 'Asset', current_date: pd.Timestamp, market_data_provider: 'DataFetcher', context: Optional[Dict[str, Any]] = None) -> bool:
-        return self.is_eligible(asset, current_date, market_data_provider, context)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(rule_name='{self.rule_name}')"
@@ -187,13 +163,12 @@ class LiquidityRule(EligibilityRuleBase):
 # class ListingLocationRule(EligibilityRuleBase): ...
 
 
-class WeightingSchemeBase(MethodologyRule):
+class WeightingSchemeBase(ABC):
     """
     Abstract base class for a weighting scheme.
     Weighting schemes determine the proportion of each constituent in an index.
     """
     def __init__(self, scheme_name: str):
-        super().__init__(rule_type="WEIGHTING")
         self.scheme_name = scheme_name
 
     @abstractmethod
@@ -201,7 +176,6 @@ class WeightingSchemeBase(MethodologyRule):
                           constituents: List['Asset'],
                           current_date: pd.Timestamp,
                           market_data_provider: 'DataFetcher',
-                          # Optional context (e.g., from index definition)
                           context: Optional[Dict[str, Any]] = None
                          ) -> Dict['Asset', float]:
         """
@@ -218,9 +192,6 @@ class WeightingSchemeBase(MethodologyRule):
             The sum of weights should typically be 1.0.
         """
         pass
-
-    def apply(self, constituents: List['Asset'], current_date: pd.Timestamp, market_data_provider: 'DataFetcher', context: Optional[Dict[str, Any]] = None) -> Dict['Asset', float]:
-        return self.calculate_weights(constituents, current_date, market_data_provider, context)
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(scheme_name='{self.scheme_name}')"
@@ -313,4 +284,4 @@ class EqualWeighted(WeightingSchemeBase):
             
         return weights
 
-# class CorporateActionRule(MethodologyRule): ... (For specific handling if not covered by divisor)
+# class CorporateActionRule: ... (For specific handling if not covered by divisor)

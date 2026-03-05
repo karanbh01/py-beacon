@@ -6,7 +6,6 @@ This module is core for defining index methodologies, selecting constituents,
 calculating weights, and computing index levels.
 """
 from .methodology import (
-    MethodologyRule,
     EligibilityRuleBase,
     MarketCapRule, # Example implementation
     LiquidityRule, # Example implementation
@@ -18,7 +17,6 @@ from .constructor import IndexDefinition # If IndexDefinition is in constructor.
 from .calculation import IndexCalculationAgent
 
 __all__ = [
-    "MethodologyRule",
     "EligibilityRuleBase",
     "MarketCapRule",
     "LiquidityRule",
