@@ -87,6 +87,67 @@ class IndexDefinition:
     # logger.warning("get_eligible_universe is a placeholder and needs concrete implementation.")
     # return [] # Return an empty list as a placeholder
 
+    def get_rebalance_dates(self, start_date: str, end_date: str) -> List[pd.Timestamp]:
+        """
+        Return all rebalance dates within [start_date, end_date] based on
+        the index's rebalancing frequency. Dates are adjusted to business days.
+
+        Args:
+            start_date: Start of the range (YYYY-MM-DD), inclusive.
+            end_date: End of the range (YYYY-MM-DD), inclusive.
+
+        Returns:
+            A chronologically sorted list of business-day-adjusted rebalance dates.
+
+        Raises:
+            ValueError: If the rebalancing frequency is unsupported.
+        """
+        #todo: - This method currently supports only simple monthly/quarterly/semi-annual/annual frequencies.
+        #      - More complex schedules (e.g. "Third Friday of March, June...") would require a more sophisticated scheduler, potentially using a library like `dateutil` or `pandas` offsets.
+        freq = self.rebalancing_frequency
+        freq_map = {
+            "MONTHLY": 1,
+            "QUARTERLY": 3,
+            "SEMI-ANNUAL": 6,
+            "ANNUAL": 12,
+        }
+
+        if freq not in freq_map:
+            raise ValueError(
+                f"Unsupported rebalancing frequency: '{freq}'. "
+                f"Supported values: {list(freq_map.keys())}"
+            )
+
+        interval_months = freq_map[freq]
+        start = pd.Timestamp(start_date)
+        end = pd.Timestamp(end_date)
+
+        # Generate first-business-day-of-month dates covering the range
+        # BMonthBegin gives the first business day of each month
+        all_bmonth_starts = pd.date_range(
+            start=start - pd.offsets.MonthBegin(1),
+            end=end + pd.offsets.MonthEnd(1),
+            freq="BMS",  # Business Month Start
+        )
+
+        # Filter to only months matching the interval from the first candidate
+        candidates = []
+        for d in all_bmonth_starts:
+            if start <= d <= end:
+                candidates.append(d)
+
+        if not candidates:
+            return []
+
+        # Select dates at the specified interval starting from the first candidate
+        rebalance_dates = [candidates[0]]
+        for d in candidates[1:]:
+            months_diff = (d.year - rebalance_dates[-1].year) * 12 + (d.month - rebalance_dates[-1].month)
+            if months_diff >= interval_months:
+                rebalance_dates.append(d)
+
+        return rebalance_dates
+
     def __repr__(self) -> str:
         return (f"IndexDefinition(index_id='{self.index_id}', index_name='{self.index_name}', "
                 f"base_date='{self.base_date.strftime('%Y-%m-%d')}', base_value={self.base_value}, "
