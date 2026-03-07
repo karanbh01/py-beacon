@@ -1,6 +1,6 @@
 # beacon/index/calculation.py
 """
-Module for the IndexCalculationAgent, responsible for the logic of
+Module for the IndexCalculator, responsible for the logic of
 constituent selection, weighting, index level calculation, and corporate action adjustments.
 """
 import pandas as pd
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-class IndexCalculationAgent:
+class IndexCalculator:
     """
     Manages the ongoing calculation of an index based on its definition.
     This includes selecting constituents, calculating weights, computing index levels,
@@ -27,7 +27,7 @@ class IndexCalculationAgent:
                  index_definition: 'IndexDefinition',
                  data_provider: 'DataFetcher'):
         """
-        Initializes the IndexCalculationAgent.
+        Initializes the IndexCalculator.
 
         Args:
             index_definition: The IndexDefinition object that specifies the index rules.
@@ -47,7 +47,7 @@ class IndexCalculationAgent:
         self.current_index_level: float = index_definition.base_value
         self.current_divisor: Optional[float] = None # Will be initialized
 
-        logger.info(f"IndexCalculationAgent initialized for index '{self.index_definition.index_name}'.")
+        logger.info(f"IndexCalculator initialized for index '{self.index_definition.index_name}'.")
         # Initialize divisor if on base date or if starting fresh
         # self.current_divisor = self.initialize_divisor_on_base_date()
 

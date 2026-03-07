@@ -14,7 +14,7 @@ from .methodology import (
     EqualWeighted # Example implementation
 )
 from .constructor import IndexDefinition # If IndexDefinition is in constructor.py
-from .calculation import IndexCalculationAgent
+from .calculation import IndexCalculator
 from .result import IndexResult
 
 __all__ = [
@@ -25,6 +25,6 @@ __all__ = [
     "MarketCapWeighted",
     "EqualWeighted",
     "IndexDefinition",
-    "IndexCalculationAgent",
+    "IndexCalculator",
     "IndexResult",
 ]

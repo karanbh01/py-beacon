@@ -9,7 +9,7 @@ from typing import List, Dict, Tuple, TYPE_CHECKING
 # Avoid circular imports for type hinting
 if TYPE_CHECKING:
     from ..asset.base import Asset
-    from ..index.calculation import IndexCalculationAgent
+    from ..index.calculation import IndexCalculator
     from ..portfolio.base import Portfolio # For future _handle_corporate_actions type hint
 
 
@@ -48,7 +48,7 @@ class RebalanceRule(BacktestRule):
     """
     def __init__(self,
                  rebalance_frequency: str, # e.g., 'MONTHLY', 'QUARTERLY', 'ANNUALLY', 'END_OF_MONTH'
-                 index_methodology: 'IndexCalculationAgent'):
+                 index_methodology: 'IndexCalculator'):
         """
         Initializes the RebalanceRule.
 
@@ -56,16 +56,16 @@ class RebalanceRule(BacktestRule):
             rebalance_frequency: A string indicating the rebalancing frequency.
                                  (e.g., 'MONTHLY', 'QUARTERLY', 'ANNUALLY').
                                  Specific dates might require more complex logic or a calendar.
-            index_methodology: An instance of IndexCalculationAgent that defines
+            index_methodology: An instance of IndexCalculator that defines
                                how the index/portfolio should be rebalanced.
         """
         if not rebalance_frequency:
             raise ValueError("rebalance_frequency cannot be empty.")
-        if not index_methodology: # Check if it's a valid IndexCalculationAgent instance
+        if not index_methodology: # Check if it's a valid IndexCalculator instance
             raise ValueError("index_methodology must be provided.")
 
         self.rebalance_frequency: str = rebalance_frequency
-        self.index_methodology: 'IndexCalculationAgent' = index_methodology
+        self.index_methodology: 'IndexCalculator' = index_methodology
         # Store the next rebalance date to avoid re-calculating it every step
         self._next_rebalance_date: Optional[pd.Timestamp] = None
 
@@ -99,7 +99,7 @@ class RebalanceRule(BacktestRule):
               portfolio: 'Portfolio' # Portfolio state might be more relevant here
              ) -> Tuple[List['Asset'], Dict['Asset', float]]:
         """
-        Implements rebalancing logic based on the linked IndexCalculationAgent.
+        Implements rebalancing logic based on the linked IndexCalculator.
         If it's a rebalance date, it recalculates constituents and weights.
         Otherwise, it returns the current assets and weights.
 

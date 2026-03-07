@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from .rules import BacktestRule
     from ..portfolio.base import Portfolio, Transaction
     from ..data.data_fetcher import DataFetcher
-    from ..index.calculation import IndexCalculationAgent
+    from ..index.calculation import IndexCalculator
 
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ class BacktestEngine:
                  initial_capital: float,
                  data_provider: 'DataFetcher',
                  index_definition: Optional['IndexDefinition'] = None, # For index-based strategies
-                 index_agent: Optional['IndexCalculationAgent'] = None, # Provides logic
+                 index_agent: Optional['IndexCalculator'] = None, # Provides logic
                  rules: Optional[List['BacktestRule']] = None,
                  portfolio: Optional['Portfolio'] = None): # Can start with an existing portfolio
         """
@@ -49,7 +49,7 @@ class BacktestEngine:
         self.initial_capital: float = initial_capital
         self.data_provider: 'DataFetcher' = data_provider
         self.index_definition: Optional['IndexDefinition'] = index_definition
-        self.index_agent: Optional['IndexCalculationAgent'] = index_agent # Crucial for rebalancing logic
+        self.index_agent: Optional['IndexCalculator'] = index_agent # Crucial for rebalancing logic
         self.rules: List['BacktestRule'] = rules if rules else []
 
         if portfolio:
@@ -105,7 +105,7 @@ class BacktestEngine:
 
                     # The universe for reselection should come from a broader source,
                     # possibly defined in IndexDefinition or fetched via DataFetcher.
-                    # For now, we assume the rule's IndexCalculationAgent can get what it needs.
+                    # For now, we assume the rule's IndexCalculator can get what it needs.
                     # This part needs refinement based on how universe is defined and accessed.
                     # Placeholder: fetch a broad universe of assets
                     # Assume index_agent.select_constituents can access a pre-defined universe or fetch one.
@@ -113,7 +113,7 @@ class BacktestEngine:
                     # all tradable assets, or assets meeting some pre-filter.
                     
                     # The rule.apply method should now use the index_agent associated with it.
-                    # The IndexCalculationAgent within the RebalanceRule already has data_provider.
+                    # The IndexCalculator within the RebalanceRule already has data_provider.
                     # It also needs the full available universe to select from.
                     
                     # Get all potential assets from data_provider (simplified)

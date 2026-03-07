@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ..index.constructor import IndexDefinition
     from ..portfolio.base import Portfolio
     from ..data.fetcher import DataFetcher
-    from ..index.calculation import IndexCalculationAgent
+    from ..index.calculation import IndexCalculator
 
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class IndexFund:
     def __init__(self,
                  fund_id: str,
                  target_index_definition: 'IndexDefinition', # The static definition
-                 index_agent: 'IndexCalculationAgent', # The agent to calculate weights for target_index
+                 index_agent: 'IndexCalculator', # The agent to calculate weights for target_index
                  portfolio: 'Portfolio',
                  data_provider: 'DataFetcher',
                  management_fee_bps: int = 0):
@@ -54,7 +54,7 @@ class IndexFund:
 
         self.fund_id: str = fund_id
         self.target_index_definition: 'IndexDefinition' = target_index_definition
-        self.index_agent: 'IndexCalculationAgent' = index_agent
+        self.index_agent: 'IndexCalculator' = index_agent
         self.portfolio: 'Portfolio' = portfolio
         self.data_provider: 'DataFetcher' = data_provider
         self.management_fee_bps: int = management_fee_bps # e.g., 20 for 0.20%

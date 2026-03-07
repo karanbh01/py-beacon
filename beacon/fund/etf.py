@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..portfolio.base import Portfolio
     from ..analysis.etf.analytics import ETFAnalytics # For type hint
     from ..data.fetcher import DataFetcher
-    from ..index.calculation import IndexCalculationAgent
+    from ..index.calculation import IndexCalculator
 
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ class ETF(IndexFund):
                  fund_id: str,
                  etf_ticker: str,
                  target_index_definition: 'IndexDefinition',
-                 index_agent: 'IndexCalculationAgent',
+                 index_agent: 'IndexCalculator',
                  portfolio: 'Portfolio',
                  data_provider: 'DataFetcher',
                  management_fee_bps: int = 0,
@@ -154,7 +154,7 @@ class ETF(IndexFund):
 
         # 2. Get Benchmark Index returns
         # This requires historical levels of the target index.
-        # The IndexCalculationAgent can calculate levels, but needs historical component prices.
+        # The IndexCalculator can calculate levels, but needs historical component prices.
         # Placeholder for fetching/calculating benchmark index returns:
         # This is also complex. Assume `index_agent` can provide this or `data_provider`
         # can fetch index level series.
@@ -182,7 +182,7 @@ class ETF(IndexFund):
                 return {"error": f"Failed to get benchmark returns: {e}"}
         else:
             # Fallback: try to reconstruct index returns using the agent for each day (computationally intensive)
-            # This would require the IndexCalculationAgent to have a method like `get_historical_index_series`
+            # This would require the IndexCalculator to have a method like `get_historical_index_series`
             logger.warning("Benchmark returns calculation for tracking performance is simplified. "
                            "A pre-calculated index series is recommended.")
             # For now, let's return an error or empty if not easily available
