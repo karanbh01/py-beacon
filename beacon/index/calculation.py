@@ -45,6 +45,56 @@ class IndexCalculator:
         logger.info(f"IndexCalculator initialized for index '{self.definition.index_name}'.")
 
 
+    def _get_universe(self, date: pd.Timestamp) -> List['Asset']:
+        """Resolve universe_identifiers from the IndexDefinition into Asset objects.
+
+        Uses ``self.data.fetch_reference_data`` to look up metadata for each
+        identifier and constructs :class:`Equity` objects.  Identifiers that
+        cannot be resolved are logged as warnings and skipped.
+
+        Args:
+            date: Point-in-time date for reference data lookup.
+
+        Returns:
+            A list of Asset objects corresponding to resolvable identifiers.
+        """
+        from ..asset.equity import Equity
+
+        identifiers = self.definition.universe_identifiers
+        if identifiers is None:
+            logger.warning(
+                f"universe_identifiers is None for index '{self.definition.index_name}'. "
+                "Returning empty universe."
+            )
+            return []
+
+        assets: List['Asset'] = []
+        date_str = date.strftime('%Y-%m-%d')
+
+        for identifier in identifiers:
+            try:
+                ref_df = self.data.fetch_reference_data(identifier, date_str)
+                if ref_df.empty:
+                    logger.warning(f"_get_universe: No reference data for '{identifier}' on {date_str}. Skipping.")
+                    continue
+
+                row = ref_df.iloc[0]
+                asset = Equity(
+                    name=row.get("NAME", identifier),
+                    currency=row.get("CURRENCY", self.definition.currency),
+                    ticker=identifier,
+                    exchange=row.get("EXCHANGE", "UNKNOWN"),
+                )
+                assets.append(asset)
+            except Exception as e:
+                logger.warning(f"_get_universe: Failed to resolve '{identifier}': {e}. Skipping.")
+
+        logger.info(
+            f"_get_universe: Resolved {len(assets)}/{len(identifiers)} identifiers "
+            f"for '{self.definition.index_name}' on {date_str}."
+        )
+        return assets
+
     def select_constituents(self, universe: List['Asset'], current_date: pd.Timestamp) -> List['Asset']:
         """
         Selects index constituents from a given universe based on eligibility rules.
