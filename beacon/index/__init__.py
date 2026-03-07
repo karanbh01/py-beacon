@@ -15,6 +15,7 @@ from .methodology import (
 )
 from .constructor import IndexDefinition # If IndexDefinition is in constructor.py
 from .calculation import IndexCalculationAgent
+from .result import IndexResult
 
 __all__ = [
     "EligibilityRuleBase",
@@ -25,4 +26,5 @@ __all__ = [
     "EqualWeighted",
     "IndexDefinition",
     "IndexCalculationAgent",
+    "IndexResult",
 ]
