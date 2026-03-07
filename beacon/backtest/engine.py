@@ -8,12 +8,12 @@ from typing import List, Dict, Optional, Any, TYPE_CHECKING
 
 # Avoid circular imports for type hinting
 if TYPE_CHECKING:
-    from ..asset.asset_base import Asset
+    from ..asset.base import Asset
     from ..index.constructor import IndexDefinition
     from .rules import BacktestRule
-    from ..portfolio.portfolio_class import Portfolio, Transaction
+    from ..portfolio.base import Portfolio, Transaction
     from ..data.data_fetcher import DataFetcher
-    from ..index.calculation_agent import IndexCalculationAgent
+    from ..index.calculation import IndexCalculationAgent
 
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ class BacktestEngine:
         if portfolio:
             self.portfolio: 'Portfolio' = portfolio
         else:
-            from ..portfolio.portfolio_class import Portfolio # Local import
+            from ..portfolio.base import Portfolio # Local import
             self.portfolio = Portfolio(portfolio_id="backtest_portfolio", initial_cash=initial_capital)
 
         self.results: Optional[pd.DataFrame] = None
@@ -75,7 +75,7 @@ class BacktestEngine:
         logger.debug(f"[{date}] Checking for corporate actions (not yet implemented).")
         # Example logic:
         # for asset, holding in self.portfolio.holdings.items():
-        #     actions = asset.get_corporate_actions(date, date, self.data_provider)
+        #     actions = self.data_provider.fetch_corporate_actions(asset.asset_id, date, date)
         #     for action in actions:
         #         if action['type'] == 'SPLIT':
         #             # Adjust holding.quantity
@@ -138,7 +138,7 @@ class BacktestEngine:
 
                     # Simplistic rebalancing: sell all, then buy new weights
                     # (Highly inefficient and not realistic due to transaction costs, liquidity)
-                    from ..portfolio.portfolio_class import Transaction # Local import
+                    from ..portfolio.base import Transaction # Local import
                     
                     # Sell existing holdings not in new constituents or to adjust weights
                     current_portfolio_value = self.portfolio.get_total_value(self.data_provider, date)

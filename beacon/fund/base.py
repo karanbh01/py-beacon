@@ -103,7 +103,7 @@ class IndexFund:
         # - This should ideally use the Portfolio's trading logic.
         # For now, we'll conceptualize it. The BacktestEngine has a more detailed rebalance.
 
-        from ..portfolio.portfolio_class import Transaction # Local import to avoid circularity at module level
+        from ..portfolio.base import Transaction # Local import to avoid circularity at module level
 
         current_portfolio_value = self.portfolio.get_total_value(self.data_provider, current_date)
         if current_portfolio_value == 0 and self.portfolio.cash_balance > 0 : # Initial setup

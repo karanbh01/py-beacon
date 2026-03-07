@@ -8,9 +8,9 @@ from typing import List, Dict, Tuple, TYPE_CHECKING
 
 # Avoid circular imports for type hinting
 if TYPE_CHECKING:
-    from ..asset.asset_base import Asset
-    from ..index.calculation_agent import IndexCalculationAgent
-    from ..portfolio.portfolio_class import Portfolio # For future _handle_corporate_actions type hint
+    from ..asset.base import Asset
+    from ..index.calculation import IndexCalculationAgent
+    from ..portfolio.base import Portfolio # For future _handle_corporate_actions type hint
 
 
 class BacktestRule(ABC):
