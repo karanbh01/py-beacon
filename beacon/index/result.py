@@ -9,7 +9,7 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from ..data.fetcher import DataFetcher
-    from ..asset.view import AssetView
+    from .asset_view import IndexAssetView
 
 
 @dataclass
@@ -41,8 +41,8 @@ class IndexResult:
         self._data_fetcher = data_fetcher
         return self
 
-    def asset(self, asset_id: str) -> 'AssetView':
-        """Return an AssetView for a constituent.
+    def asset(self, asset_id: str) -> 'IndexAssetView':
+        """Return an IndexAssetView for a constituent.
 
         Parameters
         ----------
@@ -51,7 +51,7 @@ class IndexResult:
 
         Returns
         -------
-        AssetView
+        IndexAssetView
 
         Raises
         ------
@@ -74,8 +74,13 @@ class IndexResult:
                 f"Asset '{asset_id}' not found in any constituent snapshot."
             )
 
-        from ..asset.view import AssetView
-        return AssetView(asset_id=asset_id, data_fetcher=self._data_fetcher)
+        from .asset_view import IndexAssetView
+        return IndexAssetView(
+            asset_id=asset_id,
+            data_fetcher=self._data_fetcher,
+            weight_snapshots=self.weight_snapshots,
+            index_levels=self.index_levels,
+        )
 
     def get_returns(self) -> pd.Series:
         """Derive a return series from index levels.
