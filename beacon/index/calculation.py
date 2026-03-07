@@ -195,6 +195,46 @@ class IndexCalculator:
                     f"(Initial Market Value: {initial_total_market_value:.2f}, Base Value: {self.definition.base_value})")
         return divisor
 
+    @staticmethod
+    def adjust_divisor_for_rebalance(old_divisor: float,
+                                     old_market_value: float,
+                                     new_market_value: float) -> float:
+        """Adjust the divisor to maintain index level continuity across a rebalance.
+
+        When index composition or weights change, the total market value shifts.
+        To prevent an artificial jump in the index level the divisor is scaled:
+
+            new_divisor = old_divisor * (new_market_value / old_market_value)
+
+        This guarantees: level_before == level_after.
+
+        Args:
+            old_divisor: The divisor in effect before the rebalance.
+            old_market_value: Aggregate market value under the **old** composition.
+            new_market_value: Aggregate market value under the **new** composition.
+
+        Returns:
+            The adjusted divisor.
+
+        Raises:
+            ValueError: If *old_divisor*, *old_market_value* or *new_market_value*
+                is zero or negative.
+        """
+        if old_divisor <= 0:
+            raise ValueError(f"old_divisor must be positive, got {old_divisor}")
+        if old_market_value <= 0:
+            raise ValueError(f"old_market_value must be positive, got {old_market_value}")
+        if new_market_value <= 0:
+            raise ValueError(f"new_market_value must be positive, got {new_market_value}")
+
+        new_divisor = old_divisor * (new_market_value / old_market_value)
+
+        logger.info(
+            f"Divisor adjusted for rebalance: {old_divisor:.6f} -> {new_divisor:.6f} "
+            f"(old_mv={old_market_value:.2f}, new_mv={new_market_value:.2f})"
+        )
+        return new_divisor
+
     def _get_constituent_market_values(self,
                                        constituents_with_weights: Dict['Asset', float],
                                        current_date: pd.Timestamp) -> Dict['Asset', float]:
@@ -519,9 +559,11 @@ class IndexCalculator:
                 new_mv_map = self._get_constituent_market_values(weights, date)
                 new_total_mv = sum(new_mv_map.values())
 
-                # Adjust divisor for continuity: new_divisor = old_divisor * new_mv / old_mv
+                # Adjust divisor for continuity
                 if old_total_mv > 0 and new_total_mv > 0:
-                    divisor = divisor * (new_total_mv / old_total_mv)
+                    divisor = self.adjust_divisor_for_rebalance(
+                        divisor, old_total_mv, new_total_mv
+                    )
                 elif new_total_mv > 0:
                     divisor = new_total_mv / level if level > 0 else 1.0
 

@@ -285,3 +285,70 @@ class TestRun:
                         result = calculator.run(end_date="2025-01-02")
 
         assert result.divisor_history.iloc[0] == 1.0
+
+
+class TestAdjustDivisorForRebalance:
+    """Tests for IndexCalculator.adjust_divisor_for_rebalance()."""
+
+    def test_basic_adjustment(self):
+        """new_divisor = old_divisor * (new_mv / old_mv)."""
+        # old_divisor=10, old_mv=10000, new_mv=12000
+        # expected = 10 * (12000 / 10000) = 12.0
+        result = IndexCalculator.adjust_divisor_for_rebalance(10.0, 10000.0, 12000.0)
+        assert result == pytest.approx(12.0)
+
+    def test_unchanged_composition(self):
+        """When market values are identical, divisor stays the same."""
+        result = IndexCalculator.adjust_divisor_for_rebalance(5.0, 8000.0, 8000.0)
+        assert result == pytest.approx(5.0)
+
+    def test_level_continuity(self):
+        """Index level before and after rebalance should match within tolerance."""
+        old_divisor = 10.0
+        old_mv = 10000.0
+        new_mv = 12000.0
+
+        level_before = old_mv / old_divisor  # 1000.0
+
+        new_divisor = IndexCalculator.adjust_divisor_for_rebalance(
+            old_divisor, old_mv, new_mv
+        )
+        level_after = new_mv / new_divisor  # should also be 1000.0
+
+        assert level_before == pytest.approx(level_after)
+
+    def test_manually_computed_values(self):
+        """Verify against hand-calculated expected divisor."""
+        # old_divisor=25.0, old_mv=50000, new_mv=60000
+        # expected = 25 * (60000 / 50000) = 30.0
+        result = IndexCalculator.adjust_divisor_for_rebalance(25.0, 50000.0, 60000.0)
+        assert result == pytest.approx(30.0)
+
+        # old_divisor=8.5, old_mv=17000, new_mv=8500
+        # expected = 8.5 * (8500 / 17000) = 4.25
+        result = IndexCalculator.adjust_divisor_for_rebalance(8.5, 17000.0, 8500.0)
+        assert result == pytest.approx(4.25)
+
+    def test_zero_old_divisor_raises(self):
+        with pytest.raises(ValueError, match="old_divisor must be positive"):
+            IndexCalculator.adjust_divisor_for_rebalance(0.0, 10000.0, 12000.0)
+
+    def test_negative_old_divisor_raises(self):
+        with pytest.raises(ValueError, match="old_divisor must be positive"):
+            IndexCalculator.adjust_divisor_for_rebalance(-1.0, 10000.0, 12000.0)
+
+    def test_zero_old_market_value_raises(self):
+        with pytest.raises(ValueError, match="old_market_value must be positive"):
+            IndexCalculator.adjust_divisor_for_rebalance(10.0, 0.0, 12000.0)
+
+    def test_negative_old_market_value_raises(self):
+        with pytest.raises(ValueError, match="old_market_value must be positive"):
+            IndexCalculator.adjust_divisor_for_rebalance(10.0, -5000.0, 12000.0)
+
+    def test_zero_new_market_value_raises(self):
+        with pytest.raises(ValueError, match="new_market_value must be positive"):
+            IndexCalculator.adjust_divisor_for_rebalance(10.0, 10000.0, 0.0)
+
+    def test_negative_new_market_value_raises(self):
+        with pytest.raises(ValueError, match="new_market_value must be positive"):
+            IndexCalculator.adjust_divisor_for_rebalance(10.0, 10000.0, -3000.0)
