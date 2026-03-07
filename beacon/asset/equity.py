@@ -15,10 +15,16 @@ class Equity(Asset):
     ticker: str = ""
     exchange: str = ""
     isin: Optional[str] = None
+    sector: Optional[str] = None
+    country: Optional[str] = None
 
     def __post_init__(self):
-        super().__post_init__()
         if not self.ticker:
             raise ValueError("ticker cannot be empty.")
         if not self.exchange:
             raise ValueError("exchange cannot be empty.")
+        if not self.asset_id:
+            object.__setattr__(self, 'asset_id', self.ticker)
+        if not self.asset_type:
+            object.__setattr__(self, 'asset_type', 'EQUITY')
+        super().__post_init__()
