@@ -402,6 +402,167 @@ class IndexCalculator:
             logger.debug(f"No significant market value change from CA {action_type} for {asset_involved.asset_id}. Divisor not changed.")
             return current_divisor_before_ca
 
+    def run(self,
+            start_date: Optional[str] = None,
+            end_date: Optional[str] = None) -> 'IndexResult':
+        """Run the full index calculation over a date range.
+
+        Iterates through business days from *start_date* to *end_date*,
+        handling three day types:
+
+        1. **Base date** – resolve universe, select constituents, compute
+           weights, initialise divisor, set level = base_value.
+        2. **Rebalance date** – reconstitute (re-resolve universe, re-select,
+           re-weight) and adjust divisor for continuity.
+        3. **Regular day** – compute index level using current constituents
+           and weights.
+
+        The method is idempotent: it carries no state between calls.
+
+        Args:
+            start_date: First calculation date (YYYY-MM-DD).  Defaults to
+                ``definition.base_date``.
+            end_date: Last calculation date (YYYY-MM-DD).  Required.
+
+        Returns:
+            An :class:`IndexResult` containing index levels, divisor history,
+            constituent snapshots and weight snapshots.
+
+        Raises:
+            ValueError: If *end_date* is not provided or precedes the base date.
+        """
+        from .result import IndexResult
+
+        base_date = self.definition.base_date
+        pd_start = pd.Timestamp(start_date) if start_date else base_date
+        if end_date is None:
+            raise ValueError("end_date must be provided.")
+        pd_end = pd.Timestamp(end_date)
+
+        if pd_end < base_date:
+            raise ValueError(
+                f"end_date ({pd_end.strftime('%Y-%m-%d')}) precedes "
+                f"base_date ({base_date.strftime('%Y-%m-%d')})."
+            )
+
+        # Ensure start is not before base_date
+        if pd_start < base_date:
+            pd_start = base_date
+
+        trading_days = pd.bdate_range(start=pd_start, end=pd_end)
+        if trading_days.empty:
+            logger.warning("No trading days in the requested range.")
+            return IndexResult(
+                index_id=self.definition.index_id,
+                index_levels=pd.Series(dtype=float),
+                divisor_history=pd.Series(dtype=float),
+                constituent_snapshots={},
+                weight_snapshots={},
+            )
+
+        # Pre-compute rebalance dates (excluding base date which is handled separately)
+        rebalance_dates_list = self.definition.get_rebalance_dates(
+            pd_start.strftime('%Y-%m-%d'),
+            pd_end.strftime('%Y-%m-%d'),
+        )
+        rebalance_dates = set(rebalance_dates_list)
+        rebalance_dates.discard(base_date)
+
+        # Accumulators
+        index_levels: Dict[pd.Timestamp, float] = {}
+        divisor_values: Dict[pd.Timestamp, float] = {}
+        constituent_snapshots: Dict[pd.Timestamp, List[str]] = {}
+        weight_snapshots: Dict[pd.Timestamp, Dict[str, float]] = {}
+
+        # Running state
+        constituents: List['Asset'] = []
+        weights: Dict['Asset', float] = {}
+        divisor: float = 0.0
+        level: float = self.definition.base_value
+
+        for date in trading_days:
+            if date == base_date:
+                # --- Base date initialisation ---
+                constituents_raw = self._get_universe(date)
+                constituents = self.select_constituents(constituents_raw, date)
+                weights = self.calculate_constituent_weights(constituents, date)
+
+                mv_map = self._get_constituent_market_values(weights, date)
+                total_mv = sum(mv_map.values())
+                if total_mv > 0:
+                    divisor = self.initialize_divisor(total_mv)
+                else:
+                    logger.warning(
+                        f"Zero market value on base date {date.strftime('%Y-%m-%d')}. "
+                        "Setting divisor to 1.0."
+                    )
+                    divisor = 1.0
+
+                level = self.definition.base_value
+
+                # Record snapshots
+                constituent_snapshots[date] = [a.asset_id for a in constituents]
+                weight_snapshots[date] = {a.asset_id: w for a, w in weights.items()}
+
+            elif date in rebalance_dates:
+                # --- Rebalance date ---
+                # Capture pre-rebalance market value for divisor adjustment
+                old_mv_map = self._get_constituent_market_values(weights, date)
+                old_total_mv = sum(old_mv_map.values())
+
+                # Reconstitute
+                constituents_raw = self._get_universe(date)
+                constituents = self.select_constituents(constituents_raw, date)
+                weights = self.calculate_constituent_weights(constituents, date)
+
+                # New market value under new composition
+                new_mv_map = self._get_constituent_market_values(weights, date)
+                new_total_mv = sum(new_mv_map.values())
+
+                # Adjust divisor for continuity: new_divisor = old_divisor * new_mv / old_mv
+                if old_total_mv > 0 and new_total_mv > 0:
+                    divisor = divisor * (new_total_mv / old_total_mv)
+                elif new_total_mv > 0:
+                    divisor = new_total_mv / level if level > 0 else 1.0
+
+                # Compute level with adjusted divisor
+                level = new_total_mv / divisor if divisor > 0 else level
+
+                # Record snapshots
+                constituent_snapshots[date] = [a.asset_id for a in constituents]
+                weight_snapshots[date] = {a.asset_id: w for a, w in weights.items()}
+
+            else:
+                # --- Regular trading day ---
+                if not constituents or divisor <= 0:
+                    # Before base date initialisation or no constituents
+                    pass
+                else:
+                    level, divisor = self.calculate_index_level(
+                        current_date=date,
+                        constituents=constituents,
+                        weights=weights,
+                        divisor=divisor,
+                        previous_index_level=level,
+                    )
+
+            index_levels[date] = level
+            divisor_values[date] = divisor
+
+        logger.info(
+            f"run() completed for '{self.definition.index_name}': "
+            f"{len(trading_days)} trading days, "
+            f"{len(constituent_snapshots)} rebalance(s)."
+        )
+
+        return IndexResult(
+            index_id=self.definition.index_id,
+            index_levels=pd.Series(index_levels),
+            divisor_history=pd.Series(divisor_values),
+            constituent_snapshots=constituent_snapshots,
+            weight_snapshots=weight_snapshots,
+        ).with_data(self.data)
+
     def run_daily_calculation(self,
                               current_date: pd.Timestamp,
                               constituents: List['Asset'],
