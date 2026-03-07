@@ -6,8 +6,12 @@ This module defines and manages financial assets.
 """
 from .base import Asset
 from .equity import Equity
+from .bond import Bond
+from .commodity import Commodity
 
 __all__ = [
     "Asset",
     "Equity",
-] 
+    "Bond",
+    "Commodity",
+]
