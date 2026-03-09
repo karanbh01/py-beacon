@@ -352,3 +352,154 @@ class TestAdjustDivisorForRebalance:
     def test_negative_new_market_value_raises(self):
         with pytest.raises(ValueError, match="new_market_value must be positive"):
             IndexCalculator.adjust_divisor_for_rebalance(10.0, 10000.0, -3000.0)
+
+
+class TestHandleCorporateAction:
+    """Tests for IndexCalculator.handle_corporate_action()."""
+
+    @pytest.fixture
+    def ca_calculator(self, mock_definition, mock_data):
+        """Calculator with weighting_scheme.use_free_float = False."""
+        mock_definition.weighting_scheme = MagicMock()
+        mock_definition.weighting_scheme.use_free_float = False
+        return IndexCalculator(mock_definition, mock_data)
+
+    def _make_action(self, action_type="SPECIAL_DIVIDEND", asset=None, value=2.0, ex_date="2025-03-01"):
+        return {"type": action_type, "asset": asset, "value": value, "ex_date": ex_date}
+
+    def test_special_dividend_adjusts_divisor(self, ca_calculator, mock_data):
+        """Known special dividend scenario with hand-calculated expected divisor."""
+        # AAPL pays $2/share special dividend, 1000 shares outstanding
+        # reduction = 2 * 1000 = 2000 (same currency, no FF)
+        # mv_before = 100000, mv_after = 98000
+        # new_divisor = 10 * (98000 / 100000) = 9.8
+        mock_data.fetch_shares_outstanding.return_value = 1000
+        action = self._make_action(asset=AAPL, value=2.0)
+
+        result = ca_calculator.handle_corporate_action(
+            action, [AAPL, MSFT], 100000.0, 10.0
+        )
+        assert result == pytest.approx(9.8)
+
+    def test_special_dividend_with_free_float(self, ca_calculator, mock_data):
+        """Special dividend with free-float factor applied."""
+        ca_calculator.definition.weighting_scheme.use_free_float = True
+        mock_data.fetch_shares_outstanding.return_value = 1000
+        mock_data.fetch_free_float_factor.return_value = 0.5
+
+        # reduction = 2 * 1000 * 0.5 = 1000
+        # mv_after = 100000 - 1000 = 99000
+        # new_divisor = 10 * (99000 / 100000) = 9.9
+        action = self._make_action(asset=AAPL, value=2.0)
+        result = ca_calculator.handle_corporate_action(
+            action, [AAPL], 100000.0, 10.0
+        )
+        assert result == pytest.approx(9.9)
+
+    def test_special_dividend_with_fx(self, ca_calculator, mock_data):
+        """Special dividend in foreign currency applies FX conversion."""
+        gbp_asset = Equity(name="BP", currency="GBP", ticker="BP", exchange="LSE")
+        mock_data.fetch_shares_outstanding.return_value = 500
+        mock_data.fetch_fx_rates.return_value = pd.Series([1.25])  # GBP->USD
+
+        # reduction = 4 * 500 * 1.25 = 2500
+        # mv_after = 50000 - 2500 = 47500
+        # new_divisor = 5.0 * (47500 / 50000) = 4.75
+        action = self._make_action(asset=gbp_asset, value=4.0)
+        result = ca_calculator.handle_corporate_action(
+            action, [gbp_asset], 50000.0, 5.0
+        )
+        assert result == pytest.approx(4.75)
+
+    def test_non_constituent_returns_unchanged(self, ca_calculator, mock_data):
+        """If asset is not in constituents, divisor is unchanged."""
+        action = self._make_action(asset=AAPL)
+        result = ca_calculator.handle_corporate_action(
+            action, [MSFT], 100000.0, 10.0  # AAPL not in [MSFT]
+        )
+        assert result == 10.0
+
+    def test_missing_asset_returns_unchanged(self, ca_calculator):
+        action = self._make_action(asset=None)
+        result = ca_calculator.handle_corporate_action(
+            action, [AAPL], 100000.0, 10.0
+        )
+        assert result == 10.0
+
+    def test_missing_ex_date_returns_unchanged(self, ca_calculator):
+        action = {"type": "SPECIAL_DIVIDEND", "asset": AAPL, "value": 2.0, "ex_date": None}
+        result = ca_calculator.handle_corporate_action(
+            action, [AAPL], 100000.0, 10.0
+        )
+        assert result == 10.0
+
+    def test_rights_issue_stub_returns_unchanged(self, ca_calculator, caplog):
+        action = self._make_action(action_type="RIGHTS_ISSUE", asset=AAPL)
+        with caplog.at_level("WARNING"):
+            result = ca_calculator.handle_corporate_action(
+                action, [AAPL], 100000.0, 10.0
+            )
+        assert result == 10.0
+        assert "not yet implemented" in caplog.text
+
+    def test_spin_off_stub_returns_unchanged(self, ca_calculator, caplog):
+        action = self._make_action(action_type="SPIN_OFF", asset=AAPL)
+        with caplog.at_level("WARNING"):
+            result = ca_calculator.handle_corporate_action(
+                action, [AAPL], 100000.0, 10.0
+            )
+        assert result == 10.0
+        assert "not yet implemented" in caplog.text
+
+    def test_stock_dividend_stub_returns_unchanged(self, ca_calculator, caplog):
+        action = self._make_action(action_type="STOCK_DIVIDEND", asset=AAPL)
+        with caplog.at_level("WARNING"):
+            result = ca_calculator.handle_corporate_action(
+                action, [AAPL], 100000.0, 10.0
+            )
+        assert result == 10.0
+        assert "not yet implemented" in caplog.text
+
+    def test_merger_stub_returns_unchanged(self, ca_calculator, caplog):
+        action = self._make_action(action_type="MERGER", asset=AAPL)
+        with caplog.at_level("WARNING"):
+            result = ca_calculator.handle_corporate_action(
+                action, [AAPL], 100000.0, 10.0
+            )
+        assert result == 10.0
+        assert "not yet implemented" in caplog.text
+
+    def test_unknown_action_type_returns_unchanged(self, ca_calculator, caplog):
+        action = self._make_action(action_type="BIZARRE_EVENT", asset=AAPL)
+        with caplog.at_level("WARNING"):
+            result = ca_calculator.handle_corporate_action(
+                action, [AAPL], 100000.0, 10.0
+            )
+        assert result == 10.0
+        assert "Unrecognised" in caplog.text
+
+    def test_no_shares_returns_unchanged(self, ca_calculator, mock_data):
+        mock_data.fetch_shares_outstanding.return_value = 0
+        action = self._make_action(asset=AAPL)
+        result = ca_calculator.handle_corporate_action(
+            action, [AAPL], 100000.0, 10.0
+        )
+        assert result == 10.0
+
+    def test_level_continuity_after_special_dividend(self, ca_calculator, mock_data):
+        """Index level before and after special dividend adjustment should match."""
+        mock_data.fetch_shares_outstanding.return_value = 500
+        action = self._make_action(asset=AAPL, value=10.0)
+
+        old_divisor = 20.0
+        mv_before = 200000.0
+        level_before = mv_before / old_divisor  # 10000.0
+
+        new_divisor = ca_calculator.handle_corporate_action(
+            action, [AAPL], mv_before, old_divisor
+        )
+        # reduction = 10 * 500 = 5000 (same ccy, no FF)
+        mv_after = mv_before - 5000.0
+        level_after = mv_after / new_divisor
+
+        assert level_before == pytest.approx(level_after)
