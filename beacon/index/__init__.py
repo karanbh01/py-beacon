@@ -7,15 +7,16 @@ calculating weights, and computing index levels.
 """
 from .methodology import (
     EligibilityRuleBase,
-    MarketCapRule, # Example implementation
-    LiquidityRule, # Example implementation
+    MarketCapRule,
+    LiquidityRule,
     WeightingSchemeBase,
-    MarketCapWeighted, # Example implementation
-    EqualWeighted # Example implementation
+    MarketCapWeighted,
+    EqualWeighted,
 )
-from .constructor import IndexDefinition # If IndexDefinition is in constructor.py
+from .constructor import IndexDefinition
 from .calculation import IndexCalculator
 from .result import IndexResult
+from .asset_view import IndexAssetView
 
 __all__ = [
     "EligibilityRuleBase",
@@ -27,4 +28,5 @@ __all__ = [
     "IndexDefinition",
     "IndexCalculator",
     "IndexResult",
+    "IndexAssetView",
 ]
