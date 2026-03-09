@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ..asset.base import Asset
     from ..index.constructor import IndexDefinition
     from .rules import BacktestRule
-    from ..portfolio.base import Portfolio, Transaction
+    from ..portfolio.base import Portfolio
     from ..data.fetcher import DataFetcher
     from ..index.calculation import IndexCalculator
 
@@ -122,8 +122,6 @@ class BacktestEngine:
                     logger.info(f"[{date}] New target constituents: {[asset.asset_id for asset in new_constituents]}")
                     logger.info(f"[{date}] New target weights: { {asset.asset_id: w for asset, w in new_target_weights.items()} }")
 
-                    from ..portfolio.base import Transaction
-
                     current_portfolio_value = self.portfolio.get_total_value()
 
                     # 1. Sell assets no longer in the index or to reduce overweight positions
@@ -137,14 +135,7 @@ class BacktestEngine:
 
                         if asset not in new_target_weights or new_target_weights.get(asset, 0) < holding.quantity * sell_price / current_portfolio_value :
                             logger.debug(f"[{date}] Selling {holding.quantity} of {asset.ticker} at {sell_price}")
-                            sell_transaction = Transaction(
-                                asset=asset,
-                                quantity=holding.quantity,
-                                price=sell_price,
-                                transaction_type='SELL',
-                                transaction_date=date
-                            )
-                            self.portfolio.add_transaction(sell_transaction)
+                            self.portfolio.execute_sell(asset, holding.quantity, sell_price, date=date)
 
                     # 2. Buy new assets or increase underweight positions
                     for asset, target_weight in new_target_weights.items():
@@ -172,14 +163,7 @@ class BacktestEngine:
                             quantity_to_buy = value_to_buy / buy_price
                             if self.portfolio.cash_balance >= value_to_buy:
                                 logger.debug(f"[{date}] Buying {quantity_to_buy:.2f} of {asset.ticker} at {buy_price}")
-                                buy_transaction = Transaction(
-                                    asset=asset,
-                                    quantity=quantity_to_buy,
-                                    price=buy_price,
-                                    transaction_type='BUY',
-                                    transaction_date=date
-                                )
-                                self.portfolio.add_transaction(buy_transaction)
+                                self.portfolio.execute_buy(asset, quantity_to_buy, buy_price, date=date)
                             else:
                                 logger.warning(f"[{date}] Insufficient cash to buy {asset.ticker}. "
                                                f"Required: {value_to_buy:.2f}, Available: {self.portfolio.cash_balance:.2f}")

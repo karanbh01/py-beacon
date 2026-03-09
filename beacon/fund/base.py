@@ -110,8 +110,6 @@ class IndexFund:
         logger.debug(f"Target weights for '{self.fund_id}': {{asset.asset_id: w for asset, w in self._target_weights.items()}}")
 
         # 2. Adjust the fund's portfolio to match these target_weights
-        from ..portfolio.base import Transaction
-
         self._update_portfolio_prices(current_date)
         current_portfolio_value = self.portfolio.get_total_value()
         if current_portfolio_value == 0 and self.portfolio.cash_balance > 0:
@@ -135,8 +133,7 @@ class IndexFund:
                     quantity_to_sell = holding.quantity - quantity_to_keep
 
                 if quantity_to_sell > 1e-6:
-                    sell_transaction = Transaction(asset, quantity_to_sell, current_price, 'SELL', current_date)
-                    self.portfolio.add_transaction(sell_transaction)
+                    self.portfolio.execute_sell(asset, quantity_to_sell, current_price, date=current_date)
                     logger.debug(f"Fund rebalance: Sold {quantity_to_sell:.2f} of {asset.ticker}")
 
         # Buy assets in target or underweights
@@ -157,8 +154,7 @@ class IndexFund:
             if value_to_buy > 1e-6:
                 quantity_to_buy = value_to_buy / current_price
                 if self.portfolio.cash_balance >= value_to_buy:
-                    buy_transaction = Transaction(asset, quantity_to_buy, current_price, 'BUY', current_date)
-                    self.portfolio.add_transaction(buy_transaction)
+                    self.portfolio.execute_buy(asset, quantity_to_buy, current_price, date=current_date)
                     logger.debug(f"Fund rebalance: Bought {quantity_to_buy:.2f} of {asset.ticker}")
                 else:
                     logger.warning(f"Fund rebalance: Insufficient cash to buy {asset.ticker} for fund '{self.fund_id}'.")

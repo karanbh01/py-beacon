@@ -102,77 +102,101 @@ class Portfolio:
         logger.info(f"Portfolio '{self.portfolio_id}' initialized with cash: {self.cash_balance:.2f}")
 
 
-    def add_transaction(self, transaction: Transaction) -> None:
-        """
-        Adds a transaction to the portfolio and updates holdings and cash balance.
-
-        The transaction's price is used as the current price for the affected
-        holding immediately after the trade.
+    def execute_buy(self,
+                    asset: 'Asset',
+                    quantity: float,
+                    price: float,
+                    cost: float = 0.0,
+                    date: Optional[pd.Timestamp] = None) -> None:
+        """Buy an asset: deduct cash, create/update holding, record transaction.
 
         Args:
-            transaction: The Transaction object to add.
+            asset: The asset to buy.
+            quantity: Number of units to buy (must be positive).
+            price: Execution price per unit.
+            cost: Optional transaction cost (brokerage, taxes, etc.).
+            date: Optional execution date. Defaults to now.
         """
-        if not isinstance(transaction, Transaction):
-            raise TypeError("transaction must be a Transaction object.")
+        if quantity <= 0:
+            raise ValueError("quantity must be positive.")
+        if price < 0:
+            raise ValueError("price cannot be negative.")
 
-        asset = transaction.asset
-        qty = transaction.quantity # Always positive
-        price = transaction.price
-        tx_type = transaction.transaction_type.upper()
-        tx_cost = transaction.transaction_cost
-
-        trade_value = qty * price
-
-        if tx_type == 'BUY':
-            if self.cash_balance < (trade_value + tx_cost):
-                logger.error(f"Insufficient cash for BUY transaction of {asset.asset_id}. "
-                             f"Required: {(trade_value + tx_cost):.2f}, Available: {self.cash_balance:.2f}")
-                return # Skip transaction
-
-            self.cash_balance -= (trade_value + tx_cost)
-
-            if asset in self.holdings:
-                current_holding = self.holdings[asset]
-                old_total_value = current_holding.average_cost_price * current_holding.quantity
-                new_total_value = price * qty
-                current_holding.quantity += qty
-                if current_holding.quantity > 1e-9:
-                    current_holding.average_cost_price = (old_total_value + new_total_value) / current_holding.quantity
-                else:
-                    current_holding.average_cost_price = price
-
-            else: # New holding
-                self.holdings[asset] = Holding(
-                    asset=asset,
-                    quantity=qty,
-                    average_cost_price=price
-                )
-            logger.info(f"BUY: {qty} of {asset.asset_id} @ {price:.2f}. Cash: {self.cash_balance:.2f}")
-
-        elif tx_type == 'SELL':
-            if asset not in self.holdings or self.holdings[asset].quantity < qty:
-                current_qty = self.holdings[asset].quantity if asset in self.holdings else 0
-                logger.error(f"Insufficient holdings for SELL transaction of {asset.asset_id}. "
-                             f"Attempting to sell: {qty}, Available: {current_qty}")
-                return # Skip transaction
-
-            self.cash_balance += (trade_value - tx_cost) # Proceeds minus cost
-
-            self.holdings[asset].quantity -= qty
-            logger.info(f"SELL: {qty} of {asset.asset_id} @ {price:.2f}. Cash: {self.cash_balance:.2f}")
-
-            if self.holdings[asset].quantity < 1e-9:
-                logger.info(f"Fully sold asset: {asset.asset_id}. Removing from holdings.")
-                del self.holdings[asset]
-        else:
-            logger.error(f"Unknown transaction type: {tx_type}")
+        trade_value = quantity * price
+        if self.cash_balance < (trade_value + cost):
+            logger.error(
+                f"Insufficient cash for BUY of {asset.asset_id}. "
+                f"Required: {(trade_value + cost):.2f}, Available: {self.cash_balance:.2f}"
+            )
             return
 
-        self.transactions.append(transaction)
+        tx_date = date if date is not None else pd.Timestamp.now()
+        self.cash_balance -= (trade_value + cost)
 
-        # Update market data for the affected holding using the transaction price
         if asset in self.holdings:
-            self.holdings[asset].update_market_data(price, transaction.transaction_date)
+            h = self.holdings[asset]
+            old_total = h.average_cost_price * h.quantity
+            h.quantity += quantity
+            if h.quantity > 1e-9:
+                h.average_cost_price = (old_total + trade_value) / h.quantity
+            else:
+                h.average_cost_price = price
+        else:
+            self.holdings[asset] = Holding(
+                asset=asset, quantity=quantity, average_cost_price=price
+            )
+
+        logger.info(f"BUY: {quantity} of {asset.asset_id} @ {price:.2f}. Cash: {self.cash_balance:.2f}")
+
+        self.transactions.append(
+            Transaction(asset, quantity, price, 'BUY', tx_date, cost)
+        )
+
+        # Update market data using execution price
+        self.holdings[asset].update_market_data(price, tx_date)
+
+    def execute_sell(self,
+                     asset: 'Asset',
+                     quantity: float,
+                     price: float,
+                     cost: float = 0.0,
+                     date: Optional[pd.Timestamp] = None) -> None:
+        """Sell an asset: add cash proceeds, reduce/remove holding, record transaction.
+
+        Args:
+            asset: The asset to sell.
+            quantity: Number of units to sell (must be positive).
+            price: Execution price per unit.
+            cost: Optional transaction cost (brokerage, taxes, etc.).
+            date: Optional execution date. Defaults to now.
+        """
+        if quantity <= 0:
+            raise ValueError("quantity must be positive.")
+        if price < 0:
+            raise ValueError("price cannot be negative.")
+
+        if asset not in self.holdings or self.holdings[asset].quantity < quantity:
+            current_qty = self.holdings[asset].quantity if asset in self.holdings else 0
+            logger.error(
+                f"Insufficient holdings for SELL of {asset.asset_id}. "
+                f"Attempting to sell: {quantity}, Available: {current_qty}"
+            )
+            return
+
+        tx_date = date if date is not None else pd.Timestamp.now()
+        trade_value = quantity * price
+        self.cash_balance += (trade_value - cost)
+
+        self.holdings[asset].quantity -= quantity
+        logger.info(f"SELL: {quantity} of {asset.asset_id} @ {price:.2f}. Cash: {self.cash_balance:.2f}")
+
+        if self.holdings[asset].quantity < 1e-9:
+            logger.info(f"Fully sold asset: {asset.asset_id}. Removing from holdings.")
+            del self.holdings[asset]
+
+        self.transactions.append(
+            Transaction(asset, quantity, price, 'SELL', tx_date, cost)
+        )
 
 
     def update_prices(self, prices: Dict[str, float]) -> None:
@@ -201,8 +225,8 @@ class Portfolio:
         """
         Calculates the total current market value of the portfolio (holdings + cash).
 
-        Relies on prices having been set via :meth:`update_prices` or
-        :meth:`add_transaction` beforehand.
+        Relies on prices having been set via :meth:`update_prices`,
+        :meth:`execute_buy`, or :meth:`execute_sell` beforehand.
 
         Returns:
             The total portfolio value as a float.
