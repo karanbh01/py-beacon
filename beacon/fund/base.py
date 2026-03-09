@@ -74,11 +74,10 @@ class IndexFund:
     def _update_portfolio_prices(self, current_date: pd.Timestamp) -> None:
         """Fetch prices for all holdings and push them into the portfolio."""
         prices: Dict[str, float] = {}
-        for asset in self.portfolio.holdings:
-            ticker = getattr(asset, 'ticker', asset.asset_id)
-            price = self._fetch_price(ticker, current_date)
+        for asset_id in self.portfolio.holdings:
+            price = self._fetch_price(asset_id, current_date)
             if price is not None:
-                prices[asset.asset_id] = price
+                prices[asset_id] = price
         self.portfolio.update_prices(prices)
 
     def rebalance_to_index(self, current_date: pd.Timestamp) -> None:
@@ -109,6 +108,11 @@ class IndexFund:
 
         logger.debug(f"Target weights for '{self.fund_id}': {{asset.asset_id: w for asset, w in self._target_weights.items()}}")
 
+        # Build target weights keyed by asset_id string
+        target_weights_by_id: Dict[str, float] = {
+            asset.asset_id: w for asset, w in self._target_weights.items()
+        }
+
         # 2. Adjust the fund's portfolio to match these target_weights
         self._update_portfolio_prices(current_date)
         current_portfolio_value = self.portfolio.get_total_value()
@@ -116,48 +120,48 @@ class IndexFund:
             current_portfolio_value = self.portfolio.cash_balance
 
         # Sell assets not in target or overweights
-        for asset, holding in list(self.portfolio.holdings.items()):
-            current_price = self._fetch_price(asset.ticker, current_date)
+        for asset_id, holding in list(self.portfolio.holdings.items()):
+            current_price = self._fetch_price(asset_id, current_date)
             if current_price is None:
-                logger.warning(f"[{current_date}] No price for {asset.ticker} to sell during fund rebalance.")
+                logger.warning(f"[{current_date}] No price for {asset_id} to sell during fund rebalance.")
                 continue
 
-            target_weight_for_asset = self._target_weights.get(asset, 0)
+            target_weight = target_weights_by_id.get(asset_id, 0)
             current_value_of_asset = holding.quantity * current_price
 
-            if target_weight_for_asset == 0 or (current_value_of_asset > current_portfolio_value * target_weight_for_asset):
+            if target_weight == 0 or (current_value_of_asset > current_portfolio_value * target_weight):
                 quantity_to_sell = holding.quantity
-                if target_weight_for_asset > 0:
-                    value_to_keep = current_portfolio_value * target_weight_for_asset
+                if target_weight > 0:
+                    value_to_keep = current_portfolio_value * target_weight
                     quantity_to_keep = value_to_keep / current_price
                     quantity_to_sell = holding.quantity - quantity_to_keep
 
                 if quantity_to_sell > 1e-6:
-                    self.portfolio.execute_sell(asset, quantity_to_sell, current_price, date=current_date)
-                    logger.debug(f"Fund rebalance: Sold {quantity_to_sell:.2f} of {asset.ticker}")
+                    self.portfolio.execute_sell(asset_id, quantity_to_sell, current_price, date=current_date)
+                    logger.debug(f"Fund rebalance: Sold {quantity_to_sell:.2f} of {asset_id}")
 
         # Buy assets in target or underweights
-        for asset, target_weight in self._target_weights.items():
+        for asset_id, target_weight in target_weights_by_id.items():
             if target_weight <= 0: continue
 
-            current_price = self._fetch_price(asset.ticker, current_date)
+            current_price = self._fetch_price(asset_id, current_date)
             if current_price is None or current_price <= 0:
-                logger.warning(f"[{current_date}] No price for {asset.ticker} to buy during fund rebalance.")
+                logger.warning(f"[{current_date}] No price for {asset_id} to buy during fund rebalance.")
                 continue
 
             target_value_of_asset = current_portfolio_value * target_weight
             current_holding_value = 0
-            if asset in self.portfolio.holdings:
-                current_holding_value = self.portfolio.holdings[asset].quantity * current_price
+            if asset_id in self.portfolio.holdings:
+                current_holding_value = self.portfolio.holdings[asset_id].quantity * current_price
 
             value_to_buy = target_value_of_asset - current_holding_value
             if value_to_buy > 1e-6:
                 quantity_to_buy = value_to_buy / current_price
                 if self.portfolio.cash_balance >= value_to_buy:
-                    self.portfolio.execute_buy(asset, quantity_to_buy, current_price, date=current_date)
-                    logger.debug(f"Fund rebalance: Bought {quantity_to_buy:.2f} of {asset.ticker}")
+                    self.portfolio.execute_buy(asset_id, quantity_to_buy, current_price, date=current_date)
+                    logger.debug(f"Fund rebalance: Bought {quantity_to_buy:.2f} of {asset_id}")
                 else:
-                    logger.warning(f"Fund rebalance: Insufficient cash to buy {asset.ticker} for fund '{self.fund_id}'.")
+                    logger.warning(f"Fund rebalance: Insufficient cash to buy {asset_id} for fund '{self.fund_id}'.")
 
         logger.info(f"Fund '{self.fund_id}' rebalancing completed for {current_date.strftime('%Y-%m-%d')}.")
 

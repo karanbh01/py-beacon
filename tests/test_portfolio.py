@@ -4,11 +4,10 @@ import pytest
 import pandas as pd
 
 from beacon.portfolio.base import Portfolio, Transaction, Holding
-from beacon.asset.equity import Equity
 
 
-AAPL = Equity(name="Apple", currency="USD", ticker="AAPL", exchange="NASDAQ")
-MSFT = Equity(name="Microsoft", currency="USD", ticker="MSFT", exchange="NASDAQ")
+AAPL = "AAPL"
+MSFT = "MSFT"
 
 
 @pytest.fixture
@@ -34,7 +33,7 @@ class TestExecuteBuy:
         portfolio.execute_buy(AAPL, quantity=5, price=200.0, date=pd.Timestamp("2025-01-15"))
         assert len(portfolio.transactions) == 1
         tx = portfolio.transactions[0]
-        assert tx.asset == AAPL
+        assert tx.asset_id == AAPL
         assert tx.quantity == 5
         assert tx.price == 200.0
         assert tx.transaction_type == "BUY"

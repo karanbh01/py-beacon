@@ -66,14 +66,13 @@ class BacktestEngine:
         """Fetch closing prices for all portfolio holdings and return as a dict."""
         prices: Dict[str, float] = {}
         date_str = date.strftime('%Y-%m-%d')
-        for asset in self.portfolio.holdings:
-            ticker = getattr(asset, 'ticker', asset.asset_id)
+        for asset_id in self.portfolio.holdings:
             try:
-                price_df = self.data_provider.fetch_prices(ticker, date_str, date_str)
+                price_df = self.data_provider.fetch_prices(asset_id, date_str, date_str)
                 if not price_df.empty and 'Adj Close' in price_df.columns and pd.notna(price_df['Adj Close'].iloc[0]):
-                    prices[asset.asset_id] = price_df['Adj Close'].iloc[0]
+                    prices[asset_id] = price_df['Adj Close'].iloc[0]
             except Exception as e:
-                logger.error(f"Error fetching price for {ticker} on {date_str}: {e}")
+                logger.error(f"Error fetching price for {asset_id} on {date_str}: {e}")
         return prices
 
     def _update_portfolio_prices(self, date: pd.Timestamp) -> None:
@@ -119,53 +118,59 @@ class BacktestEngine:
                         portfolio=self.portfolio
                     )
 
+                    # Build target weights keyed by asset_id string
+                    target_weights_by_id: Dict[str, float] = {
+                        asset.asset_id: w for asset, w in new_target_weights.items()
+                    }
+
                     logger.info(f"[{date}] New target constituents: {[asset.asset_id for asset in new_constituents]}")
-                    logger.info(f"[{date}] New target weights: { {asset.asset_id: w for asset, w in new_target_weights.items()} }")
+                    logger.info(f"[{date}] New target weights: {target_weights_by_id}")
 
                     current_portfolio_value = self.portfolio.get_total_value()
 
                     # 1. Sell assets no longer in the index or to reduce overweight positions
-                    for asset, holding in list(self.portfolio.holdings.items()):
+                    for asset_id, holding in list(self.portfolio.holdings.items()):
                         date_str = date.strftime('%Y-%m-%d')
-                        asset_price_data = self.data_provider.fetch_prices(asset.ticker, date_str, date_str)
+                        asset_price_data = self.data_provider.fetch_prices(asset_id, date_str, date_str)
                         if asset_price_data.empty or pd.isna(asset_price_data['Close'].iloc[0]):
-                            logger.warning(f"[{date}] No price data for {asset.ticker} to sell. Skipping sell.")
+                            logger.warning(f"[{date}] No price data for {asset_id} to sell. Skipping sell.")
                             continue
                         sell_price = asset_price_data['Close'].iloc[0]
 
-                        if asset not in new_target_weights or new_target_weights.get(asset, 0) < holding.quantity * sell_price / current_portfolio_value :
-                            logger.debug(f"[{date}] Selling {holding.quantity} of {asset.ticker} at {sell_price}")
-                            self.portfolio.execute_sell(asset, holding.quantity, sell_price, date=date)
+                        target_w = target_weights_by_id.get(asset_id, 0)
+                        if target_w == 0 or target_w < holding.quantity * sell_price / current_portfolio_value:
+                            logger.debug(f"[{date}] Selling {holding.quantity} of {asset_id} at {sell_price}")
+                            self.portfolio.execute_sell(asset_id, holding.quantity, sell_price, date=date)
 
                     # 2. Buy new assets or increase underweight positions
-                    for asset, target_weight in new_target_weights.items():
+                    for asset_id, target_weight in target_weights_by_id.items():
                         if target_weight <= 0: continue
 
                         target_value = current_portfolio_value * target_weight
                         date_str = date.strftime('%Y-%m-%d')
-                        asset_price_data = self.data_provider.fetch_prices(asset.ticker, date_str, date_str)
+                        asset_price_data = self.data_provider.fetch_prices(asset_id, date_str, date_str)
 
                         if asset_price_data.empty or pd.isna(asset_price_data['Close'].iloc[0]):
-                            logger.warning(f"[{date}] No price data for {asset.ticker} to buy. Skipping buy.")
+                            logger.warning(f"[{date}] No price data for {asset_id} to buy. Skipping buy.")
                             continue
                         buy_price = asset_price_data['Close'].iloc[0]
 
                         if buy_price <= 0:
-                            logger.warning(f"[{date}] Invalid price ({buy_price}) for {asset.ticker}. Skipping buy.")
+                            logger.warning(f"[{date}] Invalid price ({buy_price}) for {asset_id}. Skipping buy.")
                             continue
 
                         current_holding_value = 0
-                        if asset in self.portfolio.holdings:
-                            current_holding_value = self.portfolio.holdings[asset].quantity * buy_price
+                        if asset_id in self.portfolio.holdings:
+                            current_holding_value = self.portfolio.holdings[asset_id].quantity * buy_price
 
                         value_to_buy = target_value - current_holding_value
                         if value_to_buy > 0:
                             quantity_to_buy = value_to_buy / buy_price
                             if self.portfolio.cash_balance >= value_to_buy:
-                                logger.debug(f"[{date}] Buying {quantity_to_buy:.2f} of {asset.ticker} at {buy_price}")
-                                self.portfolio.execute_buy(asset, quantity_to_buy, buy_price, date=date)
+                                logger.debug(f"[{date}] Buying {quantity_to_buy:.2f} of {asset_id} at {buy_price}")
+                                self.portfolio.execute_buy(asset_id, quantity_to_buy, buy_price, date=date)
                             else:
-                                logger.warning(f"[{date}] Insufficient cash to buy {asset.ticker}. "
+                                logger.warning(f"[{date}] Insufficient cash to buy {asset_id}. "
                                                f"Required: {value_to_buy:.2f}, Available: {self.portfolio.cash_balance:.2f}")
 
                     self._last_rebalance_date = date
@@ -224,8 +229,8 @@ class BacktestEngine:
                 'Cash': self.portfolio.cash_balance
             }
             current_weights = self.portfolio.get_weights()
-            for asset, weight in current_weights.items():
-                daily_record[f"{asset.asset_id}_weight"] = weight
+            for asset_id, weight in current_weights.items():
+                daily_record[f"{asset_id}_weight"] = weight
 
 
             history.append(daily_record)
