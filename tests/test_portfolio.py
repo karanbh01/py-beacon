@@ -1,5 +1,5 @@
 # tests/test_portfolio.py
-"""Unit tests for Portfolio.execute_buy() and Portfolio.execute_sell()."""
+"""Unit tests for the refactored Portfolio class."""
 import pytest
 import pandas as pd
 
@@ -126,6 +126,145 @@ class TestExecuteSell:
             portfolio.execute_sell(AAPL, quantity=5, price=-10.0)
 
 
+class TestConstruction:
+
+    def test_valid_construction(self):
+        p = Portfolio("p1", initial_cash=5000.0)
+        assert p.portfolio_id == "p1"
+        assert p.cash_balance == 5000.0
+        assert p.holdings == {}
+        assert p.transactions == []
+
+    def test_zero_initial_cash(self):
+        p = Portfolio("p1", initial_cash=0.0)
+        assert p.cash_balance == 0.0
+
+    def test_default_initial_cash(self):
+        p = Portfolio("p1")
+        assert p.cash_balance == 0.0
+
+    def test_negative_initial_cash_raises(self):
+        with pytest.raises(ValueError, match="Initial cash cannot be negative"):
+            Portfolio("p1", initial_cash=-100.0)
+
+    def test_empty_portfolio_id_raises(self):
+        with pytest.raises(ValueError, match="portfolio_id cannot be empty"):
+            Portfolio("", initial_cash=1000.0)
+
+
+class TestUpdatePrices:
+
+    def test_update_prices_updates_market_value(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        portfolio.update_prices({AAPL: 120.0})
+        assert portfolio.holdings[AAPL].current_price == 120.0
+        assert portfolio.holdings[AAPL].market_value == pytest.approx(1200.0)
+
+    def test_update_prices_multiple_assets(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        portfolio.execute_buy(MSFT, quantity=5, price=200.0)
+        portfolio.update_prices({AAPL: 110.0, MSFT: 210.0})
+        assert portfolio.holdings[AAPL].market_value == pytest.approx(1100.0)
+        assert portfolio.holdings[MSFT].market_value == pytest.approx(1050.0)
+
+    def test_update_prices_missing_asset_leaves_stale(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        portfolio.execute_buy(MSFT, quantity=5, price=200.0)
+        # Only update AAPL; MSFT stays at execution price
+        portfolio.update_prices({AAPL: 110.0})
+        assert portfolio.holdings[AAPL].current_price == 110.0
+        assert portfolio.holdings[MSFT].current_price == 200.0  # from execute_buy
+
+    def test_update_prices_no_holdings(self, portfolio):
+        # Should not raise
+        portfolio.update_prices({AAPL: 100.0})
+
+
+class TestGetTotalValue:
+
+    def test_cash_only(self, portfolio):
+        assert portfolio.get_total_value() == pytest.approx(10000.0)
+
+    def test_holdings_plus_cash(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        portfolio.update_prices({AAPL: 150.0})
+        # holdings: 10 * 150 = 1500, cash: 9000
+        assert portfolio.get_total_value() == pytest.approx(10500.0)
+
+    def test_after_price_drop(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        portfolio.update_prices({AAPL: 80.0})
+        # holdings: 10 * 80 = 800, cash: 9000
+        assert portfolio.get_total_value() == pytest.approx(9800.0)
+
+    def test_zero_price_asset(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        portfolio.update_prices({AAPL: 0.0})
+        # holdings: 0, cash: 9000
+        assert portfolio.get_total_value() == pytest.approx(9000.0)
+
+
+class TestGetWeights:
+
+    def test_single_asset(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=100, price=100.0)
+        # holdings: 100 * 100 = 10000, cash: 0
+        weights = portfolio.get_weights()
+        assert weights[AAPL] == pytest.approx(1.0)
+
+    def test_two_assets_equal_value(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        portfolio.execute_buy(MSFT, quantity=10, price=100.0)
+        # holdings: 1000 + 1000 = 2000, cash: 8000, total: 10000
+        weights = portfolio.get_weights()
+        assert weights[AAPL] == pytest.approx(0.1)
+        assert weights[MSFT] == pytest.approx(0.1)
+
+    def test_weights_include_cash_implicitly(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        # total = 10000 (1000 holdings + 9000 cash), AAPL weight = 0.1
+        weights = portfolio.get_weights()
+        assert weights[AAPL] == pytest.approx(0.1)
+
+    def test_weights_zero_total_value(self):
+        p = Portfolio("p1", initial_cash=0.0)
+        weights = p.get_weights()
+        assert weights == {}
+
+    def test_weights_update_after_price_change(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        portfolio.update_prices({AAPL: 200.0})
+        # holdings: 2000, cash: 9000, total: 11000
+        weights = portfolio.get_weights()
+        assert weights[AAPL] == pytest.approx(2000.0 / 11000.0)
+
+
+class TestGetHoldingsSummary:
+
+    def test_cash_only_summary(self, portfolio):
+        df = portfolio.get_holdings_summary()
+        assert len(df) == 1
+        assert df.iloc[0]["AssetID"] == "CASH"
+        assert df.iloc[0]["MarketValue"] == pytest.approx(10000.0)
+        assert df.iloc[0]["Weight"] == pytest.approx(1.0)
+
+    def test_summary_with_holdings(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        portfolio.update_prices({AAPL: 110.0})
+        df = portfolio.get_holdings_summary()
+        assert len(df) == 2  # AAPL + CASH
+        aapl_row = df[df["AssetID"] == AAPL].iloc[0]
+        assert aapl_row["Quantity"] == 10
+        assert aapl_row["CurrentPrice"] == pytest.approx(110.0)
+        assert aapl_row["MarketValue"] == pytest.approx(1100.0)
+
+    def test_summary_weights_sum_to_one(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        portfolio.execute_buy(MSFT, quantity=5, price=200.0)
+        df = portfolio.get_holdings_summary()
+        assert df["Weight"].sum() == pytest.approx(1.0)
+
+
 class TestPortfolioIntegration:
 
     def test_buy_sell_cycle(self, portfolio):
@@ -159,3 +298,9 @@ class TestPortfolioIntegration:
         portfolio.execute_sell(AAPL, quantity=5, price=110.0)
         assert len(portfolio.transactions) == 3
         assert all(isinstance(tx, Transaction) for tx in portfolio.transactions)
+
+    def test_repr(self, portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=100.0)
+        r = repr(portfolio)
+        assert "test_portfolio" in r
+        assert "num_holdings=1" in r
