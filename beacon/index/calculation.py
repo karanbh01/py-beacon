@@ -159,6 +159,7 @@ class IndexCalculator:
             raise CalculationError(calculation_name=f"WeightingScheme-{self.definition.weighting_scheme.scheme_name}", details=str(e))
 
         # Normalize weights to sum to 1, if not already
+        #todo: check if normalisation is needed based on the weighting scheme's output. Some schemes may guarantee this.
         weight_sum = sum(weights.values())
         if abs(weight_sum - 1.0) > 1e-9 and weight_sum != 0:
             logger.warning(f"Weights from scheme {self.definition.weighting_scheme.scheme_name} sum to {weight_sum}. Normalizing.")
@@ -502,6 +503,7 @@ class IndexCalculator:
         )
         return current_divisor_before_ca
 
+    #todo: run() is currently iterating through all dates, this function should be vectorised for efficiency.
     def run(self,
             start_date: Optional[str] = None,
             end_date: Optional[str] = None) -> 'IndexResult':
