@@ -7,9 +7,13 @@ and ETF tracking strategies.
 """
 from .rules import BacktestRule, RebalanceRule
 from .engine import BacktestEngine
+from .result import BacktestResult
+from .asset_view import BacktestAssetView
 
 __all__ = [
     "BacktestRule",
     "RebalanceRule",
     "BacktestEngine",
+    "BacktestResult",
+    "BacktestAssetView",
 ]
