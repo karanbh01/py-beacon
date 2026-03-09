@@ -63,6 +63,24 @@ class IndexFund:
         self._target_weights: Dict['Asset', float] = {}
 
 
+    def _fetch_price(self, ticker: str, current_date: pd.Timestamp) -> float | None:
+        """Helper to fetch a single closing price via data_provider."""
+        date_str = current_date.strftime('%Y-%m-%d')
+        price_data = self.data_provider.fetch_prices(ticker, date_str, date_str)
+        if price_data.empty or pd.isna(price_data['Close'].iloc[0]):
+            return None
+        return price_data['Close'].iloc[0]
+
+    def _update_portfolio_prices(self, current_date: pd.Timestamp) -> None:
+        """Fetch prices for all holdings and push them into the portfolio."""
+        prices: Dict[str, float] = {}
+        for asset in self.portfolio.holdings:
+            ticker = getattr(asset, 'ticker', asset.asset_id)
+            price = self._fetch_price(ticker, current_date)
+            if price is not None:
+                prices[asset.asset_id] = price
+        self.portfolio.update_prices(prices)
+
     def rebalance_to_index(self, current_date: pd.Timestamp) -> None:
         """
         Adjusts the fund's internal portfolio to match the target_index weights.
@@ -76,126 +94,96 @@ class IndexFund:
         logger.info(f"[{current_date.strftime('%Y-%m-%d')}] Fund '{self.fund_id}' rebalancing to target index '{self.target_index_definition.index_name}'.")
 
         # 1. Get the current constituents and weights from the index agent
-        # The universe for selection should be appropriately sourced by the index_agent
-        # This is a simplification, actual universe definition is complex.
-        eligible_universe = [] # This needs to be defined, e.g., from index_definition
+        eligible_universe = []
         if hasattr(self.target_index_definition, 'get_eligible_universe'):
-            # eligible_universe = self.target_index_definition.get_eligible_universe(current_date, self.data_provider)
             pass # Placeholder
 
         target_constituents = self.index_agent.select_constituents(
-            universe=eligible_universe, # Needs a proper source for the universe
+            universe=eligible_universe,
             current_date=current_date
         )
         self._target_weights = self.index_agent.calculate_constituent_weights(
             constituents=target_constituents,
             current_date=current_date
         )
-        
+
         logger.debug(f"Target weights for '{self.fund_id}': {{asset.asset_id: w for asset, w in self._target_weights.items()}}")
 
         # 2. Adjust the fund's portfolio to match these target_weights
-        # This is a complex operation:
-        # - Get current portfolio value.
-        # - For each asset in target_weights, calculate target value.
-        # - Compare with current holding value.
-        # - Generate buy/sell transactions.
-        # - This should ideally use the Portfolio's trading logic.
-        # For now, we'll conceptualize it. The BacktestEngine has a more detailed rebalance.
+        from ..portfolio.base import Transaction
 
-        from ..portfolio.base import Transaction # Local import to avoid circularity at module level
-
-        current_portfolio_value = self.portfolio.get_total_value(self.data_provider, current_date)
-        if current_portfolio_value == 0 and self.portfolio.cash_balance > 0 : # Initial setup
+        self._update_portfolio_prices(current_date)
+        current_portfolio_value = self.portfolio.get_total_value()
+        if current_portfolio_value == 0 and self.portfolio.cash_balance > 0:
             current_portfolio_value = self.portfolio.cash_balance
 
-        # Simplified rebalancing logic (similar to BacktestEngine's _rebalance)
         # Sell assets not in target or overweights
-        for asset, holding in list(self.portfolio.holdings.items()): # Iterate copy
-            asset_price_data = self.data_provider.fetch_prices(asset.ticker, current_date.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
-            if asset_price_data.empty or pd.isna(asset_price_data['Close'].iloc[0]):
+        for asset, holding in list(self.portfolio.holdings.items()):
+            current_price = self._fetch_price(asset.ticker, current_date)
+            if current_price is None:
                 logger.warning(f"[{current_date}] No price for {asset.ticker} to sell during fund rebalance.")
                 continue
-            current_price = asset_price_data['Close'].iloc[0]
-            
+
             target_weight_for_asset = self._target_weights.get(asset, 0)
             current_value_of_asset = holding.quantity * current_price
-            
-            # If asset no longer in target or needs reduction
+
             if target_weight_for_asset == 0 or (current_value_of_asset > current_portfolio_value * target_weight_for_asset):
-                quantity_to_sell = holding.quantity # Sell all if not in target
-                if target_weight_for_asset > 0: # Reduce to target
+                quantity_to_sell = holding.quantity
+                if target_weight_for_asset > 0:
                     value_to_keep = current_portfolio_value * target_weight_for_asset
                     quantity_to_keep = value_to_keep / current_price
                     quantity_to_sell = holding.quantity - quantity_to_keep
 
-                if quantity_to_sell > 1e-6: # Avoid tiny sells
+                if quantity_to_sell > 1e-6:
                     sell_transaction = Transaction(asset, quantity_to_sell, current_price, 'SELL', current_date)
-                    self.portfolio.add_transaction(sell_transaction, self.data_provider, current_date)
+                    self.portfolio.add_transaction(sell_transaction)
                     logger.debug(f"Fund rebalance: Sold {quantity_to_sell:.2f} of {asset.ticker}")
-
 
         # Buy assets in target or underweights
         for asset, target_weight in self._target_weights.items():
             if target_weight <= 0: continue
 
-            asset_price_data = self.data_provider.fetch_prices(asset.ticker, current_date.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
-            if asset_price_data.empty or pd.isna(asset_price_data['Close'].iloc[0]):
+            current_price = self._fetch_price(asset.ticker, current_date)
+            if current_price is None or current_price <= 0:
                 logger.warning(f"[{current_date}] No price for {asset.ticker} to buy during fund rebalance.")
                 continue
-            current_price = asset_price_data['Close'].iloc[0]
-            if current_price <= 0: continue
 
             target_value_of_asset = current_portfolio_value * target_weight
             current_holding_value = 0
             if asset in self.portfolio.holdings:
                 current_holding_value = self.portfolio.holdings[asset].quantity * current_price
-            
+
             value_to_buy = target_value_of_asset - current_holding_value
-            if value_to_buy > 1e-6: # Avoid tiny buys, use a monetary threshold in practice
+            if value_to_buy > 1e-6:
                 quantity_to_buy = value_to_buy / current_price
                 if self.portfolio.cash_balance >= value_to_buy:
                     buy_transaction = Transaction(asset, quantity_to_buy, current_price, 'BUY', current_date)
-                    self.portfolio.add_transaction(buy_transaction, self.data_provider, current_date)
+                    self.portfolio.add_transaction(buy_transaction)
                     logger.debug(f"Fund rebalance: Bought {quantity_to_buy:.2f} of {asset.ticker}")
                 else:
                     logger.warning(f"Fund rebalance: Insufficient cash to buy {asset.ticker} for fund '{self.fund_id}'.")
-        
+
         logger.info(f"Fund '{self.fund_id}' rebalancing completed for {current_date.strftime('%Y-%m-%d')}.")
 
 
     def calculate_nav(self, current_date: pd.Timestamp) -> float:
         """
         Calculates the Net Asset Value (NAV) of the fund.
-        NAV = (Total Value of Assets - Liabilities) / Number of Fund Shares.
-        For simplicity, assumes no other liabilities and fund shares aspect is abstracted.
-        This NAV will represent the total value of the managed portfolio.
-        If per-share NAV is needed, a 'number_of_fund_shares' attribute would be required.
 
         Args:
-            current_date: The date for which to calculate NAV. The DataProvider
-                          will be used to get prices for this date.
+            current_date: The date for which to calculate NAV.
 
         Returns:
             The total Net Asset Value of the fund's portfolio.
         """
-        # Ensure portfolio market values are up-to-date for 'current_date'
-        self.portfolio.update_market_values(current_date, self.data_provider)
-        nav = self.portfolio.get_total_value(self.data_provider, current_date) # This uses the portfolio's data_provider
-        
-        # Deduct accrued management fee (simplified daily accrual)
-        # This is a very basic fee model. Real funds accrue daily, pay periodically.
-        # For a backtest, daily deduction from NAV is a common way to model fees.
+        self._update_portfolio_prices(current_date)
+        nav = self.portfolio.get_total_value()
+
         if self.management_fee_bps > 0:
-            daily_fee_rate = (self.management_fee_bps / 10000.0) / 252.0 # Assuming 252 trading days
+            daily_fee_rate = (self.management_fee_bps / 10000.0) / 252.0
             fee_amount = nav * daily_fee_rate
-            # This nav is before today's fee.
-            # In a simulation, the fee would reduce the return or cash.
-            # For a simple NAV calculation, this might represent value before fee deduction for the day.
-            # If NAV is post-fee, then nav -= fee_amount
-            # Let's assume for now this is NAV before daily fee deduction.
-            # The portfolio's value would implicitly be reduced if fees were treated as cash withdrawals.
-            
+            # NAV before daily fee deduction (placeholder for more sophisticated fee model)
+
         logger.debug(f"Calculated NAV for fund '{self.fund_id}' on {current_date.strftime('%Y-%m-%d')}: {nav:.2f}")
         return nav
 

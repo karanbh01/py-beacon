@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ..index.constructor import IndexDefinition
     from .rules import BacktestRule
     from ..portfolio.base import Portfolio, Transaction
-    from ..data.data_fetcher import DataFetcher
+    from ..data.fetcher import DataFetcher
     from ..index.calculation import IndexCalculator
 
 
@@ -49,7 +49,7 @@ class BacktestEngine:
         self.initial_capital: float = initial_capital
         self.data_provider: 'DataFetcher' = data_provider
         self.index_definition: Optional['IndexDefinition'] = index_definition
-        self.index_agent: Optional['IndexCalculator'] = index_agent # Crucial for rebalancing logic
+        self.index_agent: Optional['IndexCalculator'] = index_agent
         self.rules: List['BacktestRule'] = rules if rules else []
 
         if portfolio:
@@ -62,6 +62,25 @@ class BacktestEngine:
         self._current_date: Optional[pd.Timestamp] = None
         self._last_rebalance_date: Optional[pd.Timestamp] = None
 
+    def _fetch_portfolio_prices(self, date: pd.Timestamp) -> Dict[str, float]:
+        """Fetch closing prices for all portfolio holdings and return as a dict."""
+        prices: Dict[str, float] = {}
+        date_str = date.strftime('%Y-%m-%d')
+        for asset in self.portfolio.holdings:
+            ticker = getattr(asset, 'ticker', asset.asset_id)
+            try:
+                price_df = self.data_provider.fetch_prices(ticker, date_str, date_str)
+                if not price_df.empty and 'Adj Close' in price_df.columns and pd.notna(price_df['Adj Close'].iloc[0]):
+                    prices[asset.asset_id] = price_df['Adj Close'].iloc[0]
+            except Exception as e:
+                logger.error(f"Error fetching price for {ticker} on {date_str}: {e}")
+        return prices
+
+    def _update_portfolio_prices(self, date: pd.Timestamp) -> None:
+        """Fetch prices and push them into the portfolio."""
+        prices = self._fetch_portfolio_prices(date)
+        self.portfolio.update_prices(prices)
+
     def _handle_corporate_actions(self, date: pd.Timestamp) -> None:
         """
         Placeholder for handling corporate actions.
@@ -70,19 +89,8 @@ class BacktestEngine:
 
         Args:
             date: The current date to check for corporate actions.
-            # portfolio: The portfolio to adjust. (self.portfolio can be used)
         """
         logger.debug(f"[{date}] Checking for corporate actions (not yet implemented).")
-        # Example logic:
-        # for asset, holding in self.portfolio.holdings.items():
-        #     actions = self.data_provider.fetch_corporate_actions(asset.asset_id, date, date)
-        #     for action in actions:
-        #         if action['type'] == 'SPLIT':
-        #             # Adjust holding.quantity
-        #             pass
-        #         elif action['type'] == 'DIVIDEND':
-        #             # Add to self.portfolio.cash_balance
-        #             pass
         pass
 
 
@@ -96,57 +104,32 @@ class BacktestEngine:
         logger.info(f"[{date}] Attempting rebalance.")
         rebalanced_this_step = False
         for rule in self.rules:
-            if isinstance(rule, RebalanceRule): # Check if it's a RebalanceRule
-                # The RebalanceRule's _is_rebalance_date needs more robust implementation
-                # For now, assume the engine determines if it's time based on rule's frequency
-                # This is a conceptual simplification:
-                if rule._is_rebalance_date(date, self._last_rebalance_date): # Simplified check
+            if isinstance(rule, RebalanceRule):
+                if rule._is_rebalance_date(date, self._last_rebalance_date):
                     logger.info(f"[{date}] Executing rebalance rule: {rule}")
 
-                    # The universe for reselection should come from a broader source,
-                    # possibly defined in IndexDefinition or fetched via DataFetcher.
-                    # For now, we assume the rule's IndexCalculator can get what it needs.
-                    # This part needs refinement based on how universe is defined and accessed.
-                    # Placeholder: fetch a broad universe of assets
-                    # Assume index_agent.select_constituents can access a pre-defined universe or fetch one.
-                    # This is a simplification. The 'current_universe' for the rule might be
-                    # all tradable assets, or assets meeting some pre-filter.
-                    
-                    # The rule.apply method should now use the index_agent associated with it.
-                    # The IndexCalculator within the RebalanceRule already has data_provider.
-                    # It also needs the full available universe to select from.
-                    
-                    # Get all potential assets from data_provider (simplified)
-                    # This is highly conceptual and needs a proper mechanism to define the universe.
-                    # For example, from IndexDefinition's universe specification.
-                    potential_universe: List['Asset'] = [] # This should be populated realistically.
+                    potential_universe: List['Asset'] = []
                     if self.index_definition and hasattr(self.index_definition, 'get_eligible_universe'):
-                         # potential_universe = self.index_definition.get_eligible_universe(date, self.data_provider)
                          pass # Placeholder for universe definition
 
                     new_constituents, new_target_weights = rule.apply(
                         current_date=date,
-                        current_universe=potential_universe, # Pass the appropriate universe
-                        current_weights=self.portfolio.get_weights(self.data_provider, date), # Current actual weights
+                        current_universe=potential_universe,
+                        current_weights=self.portfolio.get_weights(),
                         portfolio=self.portfolio
                     )
 
-                    # Generate trades to align portfolio with new_target_weights
-                    # This is a complex step involving calculating trade sizes, considering cash, etc.
                     logger.info(f"[{date}] New target constituents: {[asset.asset_id for asset in new_constituents]}")
                     logger.info(f"[{date}] New target weights: { {asset.asset_id: w for asset, w in new_target_weights.items()} }")
 
-                    # Simplistic rebalancing: sell all, then buy new weights
-                    # (Highly inefficient and not realistic due to transaction costs, liquidity)
-                    from ..portfolio.base import Transaction # Local import
-                    
-                    # Sell existing holdings not in new constituents or to adjust weights
-                    current_portfolio_value = self.portfolio.get_total_value(self.data_provider, date)
-                    
+                    from ..portfolio.base import Transaction
+
+                    current_portfolio_value = self.portfolio.get_total_value()
+
                     # 1. Sell assets no longer in the index or to reduce overweight positions
-                    assets_to_sell = []
-                    for asset, holding in list(self.portfolio.holdings.items()): # Iterate over a copy for modification
-                        asset_price_data = self.data_provider.fetch_prices(asset.ticker, date.strftime('%Y-%m-%d'), date.strftime('%Y-%m-%d'))
+                    for asset, holding in list(self.portfolio.holdings.items()):
+                        date_str = date.strftime('%Y-%m-%d')
+                        asset_price_data = self.data_provider.fetch_prices(asset.ticker, date_str, date_str)
                         if asset_price_data.empty or pd.isna(asset_price_data['Close'].iloc[0]):
                             logger.warning(f"[{date}] No price data for {asset.ticker} to sell. Skipping sell.")
                             continue
@@ -156,37 +139,38 @@ class BacktestEngine:
                             logger.debug(f"[{date}] Selling {holding.quantity} of {asset.ticker} at {sell_price}")
                             sell_transaction = Transaction(
                                 asset=asset,
-                                quantity=holding.quantity, # Sell all of it for simplicity here
+                                quantity=holding.quantity,
                                 price=sell_price,
                                 transaction_type='SELL',
                                 transaction_date=date
                             )
-                            self.portfolio.add_transaction(sell_transaction, self.data_provider, date) # Date for valuation if needed
+                            self.portfolio.add_transaction(sell_transaction)
 
                     # 2. Buy new assets or increase underweight positions
                     for asset, target_weight in new_target_weights.items():
                         if target_weight <= 0: continue
 
                         target_value = current_portfolio_value * target_weight
-                        asset_price_data = self.data_provider.fetch_prices(asset.ticker, date.strftime('%Y-%m-%d'), date.strftime('%Y-%m-%d'))
+                        date_str = date.strftime('%Y-%m-%d')
+                        asset_price_data = self.data_provider.fetch_prices(asset.ticker, date_str, date_str)
 
                         if asset_price_data.empty or pd.isna(asset_price_data['Close'].iloc[0]):
                             logger.warning(f"[{date}] No price data for {asset.ticker} to buy. Skipping buy.")
                             continue
                         buy_price = asset_price_data['Close'].iloc[0]
-                        
+
                         if buy_price <= 0:
                             logger.warning(f"[{date}] Invalid price ({buy_price}) for {asset.ticker}. Skipping buy.")
                             continue
 
                         current_holding_value = 0
                         if asset in self.portfolio.holdings:
-                            current_holding_value = self.portfolio.holdings[asset].quantity * buy_price # Approx.
+                            current_holding_value = self.portfolio.holdings[asset].quantity * buy_price
 
                         value_to_buy = target_value - current_holding_value
-                        if value_to_buy > 0 : # Only if we need to buy more
+                        if value_to_buy > 0:
                             quantity_to_buy = value_to_buy / buy_price
-                            if self.portfolio.cash_balance >= value_to_buy: # Check affordability
+                            if self.portfolio.cash_balance >= value_to_buy:
                                 logger.debug(f"[{date}] Buying {quantity_to_buy:.2f} of {asset.ticker} at {buy_price}")
                                 buy_transaction = Transaction(
                                     asset=asset,
@@ -195,18 +179,18 @@ class BacktestEngine:
                                     transaction_type='BUY',
                                     transaction_date=date
                                 )
-                                self.portfolio.add_transaction(buy_transaction, self.data_provider, date)
+                                self.portfolio.add_transaction(buy_transaction)
                             else:
                                 logger.warning(f"[{date}] Insufficient cash to buy {asset.ticker}. "
                                                f"Required: {value_to_buy:.2f}, Available: {self.portfolio.cash_balance:.2f}")
-                    
+
                     self._last_rebalance_date = date
                     rebalanced_this_step = True
-                    break # Assuming one rebalance rule for now, or handle priorities if multiple
+                    break
         if not rebalanced_this_step:
              logger.debug(f"[{date}] No rebalance triggered.")
 
-
+    #todo: vectorise run_backtest for efficiency, currently very iterative and may be slow
     def run_backtest(self) -> pd.DataFrame:
         """
         Executes the backtest from start_date to end_date.
@@ -218,24 +202,16 @@ class BacktestEngine:
         logger.info(f"Starting backtest from {self.start_date} to {self.end_date} "
                     f"with initial capital {self.initial_capital:.2f}")
 
-        # Initialize results storage
-        # Columns: Date, PortfolioValue, Cash, Asset1_Weight, Asset1_Price, ..., AssetN_Weight, AssetN_Price
-        # This will grow dynamically, which is not ideal for performance but simpler.
         history = []
-
-        # Determine the date range for the backtest (e.g., daily frequency)
-        # This should ideally use a market calendar. For now, weekdays.
-        trading_days = pd.date_range(start=self.start_date, end=self.end_date, freq='B') # Business days
+        trading_days = pd.date_range(start=self.start_date, end=self.end_date, freq='B')
 
         if trading_days.empty:
             logger.warning("No trading days found in the specified date range.")
             return pd.DataFrame(history)
 
         self._current_date = trading_days[0]
-        self._last_rebalance_date = None # Or set to a date before start_date if needed for first rebalance check
+        self._last_rebalance_date = None
 
-        # Initialize portfolio value for the first day (before any operations)
-        # On day 1, portfolio is just cash before any rebalancing.
         initial_record = {'Date': self._current_date, 'PortfolioValue': self.initial_capital, 'Cash': self.initial_capital}
         history.append(initial_record)
 
@@ -245,35 +221,32 @@ class BacktestEngine:
             logger.debug(f"Processing date: {self._current_date.strftime('%Y-%m-%d')}")
 
             # 0. Update market values of existing holdings before any actions for the day
-            self.portfolio.update_market_values(self._current_date, self.data_provider)
+            self._update_portfolio_prices(self._current_date)
 
-            # 1. Handle corporate actions (adjusts holdings based on splits, dividends etc.)
-            self._handle_corporate_actions(self._current_date) # Affects portfolio state before rebalancing
+            # 1. Handle corporate actions
+            self._handle_corporate_actions(self._current_date)
 
             # 2. Apply rules (e.g., rebalancing)
-            # The rebalance method itself will check if it's a rebalance day.
-            self._rebalance(self._current_date) # Affects portfolio holdings and cash
+            self._rebalance(self._current_date)
 
             # 3. Update market values again after rebalancing for end-of-day valuation
-            self.portfolio.update_market_values(self._current_date, self.data_provider)
+            self._update_portfolio_prices(self._current_date)
 
             # 4. Record portfolio state at end of day
-            current_total_value = self.portfolio.get_total_value(self.data_provider, self._current_date) # Ensure this uses EOD prices
+            current_total_value = self.portfolio.get_total_value()
             daily_record: Dict[str, Any] = {
                 'Date': self._current_date,
                 'PortfolioValue': current_total_value,
                 'Cash': self.portfolio.cash_balance
             }
-            # Record weights (this can make the DataFrame very wide)
-            current_weights = self.portfolio.get_weights(self.data_provider, self._current_date)
+            current_weights = self.portfolio.get_weights()
             for asset, weight in current_weights.items():
                 daily_record[f"{asset.asset_id}_weight"] = weight
 
 
             history.append(daily_record)
 
-            # Log progress periodically
-            if date_idx % (len(trading_days) // 10 if len(trading_days) > 10 else 1) == 0 : # Log roughly 10 times
+            if date_idx % (len(trading_days) // 10 if len(trading_days) > 10 else 1) == 0 :
                  logger.info(f"Backtest progress: {((date_idx + 1) / len(trading_days) * 100):.1f}% complete. "
                              f"Date: {self._current_date.strftime('%Y-%m-%d')}, Value: {current_total_value:.2f}")
 
@@ -287,5 +260,5 @@ class BacktestEngine:
             logger.info(f"Final portfolio value: {self.results['PortfolioValue'].iloc[-1]:.2f}")
         else:
             logger.info("Backtest resulted in no data.")
-            
+
         return self.results if self.results is not None else pd.DataFrame()
