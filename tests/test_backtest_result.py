@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 from beacon.backtest.result import BacktestResult
 from beacon.backtest.asset_view import BacktestAssetView
 from beacon.index.result import IndexResult
+from beacon.portfolio.base import Transaction
 
 
 # ---------------------------------------------------------------------------
@@ -249,15 +250,25 @@ class TestSummary:
 # BacktestAssetView tests
 # ---------------------------------------------------------------------------
 
-class TestBacktestAssetView:
+DATES_5 = pd.bdate_range(start="2025-01-02", periods=5, freq="B")
 
-    def _make_view(self):
+_SAMPLE_TXNS = [
+    Transaction("AAPL", 10, 150.0, "BUY", DATES_5[0], 5.0),
+    Transaction("AAPL", 5, 160.0, "SELL", DATES_5[2], 3.0),
+    Transaction("MSFT", 20, 300.0, "BUY", DATES_5[1], 10.0),
+]
+
+
+class TestBacktestAssetViewWeights:
+
+    def _make_view(self, txns=None):
         fetcher = MagicMock()
         wh = _make_weight_history(
             {"AAPL": [0.3, 0.31, 0.32, 0.0, 0.33]},
         )
         nav = _make_nav([10000, 10100, 10200, 10150, 10300])
-        return BacktestAssetView("AAPL", fetcher, wh, nav)
+        return BacktestAssetView("AAPL", fetcher, wh, nav,
+                                 transactions=txns or [])
 
     def test_repr(self):
         view = self._make_view()
@@ -270,16 +281,18 @@ class TestBacktestAssetView:
         assert len(ws) == 4  # one zero weight excluded
         assert all(w > 0 for w in ws)
 
+    def test_actual_weight_series_alias(self):
+        view = self._make_view()
+        assert view.actual_weight_series().equals(view.weight_series())
+
     def test_weight_on_date_returns_value(self):
         view = self._make_view()
-        dates = pd.bdate_range(start="2025-01-02", periods=5, freq="B")
-        w = view.weight_on_date(dates[0])
+        w = view.weight_on_date(DATES_5[0])
         assert w == pytest.approx(0.3)
 
     def test_weight_on_date_returns_none_for_zero(self):
         view = self._make_view()
-        dates = pd.bdate_range(start="2025-01-02", periods=5, freq="B")
-        w = view.weight_on_date(dates[3])  # weight is 0.0
+        w = view.weight_on_date(DATES_5[3])  # weight is 0.0
         assert w is None
 
     def test_weight_on_date_returns_none_before_history(self):
@@ -291,5 +304,181 @@ class TestBacktestAssetView:
         fetcher = MagicMock()
         wh = _make_weight_history({"AAPL": [0.3, 0.31]})
         nav = _make_nav([10000, 10100])
-        view = BacktestAssetView("UNKNOWN", fetcher, wh, nav)
+        view = BacktestAssetView("UNKNOWN", fetcher, wh, nav, transactions=[])
         assert view.weight_series().empty
+
+
+class TestBacktestAssetViewTrades:
+
+    def _make_view(self):
+        fetcher = MagicMock()
+        wh = _make_weight_history({"AAPL": [0.3, 0.31, 0.32, 0.31, 0.33]})
+        nav = _make_nav([10000, 10100, 10200, 10150, 10300])
+        return BacktestAssetView("AAPL", fetcher, wh, nav,
+                                 transactions=_SAMPLE_TXNS)
+
+    def test_trades_filters_by_asset(self):
+        view = self._make_view()
+        df = view.trades()
+        assert len(df) == 2  # only AAPL txns
+        assert set(df["type"]) == {"BUY", "SELL"}
+
+    def test_trades_columns(self):
+        view = self._make_view()
+        df = view.trades()
+        assert list(df.columns) == ["date", "type", "quantity", "price", "cost"]
+
+    def test_trades_empty_for_no_trades(self):
+        fetcher = MagicMock()
+        wh = _make_weight_history({"GOOG": [0.1, 0.1]})
+        nav = _make_nav([10000, 10100])
+        view = BacktestAssetView("GOOG", fetcher, wh, nav, transactions=_SAMPLE_TXNS)
+        df = view.trades()
+        assert df.empty
+        assert list(df.columns) == ["date", "type", "quantity", "price", "cost"]
+
+    def test_trades_values(self):
+        view = self._make_view()
+        df = view.trades()
+        buy = df[df["type"] == "BUY"].iloc[0]
+        assert buy["quantity"] == 10
+        assert buy["price"] == 150.0
+        assert buy["cost"] == 5.0
+
+
+class TestBacktestAssetViewTotalCost:
+
+    def test_total_cost(self):
+        fetcher = MagicMock()
+        wh = _make_weight_history({"AAPL": [0.3, 0.31, 0.32, 0.31, 0.33]})
+        nav = _make_nav([10000, 10100, 10200, 10150, 10300])
+        view = BacktestAssetView("AAPL", fetcher, wh, nav,
+                                 transactions=_SAMPLE_TXNS)
+        assert view.total_cost() == pytest.approx(8.0)  # 5.0 + 3.0
+
+    def test_total_cost_zero_for_other_asset(self):
+        fetcher = MagicMock()
+        wh = _make_weight_history({"GOOG": [0.1]})
+        nav = _make_nav([10000])
+        view = BacktestAssetView("GOOG", fetcher, wh, nav,
+                                 transactions=_SAMPLE_TXNS)
+        assert view.total_cost() == 0.0
+
+
+class TestBacktestAssetViewHoldingPeriods:
+
+    def test_single_continuous_period(self):
+        fetcher = MagicMock()
+        wh = _make_weight_history({"AAPL": [0.3, 0.31, 0.32]})
+        nav = _make_nav([10000, 10100, 10200])
+        view = BacktestAssetView("AAPL", fetcher, wh, nav, transactions=[])
+        periods = view.holding_periods()
+        assert len(periods) == 1
+        dates = pd.bdate_range(start="2025-01-02", periods=3, freq="B")
+        assert periods[0]["start"] == dates[0]
+        assert periods[0]["end"] == dates[2]
+
+    def test_gap_creates_two_periods(self):
+        fetcher = MagicMock()
+        wh = _make_weight_history({"AAPL": [0.3, 0.31, 0.0, 0.0, 0.33]})
+        nav = _make_nav([10000, 10100, 10200, 10150, 10300])
+        view = BacktestAssetView("AAPL", fetcher, wh, nav, transactions=[])
+        periods = view.holding_periods()
+        assert len(periods) == 2
+
+    def test_no_holdings(self):
+        fetcher = MagicMock()
+        wh = _make_weight_history({"AAPL": [0.0, 0.0, 0.0]})
+        nav = _make_nav([10000, 10100, 10200])
+        view = BacktestAssetView("AAPL", fetcher, wh, nav, transactions=[])
+        assert view.holding_periods() == []
+
+    def test_unknown_asset_no_periods(self):
+        fetcher = MagicMock()
+        wh = _make_weight_history({"AAPL": [0.3]})
+        nav = _make_nav([10000])
+        view = BacktestAssetView("UNKNOWN", fetcher, wh, nav, transactions=[])
+        assert view.holding_periods() == []
+
+
+class TestBacktestAssetViewTargetWeights:
+
+    def _make_view_with_target(self):
+        fetcher = MagicMock()
+        wh = _make_weight_history({"AAPL": [0.30, 0.32, 0.28, 0.31, 0.29]})
+        nav = _make_nav([10000, 10100, 10200, 10150, 10300])
+        dates = pd.bdate_range(start="2025-01-02", periods=5, freq="B")
+        target_snapshots = {
+            dates[0]: {"AAPL": 0.30, "MSFT": 0.20},
+            dates[2]: {"AAPL": 0.30, "MSFT": 0.20},
+        }
+        return BacktestAssetView("AAPL", fetcher, wh, nav,
+                                 transactions=[],
+                                 target_weight_snapshots=target_snapshots)
+
+    def test_target_weight_series(self):
+        view = self._make_view_with_target()
+        ts = view.target_weight_series()
+        assert len(ts) == 2
+        assert all(w == pytest.approx(0.30) for w in ts)
+
+    def test_target_weight_series_empty_without_target(self):
+        fetcher = MagicMock()
+        wh = _make_weight_history({"AAPL": [0.3]})
+        nav = _make_nav([10000])
+        view = BacktestAssetView("AAPL", fetcher, wh, nav, transactions=[])
+        assert view.target_weight_series().empty
+
+    def test_slippage_vs_target(self):
+        view = self._make_view_with_target()
+        slip = view.slippage_vs_target()
+        assert not slip.empty
+        # First date: actual 0.30 - target 0.30 = 0.0
+        assert slip.iloc[0] == pytest.approx(0.0)
+        # Second date: actual 0.32 - target 0.30 = 0.02
+        assert slip.iloc[1] == pytest.approx(0.02)
+
+    def test_slippage_empty_without_target(self):
+        fetcher = MagicMock()
+        wh = _make_weight_history({"AAPL": [0.3]})
+        nav = _make_nav([10000])
+        view = BacktestAssetView("AAPL", fetcher, wh, nav, transactions=[])
+        assert view.slippage_vs_target().empty
+
+    def test_slippage_negative_when_underweight(self):
+        view = self._make_view_with_target()
+        slip = view.slippage_vs_target()
+        # Third date: actual 0.28 - target 0.30 = -0.02
+        assert slip.iloc[2] == pytest.approx(-0.02)
+
+
+class TestBacktestResultAssetIntegration:
+
+    def test_asset_passes_transactions_and_target(self):
+        dates = pd.bdate_range(start="2025-01-02", periods=3, freq="B")
+        target_idx = IndexResult(
+            index_id="idx",
+            index_levels=pd.Series([100, 101, 102], index=dates),
+            divisor_history=pd.Series([1.0, 1.0, 1.0], index=dates),
+            constituent_snapshots={dates[0]: ["AAPL"]},
+            weight_snapshots={dates[0]: {"AAPL": 0.5}},
+        )
+        txns = [Transaction("AAPL", 10, 100.0, "BUY", dates[0], 2.0)]
+        r = BacktestResult(
+            portfolio_id="bt",
+            initial_capital=10000.0,
+            portfolio_nav=pd.Series([10000, 10050, 10100], index=dates),
+            cash_history=pd.Series([5000, 4000, 4000], index=dates),
+            transactions=txns,
+            actual_weight_history=pd.DataFrame(
+                {"AAPL_weight": [0.5, 0.51, 0.49]}, index=dates
+            ),
+            target_index_result=target_idx,
+        )
+        r.with_data(MagicMock())
+        view = r.asset("AAPL")
+        assert isinstance(view, BacktestAssetView)
+        assert len(view.trades()) == 1
+        assert view.total_cost() == pytest.approx(2.0)
+        assert not view.target_weight_series().empty
+        assert not view.slippage_vs_target().empty

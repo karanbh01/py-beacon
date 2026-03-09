@@ -79,12 +79,18 @@ class BacktestResult:
                 f"Asset '{asset_id}' not found in backtest weight history."
             )
 
+        target_snapshots = None
+        if self.target_index_result is not None:
+            target_snapshots = self.target_index_result.weight_snapshots
+
         from .asset_view import BacktestAssetView
         return BacktestAssetView(
             asset_id=asset_id,
             data_fetcher=self._data_fetcher,
             actual_weight_history=self.actual_weight_history,
             portfolio_nav=self.portfolio_nav,
+            transactions=self.transactions,
+            target_weight_snapshots=target_snapshots,
         )
 
     def get_returns(self) -> pd.Series:
