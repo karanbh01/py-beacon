@@ -6,7 +6,7 @@ This module provides an engine for backtesting index methodologies
 and ETF tracking strategies.
 """
 from .rules import BacktestRule, RebalanceRule
-from .engine import BacktestEngine
+from .engine import BacktestEngine, TradeInstruction
 from .result import BacktestResult
 from .asset_view import BacktestAssetView
 
@@ -14,6 +14,7 @@ __all__ = [
     "BacktestRule",
     "RebalanceRule",
     "BacktestEngine",
+    "TradeInstruction",
     "BacktestResult",
     "BacktestAssetView",
 ]

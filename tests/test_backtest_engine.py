@@ -5,8 +5,9 @@ import pandas as pd
 import numpy as np
 from unittest.mock import MagicMock
 
-from beacon.backtest.engine import BacktestEngine
+from beacon.backtest.engine import BacktestEngine, TradeInstruction
 from beacon.backtest.result import BacktestResult
+from beacon.portfolio.base import Portfolio
 from beacon.index.result import IndexResult
 
 
@@ -255,3 +256,162 @@ class TestIndexResultIntegration:
                                 10000.0, dp, target_weights=w)
         result = engine.run()
         assert result.target_index_result is None
+
+
+# ---------------------------------------------------------------------------
+# _generate_trades
+# ---------------------------------------------------------------------------
+
+class TestGenerateTrades:
+
+    def _make_engine(self, prices, target_weights=None, cost_bps=0.0):
+        dp = _mock_data_provider(prices)
+        w = target_weights or {DATES[0]: {"A": 1.0}}
+        return BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
+                              10000.0, dp, target_weights=w,
+                              transaction_cost_bps=cost_bps)
+
+    def test_buy_new_asset(self):
+        """Cash-only portfolio -> buy 100% A."""
+        prices = {"A": {DATES[0].strftime("%Y-%m-%d"): 100.0}}
+        engine = self._make_engine(prices)
+        portfolio = Portfolio("p", initial_cash=10000.0)
+        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        assert len(trades) == 1
+        assert trades[0].side == "BUY"
+        assert trades[0].asset_id == "A"
+        assert trades[0].quantity == pytest.approx(100.0)
+        assert trades[0].cost == 0.0
+
+    def test_sell_full_position(self):
+        """Holding A -> target has no A -> sell all."""
+        prices = {"A": {DATES[0].strftime("%Y-%m-%d"): 100.0}}
+        engine = self._make_engine(prices)
+        portfolio = Portfolio("p", initial_cash=0.0)
+        portfolio.execute_buy("A", 50, 100.0)  # need cash first
+        # Re-create with cash
+        portfolio = Portfolio("p", initial_cash=5000.0)
+        portfolio.execute_buy("A", 50, 100.0)
+        trades = engine._generate_trades(portfolio, {}, DATES[0])
+        assert len(trades) == 1
+        assert trades[0].side == "SELL"
+        assert trades[0].quantity == pytest.approx(50.0)
+
+    def test_sells_before_buys(self):
+        """Trades list has sells first, then buys."""
+        d = DATES[0].strftime("%Y-%m-%d")
+        prices = {"A": {d: 100.0}, "B": {d: 100.0}}
+        engine = self._make_engine(prices)
+        portfolio = Portfolio("p", initial_cash=10000.0)
+        portfolio.execute_buy("A", 100, 100.0)
+        # Rotate from A to B
+        trades = engine._generate_trades(portfolio, {"B": 1.0}, DATES[0])
+        sell_indices = [i for i, t in enumerate(trades) if t.side == "SELL"]
+        buy_indices = [i for i, t in enumerate(trades) if t.side == "BUY"]
+        assert len(sell_indices) > 0
+        assert len(buy_indices) > 0
+        assert max(sell_indices) < min(buy_indices)
+
+    def test_trim_overweight(self):
+        """Asset overweight vs target -> partial sell."""
+        d = DATES[0].strftime("%Y-%m-%d")
+        prices = {"A": {d: 100.0}}
+        engine = self._make_engine(prices)
+        portfolio = Portfolio("p", initial_cash=10000.0)
+        portfolio.execute_buy("A", 100, 100.0)
+        # A is 100% of portfolio, target 50%
+        trades = engine._generate_trades(portfolio, {"A": 0.5}, DATES[0])
+        sells = [t for t in trades if t.side == "SELL"]
+        assert len(sells) == 1
+        assert sells[0].quantity == pytest.approx(50.0)
+
+    def test_buy_underweight(self):
+        """Asset underweight vs target -> buy more."""
+        d = DATES[0].strftime("%Y-%m-%d")
+        prices = {"A": {d: 100.0}}
+        engine = self._make_engine(prices)
+        portfolio = Portfolio("p", initial_cash=10000.0)
+        portfolio.execute_buy("A", 50, 100.0)
+        # A is 50% (5000/10000), target 100%
+        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        buys = [t for t in trades if t.side == "BUY"]
+        assert len(buys) == 1
+        assert buys[0].quantity == pytest.approx(50.0)
+
+    def test_no_trades_when_at_target(self):
+        """Already at target weight -> no trades."""
+        d = DATES[0].strftime("%Y-%m-%d")
+        prices = {"A": {d: 100.0}}
+        engine = self._make_engine(prices)
+        portfolio = Portfolio("p", initial_cash=10000.0)
+        portfolio.execute_buy("A", 100, 100.0)
+        # A is 100% of portfolio, target 100%
+        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        assert len(trades) == 0
+
+    def test_empty_portfolio_zero_value(self):
+        """Zero-value portfolio -> no trades."""
+        d = DATES[0].strftime("%Y-%m-%d")
+        prices = {"A": {d: 100.0}}
+        engine = self._make_engine(prices)
+        portfolio = Portfolio("p", initial_cash=0.0)
+        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        assert len(trades) == 0
+
+    def test_missing_price_skips_asset(self):
+        """No price available -> asset skipped."""
+        engine = self._make_engine({})  # no prices at all
+        portfolio = Portfolio("p", initial_cash=10000.0)
+        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        assert len(trades) == 0
+
+    def test_transaction_cost_bps_on_buy(self):
+        """Transaction costs calculated correctly for buys."""
+        d = DATES[0].strftime("%Y-%m-%d")
+        prices = {"A": {d: 100.0}}
+        engine = self._make_engine(prices, cost_bps=10.0)  # 10 bps = 0.1%
+        portfolio = Portfolio("p", initial_cash=10000.0)
+        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        assert len(trades) == 1
+        assert trades[0].side == "BUY"
+        # notional = 100 * 100 = 10000, cost = 10000 * 10/10000 = 10.0
+        assert trades[0].cost == pytest.approx(10.0)
+
+    def test_transaction_cost_bps_on_sell(self):
+        """Transaction costs calculated correctly for sells."""
+        d = DATES[0].strftime("%Y-%m-%d")
+        prices = {"A": {d: 100.0}}
+        engine = self._make_engine(prices, cost_bps=20.0)  # 20 bps = 0.2%
+        portfolio = Portfolio("p", initial_cash=10000.0)
+        portfolio.execute_buy("A", 100, 100.0)
+        trades = engine._generate_trades(portfolio, {}, DATES[0])
+        assert len(trades) == 1
+        assert trades[0].side == "SELL"
+        # notional = 100 * 100 = 10000, cost = 10000 * 20/10000 = 20.0
+        assert trades[0].cost == pytest.approx(20.0)
+
+    def test_transaction_cost_deducted_in_run(self):
+        """Integration: costs reduce NAV when running backtest."""
+        d_str = {d.strftime("%Y-%m-%d"): 100.0 for d in DATES}
+        prices = {"A": d_str}
+        dp = _mock_data_provider(prices)
+        w = {DATES[0]: {"A": 0.5}}  # target 50% in A
+        engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
+                                10000.0, dp, target_weights=w,
+                                transaction_cost_bps=100.0)  # 1%
+        result = engine.run()
+        # Buy 50 shares at $100 = $5000 notional, cost = $50
+        # NAV = 5000 (holdings) + 5000 - 5000 - 50 (cash) = 9950
+        assert result.portfolio_nav.iloc[-1] == pytest.approx(9950.0, abs=1.0)
+        # Verify the transaction cost was recorded
+        buy_txns = [t for t in result.transactions if t.transaction_type == "BUY"]
+        assert len(buy_txns) == 1
+        assert buy_txns[0].transaction_cost == pytest.approx(50.0)
+
+    def test_returns_trade_instruction_type(self):
+        d = DATES[0].strftime("%Y-%m-%d")
+        prices = {"A": {d: 100.0}}
+        engine = self._make_engine(prices)
+        portfolio = Portfolio("p", initial_cash=10000.0)
+        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        assert all(isinstance(t, TradeInstruction) for t in trades)
