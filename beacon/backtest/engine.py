@@ -10,6 +10,7 @@ from dataclasses import dataclass
 if TYPE_CHECKING:
     from ..data.fetcher import DataFetcher
     from ..index.result import IndexResult
+    from .rules import BacktestModifier
 
 from ..portfolio.base import Portfolio
 from .result import BacktestResult
@@ -71,6 +72,8 @@ class BacktestEngine:
     transaction_cost_bps : float
         Transaction cost in basis points applied to each trade's
         notional value. Defaults to 0 (no cost).
+    modifiers : list of BacktestModifier, optional
+        Optional hooks that can skip rebalances or adjust trades.
     """
 
     def __init__(self,
@@ -81,7 +84,8 @@ class BacktestEngine:
                  target_index_result: Optional['IndexResult'] = None,
                  target_weights: Optional[Dict[pd.Timestamp, Dict[str, float]]] = None,
                  price_column: str = "CLOSE",
-                 transaction_cost_bps: float = 0.0):
+                 transaction_cost_bps: float = 0.0,
+                 modifiers: Optional[List['BacktestModifier']] = None):
         if target_index_result is not None and target_weights is not None:
             raise ValueError(
                 "Provide either target_index_result or target_weights, not both."
@@ -99,6 +103,7 @@ class BacktestEngine:
         self.price_column: str = price_column
 
         self.transaction_cost_bps: float = transaction_cost_bps
+        self.modifiers: List['BacktestModifier'] = modifiers or []
 
         # Normalise weight schedule to a dict
         if target_weights is not None:
@@ -214,14 +219,27 @@ class BacktestEngine:
 
     def _rebalance(self, portfolio: Portfolio, target_weights: Dict[str, float],
                    date: pd.Timestamp) -> None:
-        """Adjust *portfolio* to match *target_weights* using :meth:`_generate_trades`."""
+        """Adjust *portfolio* to match *target_weights* using :meth:`_generate_trades`.
+
+        Modifiers may veto the rebalance or adjust the trade list.
+        """
         current_value = portfolio.get_total_value()
         if current_value <= 0:
             logger.warning(f"[{date}] Portfolio value is {current_value:.2f}. Skipping rebalance.")
             return
 
+        # Check modifiers for skip
+        for modifier in self.modifiers:
+            if modifier.should_skip_rebalance(date, portfolio, target_weights):
+                logger.info(f"[{date}] Rebalance skipped by {modifier.__class__.__name__}.")
+                return
+
         logger.info(f"[{date}] Rebalancing to target weights: {target_weights}")
         trades = self._generate_trades(portfolio, target_weights, date)
+
+        # Let modifiers adjust the trade list
+        for modifier in self.modifiers:
+            trades = modifier.adjust_trades(trades, date, portfolio)
 
         for trade in trades:
             if trade.side == "SELL":
