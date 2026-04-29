@@ -245,13 +245,11 @@ class BacktestEngine:
             if trade.side == "SELL":
                 portfolio.execute_sell(trade.asset_id, trade.quantity, trade.price,
                                       cost=trade.cost, date=date)
-                logger.debug(f"[{date}] Sold {trade.quantity:.4f} of {trade.asset_id}")
             elif trade.side == "BUY":
                 total_needed = trade.quantity * trade.price + trade.cost
                 if portfolio.cash_balance >= total_needed:
                     portfolio.execute_buy(trade.asset_id, trade.quantity, trade.price,
                                           cost=trade.cost, date=date)
-                    logger.debug(f"[{date}] Bought {trade.quantity:.4f} of {trade.asset_id}")
                 else:
                     logger.warning(
                         f"[{date}] Insufficient cash for {trade.asset_id}. "

@@ -98,14 +98,7 @@ class DriftThresholdModifier(BacktestModifier):
             if drift > max_drift:
                 max_drift = drift
 
-        skip = max_drift <= self.threshold
-        if skip:
-            import logging
-            logging.getLogger(__name__).debug(
-                f"[{date}] Max drift {max_drift:.4f} <= threshold "
-                f"{self.threshold:.4f}. Skipping rebalance."
-            )
-        return skip
+        return max_drift <= self.threshold
 
     def adjust_trades(self,
                       trades: List['TradeInstruction'],

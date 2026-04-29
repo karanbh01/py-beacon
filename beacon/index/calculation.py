@@ -118,7 +118,6 @@ class IndexCalculator:
                 try:
                     if not rule.is_eligible(asset, current_date, self.data):
                         is_eligible_for_asset = False
-                        logger.debug(f"Asset {asset.asset_id} failed eligibility rule: {rule.rule_name}")
                         break
                 except Exception as e:
                     logger.error(f"Error applying eligibility rule {rule.rule_name} to asset {asset.asset_id}: {e}")
@@ -127,7 +126,6 @@ class IndexCalculator:
 
             if is_eligible_for_asset:
                 eligible_constituents.append(asset)
-                logger.debug(f"Asset {asset.asset_id} passed all eligibility rules.")
 
         logger.info(f"Selected {len(eligible_constituents)} constituents for '{self.definition.index_name}'.")
         return eligible_constituents
@@ -343,9 +341,6 @@ class IndexCalculator:
 
         new_index_level = current_total_adjusted_market_value / divisor
 
-        logger.debug(f"[{current_date.strftime('%Y-%m-%d')}] Index '{self.definition.index_name}': "
-                     f"Total Market Value = {current_total_adjusted_market_value:.2f}, Divisor = {divisor:.4f}, "
-                     f"New Level = {new_index_level:.4f}")
         return new_index_level, divisor
 
 
@@ -460,13 +455,7 @@ class IndexCalculator:
                     return current_divisor_before_ca
 
             reduction_index_ccy = reduction_local * fx_rate
-            logger.debug(
-                f"Special Dividend: Asset {asset_involved.asset_id}, "
-                f"reduction value (index ccy): {reduction_index_ccy:.2f}"
-            )
-
             if abs(reduction_index_ccy) < 1e-9:
-                logger.debug("Reduction is negligible. Divisor not changed.")
                 return current_divisor_before_ca
 
             if current_total_market_value_before_ca <= 0:
@@ -687,8 +676,6 @@ class IndexCalculator:
         Returns:
             Tuple of (new_index_level, new_divisor).
         """
-        logger.debug(f"--- Daily Calculation for {self.definition.index_name} on {current_date.strftime('%Y-%m-%d')} ---")
-
         divisor = previous_divisor
 
         if divisor is None or divisor <= 0:
@@ -715,5 +702,4 @@ class IndexCalculator:
             previous_index_level=previous_index_level,
         )
 
-        logger.debug(f"--- End Daily Calculation for {self.definition.index_name} on {current_date.strftime('%Y-%m-%d')} --- Level: {new_level:.4f}")
         return new_level, final_divisor

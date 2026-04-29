@@ -70,7 +70,6 @@ class MarketCapRule(EligibilityRuleBase):
         # This logic is simplified. Real market cap data might be directly available or need careful calculation.
         from ..asset.equity import Equity # Specific check for equity attributes
         if not isinstance(asset, Equity):
-            logger.debug(f"MarketCapRule: Asset {asset.asset_id} is not Equity type, skipping.")
             return True # Or False, depending on how non-equities should be handled by this rule
 
         try:
@@ -88,12 +87,9 @@ class MarketCapRule(EligibilityRuleBase):
             market_cap = current_price * shares_outstanding
 
             if self.min_market_cap is not None and market_cap < self.min_market_cap:
-                logger.debug(f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) below min_market_cap {self.min_market_cap:.2f}")
                 return False
             if self.max_market_cap is not None and market_cap > self.max_market_cap:
-                logger.debug(f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) above max_market_cap {self.max_market_cap:.2f}")
                 return False
-            logger.debug(f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) is eligible.")
             return True
         except Exception as e:
             logger.error(f"MarketCapRule: Error checking eligibility for {asset.ticker}: {e}")
@@ -139,7 +135,6 @@ class LiquidityRule(EligibilityRuleBase):
                     return False
                 avg_daily_volume = price_df['Volume'].mean()
                 if avg_daily_volume < self.min_avg_daily_volume:
-                    logger.debug(f"LiquidityRule: {asset.ticker} (ADV: {avg_daily_volume:.0f}) below min volume {self.min_avg_daily_volume:.0f}")
                     return False
 
             if self.min_avg_daily_value is not None:
@@ -149,10 +144,8 @@ class LiquidityRule(EligibilityRuleBase):
                     return False
                 avg_daily_value = (price_df['Adj Close'] * price_df['Volume']).mean()
                 if avg_daily_value < self.min_avg_daily_value:
-                    logger.debug(f"LiquidityRule: {asset.ticker} (ADTV: {avg_daily_value:.2f}) below min value {self.min_avg_daily_value:.2f}")
                     return False
             
-            logger.debug(f"LiquidityRule: {asset.ticker} is eligible.")
             return True
         except Exception as e:
             logger.error(f"LiquidityRule: Error checking eligibility for {asset.ticker}: {e}")

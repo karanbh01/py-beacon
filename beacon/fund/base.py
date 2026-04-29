@@ -106,7 +106,6 @@ class IndexFund:
             current_date=current_date
         )
 
-        logger.debug(f"Target weights for '{self.fund_id}': {{asset.asset_id: w for asset, w in self._target_weights.items()}}")
 
         # Build target weights keyed by asset_id string
         target_weights_by_id: Dict[str, float] = {
@@ -138,7 +137,6 @@ class IndexFund:
 
                 if quantity_to_sell > 1e-6:
                     self.portfolio.execute_sell(asset_id, quantity_to_sell, current_price, date=current_date)
-                    logger.debug(f"Fund rebalance: Sold {quantity_to_sell:.2f} of {asset_id}")
 
         # Buy assets in target or underweights
         for asset_id, target_weight in target_weights_by_id.items():
@@ -159,7 +157,6 @@ class IndexFund:
                 quantity_to_buy = value_to_buy / current_price
                 if self.portfolio.cash_balance >= value_to_buy:
                     self.portfolio.execute_buy(asset_id, quantity_to_buy, current_price, date=current_date)
-                    logger.debug(f"Fund rebalance: Bought {quantity_to_buy:.2f} of {asset_id}")
                 else:
                     logger.warning(f"Fund rebalance: Insufficient cash to buy {asset_id} for fund '{self.fund_id}'.")
 
@@ -184,7 +181,6 @@ class IndexFund:
             fee_amount = nav * daily_fee_rate
             # NAV before daily fee deduction (placeholder for more sophisticated fee model)
 
-        logger.debug(f"Calculated NAV for fund '{self.fund_id}' on {current_date.strftime('%Y-%m-%d')}: {nav:.2f}")
         return nav
 
     def __repr__(self) -> str:
