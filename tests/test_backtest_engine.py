@@ -415,3 +415,170 @@ class TestGenerateTrades:
         portfolio = Portfolio("p", initial_cash=10000.0)
         trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
         assert all(isinstance(t, TradeInstruction) for t in trades)
+
+
+# ---------------------------------------------------------------------------
+# Full pipeline integration
+# ---------------------------------------------------------------------------
+
+def _fetcher_from_frame(price_frame: pd.DataFrame, col="CLOSE"):
+    provider = MagicMock()
+
+    def _fetch(identifier, start=None, end=None, columns=None):
+        ts = pd.Timestamp(start)
+        if identifier not in price_frame.columns or ts not in price_frame.index:
+            return pd.DataFrame()
+        return pd.DataFrame({col: [price_frame.loc[ts, identifier]]})
+
+    provider.fetch_market_data = MagicMock(side_effect=_fetch)
+    return provider
+
+
+def _monthly_rebalanced_index_levels(price_frame: pd.DataFrame, rebalance_dates, weights, initial_level=100.0):
+    levels = pd.Series(index=price_frame.index, dtype=float)
+    holdings = {}
+    level = initial_level
+    for date in price_frame.index:
+        if holdings:
+            level = sum(qty * price_frame.loc[date, asset] for asset, qty in holdings.items())
+        if date in rebalance_dates:
+            holdings = {
+                asset: (level * weight) / price_frame.loc[date, asset]
+                for asset, weight in weights[date].items()
+            }
+            level = sum(qty * price_frame.loc[date, asset] for asset, qty in holdings.items())
+        levels.loc[date] = level
+    return levels
+
+
+def _three_month_index_pipeline():
+    dates = pd.bdate_range("2025-01-02", "2025-03-14")
+    price_frame = pd.DataFrame(
+        {
+            "A": 100.0 + np.arange(len(dates)) * 0.8,
+            "B": 80.0 + np.arange(len(dates)) * 0.2,
+        },
+        index=dates,
+    )
+    rebalance_dates = [dates[0], pd.Timestamp("2025-02-03"), pd.Timestamp("2025-03-03")]
+    weights = {date: {"A": 0.5, "B": 0.5} for date in rebalance_dates}
+    levels = _monthly_rebalanced_index_levels(price_frame, rebalance_dates, weights)
+    index_result = IndexResult(
+        index_id="synthetic_equal_weight",
+        index_levels=levels,
+        divisor_history=pd.Series(1.0, index=dates),
+        constituent_snapshots={date: ["A", "B"] for date in rebalance_dates},
+        weight_snapshots=weights,
+    )
+    return dates, price_frame, index_result
+
+
+class TestBacktestPipelineIntegration:
+
+    def test_zero_cost_index_result_tracks_synthetic_index_levels(self):
+        dates, price_frame, index_result = _three_month_index_pipeline()
+        engine = BacktestEngine(
+            str(dates[0].date()),
+            str(dates[-1].date()),
+            10000.0,
+            _fetcher_from_frame(price_frame),
+            target_index_result=index_result,
+            transaction_cost_bps=0.0,
+        )
+
+        result = engine.run()
+        expected_nav = 10000.0 * index_result.index_levels / index_result.index_levels.iloc[0]
+
+        pd.testing.assert_series_equal(
+            result.portfolio_nav,
+            expected_nav.rename("Date"),
+            check_names=False,
+            check_freq=False,
+            rtol=1e-10,
+            atol=1e-6,
+        )
+
+    def test_nonzero_transaction_costs_lag_zero_cost_index_tracking(self):
+        dates, price_frame, index_result = _three_month_index_pipeline()
+        cost_engine = BacktestEngine(
+            str(dates[0].date()),
+            str(dates[-1].date()),
+            10000.0,
+            _fetcher_from_frame(price_frame),
+            target_index_result=index_result,
+            transaction_cost_bps=25.0,
+        )
+        zero_cost_engine = BacktestEngine(
+            str(dates[0].date()),
+            str(dates[-1].date()),
+            10000.0,
+            _fetcher_from_frame(price_frame),
+            target_index_result=index_result,
+            transaction_cost_bps=0.0,
+        )
+
+        cost_result = cost_engine.run()
+        zero_cost_result = zero_cost_engine.run()
+
+        assert cost_result.portfolio_nav.iloc[-1] < zero_cost_result.portfolio_nav.iloc[-1]
+        assert cost_result.get_tracking_difference() < zero_cost_result.get_tracking_difference()
+
+    def test_rebalance_transactions_are_generated_and_sells_precede_buys(self):
+        dates, price_frame, index_result = _three_month_index_pipeline()
+        engine = BacktestEngine(
+            str(dates[0].date()),
+            str(dates[-1].date()),
+            10000.0,
+            _fetcher_from_frame(price_frame),
+            target_index_result=index_result,
+        )
+
+        result = engine.run()
+        transactions_by_date = {}
+        for txn in result.transactions:
+            transactions_by_date.setdefault(pd.Timestamp(txn.transaction_date), []).append(txn)
+
+        assert set(index_result.weight_snapshots).issubset(transactions_by_date)
+        for txns in transactions_by_date.values():
+            sell_positions = [idx for idx, txn in enumerate(txns) if txn.transaction_type == "SELL"]
+            buy_positions = [idx for idx, txn in enumerate(txns) if txn.transaction_type == "BUY"]
+            if sell_positions and buy_positions:
+                assert max(sell_positions) < min(buy_positions)
+
+    def test_custom_weight_dict_pipeline_has_no_target_index_metrics(self):
+        dates, price_frame, index_result = _three_month_index_pipeline()
+        engine = BacktestEngine(
+            str(dates[0].date()),
+            str(dates[-1].date()),
+            10000.0,
+            _fetcher_from_frame(price_frame),
+            target_weights=index_result.weight_snapshots,
+        )
+
+        result = engine.run()
+        summary = result.summary()
+
+        assert result.target_index_result is None
+        assert result.get_tracking_error() is None
+        assert result.get_tracking_difference() is None
+        assert "total_return" in summary
+        assert "tracking_error" not in summary
+
+    def test_backtest_result_summary_and_tracking_error_with_target(self):
+        dates, price_frame, index_result = _three_month_index_pipeline()
+        engine = BacktestEngine(
+            str(dates[0].date()),
+            str(dates[-1].date()),
+            10000.0,
+            _fetcher_from_frame(price_frame),
+            target_index_result=index_result,
+            transaction_cost_bps=10.0,
+        )
+
+        result = engine.run()
+        summary = result.summary()
+
+        assert {"total_return", "annualised_return", "volatility", "sharpe_ratio", "max_drawdown"}.issubset(summary)
+        assert result.get_tracking_error() is not None
+        assert "tracking_error" in summary
+        assert "tracking_difference" in summary
