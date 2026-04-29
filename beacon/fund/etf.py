@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from ..analysis.etf.analytics import ETFAnalytics # For type hint
     from ..data.fetcher import DataFetcher
     from ..index.calculation import IndexCalculator
+    from ..backtest.result import BacktestResult
 
 
 logger = logging.getLogger(__name__)
@@ -91,133 +92,44 @@ class ETF(IndexFund):
         return self.market_price
 
 
-    def get_tracking_performance(self,
-                                 start_date: str,
-                                 end_date: str,
-                                 # benchmark_returns: pd.Series, # Index returns should be fetched or calculated
-                                 analysis_module: 'ETFAnalytics') -> Dict[str, float]:
-        """
-        Calculates tracking performance metrics (e.g., tracking error, tracking difference)
-        against its benchmark index.
+    def get_tracking_performance(self, backtest_result: 'BacktestResult') -> Dict[str, float]:
+        """Return tracking metrics from a completed BacktestResult.
+
+        The backtest result already contains the portfolio NAV series and, when
+        available, the target IndexResult. Delegate tracking calculations to the
+        result object instead of reconstructing ETF and benchmark returns here.
 
         Args:
-            start_date: The start date for the performance period (YYYY-MM-DD).
-            end_date: The end date for the performance period (YYYY-MM-DD).
-            analysis_module: An instance of the ETFAnalytics class from the analysis module.
+            backtest_result: Completed backtest with ``target_index_result`` set.
 
         Returns:
-            A dictionary containing tracking performance metrics.
-            Example: {'tracking_error': 0.005, 'tracking_difference': -0.001}
+            A dictionary containing ``tracking_error`` and
+            ``tracking_difference`` when available, or an ``error`` entry when
+            tracking metrics cannot be calculated.
         """
-        if not analysis_module or not hasattr(analysis_module, 'calculate_tracking_error'):
-             raise ValueError("A valid ETFAnalytics module instance must be provided.")
+        if backtest_result is None:
+            raise ValueError("backtest_result must be provided.")
+        if not hasattr(backtest_result, 'get_tracking_error') or not hasattr(backtest_result, 'get_tracking_difference'):
+            raise TypeError("backtest_result must provide BacktestResult tracking methods.")
 
-        logger.info(f"Calculating tracking performance for ETF '{self.etf_ticker}' from {start_date} to {end_date}.")
+        logger.info(f"Calculating tracking performance for ETF '{self.etf_ticker}' from BacktestResult.")
 
-        # 1. Get ETF returns
-        # This requires a history of NAVs or market prices.
-        # For this method, we'd typically need a price series of the ETF.
-        # This can be from simulated market prices or historical NAVs.
-        # Let's assume we can fetch or compute a series of ETF NAVs/prices.
-        # This part is complex as it implies running a mini-simulation or having historical data.
+        tracking_error = backtest_result.get_tracking_error()
+        tracking_difference = backtest_result.get_tracking_difference()
 
-        # Conceptual: Fetch ETF historical NAVs (or use simulated prices if available)
-        # For simplicity, let's assume self.portfolio can provide historical values,
-        # or we use the data_provider to fetch actual ETF prices if it were a real ETF.
-        # This is highly dependent on how historical ETF data is made available.
-        # Placeholder for fetching/calculating ETF returns:
-        # etf_price_series = self.data_provider.fetch_prices(self.etf_ticker, start_date, end_date)['Adj Close']
+        if tracking_error is None or tracking_difference is None:
+            logger.error("BacktestResult does not contain target data required for tracking metrics.")
+            return {"error": "BacktestResult target index data not available for tracking performance calculation."}
 
-        # To do this properly, we need a series of NAVs. The `calculate_nav` is point-in-time.
-        # We'd need to iterate through dates, calculate NAV, and form a series.
-        pd_start_date = pd.to_datetime(start_date)
-        pd_end_date = pd.to_datetime(end_date)
-        date_range = pd.date_range(pd_start_date, pd_end_date, freq='B') # Business days
-        
-        nav_values = []
-        valid_dates = []
-        for date_val in date_range:
-            try:
-                nav = self.calculate_nav(date_val) # Recalculates based on portfolio at that date
-                nav_values.append(nav)
-                valid_dates.append(date_val)
-            except Exception as e:
-                logger.warning(f"Could not calculate NAV for {self.etf_ticker} on {date_val}: {e}")
-        
-        if not nav_values:
-            logger.error(f"Could not retrieve any NAV values for ETF '{self.etf_ticker}' in the period.")
-            return {"error": "Could not retrieve ETF NAVs."}
-
-        etf_price_series = pd.Series(nav_values, index=pd.DatetimeIndex(valid_dates))
-        etf_returns = etf_price_series.pct_change().dropna()
-
-
-        # 2. Get Benchmark Index returns
-        # This requires historical levels of the target index.
-        # The IndexCalculator can calculate levels, but needs historical component prices.
-        # Placeholder for fetching/calculating benchmark index returns:
-        # This is also complex. Assume `index_agent` can provide this or `data_provider`
-        # can fetch index level series.
-        
-        # Conceptual: Use index_agent to get historical index levels
-        index_levels = []
-        index_dates = []
-        # We need the index's calculation history. This is usually an output of a backtest of the index itself.
-        # For now, let's assume the index_agent can provide this or it's fetched.
-        # This is a major simplification. The index_agent.calculate_index_level is for a single point.
-        # A full historical index calculation is needed.
-        # Example: If index levels were pre-calculated and stored:
-        # index_level_series = self.data_provider.fetch_index_levels(self.target_index_definition.index_id, start_date, end_date)
-        
-        # Simplified: If we assume the index definition has a historical price series (e.g. via a ticker)
-        if hasattr(self.target_index_definition, 'benchmark_ticker_for_tracking'): # A hypothetical attribute
-            try:
-                index_level_series = self.data_provider.fetch_prices(
-                    self.target_index_definition.benchmark_ticker_for_tracking,
-                    start_date, end_date
-                )['Adj Close']
-                benchmark_returns = index_level_series.pct_change().dropna()
-            except Exception as e:
-                logger.error(f"Failed to fetch benchmark returns for {self.target_index_definition.index_name}: {e}")
-                return {"error": f"Failed to get benchmark returns: {e}"}
-        else:
-            # Fallback: try to reconstruct index returns using the agent for each day (computationally intensive)
-            # This would require the IndexCalculator to have a method like `get_historical_index_series`
-            logger.warning("Benchmark returns calculation for tracking performance is simplified. "
-                           "A pre-calculated index series is recommended.")
-            # For now, let's return an error or empty if not easily available
-            # This part highlights a dependency: needing historical index data.
-            return {"error": "Benchmark historical returns not available for tracking performance calculation."}
-
-
-        # Align returns series (important for calculations)
-        common_index = etf_returns.index.intersection(benchmark_returns.index)
-        if common_index.empty:
-            logger.error("No common dates between ETF returns and benchmark returns for tracking performance.")
-            return {"error": "No common dates for comparison."}
-            
-        etf_returns_aligned = etf_returns.loc[common_index]
-        benchmark_returns_aligned = benchmark_returns.loc[common_index]
-
-        if etf_returns_aligned.empty or benchmark_returns_aligned.empty:
-            logger.error("Aligned returns series are empty.")
-            return {"error": "Aligned returns series are empty."}
-
-        # 3. Calculate metrics using the analysis_module
-        try:
-            tracking_err = analysis_module.calculate_tracking_error(etf_returns_aligned, benchmark_returns_aligned)
-            tracking_diff = analysis_module.calculate_tracking_difference(etf_returns_aligned, benchmark_returns_aligned)
-            # Could add more metrics here (e.g., premium/discount history if market prices available)
-        except Exception as e:
-            logger.error(f"Error during tracking performance calculation: {e}")
-            return {"error": f"Calculation error: {e}"}
-
-        logger.info(f"Tracking performance for '{self.etf_ticker}': TE={tracking_err:.4f}, TD={tracking_diff:.4f}")
+        logger.info(
+            f"Tracking performance for '{self.etf_ticker}': "
+            f"TE={tracking_error:.4f}, TD={tracking_difference:.4f}"
+        )
         return {
-            "tracking_error": tracking_err,
-            "tracking_difference": tracking_diff
-            # "average_premium_discount": ... (if market prices were tracked)
+            "tracking_error": tracking_error,
+            "tracking_difference": tracking_difference,
         }
+
 
     def __repr__(self) -> str:
         return (f"ETF(fund_id='{self.fund_id}', etf_ticker='{self.etf_ticker}', "
