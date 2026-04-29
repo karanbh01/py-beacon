@@ -2,6 +2,8 @@
 """
 Module defining the IndexFund class.
 """
+from __future__ import annotations
+
 import pandas as pd
 from typing import Dict, Any, TYPE_CHECKING
 import logging
