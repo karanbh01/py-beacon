@@ -2,16 +2,17 @@
 """
 Module defining the IndexFund class.
 """
+from __future__ import annotations
+
 import pandas as pd
-from typing import Dict, Any, TYPE_CHECKING
+from typing import Dict, Any
 import logging
 
-# Avoid circular imports for type hinting
-if TYPE_CHECKING:
-    from ..index.constructor import IndexDefinition
-    from ..portfolio.base import Portfolio
-    from ..data.fetcher import DataFetcher
-    from ..index.calculation import IndexCalculator
+from ..index.constructor import IndexDefinition
+from ..portfolio.base import Portfolio
+from ..data.fetcher import DataFetcher
+from ..index.calculation import IndexCalculator
+from ..asset.base import Asset
 
 
 logger = logging.getLogger(__name__)
@@ -22,10 +23,10 @@ class IndexFund:
     """
     def __init__(self,
                  fund_id: str,
-                 target_index_definition: 'IndexDefinition', # The static definition
-                 index_agent: 'IndexCalculator', # The agent to calculate weights for target_index
-                 portfolio: 'Portfolio',
-                 data_provider: 'DataFetcher',
+                 target_index_definition: IndexDefinition, # The static definition
+                 index_agent: IndexCalculator, # The agent to calculate weights for target_index
+                 portfolio: Portfolio,
+                 data_provider: DataFetcher,
                  management_fee_bps: int = 0):
         """
         Initializes an IndexFund.
@@ -53,14 +54,14 @@ class IndexFund:
             raise ValueError("management_fee_bps cannot be negative.")
 
         self.fund_id: str = fund_id
-        self.target_index_definition: 'IndexDefinition' = target_index_definition
-        self.index_agent: 'IndexCalculator' = index_agent
-        self.portfolio: 'Portfolio' = portfolio
-        self.data_provider: 'DataFetcher' = data_provider
+        self.target_index_definition: IndexDefinition = target_index_definition
+        self.index_agent: IndexCalculator = index_agent
+        self.portfolio: Portfolio = portfolio
+        self.data_provider: DataFetcher = data_provider
         self.management_fee_bps: int = management_fee_bps # e.g., 20 for 0.20%
 
         # Store target weights, to be updated upon rebalance_to_index
-        self._target_weights: Dict['Asset', float] = {}
+        self._target_weights: Dict[Asset, float] = {}
 
 
     def _fetch_price(self, ticker: str, current_date: pd.Timestamp) -> float | None:

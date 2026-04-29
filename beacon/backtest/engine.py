@@ -2,18 +2,18 @@
 """
 BacktestEngine — simulates portfolio execution against a target weight schedule.
 """
+from __future__ import annotations
+
 import pandas as pd
 import logging
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 
-if TYPE_CHECKING:
-    from ..data.fetcher import DataFetcher
-    from ..index.result import IndexResult
-    from .rules import BacktestModifier
-
+from ..data.fetcher import DataFetcher
+from ..index.result import IndexResult
 from ..portfolio.base import Portfolio
 from .result import BacktestResult
+from .rules import BacktestModifier
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +80,12 @@ class BacktestEngine:
                  start_date: str,
                  end_date: str,
                  initial_capital: float,
-                 data_provider: 'DataFetcher',
-                 target_index_result: Optional['IndexResult'] = None,
+                 data_provider: DataFetcher,
+                 target_index_result: Optional[IndexResult] = None,
                  target_weights: Optional[Dict[pd.Timestamp, Dict[str, float]]] = None,
                  price_column: str = "CLOSE",
                  transaction_cost_bps: float = 0.0,
-                 modifiers: Optional[List['BacktestModifier']] = None):
+                 modifiers: Optional[List[BacktestModifier]] = None):
         if target_index_result is not None and target_weights is not None:
             raise ValueError(
                 "Provide either target_index_result or target_weights, not both."
@@ -98,12 +98,12 @@ class BacktestEngine:
         self.start_date: pd.Timestamp = pd.Timestamp(start_date)
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
         self.initial_capital: float = initial_capital
-        self.data_provider: 'DataFetcher' = data_provider
-        self.target_index_result: Optional['IndexResult'] = target_index_result
+        self.data_provider: DataFetcher = data_provider
+        self.target_index_result: Optional[IndexResult] = target_index_result
         self.price_column: str = price_column
 
         self.transaction_cost_bps: float = transaction_cost_bps
-        self.modifiers: List['BacktestModifier'] = modifiers or []
+        self.modifiers: List[BacktestModifier] = modifiers or []
 
         # Normalise weight schedule to a dict
         if target_weights is not None:

@@ -3,8 +3,10 @@
 Module for generating reports from portfolio data, such as holdings reports
 and performance reports, potentially in formats like Excel.
 """
+from __future__ import annotations
+
 import pandas as pd
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 import logging
 
 # Try importing openpyxl for Excel writing
@@ -15,10 +17,8 @@ except ImportError:
     logging.warning("openpyxl library not found. Excel reporting will be disabled.")
     OPENPYXL_AVAILABLE = False
 
-# Avoid circular imports for type hinting
-if TYPE_CHECKING:
-    from .base import Portfolio
-    from ..data.fetcher import DataFetcher # For portfolio methods needing it
+from .base import Portfolio
+from ..data.fetcher import DataFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +36,10 @@ class ReportGenerator:
             logger.warning("ReportGenerator initialized, but openpyxl is missing. Excel output will fail.")
 
     def generate_holdings_report_excel(self,
-                                       portfolio: 'Portfolio',
+                                       portfolio: Portfolio,
                                        report_path: str,
                                        valuation_date: pd.Timestamp,
-                                       data_provider: 'DataFetcher') -> None:
+                                       data_provider: DataFetcher) -> None:
         """
         Generates an Excel report summarizing the current portfolio holdings.
 

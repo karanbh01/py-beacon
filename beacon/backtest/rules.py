@@ -2,14 +2,14 @@
 """
 BacktestModifier — optional hooks that alter rebalance behaviour.
 """
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Dict, List, TYPE_CHECKING
+from typing import Dict, List
 
 import pandas as pd
 
-if TYPE_CHECKING:
-    from ..portfolio.base import Portfolio
-    from .engine import TradeInstruction
+from ..portfolio.base import Portfolio
 
 
 class BacktestModifier(ABC):
@@ -22,7 +22,7 @@ class BacktestModifier(ABC):
     @abstractmethod
     def should_skip_rebalance(self,
                               date: pd.Timestamp,
-                              portfolio: 'Portfolio',
+                              portfolio: Portfolio,
                               target_weights: Dict[str, float]) -> bool:
         """Return ``True`` to skip the scheduled rebalance on *date*.
 
@@ -42,9 +42,9 @@ class BacktestModifier(ABC):
 
     @abstractmethod
     def adjust_trades(self,
-                      trades: List['TradeInstruction'],
+                      trades: List[TradeInstruction],
                       date: pd.Timestamp,
-                      portfolio: 'Portfolio') -> List['TradeInstruction']:
+                      portfolio: Portfolio) -> List[TradeInstruction]:
         """Optionally modify the trade list before execution.
 
         Parameters
@@ -81,7 +81,7 @@ class DriftThresholdModifier(BacktestModifier):
 
     def should_skip_rebalance(self,
                               date: pd.Timestamp,
-                              portfolio: 'Portfolio',
+                              portfolio: Portfolio,
                               target_weights: Dict[str, float]) -> bool:
         current_weights = portfolio.get_weights()
 
@@ -108,8 +108,8 @@ class DriftThresholdModifier(BacktestModifier):
         return skip
 
     def adjust_trades(self,
-                      trades: List['TradeInstruction'],
+                      trades: List[TradeInstruction],
                       date: pd.Timestamp,
-                      portfolio: 'Portfolio') -> List['TradeInstruction']:
+                      portfolio: Portfolio) -> List[TradeInstruction]:
         """Pass-through — no trade adjustment."""
         return trades

@@ -2,13 +2,13 @@
 """
 Module for defining the structure and rules of a financial index.
 """
+from __future__ import annotations
+
 import pandas as pd
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional
 import logging
 
-# Avoid circular imports for type hinting
-if TYPE_CHECKING:
-    from .methodology import EligibilityRuleBase, WeightingSchemeBase
+from .methodology import EligibilityRuleBase, WeightingSchemeBase
 
 
 logger = logging.getLogger(__name__)
@@ -23,8 +23,8 @@ class IndexDefinition:
                  base_date: str, # YYYY-MM-DD
                  base_value: float,
                  currency: str,
-                 eligibility_rules: List['EligibilityRuleBase'],
-                 weighting_scheme: 'WeightingSchemeBase',
+                 eligibility_rules: List[EligibilityRuleBase],
+                 weighting_scheme: WeightingSchemeBase,
                  rebalancing_frequency: str, # e.g., 'QUARTERLY', 'MONTHLY', 'SEMI-ANNUAL', 'ANNUAL'
                  description: Optional[str] = None,
                  universe_identifiers: Optional[List[str]] = None
@@ -66,8 +66,8 @@ class IndexDefinition:
         self.base_date: pd.Timestamp = pd.Timestamp(base_date)
         self.base_value: float = base_value
         self.currency: str = currency.upper()
-        self.eligibility_rules: List['EligibilityRuleBase'] = eligibility_rules
-        self.weighting_scheme: 'WeightingSchemeBase' = weighting_scheme
+        self.eligibility_rules: List[EligibilityRuleBase] = eligibility_rules
+        self.weighting_scheme: WeightingSchemeBase = weighting_scheme
         self.rebalancing_frequency: str = rebalancing_frequency.upper()
         self.description: Optional[str] = description
         self.universe_identifiers: Optional[List[str]] = universe_identifiers

@@ -3,16 +3,16 @@
 Module defining base classes and examples for index methodology rules,
 such as eligibility criteria and weighting schemes.
 """
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 import pandas as pd
-from typing import List, Dict, Any, TYPE_CHECKING, Optional
+from typing import List, Dict, Any, Optional
 import logging
 
-# Avoid circular imports for type hinting
-if TYPE_CHECKING:
-    from ..asset.base import Asset
-    from ..asset.equity import Equity # For specific checks if needed
-    from ..data.fetcher import DataFetcher
+from ..asset.base import Asset
+from ..asset.equity import Equity
+from ..data.fetcher import DataFetcher
 
 
 logger = logging.getLogger(__name__)
@@ -27,9 +27,9 @@ class EligibilityRuleBase(ABC):
 
     @abstractmethod
     def is_eligible(self,
-                    asset: 'Asset',
+                    asset: Asset,
                     current_date: pd.Timestamp,
-                    market_data_provider: 'DataFetcher',
+                    market_data_provider: DataFetcher,
                     context: Optional[Dict[str, Any]] = None
                    ) -> bool:
         """
@@ -64,7 +64,7 @@ class MarketCapRule(EligibilityRuleBase):
         if min_market_cap is not None and max_market_cap is not None and min_market_cap > max_market_cap:
             raise ValueError("min_market_cap cannot be greater than max_market_cap.")
 
-    def is_eligible(self, asset: 'Asset', current_date: pd.Timestamp, market_data_provider: 'DataFetcher', context: Optional[Dict[str, Any]] = None) -> bool:
+    def is_eligible(self, asset: Asset, current_date: pd.Timestamp, market_data_provider: DataFetcher, context: Optional[Dict[str, Any]] = None) -> bool:
         # Requires fetching market cap data for the asset on current_date
         # Market Cap = Price * Shares Outstanding
         # This logic is simplified. Real market cap data might be directly available or need careful calculation.
@@ -112,7 +112,7 @@ class LiquidityRule(EligibilityRuleBase):
         if lookback_days <= 0:
             raise ValueError("lookback_days must be positive.")
 
-    def is_eligible(self, asset: 'Asset', current_date: pd.Timestamp, market_data_provider: 'DataFetcher', context: Optional[Dict[str, Any]] = None) -> bool:
+    def is_eligible(self, asset: Asset, current_date: pd.Timestamp, market_data_provider: DataFetcher, context: Optional[Dict[str, Any]] = None) -> bool:
         from ..asset.equity import Equity
         if not isinstance(asset, Equity):
             return True # Or False
@@ -173,11 +173,11 @@ class WeightingSchemeBase(ABC):
 
     @abstractmethod
     def calculate_weights(self,
-                          constituents: List['Asset'],
+                          constituents: List[Asset],
                           current_date: pd.Timestamp,
-                          market_data_provider: 'DataFetcher',
+                          market_data_provider: DataFetcher,
                           context: Optional[Dict[str, Any]] = None
-                         ) -> Dict['Asset', float]:
+                         ) -> Dict[Asset, float]:
         """
         Calculates the weight for each constituent asset.
 
@@ -208,9 +208,9 @@ class MarketCapWeighted(WeightingSchemeBase):
         super().__init__(scheme_name="MarketCapWeighted")
         self.use_free_float = use_free_float
 
-    def calculate_weights(self, constituents: List['Asset'], current_date: pd.Timestamp, market_data_provider: 'DataFetcher', context: Optional[Dict[str, Any]] = None) -> Dict['Asset', float]:
-        weights: Dict['Asset', float] = {}
-        market_caps: Dict['Asset', float] = {}
+    def calculate_weights(self, constituents: List[Asset], current_date: pd.Timestamp, market_data_provider: DataFetcher, context: Optional[Dict[str, Any]] = None) -> Dict[Asset, float]:
+        weights: Dict[Asset, float] = {}
+        market_caps: Dict[Asset, float] = {}
         total_market_cap = 0.0
 
         from ..asset.equity import Equity
@@ -271,8 +271,8 @@ class EqualWeighted(WeightingSchemeBase):
     def __init__(self):
         super().__init__(scheme_name="EqualWeighted")
 
-    def calculate_weights(self, constituents: List['Asset'], current_date: pd.Timestamp, market_data_provider: 'DataFetcher', context: Optional[Dict[str, Any]] = None) -> Dict['Asset', float]:
-        weights: Dict['Asset', float] = {}
+    def calculate_weights(self, constituents: List[Asset], current_date: pd.Timestamp, market_data_provider: DataFetcher, context: Optional[Dict[str, Any]] = None) -> Dict[Asset, float]:
+        weights: Dict[Asset, float] = {}
         num_constituents = len(constituents)
 
         if num_constituents > 0:

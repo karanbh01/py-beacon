@@ -2,19 +2,18 @@
 """
 Module defining the ETF (Exchange Traded Fund) class, inheriting from IndexFund.
 """
+from __future__ import annotations
+
 import pandas as pd
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional
 
 from .base import IndexFund
+from ..index.constructor import IndexDefinition
+from ..portfolio.base import Portfolio
+from ..analysis.etf.analytics import ETFAnalytics
+from ..data.fetcher import DataFetcher
+from ..index.calculation import IndexCalculator
 import logging
-
-# Avoid circular imports for type hinting
-if TYPE_CHECKING:
-    from ..index.constructor import IndexDefinition
-    from ..portfolio.base import Portfolio
-    from ..analysis.etf.analytics import ETFAnalytics # For type hint
-    from ..data.fetcher import DataFetcher
-    from ..index.calculation import IndexCalculator
 
 
 logger = logging.getLogger(__name__)
@@ -27,10 +26,10 @@ class ETF(IndexFund):
     def __init__(self,
                  fund_id: str,
                  etf_ticker: str,
-                 target_index_definition: 'IndexDefinition',
-                 index_agent: 'IndexCalculator',
-                 portfolio: 'Portfolio',
-                 data_provider: 'DataFetcher',
+                 target_index_definition: IndexDefinition,
+                 index_agent: IndexCalculator,
+                 portfolio: Portfolio,
+                 data_provider: DataFetcher,
                  management_fee_bps: int = 0,
                  creation_unit_size: int = 50000): # Typical size of a creation unit
         """
@@ -95,7 +94,7 @@ class ETF(IndexFund):
                                  start_date: str,
                                  end_date: str,
                                  # benchmark_returns: pd.Series, # Index returns should be fetched or calculated
-                                 analysis_module: 'ETFAnalytics') -> Dict[str, float]:
+                                 analysis_module: ETFAnalytics) -> Dict[str, float]:
         """
         Calculates tracking performance metrics (e.g., tracking error, tracking difference)
         against its benchmark index.
