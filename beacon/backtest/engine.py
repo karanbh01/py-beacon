@@ -85,7 +85,8 @@ class BacktestEngine:
                  target_weights: Optional[Dict[pd.Timestamp, Dict[str, float]]] = None,
                  price_column: str = "CLOSE",
                  transaction_cost_bps: float = 0.0,
-                 modifiers: Optional[List['BacktestModifier']] = None):
+                 modifiers: Optional[List['BacktestModifier']] = None,
+                 portfolio: Optional[Portfolio] = None):
         if target_index_result is not None and target_weights is not None:
             raise ValueError(
                 "Provide either target_index_result or target_weights, not both."
@@ -104,6 +105,7 @@ class BacktestEngine:
 
         self.transaction_cost_bps: float = transaction_cost_bps
         self.modifiers: List['BacktestModifier'] = modifiers or []
+        self.portfolio: Optional[Portfolio] = portfolio
 
         # Normalise weight schedule to a dict
         if target_weights is not None:
@@ -275,8 +277,9 @@ class BacktestEngine:
             f"{self.end_date.date()} with capital {self.initial_capital:.2f}"
         )
 
-        portfolio = Portfolio(portfolio_id="backtest_portfolio",
-                              initial_cash=self.initial_capital)
+        portfolio = self.portfolio or Portfolio(portfolio_id="backtest_portfolio",
+                                                initial_cash=self.initial_capital)
+        self.portfolio = portfolio
 
         trading_days = pd.bdate_range(start=self.start_date, end=self.end_date, freq="B")
         if trading_days.empty:

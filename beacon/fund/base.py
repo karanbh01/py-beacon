@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from ..portfolio.base import Portfolio
     from ..data.fetcher import DataFetcher
     from ..index.calculation import IndexCalculator
+    from ..backtest.result import BacktestResult
 
 
 logger = logging.getLogger(__name__)
@@ -61,15 +62,20 @@ class IndexFund:
 
         # Store target weights, to be updated upon rebalance_to_index
         self._target_weights: Dict['Asset', float] = {}
+        self._last_backtest_result: 'BacktestResult | None' = None
 
 
     def _fetch_price(self, ticker: str, current_date: pd.Timestamp) -> float | None:
         """Helper to fetch a single closing price via data_provider."""
         date_str = current_date.strftime('%Y-%m-%d')
-        price_data = self.data_provider.fetch_prices(ticker, date_str, date_str)
-        if price_data.empty or pd.isna(price_data['Close'].iloc[0]):
+        price_data = self.data_provider.fetch_market_data(ticker, date_str, date_str)
+        if price_data.empty:
             return None
-        return price_data['Close'].iloc[0]
+
+        price_column = "CLOSE" if "CLOSE" in price_data.columns else "Close"
+        if price_column not in price_data.columns or pd.isna(price_data[price_column].iloc[0]):
+            return None
+        return price_data[price_column].iloc[0]
 
     def _update_portfolio_prices(self, current_date: pd.Timestamp) -> None:
         """Fetch prices for all holdings and push them into the portfolio."""
@@ -92,11 +98,8 @@ class IndexFund:
         """
         logger.info(f"[{current_date.strftime('%Y-%m-%d')}] Fund '{self.fund_id}' rebalancing to target index '{self.target_index_definition.index_name}'.")
 
-        # 1. Get the current constituents and weights from the index agent
-        eligible_universe = []
-        if hasattr(self.target_index_definition, 'get_eligible_universe'):
-            pass # Placeholder
-
+        # 1. Get target constituents and weights from the index calculator.
+        eligible_universe = self.index_agent._get_universe(current_date)
         target_constituents = self.index_agent.select_constituents(
             universe=eligible_universe,
             current_date=current_date
@@ -113,55 +116,24 @@ class IndexFund:
             asset.asset_id: w for asset, w in self._target_weights.items()
         }
 
-        # 2. Adjust the fund's portfolio to match these target_weights
+        # 2. Delegate portfolio execution to the backtest engine.
+        from ..backtest.engine import BacktestEngine
+
         self._update_portfolio_prices(current_date)
         current_portfolio_value = self.portfolio.get_total_value()
         if current_portfolio_value == 0 and self.portfolio.cash_balance > 0:
             current_portfolio_value = self.portfolio.cash_balance
 
-        # Sell assets not in target or overweights
-        for asset_id, holding in list(self.portfolio.holdings.items()):
-            current_price = self._fetch_price(asset_id, current_date)
-            if current_price is None:
-                logger.warning(f"[{current_date}] No price for {asset_id} to sell during fund rebalance.")
-                continue
-
-            target_weight = target_weights_by_id.get(asset_id, 0)
-            current_value_of_asset = holding.quantity * current_price
-
-            if target_weight == 0 or (current_value_of_asset > current_portfolio_value * target_weight):
-                quantity_to_sell = holding.quantity
-                if target_weight > 0:
-                    value_to_keep = current_portfolio_value * target_weight
-                    quantity_to_keep = value_to_keep / current_price
-                    quantity_to_sell = holding.quantity - quantity_to_keep
-
-                if quantity_to_sell > 1e-6:
-                    self.portfolio.execute_sell(asset_id, quantity_to_sell, current_price, date=current_date)
-                    logger.debug(f"Fund rebalance: Sold {quantity_to_sell:.2f} of {asset_id}")
-
-        # Buy assets in target or underweights
-        for asset_id, target_weight in target_weights_by_id.items():
-            if target_weight <= 0: continue
-
-            current_price = self._fetch_price(asset_id, current_date)
-            if current_price is None or current_price <= 0:
-                logger.warning(f"[{current_date}] No price for {asset_id} to buy during fund rebalance.")
-                continue
-
-            target_value_of_asset = current_portfolio_value * target_weight
-            current_holding_value = 0
-            if asset_id in self.portfolio.holdings:
-                current_holding_value = self.portfolio.holdings[asset_id].quantity * current_price
-
-            value_to_buy = target_value_of_asset - current_holding_value
-            if value_to_buy > 1e-6:
-                quantity_to_buy = value_to_buy / current_price
-                if self.portfolio.cash_balance >= value_to_buy:
-                    self.portfolio.execute_buy(asset_id, quantity_to_buy, current_price, date=current_date)
-                    logger.debug(f"Fund rebalance: Bought {quantity_to_buy:.2f} of {asset_id}")
-                else:
-                    logger.warning(f"Fund rebalance: Insufficient cash to buy {asset_id} for fund '{self.fund_id}'.")
+        engine = BacktestEngine(
+            start_date=current_date.strftime('%Y-%m-%d'),
+            end_date=current_date.strftime('%Y-%m-%d'),
+            initial_capital=current_portfolio_value,
+            data_provider=self.data_provider,
+            target_weights={current_date: target_weights_by_id},
+            portfolio=self.portfolio,
+        )
+        self._last_backtest_result = engine.run()
+        self.portfolio = engine.portfolio
 
         logger.info(f"Fund '{self.fund_id}' rebalancing completed for {current_date.strftime('%Y-%m-%d')}.")
 
@@ -182,7 +154,7 @@ class IndexFund:
         if self.management_fee_bps > 0:
             daily_fee_rate = (self.management_fee_bps / 10000.0) / 252.0
             fee_amount = nav * daily_fee_rate
-            # NAV before daily fee deduction (placeholder for more sophisticated fee model)
+            nav -= fee_amount
 
         logger.debug(f"Calculated NAV for fund '{self.fund_id}' on {current_date.strftime('%Y-%m-%d')}: {nav:.2f}")
         return nav
