@@ -4,12 +4,11 @@ IndexAssetView — asset view extended with index-specific context
 such as weight history and contribution analysis.
 """
 import pandas as pd
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import Dict, Optional
 
 from ..asset.view import AssetView
 
-if TYPE_CHECKING:
-    from ..data.fetcher import DataFetcher
+from ..data.fetcher import DataFetcher
 
 
 class IndexAssetView(AssetView):
@@ -30,7 +29,7 @@ class IndexAssetView(AssetView):
 
     def __init__(self,
                  asset_id: str,
-                 data_fetcher: 'DataFetcher',
+                 data_fetcher: DataFetcher,
                  weight_snapshots: Dict[pd.Timestamp, Dict[str, float]],
                  index_levels: pd.Series):
         super().__init__(asset_id, data_fetcher)

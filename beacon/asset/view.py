@@ -4,10 +4,9 @@ AssetView — convenience wrapper combining an asset identifier with a DataFetch
 for streamlined data retrieval.
 """
 import pandas as pd
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
-if TYPE_CHECKING:
-    from ..data.fetcher import DataFetcher
+from ..data.fetcher import DataFetcher
 
 
 class AssetView:
@@ -21,7 +20,7 @@ class AssetView:
         The data provider instance.
     """
 
-    def __init__(self, asset_id: str, data_fetcher: 'DataFetcher'):
+    def __init__(self, asset_id: str, data_fetcher: DataFetcher):
         if not asset_id:
             raise ValueError("asset_id cannot be empty.")
         if data_fetcher is None:

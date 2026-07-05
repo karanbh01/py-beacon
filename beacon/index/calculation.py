@@ -5,15 +5,14 @@ constituent selection, weighting, index level calculation, and corporate action 
 """
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Tuple, Optional, Any, TYPE_CHECKING
+from typing import List, Dict, Tuple, Optional, Any
 import logging
 
-# Avoid circular imports for type hinting
-if TYPE_CHECKING:
-    from .constructor import IndexDefinition
-    from ..asset.base import Asset
-    from ..data.fetcher import DataFetcher
-    from ..exceptions import CalculationError
+from .constructor import IndexDefinition
+from ..asset.base import Asset
+from ..data.fetcher import DataFetcher
+from ..exceptions import CalculationError
+from .result import IndexResult
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +24,8 @@ class IndexCalculator:
     through method parameters and return values.
     """
     def __init__(self,
-                 index_definition: 'IndexDefinition',
-                 data_provider: 'DataFetcher'):
+                 index_definition: IndexDefinition,
+                 data_provider: DataFetcher):
         """
         Initializes the IndexCalculator.
 
@@ -39,13 +38,13 @@ class IndexCalculator:
         if not data_provider:
             raise ValueError("data_provider must be provided.")
 
-        self.definition: 'IndexDefinition' = index_definition
-        self.data: 'DataFetcher' = data_provider
+        self.definition: IndexDefinition = index_definition
+        self.data: DataFetcher = data_provider
 
         logger.info(f"IndexCalculator initialized for index '{self.definition.index_name}'.")
 
 
-    def _get_universe(self, date: pd.Timestamp) -> List['Asset']:
+    def _get_universe(self, date: pd.Timestamp) -> List[Asset]:
         """Resolve universe_identifiers from the IndexDefinition into Asset objects.
 
         Uses ``self.data.fetch_reference_data`` to look up metadata for each
@@ -68,7 +67,7 @@ class IndexCalculator:
             )
             return []
 
-        assets: List['Asset'] = []
+        assets: List[Asset] = []
         date_str = date.strftime('%Y-%m-%d')
 
         for identifier in identifiers:
@@ -95,7 +94,7 @@ class IndexCalculator:
         )
         return assets
 
-    def select_constituents(self, universe: List['Asset'], current_date: pd.Timestamp) -> List['Asset']:
+    def select_constituents(self, universe: List[Asset], current_date: pd.Timestamp) -> List[Asset]:
         """
         Selects index constituents from a given universe based on eligibility rules.
 
@@ -107,7 +106,7 @@ class IndexCalculator:
             A list of Asset objects that are eligible for the index.
         """
         logger.info(f"[{current_date.strftime('%Y-%m-%d')}] Selecting constituents for '{self.definition.index_name}'. Universe size: {len(universe)}")
-        eligible_constituents: List['Asset'] = []
+        eligible_constituents: List[Asset] = []
         if not universe:
             logger.warning("Constituent selection called with an empty universe.")
             return []
@@ -132,7 +131,7 @@ class IndexCalculator:
         logger.info(f"Selected {len(eligible_constituents)} constituents for '{self.definition.index_name}'.")
         return eligible_constituents
 
-    def calculate_constituent_weights(self, constituents: List['Asset'], current_date: pd.Timestamp) -> Dict['Asset', float]:
+    def calculate_constituent_weights(self, constituents: List[Asset], current_date: pd.Timestamp) -> Dict[Asset, float]:
         """
         Calculates the weights for the given constituents based on the index's weighting scheme.
 
@@ -154,7 +153,6 @@ class IndexCalculator:
                 constituents, current_date, self.data
             )
         except Exception as e:
-            from ..beacon_exceptions import CalculationError # Local import
             logger.error(f"Error applying weighting scheme {self.definition.weighting_scheme.scheme_name}: {e}")
             raise CalculationError(calculation_name=f"WeightingScheme-{self.definition.weighting_scheme.scheme_name}", details=str(e))
 
@@ -183,11 +181,9 @@ class IndexCalculator:
             The initial divisor as a float.
         """
         if initial_total_market_value <= 0:
-            from ..beacon_exceptions import CalculationError # Local import
             logger.error("Initial total market value must be positive to initialize divisor.")
             raise CalculationError("DivisorInitialization", "Initial total market value is non-positive.")
         if self.definition.base_value <= 0:
-            from ..beacon_exceptions import CalculationError # Local import
             logger.error("Base index value must be positive to initialize divisor.")
             raise CalculationError("DivisorInitialization", "Base index value is non-positive.")
 
@@ -237,8 +233,8 @@ class IndexCalculator:
         return new_divisor
 
     def _get_constituent_market_values(self,
-                                       constituents_with_weights: Dict['Asset', float],
-                                       current_date: pd.Timestamp) -> Dict['Asset', float]:
+                                       constituents_with_weights: Dict[Asset, float],
+                                       current_date: pd.Timestamp) -> Dict[Asset, float]:
         """
         Helper to get current market values for constituents.
         Market Value = Price * Shares * FX_Rate_to_Index_Currency * (FreeFloat if applicable)
@@ -248,7 +244,7 @@ class IndexCalculator:
         """
         from ..asset.equity import Equity # Specific check for equity attributes
 
-        constituent_market_values: Dict['Asset', float] = {}
+        constituent_market_values: Dict[Asset, float] = {}
 
         for asset, weight in constituents_with_weights.items():
             if not isinstance(asset, Equity):
@@ -303,8 +299,8 @@ class IndexCalculator:
 
     def calculate_index_level(self,
                               current_date: pd.Timestamp,
-                              constituents: List['Asset'],
-                              weights: Dict['Asset', float],
+                              constituents: List[Asset],
+                              weights: Dict[Asset, float],
                               divisor: float,
                               previous_index_level: float
                              ) -> Tuple[float, float]:
@@ -323,7 +319,6 @@ class IndexCalculator:
             A tuple of (new_index_level, divisor).
         """
         if divisor <= 0:
-            from ..beacon_exceptions import CalculationError # Local import
             logger.error(f"Invalid divisor: {divisor}. Cannot calculate index level.")
             raise CalculationError("IndexLevelCalculation", f"Invalid divisor: {divisor}")
 
@@ -354,7 +349,7 @@ class IndexCalculator:
 
     def handle_corporate_action(self,
                                 action: Dict[str, Any],
-                                constituents: List['Asset'],
+                                constituents: List[Asset],
                                 current_total_market_value_before_ca: float,
                                 current_divisor_before_ca: float
                                ) -> float:
@@ -506,7 +501,7 @@ class IndexCalculator:
     #todo: run() is currently iterating through all dates, this function should be vectorised for efficiency.
     def run(self,
             start_date: Optional[str] = None,
-            end_date: Optional[str] = None) -> 'IndexResult':
+            end_date: Optional[str] = None) -> IndexResult:
         """Run the full index calculation over a date range.
 
         Iterates through business days from *start_date* to *end_date*,
@@ -533,8 +528,6 @@ class IndexCalculator:
         Raises:
             ValueError: If *end_date* is not provided or precedes the base date.
         """
-        from .result import IndexResult
-
         base_date = self.definition.base_date
         pd_start = pd.Timestamp(start_date) if start_date else base_date
         if end_date is None:
@@ -577,8 +570,8 @@ class IndexCalculator:
         weight_snapshots: Dict[pd.Timestamp, Dict[str, float]] = {}
 
         # Running state
-        constituents: List['Asset'] = []
-        weights: Dict['Asset', float] = {}
+        constituents: List[Asset] = []
+        weights: Dict[Asset, float] = {}
         divisor: float = 0.0
         level: float = self.definition.base_value
 
@@ -669,8 +662,8 @@ class IndexCalculator:
 
     def run_daily_calculation(self,
                               current_date: pd.Timestamp,
-                              constituents: List['Asset'],
-                              weights: Dict['Asset', float],
+                              constituents: List[Asset],
+                              weights: Dict[Asset, float],
                               previous_index_level: float,
                               previous_divisor: float
                              ) -> Tuple[float, float]:

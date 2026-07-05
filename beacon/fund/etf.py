@@ -3,18 +3,16 @@
 Module defining the ETF (Exchange Traded Fund) class, inheriting from IndexFund.
 """
 import pandas as pd
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional
 
 from .base import IndexFund
 import logging
 
-# Avoid circular imports for type hinting
-if TYPE_CHECKING:
-    from ..index.constructor import IndexDefinition
-    from ..portfolio.base import Portfolio
-    from ..backtest.result import BacktestResult
-    from ..data.fetcher import DataFetcher
-    from ..index.calculation import IndexCalculator
+from ..index.constructor import IndexDefinition
+from ..portfolio.base import Portfolio
+from ..backtest.result import BacktestResult
+from ..data.fetcher import DataFetcher
+from ..index.calculation import IndexCalculator
 
 
 logger = logging.getLogger(__name__)
@@ -27,10 +25,10 @@ class ETF(IndexFund):
     def __init__(self,
                  fund_id: str,
                  etf_ticker: str,
-                 target_index_definition: 'IndexDefinition',
-                 index_agent: 'IndexCalculator',
-                 portfolio: 'Portfolio',
-                 data_provider: 'DataFetcher',
+                 target_index_definition: IndexDefinition,
+                 index_agent: IndexCalculator,
+                 portfolio: Portfolio,
+                 data_provider: DataFetcher,
                  management_fee_bps: int = 0,
                  creation_unit_size: int = 50000): # Typical size of a creation unit
         """
@@ -91,7 +89,7 @@ class ETF(IndexFund):
         return self.market_price
 
 
-    def get_tracking_performance(self, result: 'BacktestResult') -> Dict[str, float]:
+    def get_tracking_performance(self, result: BacktestResult) -> Dict[str, float]:
         """Calculate tracking metrics from a completed backtest.
 
         Compares the backtest's ``portfolio_nav`` against the target index's

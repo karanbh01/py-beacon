@@ -3,13 +3,12 @@
 IndexResult — output container for index calculation results.
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional
 
 import pandas as pd
 
-if TYPE_CHECKING:
-    from ..data.fetcher import DataFetcher
-    from .asset_view import IndexAssetView
+from ..data.fetcher import DataFetcher
+from .asset_view import IndexAssetView
 
 
 @dataclass
@@ -34,14 +33,14 @@ class IndexResult:
     divisor_history: pd.Series
     constituent_snapshots: Dict[pd.Timestamp, List[str]]
     weight_snapshots: Dict[pd.Timestamp, Dict[str, float]]
-    _data_fetcher: Optional['DataFetcher'] = field(default=None, repr=False, compare=False)
+    _data_fetcher: Optional[DataFetcher] = field(default=None, repr=False, compare=False)
 
-    def with_data(self, data_fetcher: 'DataFetcher') -> 'IndexResult':
+    def with_data(self, data_fetcher: DataFetcher) -> 'IndexResult':
         """Bind a DataFetcher for asset-level queries. Returns self for chaining."""
         self._data_fetcher = data_fetcher
         return self
 
-    def asset(self, asset_id: str) -> 'IndexAssetView':
+    def asset(self, asset_id: str) -> IndexAssetView:
         """Return an IndexAssetView for a constituent.
 
         Parameters
@@ -74,7 +73,6 @@ class IndexResult:
                 f"Asset '{asset_id}' not found in any constituent snapshot."
             )
 
-        from .asset_view import IndexAssetView
         return IndexAssetView(
             asset_id=asset_id,
             data_fetcher=self._data_fetcher,

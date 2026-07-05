@@ -5,13 +5,12 @@ BacktestResult — output container for backtest runs.
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional
 
-if TYPE_CHECKING:
-    from ..data.fetcher import DataFetcher
-    from ..index.result import IndexResult
-    from ..portfolio.base import Transaction
-    from .asset_view import BacktestAssetView
+from ..data.fetcher import DataFetcher
+from ..index.result import IndexResult
+from ..portfolio.base import Transaction
+from .asset_view import BacktestAssetView
 
 
 @dataclass
@@ -39,17 +38,17 @@ class BacktestResult:
     initial_capital: float
     portfolio_nav: pd.Series
     cash_history: pd.Series
-    transactions: List['Transaction']
+    transactions: List[Transaction]
     actual_weight_history: pd.DataFrame
-    target_index_result: Optional['IndexResult'] = None
-    _data_fetcher: Optional['DataFetcher'] = field(default=None, repr=False, compare=False)
+    target_index_result: Optional[IndexResult] = None
+    _data_fetcher: Optional[DataFetcher] = field(default=None, repr=False, compare=False)
 
-    def with_data(self, data_fetcher: 'DataFetcher') -> 'BacktestResult':
+    def with_data(self, data_fetcher: DataFetcher) -> 'BacktestResult':
         """Bind a DataFetcher for asset-level queries. Returns self for chaining."""
         self._data_fetcher = data_fetcher
         return self
 
-    def asset(self, asset_id: str) -> 'BacktestAssetView':
+    def asset(self, asset_id: str) -> BacktestAssetView:
         """Return a BacktestAssetView for a held asset.
 
         Parameters
@@ -83,7 +82,6 @@ class BacktestResult:
         if self.target_index_result is not None:
             target_snapshots = self.target_index_result.weight_snapshots
 
-        from .asset_view import BacktestAssetView
         return BacktestAssetView(
             asset_id=asset_id,
             data_fetcher=self._data_fetcher,

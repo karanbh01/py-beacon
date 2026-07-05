@@ -4,13 +4,11 @@ BacktestAssetView — asset view extended with backtest-specific context
 such as actual weight history, holding periods, and transaction analysis.
 """
 import pandas as pd
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional
 
 from ..asset.view import AssetView
-
-if TYPE_CHECKING:
-    from ..data.fetcher import DataFetcher
-    from ..portfolio.base import Transaction
+from ..data.fetcher import DataFetcher
+from ..portfolio.base import Transaction
 
 
 class BacktestAssetView(AssetView):
@@ -35,10 +33,10 @@ class BacktestAssetView(AssetView):
 
     def __init__(self,
                  asset_id: str,
-                 data_fetcher: 'DataFetcher',
+                 data_fetcher: DataFetcher,
                  actual_weight_history: pd.DataFrame,
                  portfolio_nav: pd.Series,
-                 transactions: List['Transaction'],
+                 transactions: List[Transaction],
                  target_weight_snapshots: Optional[Dict[pd.Timestamp, Dict[str, float]]] = None):
         super().__init__(asset_id, data_fetcher)
         self._actual_weight_history = actual_weight_history

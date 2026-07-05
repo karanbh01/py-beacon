@@ -3,17 +3,16 @@
 Module defining the IndexFund class.
 """
 import pandas as pd
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 import logging
 
-# Avoid circular imports for type hinting
-if TYPE_CHECKING:
-    from ..index.constructor import IndexDefinition
-    from ..portfolio.base import Portfolio
-    from ..data.fetcher import DataFetcher
-    from ..index.calculation import IndexCalculator
-    from ..index.result import IndexResult
-    from ..backtest.result import BacktestResult
+from ..index.constructor import IndexDefinition
+from ..portfolio.base import Portfolio
+from ..data.fetcher import DataFetcher
+from ..index.calculation import IndexCalculator
+from ..index.result import IndexResult
+from ..backtest.result import BacktestResult
+from ..backtest.engine import BacktestEngine
 
 
 logger = logging.getLogger(__name__)
@@ -31,10 +30,10 @@ class IndexFund:
 
     def __init__(self,
                  fund_id: str,
-                 target_index_definition: 'IndexDefinition',
-                 index_agent: 'IndexCalculator',
-                 portfolio: 'Portfolio',
-                 data_provider: 'DataFetcher',
+                 target_index_definition: IndexDefinition,
+                 index_agent: IndexCalculator,
+                 portfolio: Portfolio,
+                 data_provider: DataFetcher,
                  management_fee_bps: int = 0):
         """
         Initializes an IndexFund.
@@ -64,34 +63,34 @@ class IndexFund:
             raise ValueError("management_fee_bps cannot be negative.")
 
         self.fund_id: str = fund_id
-        self.target_index_definition: 'IndexDefinition' = target_index_definition
-        self.index_agent: 'IndexCalculator' = index_agent
-        self.portfolio: 'Portfolio' = portfolio
-        self.data_provider: 'DataFetcher' = data_provider
+        self.target_index_definition: IndexDefinition = target_index_definition
+        self.index_agent: IndexCalculator = index_agent
+        self.portfolio: Portfolio = portfolio
+        self.data_provider: DataFetcher = data_provider
         self.management_fee_bps: int = management_fee_bps  # e.g., 20 for 0.20%
 
         # Cached outputs of the composed calculator + engine pipeline.
-        self._index_result: Optional['IndexResult'] = None
-        self._backtest_result: Optional['BacktestResult'] = None
+        self._index_result: Optional[IndexResult] = None
+        self._backtest_result: Optional[BacktestResult] = None
 
     # ------------------------------------------------------------------
     # Composed pipeline
     # ------------------------------------------------------------------
 
     @property
-    def index_result(self) -> Optional['IndexResult']:
+    def index_result(self) -> Optional[IndexResult]:
         """The target :class:`IndexResult` from the most recent run, if any."""
         return self._index_result
 
     @property
-    def backtest_result(self) -> Optional['BacktestResult']:
+    def backtest_result(self) -> Optional[BacktestResult]:
         """The :class:`BacktestResult` from the most recent run, if any."""
         return self._backtest_result
 
     def run_backtest(self,
                      start_date: Optional[str] = None,
                      end_date: Optional[str] = None,
-                     transaction_cost_bps: float = 0.0) -> 'BacktestResult':
+                     transaction_cost_bps: float = 0.0) -> BacktestResult:
         """Compute target weights and simulate the tracking portfolio.
 
         Runs the index calculator to produce the target weight schedule, then
@@ -108,8 +107,6 @@ class IndexFund:
         Returns:
             The BacktestResult produced by the engine.
         """
-        from ..backtest.engine import BacktestEngine
-
         if end_date is None:
             raise ValueError("end_date must be provided to run the fund backtest.")
 
