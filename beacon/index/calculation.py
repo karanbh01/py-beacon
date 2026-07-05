@@ -338,9 +338,6 @@ class IndexCalculator:
 
         new_index_level = current_total_adjusted_market_value / divisor
 
-        logger.debug(f"[{current_date.strftime('%Y-%m-%d')}] Index '{self.definition.index_name}': "
-                     f"Total Market Value = {current_total_adjusted_market_value:.2f}, Divisor = {divisor:.4f}, "
-                     f"New Level = {new_index_level:.4f}")
         return new_index_level, divisor
 
 
@@ -680,8 +677,6 @@ class IndexCalculator:
         Returns:
             Tuple of (new_index_level, new_divisor).
         """
-        logger.debug(f"--- Daily Calculation for {self.definition.index_name} on {current_date.strftime('%Y-%m-%d')} ---")
-
         divisor = previous_divisor
 
         if divisor is None or divisor <= 0:
@@ -708,5 +703,4 @@ class IndexCalculator:
             previous_index_level=previous_index_level,
         )
 
-        logger.debug(f"--- End Daily Calculation for {self.definition.index_name} on {current_date.strftime('%Y-%m-%d')} --- Level: {new_level:.4f}")
         return new_level, final_divisor

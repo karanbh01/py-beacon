@@ -66,7 +66,6 @@ class Holding:
             return
         self.current_price = current_price
         self.market_value = self.quantity * self.current_price
-        logger.debug(f"Holding for {self.asset_id} updated: Qty={self.quantity}, Price={self.current_price}, MV={self.market_value}")
 
 
 class Portfolio:
@@ -138,7 +137,7 @@ class Portfolio:
                 asset_id=asset_id, quantity=quantity, average_cost_price=price
             )
 
-        logger.info(f"BUY: {quantity} of {asset_id} @ {price:.2f}. Cash: {self.cash_balance:.2f}")
+        logger.debug(f"BUY: {quantity} of {asset_id} @ {price:.2f}. Cash: {self.cash_balance:.2f}")
 
         self.transactions.append(
             Transaction(asset_id, quantity, price, 'BUY', tx_date, cost)
@@ -180,10 +179,10 @@ class Portfolio:
         self.cash_balance += (trade_value - cost)
 
         self.holdings[asset_id].quantity -= quantity
-        logger.info(f"SELL: {quantity} of {asset_id} @ {price:.2f}. Cash: {self.cash_balance:.2f}")
+        logger.debug(f"SELL: {quantity} of {asset_id} @ {price:.2f}. Cash: {self.cash_balance:.2f}")
 
         if self.holdings[asset_id].quantity < 1e-9:
-            logger.info(f"Fully sold asset: {asset_id}. Removing from holdings.")
+            logger.debug(f"Fully sold asset: {asset_id}. Removing from holdings.")
             del self.holdings[asset_id]
 
         self.transactions.append(
@@ -229,8 +228,6 @@ class Portfolio:
                                "It will not be included in total portfolio value calculation based on market prices.")
 
         total_portfolio_value = total_holdings_value + self.cash_balance
-        logger.debug(f"Total portfolio value for '{self.portfolio_id}': "
-                     f"{total_portfolio_value:.2f} (Holdings: {total_holdings_value:.2f}, Cash: {self.cash_balance:.2f})")
         return total_portfolio_value
 
     def get_weights(self) -> Dict[str, float]:
