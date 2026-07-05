@@ -8,4 +8,5 @@ Beacon (***Be***t***a*** ***Con***structor) is a python package that serves as a
 2. Index Calculation Engine
 3. Attribution and Risk Analytics
 4. Visualisation
+5. Delta-1 Derivatives
 
