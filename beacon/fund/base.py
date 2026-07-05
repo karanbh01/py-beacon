@@ -3,7 +3,7 @@
 Module defining the IndexFund class.
 """
 import pandas as pd
-from typing import Dict, Any, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 import logging
 
 # Avoid circular imports for type hinting
@@ -12,18 +12,27 @@ if TYPE_CHECKING:
     from ..portfolio.base import Portfolio
     from ..data.fetcher import DataFetcher
     from ..index.calculation import IndexCalculator
+    from ..index.result import IndexResult
+    from ..backtest.result import BacktestResult
 
 
 logger = logging.getLogger(__name__)
 
+
 class IndexFund:
+    """An index fund that tracks a target index.
+
+    The fund composes an :class:`~beacon.index.calculation.IndexCalculator`
+    (to compute the target weight schedule) and a
+    :class:`~beacon.backtest.engine.BacktestEngine` (to simulate the tracking
+    portfolio). It contains no buy/sell logic of its own — rebalancing and
+    portfolio accounting are delegated entirely to the backtest engine.
     """
-    Represents an index fund that aims to track a target index.
-    """
+
     def __init__(self,
                  fund_id: str,
-                 target_index_definition: 'IndexDefinition', # The static definition
-                 index_agent: 'IndexCalculator', # The agent to calculate weights for target_index
+                 target_index_definition: 'IndexDefinition',
+                 index_agent: 'IndexCalculator',
                  portfolio: 'Portfolio',
                  data_provider: 'DataFetcher',
                  management_fee_bps: int = 0):
@@ -33,9 +42,11 @@ class IndexFund:
         Args:
             fund_id: A unique identifier for the fund.
             target_index_definition: The definition of the index the fund aims to track.
-            index_agent: The calculation agent associated with the target_index_definition.
-                         Used to get target weights.
-            portfolio: The Portfolio object representing the fund's holdings.
+            index_agent: The IndexCalculator used to compute the target index's
+                         weight schedule.
+            portfolio: The Portfolio object seeding the fund's capital. Its cash
+                       balance is used as the backtest engine's initial capital;
+                       the fund no longer mutates this portfolio directly.
             data_provider: DataFetcher instance for market data.
             management_fee_bps: The annual management fee in basis points (e.g., 10 bps = 0.1%).
         """
@@ -57,135 +68,156 @@ class IndexFund:
         self.index_agent: 'IndexCalculator' = index_agent
         self.portfolio: 'Portfolio' = portfolio
         self.data_provider: 'DataFetcher' = data_provider
-        self.management_fee_bps: int = management_fee_bps # e.g., 20 for 0.20%
+        self.management_fee_bps: int = management_fee_bps  # e.g., 20 for 0.20%
 
-        # Store target weights, to be updated upon rebalance_to_index
-        self._target_weights: Dict['Asset', float] = {}
+        # Cached outputs of the composed calculator + engine pipeline.
+        self._index_result: Optional['IndexResult'] = None
+        self._backtest_result: Optional['BacktestResult'] = None
 
+    # ------------------------------------------------------------------
+    # Composed pipeline
+    # ------------------------------------------------------------------
 
-    def _fetch_price(self, ticker: str, current_date: pd.Timestamp) -> float | None:
-        """Helper to fetch a single closing price via data_provider."""
-        date_str = current_date.strftime('%Y-%m-%d')
-        price_data = self.data_provider.fetch_prices(ticker, date_str, date_str)
-        if price_data.empty or pd.isna(price_data['Close'].iloc[0]):
-            return None
-        return price_data['Close'].iloc[0]
+    @property
+    def index_result(self) -> Optional['IndexResult']:
+        """The target :class:`IndexResult` from the most recent run, if any."""
+        return self._index_result
 
-    def _update_portfolio_prices(self, current_date: pd.Timestamp) -> None:
-        """Fetch prices for all holdings and push them into the portfolio."""
-        prices: Dict[str, float] = {}
-        for asset_id in self.portfolio.holdings:
-            price = self._fetch_price(asset_id, current_date)
-            if price is not None:
-                prices[asset_id] = price
-        self.portfolio.update_prices(prices)
+    @property
+    def backtest_result(self) -> Optional['BacktestResult']:
+        """The :class:`BacktestResult` from the most recent run, if any."""
+        return self._backtest_result
 
-    def rebalance_to_index(self, current_date: pd.Timestamp) -> None:
-        """
-        Adjusts the fund's internal portfolio to match the target_index weights.
-        This method would determine the target weights from the index_agent
-        and then generate transactions in its portfolio to align.
-        For simplicity, this assumes perfect replication and immediate execution.
+    def run_backtest(self,
+                     start_date: Optional[str] = None,
+                     end_date: Optional[str] = None,
+                     transaction_cost_bps: float = 0.0) -> 'BacktestResult':
+        """Compute target weights and simulate the tracking portfolio.
+
+        Runs the index calculator to produce the target weight schedule, then
+        hands that schedule to a :class:`BacktestEngine` which manages its own
+        portfolio. The resulting :class:`BacktestResult` is cached and returned.
 
         Args:
-            current_date: The date on which rebalancing occurs.
+            start_date: First simulation date (YYYY-MM-DD). Defaults to the
+                target index's base date.
+            end_date: Last simulation date (YYYY-MM-DD). Required.
+            transaction_cost_bps: Trading cost applied by the engine to each
+                trade's notional. Distinct from the fund's management fee.
+
+        Returns:
+            The BacktestResult produced by the engine.
         """
-        logger.info(f"[{current_date.strftime('%Y-%m-%d')}] Fund '{self.fund_id}' rebalancing to target index '{self.target_index_definition.index_name}'.")
+        from ..backtest.engine import BacktestEngine
 
-        # 1. Get the current constituents and weights from the index agent
-        eligible_universe = []
-        if hasattr(self.target_index_definition, 'get_eligible_universe'):
-            pass # Placeholder
+        if end_date is None:
+            raise ValueError("end_date must be provided to run the fund backtest.")
 
-        target_constituents = self.index_agent.select_constituents(
-            universe=eligible_universe,
-            current_date=current_date
-        )
-        self._target_weights = self.index_agent.calculate_constituent_weights(
-            constituents=target_constituents,
-            current_date=current_date
+        base_date = self.target_index_definition.base_date
+        start = start_date or base_date.strftime('%Y-%m-%d')
+
+        logger.info(
+            f"Fund '{self.fund_id}': computing target weights for "
+            f"'{self.target_index_definition.index_name}' from {start} to {end_date}."
         )
 
-        logger.debug(f"Target weights for '{self.fund_id}': {{asset.asset_id: w for asset, w in self._target_weights.items()}}")
+        # 1. Target weight schedule from the index calculator.
+        self._index_result = self.index_agent.run(start_date=start, end_date=end_date)
 
-        # Build target weights keyed by asset_id string
-        target_weights_by_id: Dict[str, float] = {
-            asset.asset_id: w for asset, w in self._target_weights.items()
-        }
+        # 2. Simulate the tracking portfolio with the backtest engine.
+        engine = BacktestEngine(
+            start_date=start,
+            end_date=end_date,
+            initial_capital=self.portfolio.cash_balance,
+            data_provider=self.data_provider,
+            target_index_result=self._index_result,
+            transaction_cost_bps=transaction_cost_bps,
+        )
+        self._backtest_result = engine.run()
 
-        # 2. Adjust the fund's portfolio to match these target_weights
-        self._update_portfolio_prices(current_date)
-        current_portfolio_value = self.portfolio.get_total_value()
-        if current_portfolio_value == 0 and self.portfolio.cash_balance > 0:
-            current_portfolio_value = self.portfolio.cash_balance
+        logger.info(
+            f"Fund '{self.fund_id}': backtest complete "
+            f"({len(self._backtest_result.portfolio_nav)} days, "
+            f"{len(self._backtest_result.transactions)} transactions)."
+        )
+        return self._backtest_result
 
-        # Sell assets not in target or overweights
-        for asset_id, holding in list(self.portfolio.holdings.items()):
-            current_price = self._fetch_price(asset_id, current_date)
-            if current_price is None:
-                logger.warning(f"[{current_date}] No price for {asset_id} to sell during fund rebalance.")
-                continue
+    def rebalance_to_index(self, current_date: pd.Timestamp) -> None:
+        """Align the fund's tracking portfolio with the target index.
 
-            target_weight = target_weights_by_id.get(asset_id, 0)
-            current_value_of_asset = holding.quantity * current_price
+        Thin wrapper that ensures the composed calculator + engine pipeline has
+        been run through *current_date*. All weight computation is delegated to
+        the :class:`IndexCalculator` and all trading to the
+        :class:`BacktestEngine`; this class performs no buy/sell logic itself.
 
-            if target_weight == 0 or (current_value_of_asset > current_portfolio_value * target_weight):
-                quantity_to_sell = holding.quantity
-                if target_weight > 0:
-                    value_to_keep = current_portfolio_value * target_weight
-                    quantity_to_keep = value_to_keep / current_price
-                    quantity_to_sell = holding.quantity - quantity_to_keep
+        Args:
+            current_date: The date through which to simulate.
+        """
+        self._ensure_backtest(pd.Timestamp(current_date))
 
-                if quantity_to_sell > 1e-6:
-                    self.portfolio.execute_sell(asset_id, quantity_to_sell, current_price, date=current_date)
-                    logger.debug(f"Fund rebalance: Sold {quantity_to_sell:.2f} of {asset_id}")
+    def _ensure_backtest(self, through_date: pd.Timestamp) -> None:
+        """Run (or re-run) the backtest so it covers *through_date*."""
+        base_date = self.target_index_definition.base_date
+        if through_date < base_date:
+            # Nothing to simulate before the index exists.
+            return
 
-        # Buy assets in target or underweights
-        for asset_id, target_weight in target_weights_by_id.items():
-            if target_weight <= 0: continue
+        nav = self._backtest_result.portfolio_nav if self._backtest_result else None
+        if nav is not None and not nav.empty and nav.index[-1] >= through_date:
+            return  # Cached result already covers the requested date.
 
-            current_price = self._fetch_price(asset_id, current_date)
-            if current_price is None or current_price <= 0:
-                logger.warning(f"[{current_date}] No price for {asset_id} to buy during fund rebalance.")
-                continue
+        self.run_backtest(end_date=through_date.strftime('%Y-%m-%d'))
 
-            target_value_of_asset = current_portfolio_value * target_weight
-            current_holding_value = 0
-            if asset_id in self.portfolio.holdings:
-                current_holding_value = self.portfolio.holdings[asset_id].quantity * current_price
-
-            value_to_buy = target_value_of_asset - current_holding_value
-            if value_to_buy > 1e-6:
-                quantity_to_buy = value_to_buy / current_price
-                if self.portfolio.cash_balance >= value_to_buy:
-                    self.portfolio.execute_buy(asset_id, quantity_to_buy, current_price, date=current_date)
-                    logger.debug(f"Fund rebalance: Bought {quantity_to_buy:.2f} of {asset_id}")
-                else:
-                    logger.warning(f"Fund rebalance: Insufficient cash to buy {asset_id} for fund '{self.fund_id}'.")
-
-        logger.info(f"Fund '{self.fund_id}' rebalancing completed for {current_date.strftime('%Y-%m-%d')}.")
-
+    # ------------------------------------------------------------------
+    # NAV
+    # ------------------------------------------------------------------
 
     def calculate_nav(self, current_date: pd.Timestamp) -> float:
-        """
-        Calculates the Net Asset Value (NAV) of the fund.
+        """Return the fund's Net Asset Value as of *current_date*.
+
+        The gross NAV is read from the backtest-engine-managed portfolio; the
+        accrued management fee is then deducted.
 
         Args:
             current_date: The date for which to calculate NAV.
 
         Returns:
-            The total Net Asset Value of the fund's portfolio.
+            The fee-adjusted Net Asset Value.
         """
-        self._update_portfolio_prices(current_date)
-        nav = self.portfolio.get_total_value()
+        ts = pd.Timestamp(current_date)
+        self._ensure_backtest(ts)
 
-        if self.management_fee_bps > 0:
-            daily_fee_rate = (self.management_fee_bps / 10000.0) / 252.0
-            fee_amount = nav * daily_fee_rate
-            # NAV before daily fee deduction (placeholder for more sophisticated fee model)
+        if self._backtest_result is None or self._backtest_result.portfolio_nav.empty:
+            # Date precedes the simulation window — only seed capital exists.
+            return float(self.portfolio.cash_balance)
 
-        logger.debug(f"Calculated NAV for fund '{self.fund_id}' on {current_date.strftime('%Y-%m-%d')}: {nav:.2f}")
-        return nav
+        nav_series = self._backtest_result.portfolio_nav
+        on_or_before = nav_series.index[nav_series.index <= ts]
+        if len(on_or_before) == 0:
+            return float(self.portfolio.cash_balance)
+
+        as_of = on_or_before[-1]
+        gross_nav = float(nav_series.loc[as_of])
+        elapsed_days = nav_series.index.get_loc(as_of)  # 0 on the first day
+
+        net_nav = self._apply_management_fee(gross_nav, elapsed_days)
+        logger.debug(
+            f"NAV for fund '{self.fund_id}' on {ts.strftime('%Y-%m-%d')}: "
+            f"gross={gross_nav:.2f}, net={net_nav:.2f}"
+        )
+        return net_nav
+
+    def _apply_management_fee(self, gross_nav: float, elapsed_days: int) -> float:
+        """Deduct the accrued management fee from *gross_nav*.
+
+        The annual fee is accrued daily (ACT/252) and compounded over the number
+        of elapsed days since the start of the simulation.
+        """
+        if self.management_fee_bps <= 0 or elapsed_days <= 0:
+            return gross_nav
+        daily_fee_rate = (self.management_fee_bps / 10000.0) / 252.0
+        fee_factor = (1.0 - daily_fee_rate) ** elapsed_days
+        return gross_nav * fee_factor
 
     def __repr__(self) -> str:
         return (f"IndexFund(fund_id='{self.fund_id}', "
