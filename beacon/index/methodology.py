@@ -15,6 +15,10 @@ from ..data.fetcher import DataFetcher
 
 logger = logging.getLogger(__name__)
 
+# Market-data column names read by the rules/schemes below.
+_PRICE_COLUMN = "CLOSE"
+_VOLUME_COLUMN = "VOLUME"
+
 class EligibilityRuleBase(ABC):
     """
     Abstract base class for an eligibility rule.
@@ -71,11 +75,11 @@ class MarketCapRule(EligibilityRuleBase):
             return True # Or False, depending on how non-equities should be handled by this rule
 
         try:
-            price_df = market_data_provider.fetch_prices(asset.ticker, current_date.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
-            if price_df.empty or 'Adj Close' not in price_df.columns or pd.isna(price_df['Adj Close'].iloc[0]):
+            price_df = market_data_provider.fetch_market_data(asset.ticker, current_date.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
+            if price_df.empty or _PRICE_COLUMN not in price_df.columns or pd.isna(price_df[_PRICE_COLUMN].iloc[0]):
                 logger.warning(f"MarketCapRule: Could not fetch price for {asset.ticker} on {current_date.strftime('%Y-%m-%d')}.")
                 return False
-            current_price = price_df['Adj Close'].iloc[0]
+            current_price = price_df[_PRICE_COLUMN].iloc[0]
 
             shares_outstanding = market_data_provider.fetch_shares_outstanding(asset.ticker, current_date.strftime('%Y-%m-%d'))
             if shares_outstanding is None or shares_outstanding <= 0:
@@ -117,33 +121,34 @@ class LiquidityRule(EligibilityRuleBase):
         end_lookback = current_date.strftime('%Y-%m-%d')
         
         try:
-            price_df = market_data_provider.fetch_prices(asset.ticker, start_lookback, end_lookback)
+            price_df = market_data_provider.fetch_market_data(asset.ticker, start_lookback, end_lookback)
             if price_df.empty or price_df.shape[0] < (self.lookback_days / 2): # Ensure some data
                  logger.warning(f"LiquidityRule: Insufficient historical price data for {asset.ticker} for period ending {end_lookback}.")
                  return False
-            
+
             # Ensure we have data up to current_date or shortly before
-            price_df = price_df[price_df['Date'] <= current_date].tail(self.lookback_days)
+            # (single-identifier market data is indexed by date).
+            price_df = price_df[price_df.index <= current_date].tail(self.lookback_days)
             if price_df.shape[0] < (self.lookback_days * 0.8): # Heuristic: need at least 80% of lookback days
                 logger.warning(f"LiquidityRule: Not enough trading days ({price_df.shape[0]}/{self.lookback_days}) for {asset.ticker} for ADV calc.")
                 return False
 
 
             if self.min_avg_daily_volume is not None:
-                if 'Volume' not in price_df.columns or price_df['Volume'].isnull().all():
+                if _VOLUME_COLUMN not in price_df.columns or price_df[_VOLUME_COLUMN].isnull().all():
                     logger.warning(f"LiquidityRule: Volume data missing for {asset.ticker}.")
                     return False
-                avg_daily_volume = price_df['Volume'].mean()
+                avg_daily_volume = price_df[_VOLUME_COLUMN].mean()
                 if avg_daily_volume < self.min_avg_daily_volume:
                     logger.debug(f"LiquidityRule: {asset.ticker} (ADV: {avg_daily_volume:.0f}) below min volume {self.min_avg_daily_volume:.0f}")
                     return False
 
             if self.min_avg_daily_value is not None:
-                if 'Adj Close' not in price_df.columns or 'Volume' not in price_df.columns or \
-                   price_df['Adj Close'].isnull().all() or price_df['Volume'].isnull().all():
+                if _PRICE_COLUMN not in price_df.columns or _VOLUME_COLUMN not in price_df.columns or \
+                   price_df[_PRICE_COLUMN].isnull().all() or price_df[_VOLUME_COLUMN].isnull().all():
                     logger.warning(f"LiquidityRule: Price or Volume data missing for ADTV calculation for {asset.ticker}.")
                     return False
-                avg_daily_value = (price_df['Adj Close'] * price_df['Volume']).mean()
+                avg_daily_value = (price_df[_PRICE_COLUMN] * price_df[_VOLUME_COLUMN]).mean()
                 if avg_daily_value < self.min_avg_daily_value:
                     logger.debug(f"LiquidityRule: {asset.ticker} (ADTV: {avg_daily_value:.2f}) below min value {self.min_avg_daily_value:.2f}")
                     return False
@@ -214,12 +219,12 @@ class MarketCapWeighted(WeightingSchemeBase):
                 logger.warning(f"MarketCapWeighted: Asset {asset.asset_id} is not Equity. Skipping.")
                 continue
             try:
-                price_df = market_data_provider.fetch_prices(asset.ticker, current_date.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
-                if price_df.empty or pd.isna(price_df['Adj Close'].iloc[0]):
+                price_df = market_data_provider.fetch_market_data(asset.ticker, current_date.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
+                if price_df.empty or _PRICE_COLUMN not in price_df.columns or pd.isna(price_df[_PRICE_COLUMN].iloc[0]):
                     logger.warning(f"MarketCapWeighted: No price for {asset.ticker} on {current_date.strftime('%Y-%m-%d')}. Market cap will be 0.")
                     market_caps[asset] = 0.0
                     continue
-                current_price = price_df['Adj Close'].iloc[0]
+                current_price = price_df[_PRICE_COLUMN].iloc[0]
 
                 shares_outstanding = market_data_provider.fetch_shares_outstanding(asset.ticker, current_date.strftime('%Y-%m-%d'))
                 if shares_outstanding is None or shares_outstanding <=0:

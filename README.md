@@ -121,15 +121,11 @@ class QuickData:
         return pd.DataFrame(
             {"NAME": [identifier], "CURRENCY": ["USD"], "EXCHANGE": ["NYSE"]},
             index=pd.Index([identifier], name="IDENTIFIER"))
-    def fetch_prices(self, ticker, start, end):
-        p = price(ticker, pd.Timestamp(start))
-        return pd.DataFrame({"Adj Close": [p], "Close": [p]},
-                            index=pd.Index([pd.Timestamp(start)], name="Date"))
-    def fetch_shares_outstanding(self, ticker, date):
-        return 1_000
     def fetch_market_data(self, identifier, start=None, end=None, columns=None):
         p = price(identifier, pd.Timestamp(start))
         return pd.DataFrame({"CLOSE": [p]}, index=pd.Index([pd.Timestamp(start)], name="DATE"))
+    def fetch_shares_outstanding(self, ticker, date):
+        return 1_000
 
 data = QuickData()
 

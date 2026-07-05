@@ -73,13 +73,13 @@ class SyntheticDataProvider:
             )
         return pd.DataFrame()
 
-    def fetch_prices(self, ticker, start, end):
-        price = self._prices.get((ticker, start))
+    def fetch_market_data(self, identifier, start=None, end=None, columns=None):
+        price = self._prices.get((identifier, start))
         if price is None:
             return pd.DataFrame()
         return pd.DataFrame(
-            {"Adj Close": [price], "Close": [price]},
-            index=pd.Index([pd.Timestamp(start)], name="Date"),
+            {"CLOSE": [price]},
+            index=pd.Index([pd.Timestamp(start)], name="DATE"),
         )
 
     def fetch_shares_outstanding(self, ticker, date_str):

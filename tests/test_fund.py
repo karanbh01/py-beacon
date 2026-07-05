@@ -3,9 +3,9 @@
 
 The refactored IndexFund composes an IndexCalculator (target weights) and a
 BacktestEngine (portfolio simulation). These tests wire up a synthetic data
-provider that satisfies both APIs — the calculator's fetch_prices /
-fetch_reference_data / fetch_shares_outstanding and the engine's
-fetch_market_data — so the full pipeline runs end to end with no external data.
+provider exposing the unified DataFetcher interface — fetch_market_data,
+fetch_reference_data and fetch_shares_outstanding — so the full pipeline runs
+end to end with no external data.
 """
 import pytest
 import pandas as pd
@@ -66,18 +66,7 @@ def _make_data_provider():
             )
         return pd.DataFrame()
 
-    def fetch_prices(ticker, start, end):
-        key = (ticker, pd.Timestamp(start))
-        if key in PRICE_LOOKUP:
-            p = PRICE_LOOKUP[key]
-            return pd.DataFrame(
-                {"Adj Close": [p], "Close": [p]},
-                index=pd.Index([pd.Timestamp(start)], name="Date"),
-            )
-        return pd.DataFrame()
-
     provider.fetch_reference_data.side_effect = fetch_reference_data
-    provider.fetch_prices.side_effect = fetch_prices
     provider.fetch_market_data.side_effect = (
         lambda identifier, start=None, end=None, columns=None:
         fetcher.fetch_market_data(identifier, start, end, columns)

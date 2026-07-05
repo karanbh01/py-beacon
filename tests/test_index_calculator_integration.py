@@ -67,14 +67,14 @@ def _make_mock_data():
             )
         return pd.DataFrame()
 
-    def fetch_prices(ticker, start, end):
+    def fetch_market_data(ticker, start, end):
         # Return a single-row DataFrame for the requested date
         key = (ticker, start)
         if key in PRICE_MAP:
             price = PRICE_MAP[key]
             return pd.DataFrame(
-                {"Adj Close": [price], "Close": [price]},
-                index=pd.Index([pd.Timestamp(start)], name="Date"),
+                {"CLOSE": [price]},
+                index=pd.Index([pd.Timestamp(start)], name="DATE"),
             )
         return pd.DataFrame()
 
@@ -82,7 +82,7 @@ def _make_mock_data():
         return SHARES
 
     data.fetch_reference_data.side_effect = fetch_reference_data
-    data.fetch_prices.side_effect = fetch_prices
+    data.fetch_market_data.side_effect = fetch_market_data
     data.fetch_shares_outstanding.side_effect = fetch_shares_outstanding
     return data
 

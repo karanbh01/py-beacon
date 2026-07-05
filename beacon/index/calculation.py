@@ -25,13 +25,16 @@ class IndexCalculator:
     """
     def __init__(self,
                  index_definition: IndexDefinition,
-                 data_provider: DataFetcher):
+                 data_provider: DataFetcher,
+                 price_column: str = "CLOSE"):
         """
         Initializes the IndexCalculator.
 
         Args:
             index_definition: The IndexDefinition object that specifies the index rules.
             data_provider: A DataFetcher instance to access market and asset data.
+            price_column: Market-data column read as the constituent price when
+                computing market values. Defaults to ``"CLOSE"``.
         """
         if not index_definition:
             raise ValueError("index_definition must be provided.")
@@ -40,6 +43,7 @@ class IndexCalculator:
 
         self.definition: IndexDefinition = index_definition
         self.data: DataFetcher = data_provider
+        self.price_column: str = price_column
 
         logger.info(f"IndexCalculator initialized for index '{self.definition.index_name}'.")
 
@@ -251,12 +255,14 @@ class IndexCalculator:
                 logger.warning(f"Asset {asset.asset_id} is not Equity. Skipping market value calculation.")
                 continue
             try:
-                price_df = self.data.fetch_prices(asset.ticker, current_date.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
-                if price_df.empty or pd.isna(price_df['Adj Close'].iloc[0]):
+                date_str = current_date.strftime('%Y-%m-%d')
+                price_df = self.data.fetch_market_data(asset.ticker, date_str, date_str)
+                if price_df.empty or self.price_column not in price_df.columns \
+                        or pd.isna(price_df[self.price_column].iloc[0]):
                     logger.warning(f"_get_constituent_market_values: No price for {asset.ticker}. Value is 0.")
                     constituent_market_values[asset] = 0.0
                     continue
-                current_price = price_df['Adj Close'].iloc[0]
+                current_price = float(price_df[self.price_column].iloc[0])
 
                 shares = self.data.fetch_shares_outstanding(asset.ticker, current_date.strftime('%Y-%m-%d'))
                 if shares is None or shares <= 0:

@@ -5,12 +5,9 @@ Exercises the whole stack with synthetic data only:
 Environment/DataFetcher -> IndexDefinition -> IndexCalculator.run() (IndexResult)
 -> BacktestEngine.run() (BacktestResult) -> tracking comparison.
 
-Note on the data provider: IndexCalculator consumes a legacy market-data
-interface (fetch_prices / fetch_shares_outstanding) that the current DataFetcher
-class does not expose, while BacktestEngine consumes fetch_market_data. The
-PipelineDataFetcher subclass below bridges that gap on top of a real DataFetcher
-(backed by real MarketData/ReferenceData), keeping the test faithful to the
-intended Environment -> DataFetcher wiring.
+Both the calculator and the engine drive off a single plain DataFetcher: prices
+come from the CLOSE market-data column and shares outstanding from the
+SHARES_OUTSTANDING market-data column.
 """
 import pandas as pd
 import pytest
@@ -53,9 +50,12 @@ def _price(asset_id: str, day: pd.Timestamp) -> float:
 
 
 def _market_dataframe() -> pd.DataFrame:
-    """Long-form market data with IDENTIFIER, DATE, CLOSE."""
+    """Long-form market data with IDENTIFIER, DATE, CLOSE, SHARES_OUTSTANDING."""
     rows = [
-        {"IDENTIFIER": a, "DATE": d.strftime("%Y-%m-%d"), "CLOSE": _price(a, d)}
+        {
+            "IDENTIFIER": a, "DATE": d.strftime("%Y-%m-%d"),
+            "CLOSE": _price(a, d), "SHARES_OUTSTANDING": _SHARES[a],
+        }
         for a in ASSETS
         for d in TRADING_DAYS
     ]
@@ -72,30 +72,6 @@ def _reference_dataframe() -> pd.DataFrame:
         for a in ASSETS
     ]
     return pd.DataFrame(rows)
-
-
-class PipelineDataFetcher(DataFetcher):
-    """DataFetcher extended with the legacy methods IndexCalculator needs.
-
-    Inherits fetch_market_data (used by BacktestEngine) and fetch_reference_data
-    (used by IndexCalculator's universe resolution) from the real DataFetcher,
-    and adds fetch_prices / fetch_shares_outstanding on top of the same
-    MarketData.
-    """
-
-    def __init__(self, market_data, reference_data, shares_outstanding):
-        super().__init__(market_data, reference_data)
-        self._shares = shares_outstanding
-
-    def fetch_prices(self, ticker, start, end):
-        df = self.fetch_market_data(ticker, start, end)
-        if df.empty or "CLOSE" not in df.columns:
-            return pd.DataFrame()
-        close = df["CLOSE"].to_numpy()
-        return pd.DataFrame({"Adj Close": close, "Close": close}, index=df.index)
-
-    def fetch_shares_outstanding(self, ticker, date):
-        return self._shares.get(ticker, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +94,7 @@ def environment():
 def fetcher(environment):
     market = MarketData.from_dataframe(environment.data_source.MARKET_DATA)
     reference = ReferenceData.from_dataframe(environment.data_source.REFERENCE_DATA)
-    return PipelineDataFetcher(market, reference, _SHARES)
+    return DataFetcher(market, reference)
 
 
 @pytest.fixture(scope="module")

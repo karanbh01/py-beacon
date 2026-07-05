@@ -77,6 +77,73 @@ class DataFetcher:
         """
         return self._market.get(identifier, start_date, end_date, columns)
 
+    # -- auxiliary market data -----------------------------------------------
+    #
+    # Shares outstanding, free-float factors and FX rates are all sourced from
+    # the market-data container, which is the single home for these series:
+    #   * shares outstanding  -> a per-(identifier, date) column
+    #     (``SHARES_OUTSTANDING`` by default)
+    #   * free-float factor    -> a per-(identifier, date) column
+    #     (``FREE_FLOAT`` by default)
+    #   * FX rates             -> a currency pair stored as its own identifier,
+    #     named ``"{FROM}{TO}"`` (e.g. ``GBPUSD``)
+    # Each accessor returns ``None`` / an empty series when the backing column
+    # or identifier is absent, so callers can fall back gracefully.
+
+    def fetch_shares_outstanding(self,
+                                 identifier: str,
+                                 date: str,
+                                 column: str = "SHARES_OUTSTANDING") -> Optional[float]:
+        """Return shares outstanding for *identifier* on *date*.
+
+        Sourced from the *column* market-data field. Returns ``None`` if the
+        column is not present or there is no value on that date.
+        """
+        return self._market_scalar(identifier, date, column)
+
+    def fetch_free_float_factor(self,
+                                identifier: str,
+                                date: str,
+                                column: str = "FREE_FLOAT") -> Optional[float]:
+        """Return the free-float factor for *identifier* on *date*.
+
+        Sourced from the *column* market-data field. Returns ``None`` if the
+        column is not present or there is no value on that date.
+        """
+        return self._market_scalar(identifier, date, column)
+
+    def _market_scalar(self, identifier: str, date: str, column: str) -> Optional[float]:
+        """Read a single market-data value for *identifier* on *date*."""
+        if column not in self._market.columns:
+            return None
+        df = self._market.get(identifier, date, date, columns=[column])
+        if df.empty:
+            return None
+        val = df[column].iloc[0]
+        return float(val) if pd.notna(val) else None
+
+    def fetch_fx_rates(self,
+                       from_currency: str,
+                       to_currency: str,
+                       start_date: Optional[str] = None,
+                       end_date: Optional[str] = None,
+                       column: str = "RATE") -> pd.Series:
+        """Return the FX rate series converting *from_currency* into *to_currency*.
+
+        The pair is looked up as a market-data identifier named
+        ``f"{from_currency}{to_currency}"`` (upper-cased). The *column* field is
+        used if present, otherwise the first data column. Returns an empty
+        Series if the pair is not found.
+        """
+        pair = f"{from_currency}{to_currency}".upper()
+        if pair not in self._market.identifiers:
+            return pd.Series(dtype=float)
+        df = self._market.get(pair, start_date, end_date)
+        if df.empty:
+            return pd.Series(dtype=float)
+        rate_col = column if column in df.columns else df.columns[0]
+        return df[rate_col]
+
     # -- reference data ------------------------------------------------------
 
     def fetch_reference_data(self,
