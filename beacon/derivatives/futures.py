@@ -11,7 +11,11 @@ import logging
 import pandas as pd
 
 from .base import DerivativeBase
-from .pricing import cost_of_carry_fair_value, implied_repo_rate
+from .pricing import (
+    cost_of_carry_fair_value,
+    discrete_dividend_fair_value,
+    implied_repo_rate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,7 @@ class IndexFuture(DerivativeBase):
         contract_multiplier: float,
         tick_size: float,
         tick_value: float,
+        underlying_type: str = "INDEX",
     ):
         """Initialise an index future.
 
@@ -51,6 +56,8 @@ class IndexFuture(DerivativeBase):
             contract_multiplier: Currency value of one index point.
             tick_size: Minimum price increment, in index points.
             tick_value: Currency value of one tick.
+            underlying_type: Underlying instrument type; defaults to ``INDEX``.
+                Subclasses (e.g. :class:`ETFFuture`) override it.
 
         Raises:
             ValueError: If any of *contract_multiplier*, *tick_size* or
@@ -69,7 +76,7 @@ class IndexFuture(DerivativeBase):
         super().__init__(
             derivative_id=derivative_id,
             underlying_id=underlying_id,
-            underlying_type="INDEX",
+            underlying_type=underlying_type,
             currency=currency,
             expiry_date=expiry_date,
             notional=contract_multiplier,
@@ -169,3 +176,63 @@ class IndexFuture(DerivativeBase):
             "theoretical_edge": fv - market_price,
             "time_to_expiry": self.time_to_expiry(valuation_date),
         }
+
+
+class ETFFuture(IndexFuture):
+    """A futures contract on an ETF.
+
+    Behaves like :class:`IndexFuture` but prices with discrete known dividends,
+    which better reflects an ETF's periodic cash distributions than a continuous
+    yield. When discrete dividends are supplied via the ``market_data`` key
+    ``"discrete_dividends"`` (a list of ``(time_to_ex_years, amount)`` tuples for
+    ex-dates within the tenor), fair value uses
+    ``F = (S - PV(divs)) * exp(r * T)``. Otherwise it falls back to the
+    continuous cost-of-carry model inherited from :class:`IndexFuture`.
+    """
+
+    def __init__(
+        self,
+        derivative_id: str,
+        underlying_id: str,
+        currency: str,
+        expiry_date: str,
+        contract_multiplier: float,
+        tick_size: float,
+        tick_value: float,
+    ):
+        """Initialise an ETF future. See :class:`IndexFuture` for the args."""
+        super().__init__(
+            derivative_id=derivative_id,
+            underlying_id=underlying_id,
+            currency=currency,
+            expiry_date=expiry_date,
+            contract_multiplier=contract_multiplier,
+            tick_size=tick_size,
+            tick_value=tick_value,
+            underlying_type="ETF",
+        )
+
+    def fair_value(
+        self,
+        spot_price: float,
+        valuation_date: pd.Timestamp,
+        market_data: Dict[str, float],
+    ) -> float:
+        """Discrete-dividend fair value, falling back to continuous carry.
+
+        If ``market_data["discrete_dividends"]`` is present and non-empty, prices
+        with the discrete-dividend model; otherwise defers to the continuous
+        cost-of-carry model of :class:`IndexFuture`.
+        """
+        market_data = market_data or {}
+        dividends = market_data.get("discrete_dividends")
+        if not dividends:
+            return super().fair_value(spot_price, valuation_date, market_data)
+
+        t = self.time_to_expiry(valuation_date)
+        return discrete_dividend_fair_value(
+            spot=spot_price,
+            risk_free_rate=market_data.get("risk_free_rate", 0.0),
+            time_to_expiry_years=t,
+            dividends=dividends,
+        )
