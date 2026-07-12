@@ -31,7 +31,8 @@ def _make(**overrides):
     return TotalReturnSwap(**kwargs)
 
 
-def _days_between(a, b):
+def _days_between(a,
+                  b):
     return (pd.Timestamp(b) - pd.Timestamp(a)).days
 
 

@@ -193,7 +193,8 @@ class BacktestAssetView(AssetView):
         """
         return sum(t.transaction_cost for t in self._transactions if t.asset_id == self._asset_id)
 
-    def weight_on_date(self, date: pd.Timestamp) -> Optional[float]:
+    def weight_on_date(self,
+                       date: pd.Timestamp) -> Optional[float]:
         """Get this asset's portfolio weight on a specific date.
 
         Parameters

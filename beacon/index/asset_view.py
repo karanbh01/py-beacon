@@ -36,7 +36,8 @@ class IndexAssetView(AssetView):
         self._weight_snapshots = weight_snapshots
         self._index_levels = index_levels
 
-    def weight_on_date(self, date: pd.Timestamp) -> Optional[float]:
+    def weight_on_date(self,
+                       date: pd.Timestamp) -> Optional[float]:
         """Get this asset's index weight on a specific date.
 
         Finds the most recent rebalance on or before *date* and returns

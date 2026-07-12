@@ -24,13 +24,11 @@ __all__ = [
 _SECONDS_PER_YEAR = 365.25 * 24 * 3600
 
 
-def cost_of_carry_fair_value(
-    spot: float,
-    risk_free_rate: float,
-    dividend_yield: float,
-    time_to_expiry_years: float,
-    borrow_cost: float = 0.0,
-) -> float:
+def cost_of_carry_fair_value(spot: float,
+                             risk_free_rate: float,
+                             dividend_yield: float,
+                             time_to_expiry_years: float,
+                             borrow_cost: float = 0.0) -> float:
     """Fair forward/futures value under continuous cost of carry.
 
     ``F = S * exp((r - q + c) * T)``
@@ -59,12 +57,10 @@ def cost_of_carry_fair_value(
     return spot * math.exp(carry * time_to_expiry_years)
 
 
-def discrete_dividend_fair_value(
-    spot: float,
-    risk_free_rate: float,
-    time_to_expiry_years: float,
-    dividends: List[Tuple[float, float]],
-) -> float:
+def discrete_dividend_fair_value(spot: float,
+                                 risk_free_rate: float,
+                                 time_to_expiry_years: float,
+                                 dividends: List[Tuple[float, float]]) -> float:
     """Fair forward/futures value with discrete cash dividends.
 
     ``F = (S - PV(divs)) * exp(r * T)`` where each dividend is discounted at the
@@ -98,12 +94,10 @@ def discrete_dividend_fair_value(
     return (spot - pv_dividends) * math.exp(risk_free_rate * time_to_expiry_years)
 
 
-def implied_repo_rate(
-    futures_price: float,
-    spot: float,
-    dividend_yield: float,
-    time_to_expiry_years: float,
-) -> float:
+def implied_repo_rate(futures_price: float,
+                      spot: float,
+                      dividend_yield: float,
+                      time_to_expiry_years: float) -> float:
     """Continuously compounded financing rate implied by a futures price.
 
     Inverts the cost-of-carry relationship:
@@ -135,12 +129,10 @@ def implied_repo_rate(
         / time_to_expiry_years
 
 
-def futures_roll_return(
-    front_price: float,
-    back_price: float,
-    front_expiry: pd.Timestamp,
-    back_expiry: pd.Timestamp,
-) -> float:
+def futures_roll_return(front_price: float,
+                        back_price: float,
+                        front_expiry: pd.Timestamp,
+                        back_expiry: pd.Timestamp) -> float:
     """Annualised simple roll return from rolling a front contract to a back one.
 
     ``roll = (front / back - 1) / dt`` where ``dt`` is the year fraction between
@@ -172,13 +164,11 @@ def futures_roll_return(
     return (front_price / back_price - 1.0) / dt_years
 
 
-def trs_breakeven_spread(
-    futures_price: float,
-    spot: float,
-    risk_free_rate: float,
-    time_to_expiry_years: float,
-    dividend_yield: float,
-) -> float:
+def trs_breakeven_spread(futures_price: float,
+                         spot: float,
+                         risk_free_rate: float,
+                         time_to_expiry_years: float,
+                         dividend_yield: float) -> float:
     """Financing spread at which a total return swap matches futures economics.
 
     The futures price embeds an implied financing rate (:func:`implied_repo_rate`).

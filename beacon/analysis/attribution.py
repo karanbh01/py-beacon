@@ -16,7 +16,9 @@ class Attribution:
         """Initializes the Attribution class."""
         pass
 
-    def simple_performance_attribution(self, portfolio_returns: pd.Series, benchmark_returns: pd.Series) -> Dict[str, float]:
+    def simple_performance_attribution(self,
+                                       portfolio_returns: pd.Series,
+                                       benchmark_returns: pd.Series) -> Dict[str, float]:
         """
         Provides a basic return difference between portfolio and benchmark.
 
@@ -50,7 +52,8 @@ class Attribution:
         }
 
 # Expose function directly if preferred
-def simple_performance_attribution(portfolio_returns: pd.Series, benchmark_returns: pd.Series) -> Dict[str, float]:
+def simple_performance_attribution(portfolio_returns: pd.Series,
+                                   benchmark_returns: pd.Series) -> Dict[str, float]:
     """
     Provides a basic return difference between portfolio and benchmark.
 

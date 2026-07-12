@@ -24,7 +24,8 @@ class EligibilityRuleBase(ABC):
     Abstract base class for an eligibility rule.
     Eligibility rules determine if an asset can be part of an index.
     """
-    def __init__(self, rule_name: str):
+    def __init__(self,
+                 rule_name: str):
         self.rule_name = rule_name
 
     @abstractmethod
@@ -32,8 +33,7 @@ class EligibilityRuleBase(ABC):
                     asset: Asset,
                     current_date: pd.Timestamp,
                     market_data_provider: DataFetcher,
-                    context: Optional[Dict[str, Any]] = None
-                   ) -> bool:
+                    context: Optional[Dict[str, Any]] = None) -> bool:
         """
         Checks if a given asset is eligible based on this rule.
 
@@ -59,14 +59,21 @@ class MarketCapRule(EligibilityRuleBase):
     """
     Eligibility rule based on market capitalization.
     """
-    def __init__(self, min_market_cap: Optional[float] = None, max_market_cap: Optional[float] = None):
+    def __init__(self,
+                 min_market_cap: Optional[float] = None,
+                 max_market_cap: Optional[float] = None):
         super().__init__(rule_name="MarketCapRule")
         self.min_market_cap = min_market_cap
         self.max_market_cap = max_market_cap
+
         if min_market_cap is not None and max_market_cap is not None and min_market_cap > max_market_cap:
             raise ValueError("min_market_cap cannot be greater than max_market_cap.")
 
-    def is_eligible(self, asset: Asset, current_date: pd.Timestamp, market_data_provider: DataFetcher, context: Optional[Dict[str, Any]] = None) -> bool:
+    def is_eligible(self,
+                    asset: Asset,
+                    current_date: pd.Timestamp,
+                    market_data_provider: DataFetcher,
+                    context: Optional[Dict[str, Any]] = None) -> bool:
         # Requires fetching market cap data for the asset on current_date
         # Market Cap = Price * Shares Outstanding
         # This logic is simplified. Real market cap data might be directly available or need careful calculation.
@@ -105,15 +112,23 @@ class LiquidityRule(EligibilityRuleBase):
     """
     Eligibility rule based on trading liquidity (e.g., average daily volume or value).
     """
-    def __init__(self, min_avg_daily_volume: Optional[int] = None, min_avg_daily_value: Optional[float] = None, lookback_days: int = 60):
+    def __init__(self,
+                 min_avg_daily_volume: Optional[int] = None,
+                 min_avg_daily_value: Optional[float] = None,
+                 lookback_days: int = 60):
         super().__init__(rule_name="LiquidityRule")
         self.min_avg_daily_volume = min_avg_daily_volume
         self.min_avg_daily_value = min_avg_daily_value
         self.lookback_days = lookback_days
+
         if lookback_days <= 0:
             raise ValueError("lookback_days must be positive.")
 
-    def is_eligible(self, asset: Asset, current_date: pd.Timestamp, market_data_provider: DataFetcher, context: Optional[Dict[str, Any]] = None) -> bool:
+    def is_eligible(self,
+                    asset: Asset,
+                    current_date: pd.Timestamp,
+                    market_data_provider: DataFetcher,
+                    context: Optional[Dict[str, Any]] = None) -> bool:
         if not isinstance(asset, Equity):
             return True # Or False
 
@@ -169,7 +184,8 @@ class WeightingSchemeBase(ABC):
     Abstract base class for a weighting scheme.
     Weighting schemes determine the proportion of each constituent in an index.
     """
-    def __init__(self, scheme_name: str):
+    def __init__(self,
+                 scheme_name: str):
         self.scheme_name = scheme_name
 
     @abstractmethod
@@ -177,8 +193,7 @@ class WeightingSchemeBase(ABC):
                           constituents: List[Asset],
                           current_date: pd.Timestamp,
                           market_data_provider: DataFetcher,
-                          context: Optional[Dict[str, Any]] = None
-                         ) -> Dict[Asset, float]:
+                          context: Optional[Dict[str, Any]] = None) -> Dict[Asset, float]:
         """
         Calculates the weight for each constituent asset.
 
@@ -205,11 +220,48 @@ class MarketCapWeighted(WeightingSchemeBase):
     Market capitalization weighting scheme.
     Optionally supports free-float adjustment.
     """
-    def __init__(self, use_free_float: bool = False):
+    def __init__(self,
+                 use_free_float: bool = False):
         super().__init__(scheme_name="MarketCapWeighted")
         self.use_free_float = use_free_float
 
-    def calculate_weights(self, constituents: List[Asset], current_date: pd.Timestamp, market_data_provider: DataFetcher, context: Optional[Dict[str, Any]] = None) -> Dict[Asset, float]:
+    def _asset_market_cap(self,
+                          asset: Asset,
+                          current_date: pd.Timestamp,
+                          market_data_provider: DataFetcher) -> float:
+        """
+        Computes a single asset's market cap (price * shares outstanding),
+        applying the free-float adjustment when enabled. Returns 0.0 and
+        logs a warning when required price/shares data is missing or invalid.
+        """
+        price_df = market_data_provider.fetch_market_data(asset.ticker, current_date.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
+        if price_df.empty or _PRICE_COLUMN not in price_df.columns or pd.isna(price_df[_PRICE_COLUMN].iloc[0]):
+            logger.warning(f"MarketCapWeighted: No price for {asset.ticker} on {current_date.strftime('%Y-%m-%d')}. Market cap will be 0.")
+            return 0.0
+        current_price = price_df[_PRICE_COLUMN].iloc[0]
+
+        shares_outstanding = market_data_provider.fetch_shares_outstanding(asset.ticker, current_date.strftime('%Y-%m-%d'))
+        if shares_outstanding is None or shares_outstanding <=0:
+            logger.warning(f"MarketCapWeighted: No shares for {asset.ticker} on {current_date.strftime('%Y-%m-%d')}. Market cap will be 0.")
+            return 0.0
+
+        asset_market_cap = current_price * shares_outstanding
+
+        if not self.use_free_float:
+            return asset_market_cap
+
+        free_float_factor = market_data_provider.fetch_free_float_factor(asset.ticker, current_date.strftime('%Y-%m-%d'))
+        if free_float_factor is not None and 0.0 <= free_float_factor <= 1.0:
+            return asset_market_cap * free_float_factor
+
+        logger.warning(f"MarketCapWeighted: Invalid or missing free-float for {asset.ticker} on {current_date.strftime('%Y-%m-%d')}. Using full market cap.")
+        return asset_market_cap
+
+    def calculate_weights(self,
+                          constituents: List[Asset],
+                          current_date: pd.Timestamp,
+                          market_data_provider: DataFetcher,
+                          context: Optional[Dict[str, Any]] = None) -> Dict[Asset, float]:
         weights: Dict[Asset, float] = {}
         market_caps: Dict[Asset, float] = {}
         total_market_cap = 0.0
@@ -218,48 +270,29 @@ class MarketCapWeighted(WeightingSchemeBase):
             if not isinstance(asset, Equity):
                 logger.warning(f"MarketCapWeighted: Asset {asset.asset_id} is not Equity. Skipping.")
                 continue
+
             try:
-                price_df = market_data_provider.fetch_market_data(asset.ticker, current_date.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
-                if price_df.empty or _PRICE_COLUMN not in price_df.columns or pd.isna(price_df[_PRICE_COLUMN].iloc[0]):
-                    logger.warning(f"MarketCapWeighted: No price for {asset.ticker} on {current_date.strftime('%Y-%m-%d')}. Market cap will be 0.")
-                    market_caps[asset] = 0.0
-                    continue
-                current_price = price_df[_PRICE_COLUMN].iloc[0]
-
-                shares_outstanding = market_data_provider.fetch_shares_outstanding(asset.ticker, current_date.strftime('%Y-%m-%d'))
-                if shares_outstanding is None or shares_outstanding <=0:
-                    logger.warning(f"MarketCapWeighted: No shares for {asset.ticker} on {current_date.strftime('%Y-%m-%d')}. Market cap will be 0.")
-                    market_caps[asset] = 0.0
-                    continue
-                
-                asset_market_cap = current_price * shares_outstanding
-
-                if self.use_free_float:
-                    free_float_factor = market_data_provider.fetch_free_float_factor(asset.ticker, current_date.strftime('%Y-%m-%d'))
-                    if free_float_factor is not None and 0.0 <= free_float_factor <= 1.0:
-                        asset_market_cap *= free_float_factor
-                    else:
-                        logger.warning(f"MarketCapWeighted: Invalid or missing free-float for {asset.ticker} on {current_date.strftime('%Y-%m-%d')}. Using full market cap.")
-                
-                market_caps[asset] = asset_market_cap
-                total_market_cap += asset_market_cap
+                market_caps[asset] = self._asset_market_cap(asset, current_date, market_data_provider)
+                total_market_cap += market_caps[asset]
             except Exception as e:
                 logger.error(f"MarketCapWeighted: Error calculating market cap for {asset.ticker}: {e}. Market cap will be 0.")
                 market_caps[asset] = 0.0
 
-
         if total_market_cap > 0:
             for asset, cap in market_caps.items():
                 weights[asset] = cap / total_market_cap
-        else:
-            # Handle case with no valid market caps (e.g. assign equal weight if any assets, or empty if none)
-            if constituents:
-                logger.warning("MarketCapWeighted: Total market cap is zero. Assigning equal weights as fallback.")
-                equal_weight = 1.0 / len(constituents) if constituents else 0.0
-                for asset in constituents:
-                     if isinstance(asset, Equity): # Only for those processed
-                        weights[asset] = equal_weight
+            return weights
+
+        # Handle case with no valid market caps (e.g. assign equal weight if any assets, or empty if none)
+        if not constituents:
             # else weights remains empty
+            return weights
+
+        logger.warning("MarketCapWeighted: Total market cap is zero. Assigning equal weights as fallback.")
+        equal_weight = 1.0 / len(constituents) if constituents else 0.0
+        for asset in constituents:
+             if isinstance(asset, Equity): # Only for those processed
+                weights[asset] = equal_weight
 
         return weights
 
@@ -271,7 +304,11 @@ class EqualWeighted(WeightingSchemeBase):
     def __init__(self):
         super().__init__(scheme_name="EqualWeighted")
 
-    def calculate_weights(self, constituents: List[Asset], current_date: pd.Timestamp, market_data_provider: DataFetcher, context: Optional[Dict[str, Any]] = None) -> Dict[Asset, float]:
+    def calculate_weights(self,
+                          constituents: List[Asset],
+                          current_date: pd.Timestamp,
+                          market_data_provider: DataFetcher,
+                          context: Optional[Dict[str, Any]] = None) -> Dict[Asset, float]:
         weights: Dict[Asset, float] = {}
         num_constituents = len(constituents)
 

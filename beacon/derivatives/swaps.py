@@ -39,19 +39,17 @@ class TotalReturnSwap(DerivativeBase):
     #: Recognised reset/funding types.
     VALID_RESET_TYPES = frozenset({"FUNDED", "UNFUNDED"})
 
-    def __init__(
-        self,
-        derivative_id: str,
-        underlying_id: str,
-        currency: str,
-        start_date: str,
-        end_date: str,
-        notional: float,
-        spread_bps: float,
-        reference_rate: str,
-        payment_frequency: str,
-        reset_type: str = "UNFUNDED",
-    ):
+    def __init__(self,
+                 derivative_id: str,
+                 underlying_id: str,
+                 currency: str,
+                 start_date: str,
+                 end_date: str,
+                 notional: float,
+                 spread_bps: float,
+                 reference_rate: str,
+                 payment_frequency: str,
+                 reset_type: str = "UNFUNDED"):
         """Initialise a total return swap.
 
         Args:
@@ -117,12 +115,10 @@ class TotalReturnSwap(DerivativeBase):
     # Economics
     # ------------------------------------------------------------------
 
-    def financing_cost(
-        self,
-        valuation_date: pd.Timestamp,
-        last_reset_date: pd.Timestamp,
-        reference_rate: float,
-    ) -> float:
+    def financing_cost(self,
+                       valuation_date: pd.Timestamp,
+                       last_reset_date: pd.Timestamp,
+                       reference_rate: float) -> float:
         """Financing accrued since *last_reset_date* on an ACT/360 basis.
 
         For an ``UNFUNDED`` swap the accrual rate is ``reference_rate + spread``;
@@ -150,12 +146,10 @@ class TotalReturnSwap(DerivativeBase):
         day_count_fraction = days / _FINANCING_DAY_COUNT
         return self.notional * rate * day_count_fraction
 
-    def fair_value(
-        self,
-        spot_price: float,
-        valuation_date: pd.Timestamp,
-        market_data: Dict[str, float],
-    ) -> float:
+    def fair_value(self,
+                   spot_price: float,
+                   valuation_date: pd.Timestamp,
+                   market_data: Dict[str, float]) -> float:
         """Total-return-receiver P&L: total return leg minus accrued financing.
 
         ``receiver_pnl = notional * (S_t / S_0 - 1) - accrued_financing``
@@ -172,13 +166,11 @@ class TotalReturnSwap(DerivativeBase):
         financing = self.financing_cost(valuation_date, last_reset, reference_rate)
         return total_return_leg - financing
 
-    def mark_to_market(
-        self,
-        market_price: float,
-        spot_price: float,
-        valuation_date: pd.Timestamp,
-        market_data: Dict[str, float],
-    ) -> Dict[str, float]:
+    def mark_to_market(self,
+                       market_price: float,
+                       spot_price: float,
+                       valuation_date: pd.Timestamp,
+                       market_data: Dict[str, float]) -> Dict[str, float]:
         """Decompose the swap P&L into its legs.
 
         *market_price* is unused (a TRS has no separately quoted price); it is

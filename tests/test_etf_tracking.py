@@ -42,7 +42,9 @@ def _make_nav_and_levels():
     return nav_series, level_series
 
 
-def _make_backtest_result(nav_series, level_series, with_target=True):
+def _make_backtest_result(nav_series,
+                          level_series,
+                          with_target=True):
     target = None
     if with_target:
         target = IndexResult(

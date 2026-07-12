@@ -29,7 +29,9 @@ def mock_fetcher():
 
 
 @pytest.fixture
-def view(mock_fetcher, weight_snapshots, index_levels):
+def view(mock_fetcher,
+         weight_snapshots,
+         index_levels):
     return IndexAssetView(
         asset_id="AAPL",
         data_fetcher=mock_fetcher,
@@ -42,16 +44,21 @@ def view(mock_fetcher, weight_snapshots, index_levels):
 
 
 class TestConstruction:
-    def test_inherits_asset_view(self, view):
+    def test_inherits_asset_view(self,
+                                 view):
         assert isinstance(view, AssetView)
 
-    def test_asset_id(self, view):
+    def test_asset_id(self,
+                      view):
         assert view.asset_id == "AAPL"
 
-    def test_repr(self, view):
+    def test_repr(self,
+                  view):
         assert repr(view) == "IndexAssetView(asset_id='AAPL')"
 
-    def test_base_methods_available(self, view, mock_fetcher):
+    def test_base_methods_available(self,
+                                    view,
+                                    mock_fetcher):
         view.prices("2025-01-01", "2025-01-31")
         mock_fetcher.fetch_market_data.assert_called_once()
 
@@ -60,19 +67,26 @@ class TestConstruction:
 
 
 class TestWeightOnDate:
-    def test_exact_rebalance_date(self, view):
+    def test_exact_rebalance_date(self,
+                                  view):
         assert view.weight_on_date(pd.Timestamp("2025-01-01")) == 0.6
 
-    def test_between_rebalances(self, view):
+    def test_between_rebalances(self,
+                                view):
         assert view.weight_on_date(pd.Timestamp("2025-02-15")) == 0.6
 
-    def test_after_second_rebalance(self, view):
+    def test_after_second_rebalance(self,
+                                    view):
         assert view.weight_on_date(pd.Timestamp("2025-04-15")) == 0.5
 
-    def test_before_any_rebalance(self, view):
+    def test_before_any_rebalance(self,
+                                  view):
         assert view.weight_on_date(pd.Timestamp("2024-12-31")) is None
 
-    def test_asset_not_in_snapshot(self, mock_fetcher, weight_snapshots, index_levels):
+    def test_asset_not_in_snapshot(self,
+                                   mock_fetcher,
+                                   weight_snapshots,
+                                   index_levels):
         v = IndexAssetView("MSFT", mock_fetcher, weight_snapshots, index_levels)
         # MSFT is in first rebalance but not second
         assert v.weight_on_date(pd.Timestamp("2025-01-15")) == 0.4
@@ -83,20 +97,25 @@ class TestWeightOnDate:
 
 
 class TestWeightSeries:
-    def test_returns_series(self, view):
+    def test_returns_series(self,
+                            view):
         ws = view.weight_series()
         assert isinstance(ws, pd.Series)
         assert len(ws) == 2  # AAPL in both snapshots
         assert ws[pd.Timestamp("2025-01-01")] == 0.6
         assert ws[pd.Timestamp("2025-04-01")] == 0.5
 
-    def test_excludes_absent_dates(self, mock_fetcher, weight_snapshots, index_levels):
+    def test_excludes_absent_dates(self,
+                                   mock_fetcher,
+                                   weight_snapshots,
+                                   index_levels):
         v = IndexAssetView("MSFT", mock_fetcher, weight_snapshots, index_levels)
         ws = v.weight_series()
         assert len(ws) == 1  # MSFT only in first snapshot
         assert pd.Timestamp("2025-04-01") not in ws.index
 
-    def test_sorted_by_date(self, view):
+    def test_sorted_by_date(self,
+                            view):
         ws = view.weight_series()
         assert list(ws.index) == sorted(ws.index)
 
@@ -105,7 +124,9 @@ class TestWeightSeries:
 
 
 class TestContribution:
-    def test_contribution_calculation(self, view, mock_fetcher):
+    def test_contribution_calculation(self,
+                                      view,
+                                      mock_fetcher):
         dates = pd.date_range("2025-01-01", periods=4, freq="B")
         mock_fetcher.fetch_market_data.return_value = pd.DataFrame(
             {"CLOSE": [100, 110, 121, 133.1]}, index=dates
@@ -118,7 +139,9 @@ class TestContribution:
         assert abs(contrib.iloc[0] - 0.06) < 1e-9
         assert abs(contrib.iloc[1] - 0.06) < 1e-9
 
-    def test_empty_returns(self, view, mock_fetcher):
+    def test_empty_returns(self,
+                           view,
+                           mock_fetcher):
         mock_fetcher.fetch_market_data.return_value = pd.DataFrame()
         contrib = view.contribution("2025-01-01", "2025-01-06")
         assert contrib.empty

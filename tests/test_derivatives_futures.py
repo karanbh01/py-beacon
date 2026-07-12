@@ -49,7 +49,8 @@ class TestConstruction:
         assert f.tick_value == 12.5
 
     @pytest.mark.parametrize("field", ["contract_multiplier", "tick_size", "tick_value"])
-    def test_non_positive_contract_params_raise(self, field):
+    def test_non_positive_contract_params_raise(self,
+                                                field):
         with pytest.raises(ValueError, match=field):
             _make(**{field: 0.0})
 

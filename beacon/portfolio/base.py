@@ -59,7 +59,9 @@ class Holding:
         if self.average_cost_price < 0:
             raise ValueError("Holding average_cost_price cannot be negative.")
 
-    def update_market_data(self, current_price: float, update_date: pd.Timestamp):
+    def update_market_data(self,
+                           current_price: float,
+                           update_date: pd.Timestamp):
         """Updates the holding with the latest market price and recalculates market value."""
         if current_price < 0:
             logger.warning(f"Attempted to update holding for {self.asset_id} with negative price: {current_price}. Price not updated.")
@@ -78,8 +80,7 @@ class Portfolio:
     """
     def __init__(self,
                  portfolio_id: str,
-                 initial_cash: float = 0.0,
-                ):
+                 initial_cash: float = 0.0):
         if not portfolio_id:
             raise ValueError("portfolio_id cannot be empty.")
         if initial_cash < 0:
@@ -190,7 +191,8 @@ class Portfolio:
         )
 
 
-    def update_prices(self, prices: Dict[str, float]) -> None:
+    def update_prices(self,
+                      prices: Dict[str, float]) -> None:
         """
         Update current prices for holdings from a dictionary.
 

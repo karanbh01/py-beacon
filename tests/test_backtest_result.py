@@ -15,13 +15,16 @@ from beacon.portfolio.base import Transaction
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_nav(values, start="2025-01-02", freq="B"):
+def _make_nav(values,
+              start="2025-01-02",
+              freq="B"):
     """Build a NAV Series from a list of values."""
     dates = pd.bdate_range(start=start, periods=len(values), freq=freq)
     return pd.Series(values, index=dates, dtype=float)
 
 
-def _make_weight_history(weights_per_asset, start="2025-01-02"):
+def _make_weight_history(weights_per_asset,
+                         start="2025-01-02"):
     """Build a weight DataFrame.
 
     weights_per_asset: dict mapping asset_id -> list of weights (same length).
@@ -261,7 +264,8 @@ _SAMPLE_TXNS = [
 
 class TestBacktestAssetViewWeights:
 
-    def _make_view(self, txns=None):
+    def _make_view(self,
+                   txns=None):
         fetcher = MagicMock()
         wh = _make_weight_history(
             {"AAPL": [0.3, 0.31, 0.32, 0.0, 0.33]},

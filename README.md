@@ -111,20 +111,29 @@ logging.getLogger("beacon").setLevel(logging.ERROR)  # keep the demo output clea
 ASSETS = ["AAA", "BBB"]
 DAYS = pd.bdate_range("2024-01-02", "2024-03-29")
 
-def price(asset, day):
+def price(asset,
+          day):
     frac = DAYS.get_loc(day) / (len(DAYS) - 1)
     return (100 * 1.10 ** frac) if asset == "AAA" else (50 * 1.20 ** frac)
 
 class QuickData:
     """Tiny in-memory provider satisfying the calculator + engine data APIs."""
-    def fetch_reference_data(self, identifier, date=None):
+    def fetch_reference_data(self,
+                             identifier,
+                             date=None):
         return pd.DataFrame(
             {"NAME": [identifier], "CURRENCY": ["USD"], "EXCHANGE": ["NYSE"]},
             index=pd.Index([identifier], name="IDENTIFIER"))
-    def fetch_market_data(self, identifier, start=None, end=None, columns=None):
+    def fetch_market_data(self,
+                          identifier,
+                          start=None,
+                          end=None,
+                          columns=None):
         p = price(identifier, pd.Timestamp(start))
         return pd.DataFrame({"CLOSE": [p]}, index=pd.Index([pd.Timestamp(start)], name="DATE"))
-    def fetch_shares_outstanding(self, ticker, date):
+    def fetch_shares_outstanding(self,
+                                 ticker,
+                                 date):
         return 1_000
 
 data = QuickData()

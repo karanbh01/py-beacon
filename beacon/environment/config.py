@@ -68,7 +68,8 @@ class Environment:
                 lookup[f.name] = (instance, f.name)
         return lookup
 
-    def set_environment(self, **kwargs):
+    def set_environment(self,
+                        **kwargs):
         """Set one or more validated parameters.
 
         Raises ValueError on unknown parameter names.

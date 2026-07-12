@@ -11,10 +11,17 @@ from beacon.derivatives.base import DerivativeBase
 # ---------------------------------------------------------------------------
 
 class _ConcreteDerivative(DerivativeBase):
-    def fair_value(self, spot_price, valuation_date, market_data):
+    def fair_value(self,
+                   spot_price,
+                   valuation_date,
+                   market_data):
         return spot_price * self.notional
 
-    def mark_to_market(self, market_price, spot_price, valuation_date, market_data):
+    def mark_to_market(self,
+                       market_price,
+                       spot_price,
+                       valuation_date,
+                       market_data):
         fv = self.fair_value(spot_price, valuation_date, market_data)
         return {"fair_value": fv, "pnl": (market_price - spot_price) * self.notional}
 
@@ -44,7 +51,10 @@ class TestAbstract:
 
     def test_subclass_missing_methods_cannot_instantiate(self):
         class Incomplete(DerivativeBase):
-            def fair_value(self, spot_price, valuation_date, market_data):
+            def fair_value(self,
+                           spot_price,
+                           valuation_date,
+                           market_data):
                 return 0.0
             # mark_to_market not implemented
 
@@ -82,7 +92,8 @@ class TestConstruction:
     @pytest.mark.parametrize("field", [
         "derivative_id", "underlying_id", "underlying_type", "currency", "expiry_date",
     ])
-    def test_empty_required_field_raises(self, field):
+    def test_empty_required_field_raises(self,
+                                         field):
         with pytest.raises(ValueError, match=field):
             _make(**{field: ""})
 

@@ -16,10 +16,14 @@ from beacon.portfolio.base import Portfolio
 DATES = pd.bdate_range(start="2025-01-02", periods=5, freq="B")
 
 
-def _mock_data_provider(prices, col="CLOSE"):
+def _mock_data_provider(prices,
+                        col="CLOSE"):
     provider = MagicMock()
 
-    def _fetch(identifier, start=None, end=None, columns=None):
+    def _fetch(identifier,
+               start=None,
+               end=None,
+               columns=None):
         asset_prices = prices.get(identifier, {})
         if start in asset_prices:
             return pd.DataFrame({col: [asset_prices[start]]})
@@ -150,10 +154,16 @@ class TestEngineModifierIntegration:
         """A custom modifier that filters out sells."""
 
         class NoSellModifier(BacktestModifier):
-            def should_skip_rebalance(self, date, portfolio, target_weights):
+            def should_skip_rebalance(self,
+                                      date,
+                                      portfolio,
+                                      target_weights):
                 return False
 
-            def adjust_trades(self, trades, date, portfolio):
+            def adjust_trades(self,
+                              trades,
+                              date,
+                              portfolio):
                 return [t for t in trades if t.side != "SELL"]
 
         prices = {

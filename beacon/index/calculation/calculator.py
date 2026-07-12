@@ -1,22 +1,24 @@
-# beacon/index/calculation.py
+# beacon/index/calculation/calculator.py
 """
 Module for the IndexCalculator, responsible for the logic of
 constituent selection, weighting, index level calculation, and corporate action adjustments.
 """
 import pandas as pd
-import numpy as np
-from typing import List, Dict, Tuple, Optional, Any
+from typing import List, Dict, Tuple, Optional
 import logging
 
-from .constructor import IndexDefinition
-from ..asset.base import Asset
-from ..data.fetcher import DataFetcher
-from ..exceptions import CalculationError
-from .result import IndexResult
+from ..constructor import IndexDefinition
+from ...asset.base import Asset
+from ...asset.equity import Equity
+from ...data.fetcher import DataFetcher
+from ...exceptions import CalculationError
+from ..result import IndexResult
+from .market_values import MarketValuesMixin
+from .corporate_actions import CorporateActionsMixin
 
 logger = logging.getLogger(__name__)
 
-class IndexCalculator:
+class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
     """
     Stateless index calculator. Accepts an IndexDefinition and DataFetcher,
     and provides methods for constituent selection, weighting, index level
@@ -48,7 +50,8 @@ class IndexCalculator:
         logger.info(f"IndexCalculator initialized for index '{self.definition.index_name}'.")
 
 
-    def _get_universe(self, date: pd.Timestamp) -> List[Asset]:
+    def _get_universe(self,
+                      date: pd.Timestamp) -> List[Asset]:
         """Resolve universe_identifiers from the IndexDefinition into Asset objects.
 
         Uses ``self.data.fetch_reference_data`` to look up metadata for each
@@ -61,8 +64,6 @@ class IndexCalculator:
         Returns:
             A list of Asset objects corresponding to resolvable identifiers.
         """
-        from ..asset.equity import Equity
-
         identifiers = self.definition.universe_identifiers
         if identifiers is None:
             logger.warning(
@@ -98,7 +99,9 @@ class IndexCalculator:
         )
         return assets
 
-    def select_constituents(self, universe: List[Asset], current_date: pd.Timestamp) -> List[Asset]:
+    def select_constituents(self,
+                            universe: List[Asset],
+                            current_date: pd.Timestamp) -> List[Asset]:
         """
         Selects index constituents from a given universe based on eligibility rules.
 
@@ -116,26 +119,34 @@ class IndexCalculator:
             return []
 
         for asset in universe:
-            is_eligible_for_asset = True
-            for rule in self.definition.eligibility_rules:
-                try:
-                    if not rule.is_eligible(asset, current_date, self.data):
-                        is_eligible_for_asset = False
-                        logger.debug(f"Asset {asset.asset_id} failed eligibility rule: {rule.rule_name}")
-                        break
-                except Exception as e:
-                    logger.error(f"Error applying eligibility rule {rule.rule_name} to asset {asset.asset_id}: {e}")
-                    is_eligible_for_asset = False
-                    break
-
-            if is_eligible_for_asset:
+            if self._passes_all_rules(asset, current_date):
                 eligible_constituents.append(asset)
                 logger.debug(f"Asset {asset.asset_id} passed all eligibility rules.")
 
         logger.info(f"Selected {len(eligible_constituents)} constituents for '{self.definition.index_name}'.")
         return eligible_constituents
 
-    def calculate_constituent_weights(self, constituents: List[Asset], current_date: pd.Timestamp) -> Dict[Asset, float]:
+    def _passes_all_rules(self,
+                          asset: Asset,
+                          current_date: pd.Timestamp) -> bool:
+        """Check whether ``asset`` passes every eligibility rule on ``current_date``.
+
+        Extracted from :meth:`select_constituents` to keep nesting shallow;
+        behaviour (including all log messages) is unchanged.
+        """
+        for rule in self.definition.eligibility_rules:
+            try:
+                if not rule.is_eligible(asset, current_date, self.data):
+                    logger.debug(f"Asset {asset.asset_id} failed eligibility rule: {rule.rule_name}")
+                    return False
+            except Exception as e:
+                logger.error(f"Error applying eligibility rule {rule.rule_name} to asset {asset.asset_id}: {e}")
+                return False
+        return True
+
+    def calculate_constituent_weights(self,
+                                      constituents: List[Asset],
+                                      current_date: pd.Timestamp) -> Dict[Asset, float]:
         """
         Calculates the weights for the given constituents based on the index's weighting scheme.
 
@@ -172,7 +183,8 @@ class IndexCalculator:
         logger.info(f"Weights calculated for '{self.definition.index_name}'.")
         return weights
 
-    def initialize_divisor(self, initial_total_market_value: float) -> float:
+    def initialize_divisor(self,
+                           initial_total_market_value: float) -> float:
         """
         Calculates the initial divisor for the index on its base_date.
         Divisor = Initial Total Market Value / Base Index Value.
@@ -235,271 +247,6 @@ class IndexCalculator:
             f"(old_mv={old_market_value:.2f}, new_mv={new_market_value:.2f})"
         )
         return new_divisor
-
-    def _get_constituent_market_values(self,
-                                       constituents_with_weights: Dict[Asset, float],
-                                       current_date: pd.Timestamp) -> Dict[Asset, float]:
-        """
-        Helper to get current market values for constituents.
-        Market Value = Price * Shares * FX_Rate_to_Index_Currency * (FreeFloat if applicable)
-
-        This method computes Sum(Price_t * Shares_t * [FF_t] * [FX_t])
-        i.e. the "Adjusted Total Market Cap" of the index constituents.
-        """
-        from ..asset.equity import Equity # Specific check for equity attributes
-
-        constituent_market_values: Dict[Asset, float] = {}
-
-        for asset, weight in constituents_with_weights.items():
-            if not isinstance(asset, Equity):
-                logger.warning(f"Asset {asset.asset_id} is not Equity. Skipping market value calculation.")
-                continue
-            try:
-                date_str = current_date.strftime('%Y-%m-%d')
-                price_df = self.data.fetch_market_data(asset.ticker, date_str, date_str)
-                if price_df.empty or self.price_column not in price_df.columns \
-                        or pd.isna(price_df[self.price_column].iloc[0]):
-                    logger.warning(f"_get_constituent_market_values: No price for {asset.ticker}. Value is 0.")
-                    constituent_market_values[asset] = 0.0
-                    continue
-                current_price = float(price_df[self.price_column].iloc[0])
-
-                shares = self.data.fetch_shares_outstanding(asset.ticker, current_date.strftime('%Y-%m-%d'))
-                if shares is None or shares <= 0:
-                    logger.warning(f"_get_constituent_market_values: No shares for {asset.ticker}. Value is 0.")
-                    constituent_market_values[asset] = 0.0
-                    continue
-
-                market_value_local_ccy = current_price * shares
-
-                # Apply Free Float if used by weighting scheme
-                if hasattr(self.definition.weighting_scheme, 'use_free_float') and \
-                   self.definition.weighting_scheme.use_free_float:
-                    ff_factor = self.data.fetch_free_float_factor(asset.ticker, current_date.strftime('%Y-%m-%d'))
-                    if ff_factor is not None and 0.0 <= ff_factor <= 1.0:
-                        market_value_local_ccy *= ff_factor
-                    else:
-                        logger.warning(f"Missing or invalid free-float for {asset.ticker}, not applying to market value.")
-
-                # FX Conversion to Index Currency
-                fx_rate = 1.0
-                if asset.currency.upper() != self.definition.currency.upper():
-                    fx_series = self.data.fetch_fx_rates(asset.currency, self.definition.currency,
-                                                         current_date.strftime('%Y-%m-%d'), current_date.strftime('%Y-%m-%d'))
-                    if not fx_series.empty:
-                        fx_rate = fx_series.iloc[0]
-                    else:
-                        logger.warning(f"No FX rate found for {asset.currency}/{self.definition.currency} on {current_date}. Using 1.0.")
-                        constituent_market_values[asset] = 0.0
-                        continue
-
-                adj_market_value_index_ccy = market_value_local_ccy * fx_rate
-                constituent_market_values[asset] = adj_market_value_index_ccy
-
-            except Exception as e:
-                logger.error(f"Error calculating market value for {asset.ticker}: {e}")
-                constituent_market_values[asset] = 0.0
-
-        return constituent_market_values
-
-
-    def calculate_index_level(self,
-                              current_date: pd.Timestamp,
-                              constituents: List[Asset],
-                              weights: Dict[Asset, float],
-                              divisor: float,
-                              previous_index_level: float
-                             ) -> Tuple[float, float]:
-        """
-        Calculates the current index level using a Laspeyres-type formula:
-        Index Level = Sum of Current Market Values of Constituents / Current Divisor.
-
-        Args:
-            current_date: The date for which to calculate the index level.
-            constituents: Current index constituents.
-            weights: Current constituent weights.
-            divisor: The current index divisor.
-            previous_index_level: The index level from the previous calculation period.
-
-        Returns:
-            A tuple of (new_index_level, divisor).
-        """
-        if divisor <= 0:
-            logger.error(f"Invalid divisor: {divisor}. Cannot calculate index level.")
-            raise CalculationError("IndexLevelCalculation", f"Invalid divisor: {divisor}")
-
-        if not constituents:
-            logger.warning(f"[{current_date.strftime('%Y-%m-%d')}] No current constituents to calculate index level for '{self.definition.index_name}'. Returning previous level.")
-            return previous_index_level, divisor
-
-        constituent_values_map = self._get_constituent_market_values(
-            constituents_with_weights=weights,
-            current_date=current_date
-        )
-        current_total_adjusted_market_value = sum(constituent_values_map.values())
-
-        if current_total_adjusted_market_value < 0:
-            logger.warning(f"Total adjusted market value is negative: {current_total_adjusted_market_value}. Using 0.")
-            current_total_adjusted_market_value = 0.0
-
-        new_index_level = current_total_adjusted_market_value / divisor
-
-        return new_index_level, divisor
-
-
-    # Corporate action types that are recognised but not yet implemented.
-    _STUB_CA_TYPES = frozenset({"RIGHTS_ISSUE", "SPIN_OFF", "STOCK_DIVIDEND", "MERGER"})
-
-    def handle_corporate_action(self,
-                                action: Dict[str, Any],
-                                constituents: List[Asset],
-                                current_total_market_value_before_ca: float,
-                                current_divisor_before_ca: float
-                               ) -> float:
-        """Adjust the index divisor for a corporate action to maintain continuity.
-
-        Currently supports **SPECIAL_DIVIDEND** fully.  Other action types
-        (``RIGHTS_ISSUE``, ``SPIN_OFF``, ``STOCK_DIVIDEND``, ``MERGER``) are
-        recognised stubs that log a warning and return the divisor unchanged.
-
-        For a special dividend the market-value reduction is::
-
-            reduction = dividend_per_share * shares_outstanding * ff * fx
-
-        and the new divisor is::
-
-            new_divisor = old_divisor * (mv_after / mv_before)
-
-        where ``mv_after = mv_before - reduction``.
-
-        Args:
-            action: Dictionary with keys ``type``, ``asset``, ``value``,
-                ``ex_date``.
-            constituents: Current index constituents.
-            current_total_market_value_before_ca: Aggregate market value of
-                all constituents just before the action takes effect.
-            current_divisor_before_ca: Divisor in effect before this action.
-
-        Returns:
-            The (possibly adjusted) divisor.
-        """
-        action_type = action.get('type', '').upper()
-        asset_involved = action.get('asset')
-        value = action.get('value')
-        ex_date_raw = action.get('ex_date')
-
-        if ex_date_raw is None:
-            logger.warning(f"Corporate action missing ex_date: {action}. No divisor adjustment.")
-            return current_divisor_before_ca
-        ex_date = pd.Timestamp(ex_date_raw)
-
-        logger.info(
-            f"[{ex_date.strftime('%Y-%m-%d')}] Handling CA: {action_type} for asset "
-            f"{asset_involved.asset_id if asset_involved else 'N/A'} "
-            f"for index '{self.definition.index_name}'."
-        )
-
-        if not all([asset_involved, value is not None]):
-            logger.warning(f"Insufficient information for corporate action: {action}. No divisor adjustment.")
-            return current_divisor_before_ca
-
-        if asset_involved not in constituents:
-            logger.info(
-                f"Asset {asset_involved.asset_id} affected by CA is not currently "
-                "an index constituent. No divisor adjustment."
-            )
-            return current_divisor_before_ca
-
-        # --- Stub types: warn and return unchanged ---
-        if action_type in self._STUB_CA_TYPES:
-            logger.warning(
-                f"Divisor adjustment for '{action_type}' is not yet implemented. "
-                "Returning divisor unchanged."
-            )
-            return current_divisor_before_ca
-
-        # --- SPECIAL_DIVIDEND ---
-        if action_type == "SPECIAL_DIVIDEND":
-            from ..asset.equity import Equity
-            if not isinstance(asset_involved, Equity):
-                return current_divisor_before_ca
-
-            date_str = ex_date.strftime('%Y-%m-%d')
-
-            shares = self.data.fetch_shares_outstanding(asset_involved.ticker, date_str)
-            if shares is None or shares <= 0:
-                logger.warning(
-                    f"CA Handle: No shares for {asset_involved.ticker}. "
-                    "Cannot adjust divisor for special dividend."
-                )
-                return current_divisor_before_ca
-
-            reduction_local = float(value) * shares
-
-            # Apply free-float factor if the weighting scheme uses it
-            if getattr(self.definition.weighting_scheme, 'use_free_float', False):
-                ff = self.data.fetch_free_float_factor(asset_involved.ticker, date_str)
-                if ff is not None:
-                    reduction_local *= ff
-
-            # FX conversion to index currency
-            fx_rate = 1.0
-            if asset_involved.currency.upper() != self.definition.currency.upper():
-                fx_series = self.data.fetch_fx_rates(
-                    asset_involved.currency, self.definition.currency, date_str, date_str
-                )
-                if not fx_series.empty:
-                    fx_rate = fx_series.iloc[0]
-                else:
-                    logger.warning(
-                        f"CA Handle: No FX for {asset_involved.currency}/"
-                        f"{self.definition.currency}. Cannot adjust precisely."
-                    )
-                    return current_divisor_before_ca
-
-            reduction_index_ccy = reduction_local * fx_rate
-            logger.debug(
-                f"Special Dividend: Asset {asset_involved.asset_id}, "
-                f"reduction value (index ccy): {reduction_index_ccy:.2f}"
-            )
-
-            if abs(reduction_index_ccy) < 1e-9:
-                logger.debug("Reduction is negligible. Divisor not changed.")
-                return current_divisor_before_ca
-
-            if current_total_market_value_before_ca <= 0:
-                logger.warning(
-                    f"CA Handle: Market value before CA is "
-                    f"{current_total_market_value_before_ca}. Cannot adjust divisor."
-                )
-                return current_divisor_before_ca
-
-            mv_after = current_total_market_value_before_ca - reduction_index_ccy
-            if mv_after <= 0:
-                logger.error(
-                    f"CA Handle: Market value after CA effect is non-positive "
-                    f"({mv_after}). Not adjusting divisor."
-                )
-                return current_divisor_before_ca
-
-            new_divisor = self.adjust_divisor_for_rebalance(
-                current_divisor_before_ca,
-                current_total_market_value_before_ca,
-                mv_after,
-            )
-            logger.info(
-                f"Divisor adjusted due to SPECIAL_DIVIDEND for "
-                f"{asset_involved.asset_id}. Old: {current_divisor_before_ca:.4f}, "
-                f"New: {new_divisor:.4f}."
-            )
-            return new_divisor
-
-        # --- Unknown action type ---
-        logger.warning(
-            f"Unrecognised corporate action type '{action_type}'. "
-            "Returning divisor unchanged."
-        )
-        return current_divisor_before_ca
 
     #todo: run() is currently iterating through all dates, this function should be vectorised for efficiency.
     def run(self,
@@ -668,8 +415,7 @@ class IndexCalculator:
                               constituents: List[Asset],
                               weights: Dict[Asset, float],
                               previous_index_level: float,
-                              previous_divisor: float
-                             ) -> Tuple[float, float]:
+                              previous_divisor: float) -> Tuple[float, float]:
         """
         Runs a single day's index calculation process.
 

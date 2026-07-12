@@ -26,15 +26,13 @@ class DerivativeBase(ABC):
     #: Underlying instrument types recognised by Delta-1 derivatives.
     VALID_UNDERLYING_TYPES = frozenset({"INDEX", "ETF", "EQUITY"})
 
-    def __init__(
-        self,
-        derivative_id: str,
-        underlying_id: str,
-        underlying_type: str,
-        currency: str,
-        expiry_date: str,
-        notional: float,
-    ):
+    def __init__(self,
+                 derivative_id: str,
+                 underlying_id: str,
+                 underlying_type: str,
+                 currency: str,
+                 expiry_date: str,
+                 notional: float):
         """Initialise the common contract terms.
 
         Args:
@@ -84,7 +82,8 @@ class DerivativeBase(ABC):
             f"expiry {self.expiry_date.strftime('%Y-%m-%d')}."
         )
 
-    def time_to_expiry(self, valuation_date: pd.Timestamp) -> float:
+    def time_to_expiry(self,
+                       valuation_date: pd.Timestamp) -> float:
         """Time to expiry in years using the ACT/365 convention.
 
         Args:
@@ -97,12 +96,10 @@ class DerivativeBase(ABC):
         return max(0.0, seconds / _SECONDS_PER_YEAR)
 
     @abstractmethod
-    def fair_value(
-        self,
-        spot_price: float,
-        valuation_date: pd.Timestamp,
-        market_data: Dict[str, float],
-    ) -> float:
+    def fair_value(self,
+                   spot_price: float,
+                   valuation_date: pd.Timestamp,
+                   market_data: Dict[str, float]) -> float:
         """Return the model fair value of the derivative.
 
         Args:
@@ -117,13 +114,11 @@ class DerivativeBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def mark_to_market(
-        self,
-        market_price: float,
-        spot_price: float,
-        valuation_date: pd.Timestamp,
-        market_data: Dict[str, float],
-    ) -> Dict[str, float]:
+    def mark_to_market(self,
+                       market_price: float,
+                       spot_price: float,
+                       valuation_date: pd.Timestamp,
+                       market_data: Dict[str, float]) -> Dict[str, float]:
         """Mark the position to market against an observed *market_price*.
 
         Args:

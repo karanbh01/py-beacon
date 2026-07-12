@@ -35,12 +35,14 @@ class IndexResult:
     weight_snapshots: Dict[pd.Timestamp, Dict[str, float]]
     _data_fetcher: Optional[DataFetcher] = field(default=None, repr=False, compare=False)
 
-    def with_data(self, data_fetcher: DataFetcher) -> 'IndexResult':
+    def with_data(self,
+                  data_fetcher: DataFetcher) -> 'IndexResult':
         """Bind a DataFetcher for asset-level queries. Returns self for chaining."""
         self._data_fetcher = data_fetcher
         return self
 
-    def asset(self, asset_id: str) -> IndexAssetView:
+    def asset(self,
+              asset_id: str) -> IndexAssetView:
         """Return an IndexAssetView for a constituent.
 
         Parameters
@@ -92,7 +94,8 @@ class IndexResult:
             return pd.Series(dtype=float)
         return self.index_levels.pct_change().dropna()
 
-    def get_weights_on_date(self, date: pd.Timestamp) -> Dict[str, float]:
+    def get_weights_on_date(self,
+                            date: pd.Timestamp) -> Dict[str, float]:
         """Get constituent weights effective on a given date.
 
         Locates the most recent rebalance date on or before *date*.

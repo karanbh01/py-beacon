@@ -59,7 +59,9 @@ class ETF(IndexFund):
         self.creation_unit_size: int = creation_unit_size
         self.market_price: Optional[float] = None # Simulated or actual market price
 
-    def simulate_market_price(self, current_date: pd.Timestamp, market_factors: Optional[Dict[str, Any]] = None) -> float:
+    def simulate_market_price(self,
+                              current_date: pd.Timestamp,
+                              market_factors: Optional[Dict[str, Any]] = None) -> float:
         """
         Simulates the ETF's market price based on its NAV and other market factors.
         (Future Scope: Initial focus on NAV tracking implies market price might closely follow NAV,
@@ -89,7 +91,8 @@ class ETF(IndexFund):
         return self.market_price
 
 
-    def get_tracking_performance(self, result: BacktestResult) -> Dict[str, float]:
+    def get_tracking_performance(self,
+                                 result: BacktestResult) -> Dict[str, float]:
         """Calculate tracking metrics from a completed backtest.
 
         Compares the backtest's ``portfolio_nav`` against the target index's

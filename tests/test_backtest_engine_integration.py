@@ -34,7 +34,9 @@ REBALANCE_DATES = [pd.Timestamp(d) for d in ("2024-01-02", "2024-02-01", "2024-0
 TRADING_DAYS = pd.bdate_range(start=BASE_DATE, end=END_DATE, freq="B")
 
 
-def _price(asset_id: str, i: int, n: int) -> float:
+def _price(asset_id: str,
+           i: int,
+           n: int) -> float:
     """Deterministic geometric price path for day index *i* of *n*.
 
     ASSET_A drifts +10% over the window, ASSET_B drifts +20%. The differing
@@ -129,7 +131,8 @@ def fetcher():
 
 
 @pytest.fixture
-def zero_cost_result(index_result, fetcher):
+def zero_cost_result(index_result,
+                     fetcher):
     engine = BacktestEngine(
         start_date=BASE_DATE,
         end_date=END_DATE,
@@ -142,7 +145,8 @@ def zero_cost_result(index_result, fetcher):
 
 
 @pytest.fixture
-def costed_result(index_result, fetcher):
+def costed_result(index_result,
+                  fetcher):
     engine = BacktestEngine(
         start_date=BASE_DATE,
         end_date=END_DATE,
@@ -160,29 +164,36 @@ def costed_result(index_result, fetcher):
 
 class TestPipelineAgainstIndex:
 
-    def test_returns_backtest_result(self, zero_cost_result):
+    def test_returns_backtest_result(self,
+                                     zero_cost_result):
         assert isinstance(zero_cost_result, BacktestResult)
 
-    def test_covers_all_trading_days(self, zero_cost_result):
+    def test_covers_all_trading_days(self,
+                                     zero_cost_result):
         assert len(zero_cost_result.portfolio_nav) == len(TRADING_DAYS)
 
-    def test_first_nav_matches_base_value(self, zero_cost_result):
+    def test_first_nav_matches_base_value(self,
+                                          zero_cost_result):
         """Fully invested on day 0 -> NAV equals initial capital."""
         assert zero_cost_result.portfolio_nav.iloc[0] == pytest.approx(BASE_VALUE, rel=1e-9)
 
-    def test_zero_cost_nav_tracks_index(self, zero_cost_result, index_result):
+    def test_zero_cost_nav_tracks_index(self,
+                                        zero_cost_result,
+                                        index_result):
         """Zero-cost NAV should closely replicate the index level path."""
         nav = zero_cost_result.portfolio_nav
         levels = index_result.index_levels.reindex(nav.index)
         rel_dev = ((nav - levels) / levels).abs()
         assert rel_dev.max() < 1e-6
 
-    def test_zero_cost_tracking_error_near_zero(self, zero_cost_result):
+    def test_zero_cost_tracking_error_near_zero(self,
+                                                zero_cost_result):
         te = zero_cost_result.get_tracking_error()
         assert te is not None
         assert te == pytest.approx(0.0, abs=1e-6)
 
-    def test_zero_cost_tracking_difference_near_zero(self, zero_cost_result):
+    def test_zero_cost_tracking_difference_near_zero(self,
+                                                     zero_cost_result):
         td = zero_cost_result.get_tracking_difference()
         assert td is not None
         assert td == pytest.approx(0.0, abs=1e-6)
@@ -194,19 +205,25 @@ class TestPipelineAgainstIndex:
 
 class TestTransactionCosts:
 
-    def test_costed_nav_lags_zero_cost(self, costed_result, zero_cost_result):
+    def test_costed_nav_lags_zero_cost(self,
+                                       costed_result,
+                                       zero_cost_result):
         """Costs drag on performance -> final NAV must be lower."""
         assert costed_result.portfolio_nav.iloc[-1] < zero_cost_result.portfolio_nav.iloc[-1]
 
-    def test_costed_nav_lags_index(self, costed_result, index_result):
+    def test_costed_nav_lags_index(self,
+                                   costed_result,
+                                   index_result):
         assert costed_result.portfolio_nav.iloc[-1] < index_result.index_levels.iloc[-1]
 
-    def test_costed_tracking_difference_negative(self, costed_result):
+    def test_costed_tracking_difference_negative(self,
+                                                 costed_result):
         td = costed_result.get_tracking_difference()
         assert td is not None
         assert td < 0.0
 
-    def test_transaction_costs_recorded(self, costed_result):
+    def test_transaction_costs_recorded(self,
+                                        costed_result):
         total_cost = sum(t.transaction_cost for t in costed_result.transactions)
         assert total_cost > 0.0
 
@@ -217,15 +234,18 @@ class TestTransactionCosts:
 
 class TestTransactionTimingAndOrdering:
 
-    def test_transactions_only_on_rebalance_dates(self, zero_cost_result):
+    def test_transactions_only_on_rebalance_dates(self,
+                                                  zero_cost_result):
         txn_dates = {t.transaction_date for t in zero_cost_result.transactions}
         assert txn_dates.issubset(set(REBALANCE_DATES))
 
-    def test_every_rebalance_date_has_transactions(self, zero_cost_result):
+    def test_every_rebalance_date_has_transactions(self,
+                                                   zero_cost_result):
         txn_dates = {t.transaction_date for t in zero_cost_result.transactions}
         assert txn_dates == set(REBALANCE_DATES)
 
-    def test_first_rebalance_is_all_buys(self, zero_cost_result):
+    def test_first_rebalance_is_all_buys(self,
+                                         zero_cost_result):
         """Investing from cash on day 0 produces buys for both assets."""
         first = [t for t in zero_cost_result.transactions
                  if t.transaction_date == REBALANCE_DATES[0]]
@@ -233,7 +253,8 @@ class TestTransactionTimingAndOrdering:
         assert all(t.transaction_type == "BUY" for t in first)
         assert {t.asset_id for t in first} == set(ASSETS)
 
-    def test_sells_before_buys_on_each_rebalance(self, zero_cost_result):
+    def test_sells_before_buys_on_each_rebalance(self,
+                                                 zero_cost_result):
         """Within any rebalance date, all sells are appended before buys."""
         txns = zero_cost_result.transactions
         for rdate in REBALANCE_DATES:
@@ -244,7 +265,8 @@ class TestTransactionTimingAndOrdering:
             if sell_idx and buy_idx:
                 assert max(sell_idx) < min(buy_idx), f"buy before sell on {rdate}"
 
-    def test_later_rebalance_rotates_weights(self, zero_cost_result):
+    def test_later_rebalance_rotates_weights(self,
+                                             zero_cost_result):
         """Price drift makes ASSET_B overweight -> sell B, buy A at rebalance."""
         second = [t for t in zero_cost_result.transactions
                   if t.transaction_date == REBALANCE_DATES[1]]
@@ -260,7 +282,8 @@ class TestTransactionTimingAndOrdering:
 
 class TestCustomWeightTarget:
 
-    def test_runs_with_custom_weights(self, fetcher):
+    def test_runs_with_custom_weights(self,
+                                      fetcher):
         target_weights = {
             d: {a: 1.0 / len(ASSETS) for a in ASSETS} for d in REBALANCE_DATES
         }
@@ -278,7 +301,8 @@ class TestCustomWeightTarget:
         # No index bound -> no target-relative metrics.
         assert result.target_index_result is None
 
-    def test_custom_weights_match_index_when_equal(self, fetcher):
+    def test_custom_weights_match_index_when_equal(self,
+                                                   fetcher):
         """A custom equal-weight schedule reproduces the equal-weight index NAV."""
         target_weights = {
             d: {a: 1.0 / len(ASSETS) for a in ASSETS} for d in REBALANCE_DATES
@@ -300,23 +324,27 @@ class TestCustomWeightTarget:
 
 class TestResultMetrics:
 
-    def test_summary_has_core_metrics(self, zero_cost_result):
+    def test_summary_has_core_metrics(self,
+                                      zero_cost_result):
         summary = zero_cost_result.summary()
         for key in ("total_return", "annualised_return", "volatility",
                     "sharpe_ratio", "max_drawdown"):
             assert key in summary
             assert summary[key] is not None
 
-    def test_summary_includes_tracking_metrics_with_target(self, zero_cost_result):
+    def test_summary_includes_tracking_metrics_with_target(self,
+                                                           zero_cost_result):
         summary = zero_cost_result.summary()
         assert "tracking_error" in summary
         assert "tracking_difference" in summary
 
-    def test_summary_total_return_positive(self, zero_cost_result):
+    def test_summary_total_return_positive(self,
+                                           zero_cost_result):
         """Both assets appreciate, so the tracking portfolio should gain."""
         assert zero_cost_result.summary()["total_return"] > 0.0
 
-    def test_tracking_error_none_without_target(self, fetcher):
+    def test_tracking_error_none_without_target(self,
+                                                fetcher):
         target_weights = {
             d: {a: 1.0 / len(ASSETS) for a in ASSETS} for d in REBALANCE_DATES
         }
@@ -328,7 +356,8 @@ class TestResultMetrics:
         result = engine.run()
         assert result.get_tracking_error() is None
 
-    def test_tracking_difference_none_without_target(self, fetcher):
+    def test_tracking_difference_none_without_target(self,
+                                                     fetcher):
         target_weights = {
             d: {a: 1.0 / len(ASSETS) for a in ASSETS} for d in REBALANCE_DATES
         }
@@ -340,7 +369,8 @@ class TestResultMetrics:
         result = engine.run()
         assert result.get_tracking_difference() is None
 
-    def test_summary_omits_tracking_metrics_without_target(self, fetcher):
+    def test_summary_omits_tracking_metrics_without_target(self,
+                                                           fetcher):
         target_weights = {
             d: {a: 1.0 / len(ASSETS) for a in ASSETS} for d in REBALANCE_DATES
         }

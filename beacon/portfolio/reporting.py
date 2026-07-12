@@ -73,14 +73,11 @@ class ReportGenerator:
             
             with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
                 holdings_summary_df.to_excel(writer, sheet_name='HoldingsSummary', index=False)
-                
+
                 # You could add more sheets here, e.g., transaction history
                 transactions_df = pd.DataFrame([vars(tx) for tx in portfolio.transactions])
                 if not transactions_df.empty:
-                    # Convert Asset objects in transactions_df to string representations if needed
-                    if 'asset' in transactions_df.columns:
-                         transactions_df['asset_id'] = transactions_df['asset'].apply(lambda x: x.asset_id if hasattr(x, 'asset_id') else str(x))
-                         transactions_df.drop(columns=['asset'], inplace=True) # Drop original asset object column
+                    transactions_df = self._normalise_transactions_df(transactions_df)
                     transactions_df.to_excel(writer, sheet_name='TransactionHistory', index=False)
 
             logger.info(f"Holdings report successfully saved to {report_path}")
@@ -88,6 +85,16 @@ class ReportGenerator:
         except Exception as e:
             logger.error(f"Failed to generate or save holdings report to {report_path}: {e}")
             raise ReportingError(f"Error generating holdings report: {e}")
+
+    def _normalise_transactions_df(self,
+                                   transactions_df: pd.DataFrame) -> pd.DataFrame:
+        """Convert Asset objects in transactions_df to string representations if needed."""
+        if 'asset' in transactions_df.columns:
+            transactions_df['asset_id'] = transactions_df['asset'].apply(
+                lambda x: x.asset_id if hasattr(x, 'asset_id') else str(x)
+            )
+            transactions_df.drop(columns=['asset'], inplace=True)  # Drop original asset object column
+        return transactions_df
 
 
     def generate_performance_report_excel(self,

@@ -20,7 +20,8 @@ class TestAsset:
         assert a.asset_type == "EQUITY"
 
     @pytest.mark.parametrize("field", ["asset_id", "asset_type", "name", "currency"])
-    def test_empty_field_raises(self, field):
+    def test_empty_field_raises(self,
+                                field):
         kwargs = dict(name="N", currency="C", asset_id="ID", asset_type="T")
         kwargs[field] = ""
         with pytest.raises(ValueError, match=f"{field} cannot be empty"):

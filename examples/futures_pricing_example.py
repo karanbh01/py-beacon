@@ -62,10 +62,13 @@ def _build_price_map():
 class SyntheticDataProvider:
     """Minimal data provider satisfying the IndexCalculator interface."""
 
-    def __init__(self, price_map):
+    def __init__(self,
+                 price_map):
         self._prices = price_map
 
-    def fetch_reference_data(self, identifier, date_str=None):
+    def fetch_reference_data(self,
+                             identifier,
+                             date_str=None):
         if identifier in ASSETS:
             return pd.DataFrame(
                 {"NAME": [identifier], "CURRENCY": ["USD"], "EXCHANGE": ["NYSE"]},
@@ -73,7 +76,11 @@ class SyntheticDataProvider:
             )
         return pd.DataFrame()
 
-    def fetch_market_data(self, identifier, start=None, end=None, columns=None):
+    def fetch_market_data(self,
+                          identifier,
+                          start=None,
+                          end=None,
+                          columns=None):
         price = self._prices.get((identifier, start))
         if price is None:
             return pd.DataFrame()
@@ -82,7 +89,9 @@ class SyntheticDataProvider:
             index=pd.Index([pd.Timestamp(start)], name="DATE"),
         )
 
-    def fetch_shares_outstanding(self, ticker, date_str):
+    def fetch_shares_outstanding(self,
+                                 ticker,
+                                 date_str):
         # Equal shares for both names — keeps the synthetic index simple.
         return 1_000
 

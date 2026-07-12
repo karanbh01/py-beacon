@@ -25,8 +25,7 @@ class IndexDefinition:
                  weighting_scheme: WeightingSchemeBase,
                  rebalancing_frequency: str, # e.g., 'QUARTERLY', 'MONTHLY', 'SEMI-ANNUAL', 'ANNUAL'
                  description: Optional[str] = None,
-                 universe_identifiers: Optional[List[str]] = None
-                ):
+                 universe_identifiers: Optional[List[str]] = None):
         """
         Initializes an IndexDefinition.
 
@@ -72,7 +71,9 @@ class IndexDefinition:
 
         logger.info(f"IndexDefinition for '{self.index_name}' ({self.index_id}) created successfully.")
 
-    def get_rebalance_dates(self, start_date: str, end_date: str) -> List[pd.Timestamp]:
+    def get_rebalance_dates(self,
+                            start_date: str,
+                            end_date: str) -> List[pd.Timestamp]:
         """
         Return all rebalance dates within [start_date, end_date] based on
         the index's rebalancing frequency. Dates are adjusted to business days.

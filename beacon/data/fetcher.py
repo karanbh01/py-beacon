@@ -112,7 +112,10 @@ class DataFetcher:
         """
         return self._market_scalar(identifier, date, column)
 
-    def _market_scalar(self, identifier: str, date: str, column: str) -> Optional[float]:
+    def _market_scalar(self,
+                       identifier: str,
+                       date: str,
+                       column: str) -> Optional[float]:
         """Read a single market-data value for *identifier* on *date*."""
         if column not in self._market.columns:
             return None

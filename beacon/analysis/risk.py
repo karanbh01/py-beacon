@@ -6,7 +6,8 @@ import pandas as pd
 import numpy as np
 from typing import Union
 
-def calculate_volatility(price_series: pd.Series, window: int = 252) -> float:
+def calculate_volatility(price_series: pd.Series,
+                         window: int = 252) -> float:
     """
     Calculates annualized volatility from a price series.
 
@@ -33,7 +34,9 @@ def calculate_volatility(price_series: pd.Series, window: int = 252) -> float:
     annualized_volatility = returns.std() * np.sqrt(window)
     return float(annualized_volatility)
 
-def calculate_sharpe_ratio(returns: pd.Series, risk_free_rate: float, periods_per_year: int = 252) -> float:
+def calculate_sharpe_ratio(returns: pd.Series,
+                           risk_free_rate: float,
+                           periods_per_year: int = 252) -> float:
     """
     Calculates the annualized Sharpe Ratio.
 
@@ -104,7 +107,9 @@ class RiskMetricsCalculator:
         """Initializes the RiskMetricsCalculator."""
         pass
 
-    def calculate_volatility(self, price_series: pd.Series, window: int = 252) -> float:
+    def calculate_volatility(self,
+                             price_series: pd.Series,
+                             window: int = 252) -> float:
         """
         Calculates annualized volatility from a price series.
 
@@ -117,7 +122,10 @@ class RiskMetricsCalculator:
         """
         return calculate_volatility(price_series, window)
 
-    def calculate_sharpe_ratio(self, returns: pd.Series, risk_free_rate: float, periods_per_year: int = 252) -> float:
+    def calculate_sharpe_ratio(self,
+                               returns: pd.Series,
+                               risk_free_rate: float,
+                               periods_per_year: int = 252) -> float:
         """
         Calculates the annualized Sharpe Ratio.
 
@@ -131,7 +139,8 @@ class RiskMetricsCalculator:
         """
         return calculate_sharpe_ratio(returns, risk_free_rate, periods_per_year)
 
-    def calculate_max_drawdown(self, price_series: pd.Series) -> float:
+    def calculate_max_drawdown(self,
+                               price_series: pd.Series) -> float:
         """
         Calculates the maximum drawdown from a price series.
 

@@ -34,7 +34,8 @@ TRADING_DAYS = pd.bdate_range(start=BASE_DATE, end=END_DATE, freq="B")
 N_DAYS = len(TRADING_DAYS)
 
 
-def _price(asset_id: str, i: int) -> float:
+def _price(asset_id: str,
+           i: int) -> float:
     """Geometric price path: ASSET_A +10%, ASSET_B +20% over the window."""
     frac = i / (N_DAYS - 1)
     if asset_id == "ASSET_A":
@@ -58,7 +59,9 @@ def _make_data_provider():
     fetcher = DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)))
     provider = MagicMock()
 
-    def fetch_reference_data(identifier, date=None, columns=None):
+    def fetch_reference_data(identifier,
+                             date=None,
+                             columns=None):
         if identifier in ASSETS:
             return pd.DataFrame(
                 {"NAME": [identifier], "CURRENCY": ["USD"], "EXCHANGE": ["NYSE"]},
@@ -104,12 +107,15 @@ def definition():
 
 
 @pytest.fixture
-def calculator(definition, data_provider):
+def calculator(definition,
+               data_provider):
     return IndexCalculator(definition, data_provider)
 
 
 @pytest.fixture
-def index_fund(definition, calculator, data_provider):
+def index_fund(definition,
+               calculator,
+               data_provider):
     return IndexFund(
         fund_id="FUND1",
         target_index_definition=definition,
@@ -121,7 +127,9 @@ def index_fund(definition, calculator, data_provider):
 
 
 @pytest.fixture
-def etf(definition, calculator, data_provider):
+def etf(definition,
+        calculator,
+        data_provider):
     return ETF(
         fund_id="ETF1",
         etf_ticker="TEST",
@@ -139,7 +147,10 @@ def etf(definition, calculator, data_provider):
 
 class TestIndexFundConstruction:
 
-    def test_valid_construction(self, index_fund, definition, calculator):
+    def test_valid_construction(self,
+                                index_fund,
+                                definition,
+                                calculator):
         assert index_fund.fund_id == "FUND1"
         assert index_fund.target_index_definition is definition
         assert index_fund.index_agent is calculator
@@ -148,22 +159,32 @@ class TestIndexFundConstruction:
         assert index_fund.index_result is None
         assert index_fund.backtest_result is None
 
-    def test_empty_fund_id_raises(self, definition, calculator, data_provider):
+    def test_empty_fund_id_raises(self,
+                                  definition,
+                                  calculator,
+                                  data_provider):
         with pytest.raises(ValueError, match="fund_id"):
             IndexFund("", definition, calculator,
                       Portfolio("p", initial_cash=100.0), data_provider)
 
-    def test_missing_index_definition_raises(self, calculator, data_provider):
+    def test_missing_index_definition_raises(self,
+                                             calculator,
+                                             data_provider):
         with pytest.raises(ValueError, match="target_index_definition"):
             IndexFund("F", None, calculator,
                       Portfolio("p", initial_cash=100.0), data_provider)
 
-    def test_missing_index_agent_raises(self, definition, data_provider):
+    def test_missing_index_agent_raises(self,
+                                        definition,
+                                        data_provider):
         with pytest.raises(ValueError, match="index_agent"):
             IndexFund("F", definition, None,
                       Portfolio("p", initial_cash=100.0), data_provider)
 
-    def test_negative_fee_raises(self, definition, calculator, data_provider):
+    def test_negative_fee_raises(self,
+                                 definition,
+                                 calculator,
+                                 data_provider):
         with pytest.raises(ValueError, match="management_fee_bps"):
             IndexFund("F", definition, calculator,
                       Portfolio("p", initial_cash=100.0), data_provider,
@@ -176,39 +197,46 @@ class TestIndexFundConstruction:
 
 class TestIndexFundNav:
 
-    def test_run_backtest_populates_results(self, index_fund):
+    def test_run_backtest_populates_results(self,
+                                            index_fund):
         result = index_fund.run_backtest(end_date=END_DATE)
         assert index_fund.backtest_result is result
         assert index_fund.index_result is not None
         assert len(result.portfolio_nav) == N_DAYS
 
-    def test_nav_on_base_date_equals_initial_capital(self, index_fund):
+    def test_nav_on_base_date_equals_initial_capital(self,
+                                                     index_fund):
         index_fund.run_backtest(end_date=END_DATE)
         nav = index_fund.calculate_nav(pd.Timestamp(BASE_DATE))
         assert nav == pytest.approx(INITIAL_CAPITAL, rel=1e-9)
 
-    def test_nav_matches_backtest_nav_series(self, index_fund):
+    def test_nav_matches_backtest_nav_series(self,
+                                             index_fund):
         index_fund.run_backtest(end_date=END_DATE)
         nav = index_fund.calculate_nav(pd.Timestamp(END_DATE))
         expected = index_fund.backtest_result.portfolio_nav.iloc[-1]
         assert nav == pytest.approx(expected)
 
-    def test_nav_grows_with_appreciating_assets(self, index_fund):
+    def test_nav_grows_with_appreciating_assets(self,
+                                                index_fund):
         index_fund.run_backtest(end_date=END_DATE)
         nav_end = index_fund.calculate_nav(pd.Timestamp(END_DATE))
         assert nav_end > INITIAL_CAPITAL
 
-    def test_calculate_nav_lazily_runs_backtest(self, index_fund):
+    def test_calculate_nav_lazily_runs_backtest(self,
+                                                index_fund):
         """calculate_nav triggers the pipeline if it has not run yet."""
         assert index_fund.backtest_result is None
         nav = index_fund.calculate_nav(pd.Timestamp("2024-02-15"))
         assert nav > 0
         assert index_fund.backtest_result is not None
 
-    def test_nav_before_base_date_returns_seed_capital(self, index_fund):
+    def test_nav_before_base_date_returns_seed_capital(self,
+                                                       index_fund):
         assert index_fund.calculate_nav(pd.Timestamp("2023-12-01")) == INITIAL_CAPITAL
 
-    def test_fund_does_not_mutate_own_portfolio(self, index_fund):
+    def test_fund_does_not_mutate_own_portfolio(self,
+                                                index_fund):
         """Trading is delegated to the engine's internal portfolio."""
         index_fund.run_backtest(end_date=END_DATE)
         assert index_fund.portfolio.transactions == []
@@ -221,7 +249,10 @@ class TestIndexFundNav:
 
 class TestIndexFundFee:
 
-    def test_fee_reduces_nav(self, definition, calculator, data_provider):
+    def test_fee_reduces_nav(self,
+                             definition,
+                             calculator,
+                             data_provider):
         no_fee = IndexFund("NF", definition, calculator,
                            Portfolio("nf", initial_cash=INITIAL_CAPITAL),
                            data_provider, management_fee_bps=0)
@@ -235,7 +266,10 @@ class TestIndexFundFee:
         net = with_fee.calculate_nav(pd.Timestamp(END_DATE))
         assert net < gross
 
-    def test_fee_factor_matches_expected(self, definition, calculator, data_provider):
+    def test_fee_factor_matches_expected(self,
+                                         definition,
+                                         calculator,
+                                         data_provider):
         fee_bps = 100
         fund = IndexFund("WF", definition, calculator,
                          Portfolio("wf", initial_cash=INITIAL_CAPITAL),
@@ -249,7 +283,10 @@ class TestIndexFundFee:
         expected_factor = (1.0 - daily_rate) ** (N_DAYS - 1)
         assert net == pytest.approx(gross * expected_factor)
 
-    def test_no_fee_on_base_date(self, definition, calculator, data_provider):
+    def test_no_fee_on_base_date(self,
+                                 definition,
+                                 calculator,
+                                 data_provider):
         """Zero days elapsed -> no fee accrued yet."""
         fund = IndexFund("WF", definition, calculator,
                          Portfolio("wf", initial_cash=INITIAL_CAPITAL),
@@ -265,21 +302,29 @@ class TestIndexFundFee:
 
 class TestETFConstruction:
 
-    def test_valid_construction(self, etf):
+    def test_valid_construction(self,
+                                etf):
         assert etf.fund_id == "ETF1"
         assert etf.etf_ticker == "TEST"
         assert etf.creation_unit_size == 50000
         assert etf.market_price is None
 
-    def test_is_index_fund(self, etf):
+    def test_is_index_fund(self,
+                           etf):
         assert isinstance(etf, IndexFund)
 
-    def test_empty_ticker_raises(self, definition, calculator, data_provider):
+    def test_empty_ticker_raises(self,
+                                 definition,
+                                 calculator,
+                                 data_provider):
         with pytest.raises(ValueError, match="etf_ticker"):
             ETF("E", "", definition, calculator,
                 Portfolio("p", initial_cash=100.0), data_provider)
 
-    def test_non_positive_creation_unit_raises(self, definition, calculator, data_provider):
+    def test_non_positive_creation_unit_raises(self,
+                                               definition,
+                                               calculator,
+                                               data_provider):
         with pytest.raises(ValueError, match="creation_unit_size"):
             ETF("E", "TICK", definition, calculator,
                 Portfolio("p", initial_cash=100.0), data_provider,
@@ -292,14 +337,16 @@ class TestETFConstruction:
 
 class TestETFTrackingPerformance:
 
-    def test_returns_metrics_from_backtest_result(self, etf):
+    def test_returns_metrics_from_backtest_result(self,
+                                                  etf):
         result = etf.run_backtest(end_date=END_DATE)
         perf = etf.get_tracking_performance(result)
         assert set(perf) == {"tracking_error", "tracking_difference"}
         assert perf["tracking_error"] == pytest.approx(result.get_tracking_error())
         assert perf["tracking_difference"] == pytest.approx(result.get_tracking_difference())
 
-    def test_metrics_are_finite_floats(self, etf):
+    def test_metrics_are_finite_floats(self,
+                                       etf):
         result = etf.run_backtest(end_date=END_DATE)
         perf = etf.get_tracking_performance(result)
         assert isinstance(perf["tracking_error"], float)
@@ -307,7 +354,9 @@ class TestETFTrackingPerformance:
         assert pd.notna(perf["tracking_error"])
         assert pd.notna(perf["tracking_difference"])
 
-    def test_error_when_no_target_index(self, etf, data_provider):
+    def test_error_when_no_target_index(self,
+                                        etf,
+                                        data_provider):
         """A backtest driven by a raw weight dict has no target index."""
         from beacon.backtest.engine import BacktestEngine
         weights = {pd.Timestamp(BASE_DATE): {a: 0.5 for a in ASSETS}}
@@ -319,7 +368,8 @@ class TestETFTrackingPerformance:
         perf = etf.get_tracking_performance(result)
         assert "error" in perf
 
-    def test_raises_on_none_result(self, etf):
+    def test_raises_on_none_result(self,
+                                   etf):
         with pytest.raises(ValueError, match="BacktestResult must be provided"):
             etf.get_tracking_performance(None)
 
@@ -330,19 +380,22 @@ class TestETFTrackingPerformance:
 
 class TestETFMarketPrice:
 
-    def test_simulate_market_price_returns_nav(self, etf):
+    def test_simulate_market_price_returns_nav(self,
+                                               etf):
         etf.run_backtest(end_date=END_DATE)
         date = pd.Timestamp(END_DATE)
         price = etf.simulate_market_price(date)
         assert price == pytest.approx(etf.calculate_nav(date))
 
-    def test_simulate_market_price_sets_attribute(self, etf):
+    def test_simulate_market_price_sets_attribute(self,
+                                                  etf):
         etf.run_backtest(end_date=END_DATE)
         date = pd.Timestamp(END_DATE)
         price = etf.simulate_market_price(date)
         assert etf.market_price == pytest.approx(price)
 
-    def test_market_price_on_base_date_equals_capital(self, etf):
+    def test_market_price_on_base_date_equals_capital(self,
+                                                      etf):
         etf.run_backtest(end_date=END_DATE)
         price = etf.simulate_market_price(pd.Timestamp(BASE_DATE))
         assert price == pytest.approx(INITIAL_CAPITAL, rel=1e-9)

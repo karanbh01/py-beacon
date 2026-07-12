@@ -139,7 +139,8 @@ class IndexFund:
         )
         return self._backtest_result
 
-    def rebalance_to_index(self, current_date: pd.Timestamp) -> None:
+    def rebalance_to_index(self,
+                           current_date: pd.Timestamp) -> None:
         """Align the fund's tracking portfolio with the target index.
 
         Thin wrapper that ensures the composed calculator + engine pipeline has
@@ -152,7 +153,8 @@ class IndexFund:
         """
         self._ensure_backtest(pd.Timestamp(current_date))
 
-    def _ensure_backtest(self, through_date: pd.Timestamp) -> None:
+    def _ensure_backtest(self,
+                         through_date: pd.Timestamp) -> None:
         """Run (or re-run) the backtest so it covers *through_date*."""
         base_date = self.target_index_definition.base_date
         if through_date < base_date:
@@ -169,7 +171,8 @@ class IndexFund:
     # NAV
     # ------------------------------------------------------------------
 
-    def calculate_nav(self, current_date: pd.Timestamp) -> float:
+    def calculate_nav(self,
+                      current_date: pd.Timestamp) -> float:
         """Return the fund's Net Asset Value as of *current_date*.
 
         The gross NAV is read from the backtest-engine-managed portfolio; the
@@ -204,7 +207,9 @@ class IndexFund:
         )
         return net_nav
 
-    def _apply_management_fee(self, gross_nav: float, elapsed_days: int) -> float:
+    def _apply_management_fee(self,
+                              gross_nav: float,
+                              elapsed_days: int) -> float:
         """Deduct the accrued management fee from *gross_nav*.
 
         The annual fee is accrued daily (ACT/252) and compounded over the number

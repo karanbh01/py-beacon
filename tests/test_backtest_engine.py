@@ -15,7 +15,8 @@ from beacon.index.result import IndexResult
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _mock_data_provider(prices: dict, col="CLOSE"):
+def _mock_data_provider(prices: dict,
+                        col="CLOSE"):
     """Create a mock DataFetcher.
 
     prices: dict mapping asset_id -> dict mapping date_str -> price.
@@ -23,7 +24,10 @@ def _mock_data_provider(prices: dict, col="CLOSE"):
     """
     provider = MagicMock()
 
-    def _fetch(identifier, start=None, end=None, columns=None):
+    def _fetch(identifier,
+               start=None,
+               end=None,
+               columns=None):
         asset_prices = prices.get(identifier, {})
         if start in asset_prices:
             return pd.DataFrame({col: [asset_prices[start]]})
@@ -33,7 +37,8 @@ def _mock_data_provider(prices: dict, col="CLOSE"):
     return provider
 
 
-def _bday(offset=0, base="2025-01-02"):
+def _bday(offset=0,
+          base="2025-01-02"):
     """Return a business day Timestamp."""
     return pd.bdate_range(start=base, periods=offset + 1, freq="B")[-1]
 
@@ -264,7 +269,10 @@ class TestIndexResultIntegration:
 
 class TestGenerateTrades:
 
-    def _make_engine(self, prices, target_weights=None, cost_bps=0.0):
+    def _make_engine(self,
+                     prices,
+                     target_weights=None,
+                     cost_bps=0.0):
         dp = _mock_data_provider(prices)
         w = target_weights or {DATES[0]: {"A": 1.0}}
         return BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),

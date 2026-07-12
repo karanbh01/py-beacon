@@ -73,7 +73,8 @@ class DriftThresholdModifier(BacktestModifier):
         rebalance is skipped. For example, 0.05 means 5%.
     """
 
-    def __init__(self, threshold: float):
+    def __init__(self,
+                 threshold: float):
         if threshold < 0:
             raise ValueError("threshold must be non-negative.")
         self.threshold: float = threshold

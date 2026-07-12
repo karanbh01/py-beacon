@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult
-from ..portfolio.base import Portfolio
+from ..portfolio.base import Holding, Portfolio
 from .result import BacktestResult
 
 logger = logging.getLogger(__name__)
@@ -118,7 +118,9 @@ class BacktestEngine:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _fetch_price(self, asset_id: str, date: pd.Timestamp) -> Optional[float]:
+    def _fetch_price(self,
+                     asset_id: str,
+                     date: pd.Timestamp) -> Optional[float]:
         """Fetch a single closing price for *asset_id* on *date*."""
         date_str = date.strftime("%Y-%m-%d")
         try:
@@ -131,7 +133,9 @@ class BacktestEngine:
             logger.error(f"Error fetching price for {asset_id} on {date_str}: {e}")
         return None
 
-    def _update_portfolio_prices(self, portfolio: Portfolio, date: pd.Timestamp) -> None:
+    def _update_portfolio_prices(self,
+                                 portfolio: Portfolio,
+                                 date: pd.Timestamp) -> None:
         """Fetch prices for all holdings and push into the portfolio."""
         prices: Dict[str, float] = {}
         for asset_id in portfolio.holdings:
@@ -140,11 +144,82 @@ class BacktestEngine:
                 prices[asset_id] = price
         portfolio.update_prices(prices)
 
-    def _get_target_weights_for_date(self, date: pd.Timestamp) -> Optional[Dict[str, float]]:
+    def _get_target_weights_for_date(self,
+                                     date: pd.Timestamp) -> Optional[Dict[str, float]]:
         """Return target weights if *date* is a rebalance date, else None."""
         return self._weight_schedule.get(date)
 
-    def _generate_trades(self, portfolio: Portfolio,
+    def _sell_instruction(self,
+                          asset_id: str,
+                          holding: Holding,
+                          target_weights: Dict[str, float],
+                          current_value: float,
+                          cost_rate: float,
+                          date: pd.Timestamp) -> Optional[TradeInstruction]:
+        """Return a SELL instruction for *asset_id* if not in target or overweight.
+
+        Returns None if the asset should not be sold (no price, in-target
+        and not overweight, or below the sell-quantity threshold).
+        """
+        price = self._fetch_price(asset_id, date)
+        if price is None:
+            return None
+
+        target_w = target_weights.get(asset_id, 0.0)
+        if target_w == 0:
+            notional = holding.quantity * price
+            cost = notional * cost_rate
+            return TradeInstruction(asset_id, "SELL", holding.quantity, price, cost)
+
+        target_value = current_value * target_w
+        current_asset_value = holding.quantity * price
+        if current_asset_value <= target_value + 1e-6:
+            return None
+
+        excess_value = current_asset_value - target_value
+        qty_to_sell = excess_value / price
+        if qty_to_sell <= 1e-9:
+            return None
+
+        notional = qty_to_sell * price
+        cost = notional * cost_rate
+        return TradeInstruction(asset_id, "SELL", qty_to_sell, price, cost)
+
+    def _buy_instruction(self,
+                         asset_id: str,
+                         target_w: float,
+                         portfolio: Portfolio,
+                         current_value: float,
+                         cost_rate: float,
+                         date: pd.Timestamp) -> Optional[TradeInstruction]:
+        """Return a BUY instruction for *asset_id* if new or underweight.
+
+        Returns None if the asset should not be bought (non-positive target
+        weight, no price, or below the buy-deficit threshold).
+        """
+        if target_w <= 0:
+            return None
+
+        price = self._fetch_price(asset_id, date)
+        if price is None or price <= 0:
+            return None
+
+        target_value = current_value * target_w
+        current_holding_value = 0.0
+        if asset_id in portfolio.holdings:
+            current_holding_value = portfolio.holdings[asset_id].quantity * price
+
+        deficit = target_value - current_holding_value
+        if deficit <= 1e-6:
+            return None
+
+        qty_to_buy = deficit / price
+        notional = qty_to_buy * price
+        cost = notional * cost_rate
+        return TradeInstruction(asset_id, "BUY", qty_to_buy, price, cost)
+
+    def _generate_trades(self,
+                         portfolio: Portfolio,
                          target_weights: Dict[str, float],
                          date: pd.Timestamp) -> List[TradeInstruction]:
         """Calculate trades needed to move *portfolio* to *target_weights*.
@@ -177,50 +252,23 @@ class BacktestEngine:
 
         # --- Sells: assets not in target, or overweight ---
         for asset_id, holding in portfolio.holdings.items():
-            price = self._fetch_price(asset_id, date)
-            if price is None:
-                continue
-
-            target_w = target_weights.get(asset_id, 0.0)
-            if target_w == 0:
-                notional = holding.quantity * price
-                cost = notional * cost_rate
-                sells.append(TradeInstruction(asset_id, "SELL", holding.quantity, price, cost))
-            else:
-                target_value = current_value * target_w
-                current_asset_value = holding.quantity * price
-                if current_asset_value > target_value + 1e-6:
-                    excess_value = current_asset_value - target_value
-                    qty_to_sell = excess_value / price
-                    if qty_to_sell > 1e-9:
-                        notional = qty_to_sell * price
-                        cost = notional * cost_rate
-                        sells.append(TradeInstruction(asset_id, "SELL", qty_to_sell, price, cost))
+            instruction = self._sell_instruction(asset_id, holding, target_weights,
+                                                 current_value, cost_rate, date)
+            if instruction is not None:
+                sells.append(instruction)
 
         # --- Buys: new or underweight ---
         for asset_id, target_w in target_weights.items():
-            if target_w <= 0:
-                continue
-
-            price = self._fetch_price(asset_id, date)
-            if price is None or price <= 0:
-                continue
-
-            target_value = current_value * target_w
-            current_holding_value = 0.0
-            if asset_id in portfolio.holdings:
-                current_holding_value = portfolio.holdings[asset_id].quantity * price
-
-            deficit = target_value - current_holding_value
-            if deficit > 1e-6:
-                qty_to_buy = deficit / price
-                notional = qty_to_buy * price
-                cost = notional * cost_rate
-                buys.append(TradeInstruction(asset_id, "BUY", qty_to_buy, price, cost))
+            instruction = self._buy_instruction(asset_id, target_w, portfolio,
+                                                current_value, cost_rate, date)
+            if instruction is not None:
+                buys.append(instruction)
 
         return sells + buys
 
-    def _rebalance(self, portfolio: Portfolio, target_weights: Dict[str, float],
+    def _rebalance(self,
+                   portfolio: Portfolio,
+                   target_weights: Dict[str, float],
                    date: pd.Timestamp) -> None:
         """Adjust *portfolio* to match *target_weights* using :meth:`_generate_trades`.
 
@@ -339,7 +387,8 @@ class BacktestEngine:
             target_index_result=self.target_index_result,
         )
 
-    def _build_empty_result(self, portfolio: Portfolio) -> BacktestResult:
+    def _build_empty_result(self,
+                            portfolio: Portfolio) -> BacktestResult:
         """Build a BacktestResult with no data."""
         return BacktestResult(
             portfolio_id=portfolio.portfolio_id,

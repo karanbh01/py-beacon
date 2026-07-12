@@ -43,7 +43,8 @@ _TOTAL_RETURN = {"AAA": 0.08, "BBB": 0.02, "CCC": 0.05}
 _SHARES = {"AAA": 1000, "BBB": 2000, "CCC": 500}
 
 
-def _price(asset_id: str, day: pd.Timestamp) -> float:
+def _price(asset_id: str,
+           day: pd.Timestamp) -> float:
     """Deterministic geometric price path for *asset_id* on *day*."""
     frac = TRADING_DAYS.get_loc(day) / (N_DAYS - 1)
     return _BASE_PRICE[asset_id] * ((1 + _TOTAL_RETURN[asset_id]) ** frac)
@@ -113,11 +114,14 @@ def definition():
 
 
 @pytest.fixture(scope="module")
-def index_result(definition, fetcher):
+def index_result(definition,
+                 fetcher):
     return IndexCalculator(definition, fetcher).run(end_date=END_DATE)
 
 
-def _backtest(index_result, fetcher, cost_bps):
+def _backtest(index_result,
+              fetcher,
+              cost_bps):
     return BacktestEngine(
         start_date=BASE_DATE,
         end_date=END_DATE,
@@ -129,12 +133,15 @@ def _backtest(index_result, fetcher, cost_bps):
 
 
 @pytest.fixture(scope="module")
-def zero_cost_result(index_result, fetcher):
+def zero_cost_result(index_result,
+                     fetcher):
     return _backtest(index_result, fetcher, 0.0)
 
 
 @pytest.fixture(scope="module")
-def costed_result(index_result, fetcher, environment):
+def costed_result(index_result,
+                  fetcher,
+                  environment):
     return _backtest(index_result, fetcher, environment.simulation.TRANSACTION_COST)
 
 
@@ -144,12 +151,15 @@ def costed_result(index_result, fetcher, environment):
 
 class TestPipelineSetup:
 
-    def test_environment_and_fetcher_types(self, environment, fetcher):
+    def test_environment_and_fetcher_types(self,
+                                           environment,
+                                           fetcher):
         assert isinstance(environment, Environment)
         assert isinstance(fetcher, DataFetcher)
         assert environment.simulation.TRANSACTION_COST == 50.0
 
-    def test_index_result_shape_and_types(self, index_result):
+    def test_index_result_shape_and_types(self,
+                                          index_result):
         assert isinstance(index_result, IndexResult)
         assert isinstance(index_result.index_levels, pd.Series)
         assert len(index_result.index_levels) == N_DAYS
@@ -161,7 +171,8 @@ class TestPipelineSetup:
             assert set(weights) == set(ASSETS)
             assert sum(weights.values()) == pytest.approx(1.0)
 
-    def test_backtest_result_shape_and_types(self, zero_cost_result):
+    def test_backtest_result_shape_and_types(self,
+                                             zero_cost_result):
         r = zero_cost_result
         assert isinstance(r, BacktestResult)
         assert isinstance(r.portfolio_nav, pd.Series)
@@ -179,23 +190,28 @@ class TestPipelineSetup:
 
 class TestTracking:
 
-    def test_zero_cost_tracking_error_below_1bp(self, zero_cost_result):
+    def test_zero_cost_tracking_error_below_1bp(self,
+                                                zero_cost_result):
         te = zero_cost_result.get_tracking_error()
         assert te is not None
         assert te < 1e-4  # < 1 basis point (annualised)
 
-    def test_nonzero_cost_tracking_difference_negative(self, costed_result):
+    def test_nonzero_cost_tracking_difference_negative(self,
+                                                       costed_result):
         td = costed_result.get_tracking_difference()
         assert td is not None
         assert td < 0.0
 
-    def test_costs_worsen_tracking(self, zero_cost_result, costed_result):
+    def test_costs_worsen_tracking(self,
+                                   zero_cost_result,
+                                   costed_result):
         # Trading costs drag on the portfolio: lower final NAV and a more
         # negative tracking difference than the zero-cost run.
         assert costed_result.portfolio_nav.iloc[-1] < zero_cost_result.portfolio_nav.iloc[-1]
         assert costed_result.get_tracking_difference() < zero_cost_result.get_tracking_difference()
 
-    def test_summary_reports_metrics(self, zero_cost_result):
+    def test_summary_reports_metrics(self,
+                                     zero_cost_result):
         summary = zero_cost_result.summary()
         for key in ("total_return", "annualised_return", "volatility",
                     "sharpe_ratio", "max_drawdown", "tracking_error",
@@ -210,13 +226,18 @@ class TestTracking:
 
 class TestPipelineConsistency:
 
-    def test_transactions_only_on_rebalance_dates(self, zero_cost_result, index_result):
+    def test_transactions_only_on_rebalance_dates(self,
+                                                  zero_cost_result,
+                                                  index_result):
         rebalance_dates = set(index_result.weight_snapshots.keys())
         txn_dates = {t.transaction_date for t in zero_cost_result.transactions}
         assert txn_dates.issubset(rebalance_dates)
 
-    def test_nav_starts_at_initial_capital(self, zero_cost_result):
+    def test_nav_starts_at_initial_capital(self,
+                                           zero_cost_result):
         assert zero_cost_result.portfolio_nav.iloc[0] == pytest.approx(INITIAL_CAPITAL, rel=1e-6)
 
-    def test_index_and_portfolio_share_dates(self, zero_cost_result, index_result):
+    def test_index_and_portfolio_share_dates(self,
+                                             zero_cost_result,
+                                             index_result):
         assert list(zero_cost_result.portfolio_nav.index) == list(index_result.index_levels.index)

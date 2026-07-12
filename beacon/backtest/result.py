@@ -43,12 +43,14 @@ class BacktestResult:
     target_index_result: Optional[IndexResult] = None
     _data_fetcher: Optional[DataFetcher] = field(default=None, repr=False, compare=False)
 
-    def with_data(self, data_fetcher: DataFetcher) -> 'BacktestResult':
+    def with_data(self,
+                  data_fetcher: DataFetcher) -> 'BacktestResult':
         """Bind a DataFetcher for asset-level queries. Returns self for chaining."""
         self._data_fetcher = data_fetcher
         return self
 
-    def asset(self, asset_id: str) -> BacktestAssetView:
+    def asset(self,
+              asset_id: str) -> BacktestAssetView:
         """Return a BacktestAssetView for a held asset.
 
         Parameters

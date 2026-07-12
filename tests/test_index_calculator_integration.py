@@ -54,7 +54,8 @@ def _make_mock_data():
     """Create a MagicMock DataFetcher wired to synthetic data."""
     data = MagicMock()
 
-    def fetch_reference_data(identifier, date_str):
+    def fetch_reference_data(identifier,
+                             date_str):
         if identifier == "ASSET_A":
             return pd.DataFrame(
                 {"NAME": ["Asset A"], "CURRENCY": ["USD"], "EXCHANGE": ["NYSE"]},
@@ -67,7 +68,9 @@ def _make_mock_data():
             )
         return pd.DataFrame()
 
-    def fetch_market_data(ticker, start, end):
+    def fetch_market_data(ticker,
+                          start,
+                          end):
         # Return a single-row DataFrame for the requested date
         key = (ticker, start)
         if key in PRICE_MAP:
@@ -78,7 +81,8 @@ def _make_mock_data():
             )
         return pd.DataFrame()
 
-    def fetch_shares_outstanding(ticker, date_str):
+    def fetch_shares_outstanding(ticker,
+                                 date_str):
         return SHARES
 
     data.fetch_reference_data.side_effect = fetch_reference_data
@@ -108,7 +112,8 @@ def mock_data():
 
 
 @pytest.fixture
-def result(index_definition, mock_data):
+def result(index_definition,
+           mock_data):
     """Run the calculator once and return the IndexResult."""
     calc = IndexCalculator(index_definition, mock_data)
     return calc.run(end_date=END_DATE)
@@ -120,15 +125,18 @@ def result(index_definition, mock_data):
 
 class TestIntegrationRun:
 
-    def test_returns_index_result(self, result):
+    def test_returns_index_result(self,
+                                  result):
         assert isinstance(result, IndexResult)
         assert result.index_id == "TEST_EW"
 
-    def test_base_date_level_equals_base_value(self, result):
+    def test_base_date_level_equals_base_value(self,
+                                               result):
         base = pd.Timestamp(BASE_DATE)
         assert result.index_levels[base] == pytest.approx(BASE_VALUE)
 
-    def test_level_continuous_across_rebalances(self, result):
+    def test_level_continuous_across_rebalances(self,
+                                                result):
         """No jumps at rebalance dates — the level the day before and
         the rebalance date itself should be close (within daily move)."""
         levels = result.index_levels
@@ -149,13 +157,15 @@ class TestIntegrationRun:
                 f"Level jump of {pct_change:.4%} at rebalance {rdate} exceeds 1%"
             )
 
-    def test_equal_weight_10pct_gain(self, result):
+    def test_equal_weight_10pct_gain(self,
+                                     result):
         """Both assets gain 10%. Equal-weight index should also gain ~10%."""
         final_level = result.index_levels.iloc[-1]
         total_return = (final_level / BASE_VALUE) - 1.0
         assert total_return == pytest.approx(0.10, abs=0.005)
 
-    def test_divisor_changes_only_on_rebalance_dates(self, result):
+    def test_divisor_changes_only_on_rebalance_dates(self,
+                                                     result):
         """Divisor should only change on dates recorded in weight_snapshots."""
         divisors = result.divisor_history
         rebalance_dates = set(result.weight_snapshots.keys())
@@ -168,7 +178,8 @@ class TestIntegrationRun:
                     f"Divisor changed on non-rebalance date {date}"
                 )
 
-    def test_weight_snapshots_only_on_rebalance_dates(self, result):
+    def test_weight_snapshots_only_on_rebalance_dates(self,
+                                                      result):
         """Weight entries should correspond to base + rebalance dates."""
         rebal_dates_from_defn = set(
             pd.Timestamp(d) for d in result.weight_snapshots.keys()
@@ -180,14 +191,16 @@ class TestIntegrationRun:
         # Base date must be present
         assert pd.Timestamp(BASE_DATE) in rebal_dates_from_defn
 
-    def test_weights_are_equal(self, result):
+    def test_weights_are_equal(self,
+                               result):
         """All weight snapshots should show 50/50 split."""
         for date, weights in result.weight_snapshots.items():
             assert len(weights) == 2
             for asset_id, w in weights.items():
                 assert w == pytest.approx(0.5)
 
-    def test_return_calculation_matches_manual(self, result):
+    def test_return_calculation_matches_manual(self,
+                                               result):
         """Spot-check: first daily return should match manual computation."""
         levels = result.index_levels
         day0 = levels.index[0]
@@ -197,12 +210,14 @@ class TestIntegrationRun:
         returns = result.get_returns()
         assert returns.iloc[0] == pytest.approx(expected_return)
 
-    def test_all_returns_positive(self, result):
+    def test_all_returns_positive(self,
+                                  result):
         """Both assets only go up, so every daily return should be >= 0."""
         returns = result.get_returns()
         assert (returns >= -1e-10).all()
 
-    def test_idempotent(self, index_definition):
+    def test_idempotent(self,
+                        index_definition):
         """Two consecutive run() calls produce identical results."""
         data1 = _make_mock_data()
         data2 = _make_mock_data()
@@ -217,11 +232,13 @@ class TestIntegrationRun:
         assert r1.constituent_snapshots == r2.constituent_snapshots
         assert r1.weight_snapshots == r2.weight_snapshots
 
-    def test_covers_expected_trading_days(self, result):
+    def test_covers_expected_trading_days(self,
+                                          result):
         """Result should span all business days from base to end."""
         expected_days = pd.bdate_range(start=BASE_DATE, end=END_DATE)
         assert len(result.index_levels) == len(expected_days)
 
-    def test_constituent_snapshots_contain_both_assets(self, result):
+    def test_constituent_snapshots_contain_both_assets(self,
+                                                       result):
         for date, ids in result.constituent_snapshots.items():
             assert set(ids) == {"ASSET_A", "ASSET_B"}

@@ -20,11 +20,14 @@ class AssetView:
         The data provider instance.
     """
 
-    def __init__(self, asset_id: str, data_fetcher: DataFetcher):
+    def __init__(self,
+                 asset_id: str,
+                 data_fetcher: DataFetcher):
         if not asset_id:
             raise ValueError("asset_id cannot be empty.")
         if data_fetcher is None:
             raise ValueError("data_fetcher must be provided.")
+
         self._asset_id = asset_id
         self._data_fetcher = data_fetcher
 
@@ -32,7 +35,9 @@ class AssetView:
     def asset_id(self) -> str:
         return self._asset_id
 
-    def prices(self, start: str, end: str) -> pd.DataFrame:
+    def prices(self,
+               start: str,
+               end: str) -> pd.DataFrame:
         """Retrieve historical OHLCV price data.
 
         Parameters
@@ -99,7 +104,8 @@ class AssetView:
 
         return series.pct_change().dropna()
 
-    def reference_data(self, date: Optional[str] = None) -> pd.DataFrame:
+    def reference_data(self,
+                       date: Optional[str] = None) -> pd.DataFrame:
         """Fetch static reference data (e.g. name, sector, exchange).
 
         Parameters
@@ -114,7 +120,9 @@ class AssetView:
         """
         return self._data_fetcher.fetch_reference_data(self._asset_id, date)
 
-    def corporate_actions(self, start: str, end: str) -> pd.DataFrame:
+    def corporate_actions(self,
+                          start: str,
+                          end: str) -> pd.DataFrame:
         """Retrieve corporate action events (dividends, splits, etc.).
 
         Parameters

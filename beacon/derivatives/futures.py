@@ -35,17 +35,15 @@ class IndexFuture(DerivativeBase):
     - ``borrow_cost`` — continuous borrow/financing spread ``c`` (default 0)
     """
 
-    def __init__(
-        self,
-        derivative_id: str,
-        underlying_id: str,
-        currency: str,
-        expiry_date: str,
-        contract_multiplier: float,
-        tick_size: float,
-        tick_value: float,
-        underlying_type: str = "INDEX",
-    ):
+    def __init__(self,
+                 derivative_id: str,
+                 underlying_id: str,
+                 currency: str,
+                 expiry_date: str,
+                 contract_multiplier: float,
+                 tick_size: float,
+                 tick_value: float,
+                 underlying_type: str = "INDEX"):
         """Initialise an index future.
 
         Args:
@@ -90,12 +88,10 @@ class IndexFuture(DerivativeBase):
     # Pricing / analytics
     # ------------------------------------------------------------------
 
-    def fair_value(
-        self,
-        spot_price: float,
-        valuation_date: pd.Timestamp,
-        market_data: Dict[str, float],
-    ) -> float:
+    def fair_value(self,
+                   spot_price: float,
+                   valuation_date: pd.Timestamp,
+                   market_data: Dict[str, float]) -> float:
         """Cost-of-carry fair value ``F = S * exp((r - q + c) * T)`` in points.
 
         Returns *spot_price* when the contract is at or past expiry (``T == 0``).
@@ -110,16 +106,16 @@ class IndexFuture(DerivativeBase):
             borrow_cost=market_data.get("borrow_cost", 0.0),
         )
 
-    def basis(self, futures_price: float, spot_price: float) -> float:
+    def basis(self,
+              futures_price: float,
+              spot_price: float) -> float:
         """Simple basis: ``futures_price - spot_price`` (index points)."""
         return futures_price - spot_price
 
-    def annualised_basis(
-        self,
-        futures_price: float,
-        spot_price: float,
-        valuation_date: pd.Timestamp,
-    ) -> float:
+    def annualised_basis(self,
+                         futures_price: float,
+                         spot_price: float,
+                         valuation_date: pd.Timestamp) -> float:
         """Annualised implied financing rate ``ln(F / S) / T``.
 
         Implemented via :func:`implied_repo_rate` with zero dividend yield.
@@ -136,12 +132,10 @@ class IndexFuture(DerivativeBase):
             time_to_expiry_years=t,
         )
 
-    def daily_settlement_pnl(
-        self,
-        settle_today: float,
-        settle_yesterday: float,
-        contracts: float = 1.0,
-    ) -> float:
+    def daily_settlement_pnl(self,
+                             settle_today: float,
+                             settle_yesterday: float,
+                             contracts: float = 1.0) -> float:
         """Variation-margin P&L for the day, in contract currency.
 
         ``(settle_today - settle_yesterday) * contract_multiplier * contracts``.
@@ -149,20 +143,20 @@ class IndexFuture(DerivativeBase):
         """
         return (settle_today - settle_yesterday) * self.contract_multiplier * contracts
 
-    def roll_cost(self, front_price: float, back_price: float) -> float:
+    def roll_cost(self,
+                  front_price: float,
+                  back_price: float) -> float:
         """Cost of rolling from the front to the back contract: ``back - front``.
 
         Positive in contango (back above front), negative in backwardation.
         """
         return back_price - front_price
 
-    def mark_to_market(
-        self,
-        market_price: float,
-        spot_price: float,
-        valuation_date: pd.Timestamp,
-        market_data: Dict[str, float],
-    ) -> Dict[str, float]:
+    def mark_to_market(self,
+                       market_price: float,
+                       spot_price: float,
+                       valuation_date: pd.Timestamp,
+                       market_data: Dict[str, float]) -> Dict[str, float]:
         """Mark the contract against an observed *market_price*.
 
         Returns a dict with ``fair_value`` (points), ``basis`` (market vs spot),
@@ -190,16 +184,14 @@ class ETFFuture(IndexFuture):
     continuous cost-of-carry model inherited from :class:`IndexFuture`.
     """
 
-    def __init__(
-        self,
-        derivative_id: str,
-        underlying_id: str,
-        currency: str,
-        expiry_date: str,
-        contract_multiplier: float,
-        tick_size: float,
-        tick_value: float,
-    ):
+    def __init__(self,
+                 derivative_id: str,
+                 underlying_id: str,
+                 currency: str,
+                 expiry_date: str,
+                 contract_multiplier: float,
+                 tick_size: float,
+                 tick_value: float):
         """Initialise an ETF future. See :class:`IndexFuture` for the args."""
         super().__init__(
             derivative_id=derivative_id,
@@ -212,12 +204,10 @@ class ETFFuture(IndexFuture):
             underlying_type="ETF",
         )
 
-    def fair_value(
-        self,
-        spot_price: float,
-        valuation_date: pd.Timestamp,
-        market_data: Dict[str, float],
-    ) -> float:
+    def fair_value(self,
+                   spot_price: float,
+                   valuation_date: pd.Timestamp,
+                   market_data: Dict[str, float]) -> float:
         """Discrete-dividend fair value, falling back to continuous carry.
 
         If ``market_data["discrete_dividends"]`` is present and non-empty, prices
