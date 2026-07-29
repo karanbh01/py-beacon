@@ -37,6 +37,14 @@ class DataFetcher:
         return self._market.columns
 
     @property
+    def reference_identifiers(self) -> list[str] | None:
+        """Unique identifiers in the reference data, or None if not loaded."""
+        if self._reference is None:
+            return None
+
+        return self._reference.identifiers
+
+    @property
     def reference_columns(self) -> list[str] | None:
         """Column names in the reference data, or None if not loaded."""
         if self._reference is None:

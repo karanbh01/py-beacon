@@ -20,6 +20,7 @@ EXTRA_FOR_MODULE = {
     "matplotlib": "plot",
     "openpyxl": "excel",
     "orjson": "server",
+    "platformdirs": "server",
     "plotly": "plot-interactive",
     "scipy": "optimise",
     "uvicorn": "server",

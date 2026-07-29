@@ -18,9 +18,14 @@ from fastapi import APIRouter, Depends, FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from .errors import register_exception_handlers  # noqa: E402
-from .routers import build_data_router  # noqa: E402
+from .routers import (  # noqa: E402
+    build_coverage_router,
+    build_data_router,
+    build_watchlists_router,
+)
 from .schemas import DataSourceStatus, ErrorEnvelope, HealthResponse  # noqa: E402
 from .security import verify_bearer_token  # noqa: E402
+from .store import DocumentStore  # noqa: E402
 
 # Applied to every route, so the envelope shows up in the generated OpenAPI
 # rather than only at runtime.
@@ -29,6 +34,7 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     404: {"model": ErrorEnvelope, "description": "Requested data does not exist."},
     422: {"model": ErrorEnvelope, "description": "Request or rule failed validation."},
     500: {"model": ErrorEnvelope, "description": "Library error during processing."},
+    501: {"model": ErrorEnvelope, "description": "Endpoint exists but is not implemented."},
     503: {"model": ErrorEnvelope, "description": "A required optional dependency is absent."},
 }
 
@@ -96,6 +102,7 @@ def create_app(config: ServerConfig) -> FastAPI:
     # so the app remains introspectable and testable without rebuilding it.
     app.state.config = config
     app.state.auth_token = config.auth_token
+    app.state.watchlist_store = DocumentStore("watchlists", root=config.storage_root)
 
     app.add_middleware(CORSMiddleware,
                        allow_origins=list(config.cors_origins),
@@ -110,8 +117,10 @@ def create_app(config: ServerConfig) -> FastAPI:
 
     # Auth and the documented error responses are applied at mount time, so a
     # router cannot end up unauthenticated by forgetting to declare them.
-    app.include_router(build_data_router(),
-                       dependencies=[Depends(verify_bearer_token)],
-                       responses=ERROR_RESPONSES)
+    guard = [Depends(verify_bearer_token)]
+    for router in (build_data_router(),
+                   build_watchlists_router(),
+                   build_coverage_router()):
+        app.include_router(router, dependencies=guard, responses=ERROR_RESPONSES)
 
     return app

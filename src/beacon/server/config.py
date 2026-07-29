@@ -7,6 +7,7 @@ arrives from the command line and the environment rather than from a file.
 """
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from ..data.fetcher import DataFetcher
 
@@ -34,12 +35,15 @@ class ServerConfig:
         data_fetcher: The data source to serve, or None to run without one.
         cors_origins: Exact origins allowed, in addition to the localhost
             pattern.
+        storage_root: Base directory for persisted documents. None uses the
+            platform app-data location; tests point it at a temporary path.
     """
     auth_token: str
     host: str = "127.0.0.1"
     port: int = 0
     data_fetcher: DataFetcher | None = None
     cors_origins: tuple[str, ...] = field(default=DEFAULT_CORS_ORIGINS)
+    storage_root: Path | None = None
 
     def __post_init__(self) -> None:
         if not self.auth_token:

@@ -229,6 +229,51 @@ class ReferenceResponse(BaseModel):
         return cls(identifier=identifier, fields=fields)
 
 
+class Watchlist(BaseModel):
+    """A named set of instrument identifiers."""
+    id: str = Field(description="Stable identifier, used in the URL.",
+                    min_length=1, max_length=64)
+    name: str = Field(description="Display name.", min_length=1)
+    identifiers: list[str] = Field(default_factory=list,
+                                   description="Instrument identifiers, in user order.")
+
+
+class WatchlistUpsert(BaseModel):
+    """Body of `PUT /data/watchlists/{id}`.
+
+    The id comes from the URL, so it is not repeated here — accepting it in
+    both places invites the two to disagree.
+    """
+    name: str = Field(description="Display name.", min_length=1)
+    identifiers: list[str] = Field(default_factory=list,
+                                   description="Instrument identifiers, in user order.")
+
+
+class WatchlistCollection(BaseModel):
+    """Response of `GET /data/watchlists`."""
+    watchlists: list[Watchlist]
+
+
+class DatasetCoverage(BaseModel):
+    """What the loaded data actually spans, for one dataset."""
+    dataset: str = Field(description="'market' or 'reference'.")
+    configured: bool = Field(description="Whether this dataset is loaded.")
+    identifiers: int = Field(description="Distinct identifiers present.")
+    start: str | None = Field(default=None,
+                              description="Earliest date held, ISO 8601.")
+    end: str | None = Field(default=None, description="Latest date held, ISO 8601.")
+    cache_age: float | None = Field(
+        default=None,
+        description="Seconds since this dataset was refreshed. Always null: "
+                    "data is loaded into memory once and never cached, so "
+                    "there is no refresh time to measure.")
+
+
+class CoverageResponse(BaseModel):
+    """Response of `GET /data/coverage`."""
+    datasets: list[DatasetCoverage]
+
+
 class ErrorDetail(BaseModel):
     """The body of an error envelope."""
     code: str = Field(

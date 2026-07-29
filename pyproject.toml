@@ -38,7 +38,7 @@ excel = ["openpyxl"]
 optimise = ["scipy"]
 plot = ["matplotlib"]
 plot-interactive = ["plotly"]         # placeholder extra; backend lands in BN-83
-server = ["fastapi", "uvicorn[standard]", "orjson", "websockets"]
+server = ["fastapi", "uvicorn[standard]", "orjson", "websockets", "platformdirs"]
 docs = ["mkdocs-material", "mkdocstrings[python]"]
 dev = [
   "py-beacon[server]",   # the server tests exercise the real app
