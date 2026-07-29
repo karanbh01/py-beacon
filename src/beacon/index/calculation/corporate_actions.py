@@ -3,12 +3,16 @@
 Module for CorporateActionsMixin, responsible for adjusting the index
 divisor in response to corporate actions.
 """
-import pandas as pd
-from typing import List, Dict, Any
 import logging
+from collections.abc import Callable
+from typing import Any
+
+import pandas as pd
 
 from ...asset.base import Asset
 from ...asset.equity import Equity
+from ...data.fetcher import DataFetcher
+from ..constructor import IndexDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +22,14 @@ class CorporateActionsMixin:
     # Corporate action types that are recognised but not yet implemented.
     _STUB_CA_TYPES = frozenset({"RIGHTS_ISSUE", "SPIN_OFF", "STOCK_DIVIDEND", "MERGER"})
 
+    # Provided by the IndexCalculator that mixes this in.
+    data: DataFetcher
+    definition: IndexDefinition
+    adjust_divisor_for_rebalance: Callable[[float, float, float], float]
+
     def handle_corporate_action(self,
-                                action: Dict[str, Any],
-                                constituents: List[Asset],
+                                action: dict[str, Any],
+                                constituents: list[Asset],
                                 current_total_market_value_before_ca: float,
                                 current_divisor_before_ca: float) -> float:
         """Adjust the index divisor for a corporate action to maintain continuity.
@@ -66,8 +75,10 @@ class CorporateActionsMixin:
             f"for index '{self.definition.index_name}'."
         )
 
-        if not all([asset_involved, value is not None]):
-            logger.warning(f"Insufficient information for corporate action: {action}. No divisor adjustment.")
+        if asset_involved is None or value is None:
+            logger.warning(
+                f"Insufficient information for corporate action: {action}. "
+                "No divisor adjustment.")
             return current_divisor_before_ca
 
         if asset_involved not in constituents:
@@ -141,7 +152,7 @@ class CorporateActionsMixin:
                 asset.currency, self.definition.currency, date_str, date_str
             )
             if not fx_series.empty:
-                fx_rate = fx_series.iloc[0]
+                fx_rate = float(fx_series.iloc[0])
             else:
                 logger.warning(
                     f"CA Handle: No FX for {asset.currency}/"

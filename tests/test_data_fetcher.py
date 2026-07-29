@@ -9,7 +9,6 @@ from beacon.data.fetcher import DataFetcher
 
 
 def _make_fetcher(include_aux=True):
-    base = {"IDENTIFIER": [], "DATE": [], "CLOSE": []}
     rows = [
         {"IDENTIFIER": "AAA", "DATE": "2024-01-02", "CLOSE": 100.0,
          "SHARES_OUTSTANDING": 1000.0, "FREE_FLOAT": 0.8, "RATE": float("nan")},
@@ -33,7 +32,8 @@ class TestSharesOutstanding:
         assert _make_fetcher().fetch_shares_outstanding("AAA", "2024-01-02") == 1000.0
 
     def test_none_when_column_absent(self):
-        assert _make_fetcher(include_aux=False).fetch_shares_outstanding("AAA", "2024-01-02") is None
+        fetcher = _make_fetcher(include_aux=False)
+        assert fetcher.fetch_shares_outstanding("AAA", "2024-01-02") is None
 
     def test_none_when_identifier_absent(self):
         assert _make_fetcher().fetch_shares_outstanding("ZZZ", "2024-01-02") is None

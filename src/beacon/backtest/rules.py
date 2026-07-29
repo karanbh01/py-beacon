@@ -2,13 +2,15 @@
 """
 BacktestModifier — optional hooks that alter rebalance behaviour.
 """
+import logging
 from abc import ABC, abstractmethod
-from typing import Dict, List
 
 import pandas as pd
 
 from ..portfolio.base import Portfolio
 from .engine import TradeInstruction
+
+logger = logging.getLogger(__name__)
 
 
 class BacktestModifier(ABC):
@@ -22,7 +24,7 @@ class BacktestModifier(ABC):
     def should_skip_rebalance(self,
                               date: pd.Timestamp,
                               portfolio: Portfolio,
-                              target_weights: Dict[str, float]) -> bool:
+                              target_weights: dict[str, float]) -> bool:
         """Return ``True`` to skip the scheduled rebalance on *date*.
 
         Parameters
@@ -41,9 +43,9 @@ class BacktestModifier(ABC):
 
     @abstractmethod
     def adjust_trades(self,
-                      trades: List[TradeInstruction],
+                      trades: list[TradeInstruction],
                       date: pd.Timestamp,
-                      portfolio: Portfolio) -> List[TradeInstruction]:
+                      portfolio: Portfolio) -> list[TradeInstruction]:
         """Optionally modify the trade list before execution.
 
         Parameters
@@ -82,7 +84,7 @@ class DriftThresholdModifier(BacktestModifier):
     def should_skip_rebalance(self,
                               date: pd.Timestamp,
                               portfolio: Portfolio,
-                              target_weights: Dict[str, float]) -> bool:
+                              target_weights: dict[str, float]) -> bool:
         current_weights = portfolio.get_weights()
 
         # Collect all asset ids from both current and target
@@ -100,16 +102,15 @@ class DriftThresholdModifier(BacktestModifier):
 
         skip = max_drift <= self.threshold
         if skip:
-            import logging
-            logging.getLogger(__name__).debug(
+            logger.debug(
                 f"[{date}] Max drift {max_drift:.4f} <= threshold "
                 f"{self.threshold:.4f}. Skipping rebalance."
             )
         return skip
 
     def adjust_trades(self,
-                      trades: List[TradeInstruction],
+                      trades: list[TradeInstruction],
                       date: pd.Timestamp,
-                      portfolio: Portfolio) -> List[TradeInstruction]:
+                      portfolio: Portfolio) -> list[TradeInstruction]:
         """Pass-through — no trade adjustment."""
         return trades

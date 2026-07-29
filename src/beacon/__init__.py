@@ -8,16 +8,16 @@ __version__ = "0.0.2"
 from . import derivatives
 from .derivatives import (
     DerivativeBase,
-    IndexFuture,
     ETFFuture,
+    IndexFuture,
     TotalReturnSwap,
 )
 
 __all__ = [
+    "DerivativeBase",
+    "ETFFuture",
+    "IndexFuture",
+    "TotalReturnSwap",
     "__version__",
     "derivatives",
-    "DerivativeBase",
-    "IndexFuture",
-    "ETFFuture",
-    "TotalReturnSwap",
 ]

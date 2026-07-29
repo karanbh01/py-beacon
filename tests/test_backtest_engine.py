@@ -1,15 +1,14 @@
 # tests/test_backtest_engine.py
 """Unit tests for the rewritten BacktestEngine."""
-import pytest
-import pandas as pd
-import numpy as np
 from unittest.mock import MagicMock
+
+import pandas as pd
+import pytest
 
 from beacon.backtest.engine import BacktestEngine, TradeInstruction
 from beacon.backtest.result import BacktestResult
-from beacon.portfolio.base import Portfolio
 from beacon.index.result import IndexResult
-
+from beacon.portfolio.base import Portfolio
 
 # ---------------------------------------------------------------------------
 # Helpers

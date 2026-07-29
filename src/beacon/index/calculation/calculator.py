@@ -3,18 +3,18 @@
 Module for the IndexCalculator, responsible for the logic of
 constituent selection, weighting, index level calculation, and corporate action adjustments.
 """
-import pandas as pd
-from typing import List, Dict, Tuple, Optional
 import logging
 
-from ..constructor import IndexDefinition
+import pandas as pd
+
 from ...asset.base import Asset
 from ...asset.equity import Equity
 from ...data.fetcher import DataFetcher
 from ...exceptions import CalculationError
+from ..constructor import IndexDefinition
 from ..result import IndexResult
-from .market_values import MarketValuesMixin
 from .corporate_actions import CorporateActionsMixin
+from .market_values import MarketValuesMixin
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
 
 
     def _get_universe(self,
-                      date: pd.Timestamp) -> List[Asset]:
+                      date: pd.Timestamp) -> list[Asset]:
         """Resolve universe_identifiers from the IndexDefinition into Asset objects.
 
         Uses ``self.data.fetch_reference_data`` to look up metadata for each
@@ -72,14 +72,16 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
             )
             return []
 
-        assets: List[Asset] = []
+        assets: list[Asset] = []
         date_str = date.strftime('%Y-%m-%d')
 
         for identifier in identifiers:
             try:
                 ref_df = self.data.fetch_reference_data(identifier, date_str)
                 if ref_df.empty:
-                    logger.warning(f"_get_universe: No reference data for '{identifier}' on {date_str}. Skipping.")
+                    logger.warning(
+                        f"_get_universe: No reference data for '{identifier}' on "
+                        f"{date_str}. Skipping.")
                     continue
 
                 row = ref_df.iloc[0]
@@ -100,8 +102,8 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         return assets
 
     def select_constituents(self,
-                            universe: List[Asset],
-                            current_date: pd.Timestamp) -> List[Asset]:
+                            universe: list[Asset],
+                            current_date: pd.Timestamp) -> list[Asset]:
         """
         Selects index constituents from a given universe based on eligibility rules.
 
@@ -112,8 +114,10 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         Returns:
             A list of Asset objects that are eligible for the index.
         """
-        logger.info(f"[{current_date.strftime('%Y-%m-%d')}] Selecting constituents for '{self.definition.index_name}'. Universe size: {len(universe)}")
-        eligible_constituents: List[Asset] = []
+        logger.info(
+            f"[{current_date.strftime('%Y-%m-%d')}] Selecting constituents for "
+            f"'{self.definition.index_name}'. Universe size: {len(universe)}")
+        eligible_constituents: list[Asset] = []
         if not universe:
             logger.warning("Constituent selection called with an empty universe.")
             return []
@@ -123,7 +127,9 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
                 eligible_constituents.append(asset)
                 logger.debug(f"Asset {asset.asset_id} passed all eligibility rules.")
 
-        logger.info(f"Selected {len(eligible_constituents)} constituents for '{self.definition.index_name}'.")
+        logger.info(
+            f"Selected {len(eligible_constituents)} constituents for "
+            f"'{self.definition.index_name}'.")
         return eligible_constituents
 
     def _passes_all_rules(self,
@@ -137,16 +143,19 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         for rule in self.definition.eligibility_rules:
             try:
                 if not rule.is_eligible(asset, current_date, self.data):
-                    logger.debug(f"Asset {asset.asset_id} failed eligibility rule: {rule.rule_name}")
+                    logger.debug(
+                        f"Asset {asset.asset_id} failed eligibility rule: {rule.rule_name}")
                     return False
             except Exception as e:
-                logger.error(f"Error applying eligibility rule {rule.rule_name} to asset {asset.asset_id}: {e}")
+                logger.error(
+                    f"Error applying eligibility rule {rule.rule_name} to asset "
+                    f"{asset.asset_id}: {e}")
                 return False
         return True
 
     def calculate_constituent_weights(self,
-                                      constituents: List[Asset],
-                                      current_date: pd.Timestamp) -> Dict[Asset, float]:
+                                      constituents: list[Asset],
+                                      current_date: pd.Timestamp) -> dict[Asset, float]:
         """
         Calculates the weights for the given constituents based on the index's weighting scheme.
 
@@ -157,28 +166,42 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         Returns:
             A dictionary mapping each Asset to its float weight. Sum of weights should be 1.0.
         """
+        date_str = current_date.strftime('%Y-%m-%d')
         if not constituents:
-            logger.warning(f"[{current_date.strftime('%Y-%m-%d')}] Calculating weights for an empty list of constituents for '{self.definition.index_name}'.")
+            logger.warning(
+                f"[{date_str}] Calculating weights for an empty list of "
+                f"constituents for '{self.definition.index_name}'.")
             return {}
 
-        logger.info(f"[{current_date.strftime('%Y-%m-%d')}] Calculating weights for {len(constituents)} constituents of '{self.definition.index_name}'.")
+        logger.info(
+            f"[{date_str}] Calculating weights for {len(constituents)} "
+            f"constituents of '{self.definition.index_name}'.")
 
         try:
             weights = self.definition.weighting_scheme.calculate_weights(
                 constituents, current_date, self.data
             )
         except Exception as e:
-            logger.error(f"Error applying weighting scheme {self.definition.weighting_scheme.scheme_name}: {e}")
-            raise CalculationError(calculation_name=f"WeightingScheme-{self.definition.weighting_scheme.scheme_name}", details=str(e))
+            logger.error(
+                f"Error applying weighting scheme "
+                f"{self.definition.weighting_scheme.scheme_name}: {e}")
+            raise CalculationError(
+                calculation_name=f"WeightingScheme-{self.definition.weighting_scheme.scheme_name}",
+                details=str(e)) from e
 
         # Normalize weights to sum to 1, if not already
-        #todo: check if normalisation is needed based on the weighting scheme's output. Some schemes may guarantee this.
+        #todo: check if normalisation is needed based on the weighting scheme's
+        # output. Some schemes may guarantee this.
         weight_sum = sum(weights.values())
         if abs(weight_sum - 1.0) > 1e-9 and weight_sum != 0:
-            logger.warning(f"Weights from scheme {self.definition.weighting_scheme.scheme_name} sum to {weight_sum}. Normalizing.")
+            logger.warning(
+                f"Weights from scheme {self.definition.weighting_scheme.scheme_name} "
+                f"sum to {weight_sum}. Normalizing.")
             weights = {asset: w / weight_sum for asset, w in weights.items()}
         elif weight_sum == 0 and weights:
-             logger.error(f"Calculated weights sum to zero for {len(weights)} constituents. Cannot normalize.")
+             logger.error(
+                 f"Calculated weights sum to zero for {len(weights)} "
+                 f"constituents. Cannot normalize.")
 
         logger.info(f"Weights calculated for '{self.definition.index_name}'.")
         return weights
@@ -190,22 +213,26 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         Divisor = Initial Total Market Value / Base Index Value.
 
         Args:
-            initial_total_market_value: The sum of (price * shares * fx_rate * free_float_if_applicable)
-                                        for all base constituents on the base_date, expressed in index currency.
+            initial_total_market_value: The sum of (price * shares * fx_rate *
+                free_float_if_applicable) for all base constituents on the
+                base_date, expressed in index currency.
 
         Returns:
             The initial divisor as a float.
         """
         if initial_total_market_value <= 0:
             logger.error("Initial total market value must be positive to initialize divisor.")
-            raise CalculationError("DivisorInitialization", "Initial total market value is non-positive.")
+            raise CalculationError("DivisorInitialization",
+                                    "Initial total market value is non-positive.")
         if self.definition.base_value <= 0:
             logger.error("Base index value must be positive to initialize divisor.")
             raise CalculationError("DivisorInitialization", "Base index value is non-positive.")
 
         divisor = initial_total_market_value / self.definition.base_value
-        logger.info(f"Divisor for '{self.definition.index_name}' initialized to: {divisor:.4f} "
-                    f"(Initial Market Value: {initial_total_market_value:.2f}, Base Value: {self.definition.base_value})")
+        logger.info(
+            f"Divisor for '{self.definition.index_name}' initialized to: {divisor:.4f} "
+            f"(Initial Market Value: {initial_total_market_value:.2f}, "
+            f"Base Value: {self.definition.base_value})")
         return divisor
 
     @staticmethod
@@ -248,10 +275,11 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         )
         return new_divisor
 
-    #todo: run() is currently iterating through all dates, this function should be vectorised for efficiency.
+    #todo: run() is currently iterating through all dates, this function should be
+    # vectorised for efficiency.
     def run(self,
-            start_date: Optional[str] = None,
-            end_date: Optional[str] = None) -> IndexResult:
+            start_date: str | None = None,
+            end_date: str | None = None) -> IndexResult:
         """Run the full index calculation over a date range.
 
         Iterates through business days from *start_date* to *end_date*,
@@ -314,14 +342,14 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         rebalance_dates.discard(base_date)
 
         # Accumulators
-        index_levels: Dict[pd.Timestamp, float] = {}
-        divisor_values: Dict[pd.Timestamp, float] = {}
-        constituent_snapshots: Dict[pd.Timestamp, List[str]] = {}
-        weight_snapshots: Dict[pd.Timestamp, Dict[str, float]] = {}
+        index_levels: dict[pd.Timestamp, float] = {}
+        divisor_values: dict[pd.Timestamp, float] = {}
+        constituent_snapshots: dict[pd.Timestamp, list[str]] = {}
+        weight_snapshots: dict[pd.Timestamp, dict[str, float]] = {}
 
         # Running state
-        constituents: List[Asset] = []
-        weights: Dict[Asset, float] = {}
+        constituents: list[Asset] = []
+        weights: dict[Asset, float] = {}
         divisor: float = 0.0
         level: float = self.definition.base_value
 
@@ -412,10 +440,10 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
 
     def run_daily_calculation(self,
                               current_date: pd.Timestamp,
-                              constituents: List[Asset],
-                              weights: Dict[Asset, float],
+                              constituents: list[Asset],
+                              weights: dict[Asset, float],
                               previous_index_level: float,
-                              previous_divisor: float) -> Tuple[float, float]:
+                              previous_divisor: float) -> tuple[float, float]:
         """
         Runs a single day's index calculation process.
 
@@ -434,16 +462,20 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         if divisor is None or divisor <= 0:
             if current_date == self.definition.base_date:
                 if not constituents:
-                    raise ValueError("Base date calculation: Constituents not provided. Cannot initialize divisor.")
+                    raise ValueError(
+                        "Base date calculation: Constituents not provided. "
+                        "Cannot initialize divisor.")
                 base_day_values = self._get_constituent_market_values(
-                    constituents_with_weights={asset: 0 for asset in constituents},
+                    constituents_with_weights=dict.fromkeys(constituents, 0),
                     current_date=current_date
                 )
                 initial_mv = sum(base_day_values.values())
                 if initial_mv > 0:
                     divisor = self.initialize_divisor(initial_mv)
                 else:
-                    raise ValueError(f"Cannot initialize divisor on base date {current_date} due to zero or negative market value.")
+                    raise ValueError(
+                        f"Cannot initialize divisor on base date {current_date} due to "
+                        "zero or negative market value.")
             else:
                 raise ValueError("Divisor not initialized for index calculation.")
 

@@ -1,8 +1,9 @@
 # tests/test_asset_view.py
 """Unit tests for AssetView."""
-import pytest
-import pandas as pd
 from unittest.mock import MagicMock
+
+import pandas as pd
+import pytest
 
 from beacon.asset.view import AssetView
 
@@ -115,7 +116,8 @@ class TestReturns:
             {"ADJ_CLOSE": [100, 110, 121]}, index=dates
         )
         result = view.returns("2025-01-01", "2025-01-03", price_column="ADJ_CLOSE")
-        mock_fetcher.fetch_market_data.assert_called_with("AAPL", "2025-01-01", "2025-01-03", columns=["ADJ_CLOSE"])
+        mock_fetcher.fetch_market_data.assert_called_with(
+            "AAPL", "2025-01-01", "2025-01-03", columns=["ADJ_CLOSE"])
         assert len(result) == 2
 
 

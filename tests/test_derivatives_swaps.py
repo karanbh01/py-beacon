@@ -1,11 +1,10 @@
 # tests/test_derivatives_swaps.py
 """Unit tests for beacon.derivatives.swaps.TotalReturnSwap."""
-import pytest
 import pandas as pd
+import pytest
 
-from beacon.derivatives.swaps import TotalReturnSwap
 from beacon.derivatives.base import DerivativeBase
-
+from beacon.derivatives.swaps import TotalReturnSwap
 
 NOTIONAL = 10_000_000.0
 START = "2024-01-01"
@@ -15,18 +14,18 @@ VAL_DATE = pd.Timestamp("2024-03-31")
 
 
 def _make(**overrides):
-    kwargs = dict(
-        derivative_id="TRS1",
-        underlying_id="SPX",
-        currency="USD",
-        start_date=START,
-        end_date=END,
-        notional=NOTIONAL,
-        spread_bps=50.0,          # 0.50%
-        reference_rate="SOFR",
-        payment_frequency="QUARTERLY",
-        reset_type="UNFUNDED",
-    )
+    kwargs = {
+        "derivative_id": "TRS1",
+        "underlying_id": "SPX",
+        "currency": "USD",
+        "start_date": START,
+        "end_date": END,
+        "notional": NOTIONAL,
+        "spread_bps": 50.0,          # 0.50%
+        "reference_rate": "SOFR",
+        "payment_frequency": "QUARTERLY",
+        "reset_type": "UNFUNDED",
+    }
     kwargs.update(overrides)
     return TotalReturnSwap(**kwargs)
 

@@ -3,19 +3,17 @@
 Module for generating reports from portfolio data, such as holdings reports
 and performance reports, potentially in formats like Excel.
 """
-import pandas as pd
-from typing import Optional
 import logging
 
-from .base import Portfolio
+import pandas as pd
+
 from .._optional import require
-from ..data.fetcher import DataFetcher # For portfolio methods needing it
+from .base import Portfolio
 
 logger = logging.getLogger(__name__)
 
 class ReportingError(Exception):
     """Custom exception for errors during report generation."""
-    pass
 
 class ReportGenerator:
     """
@@ -27,42 +25,48 @@ class ReportGenerator:
     def generate_holdings_report_excel(self,
                                        portfolio: Portfolio,
                                        report_path: str,
-                                       valuation_date: pd.Timestamp,
-                                       data_provider: DataFetcher) -> None:
+                                       valuation_date: pd.Timestamp) -> None:
         """
         Generates an Excel report summarizing the current portfolio holdings.
 
+        The report is built from the portfolio's own state, so the caller must
+        have called ``portfolio.update_prices(...)`` beforehand for the holdings
+        to carry current prices (and therefore current market values/weights).
+
         Args:
             portfolio: The Portfolio object to report on.
-            report_path: The file path (including .xlsx extension) where the Excel report will be saved.
-            valuation_date: The date for which to value the holdings.
-            data_provider: DataFetcher instance needed by portfolio methods to get current prices.
+            report_path: The file path (including .xlsx extension) where the Excel
+                         report will be saved.
+            valuation_date: The date the holdings are reported as of; used for
+                            logging and report labelling only.
 
         Raises:
             MissingDependencyError: If openpyxl is not installed.
             ReportingError: If there's an issue writing the file.
-            ValueError: If portfolio or data_provider is None.
+            ValueError: If portfolio is None.
         """
         require("openpyxl", "Excel reporting")
 
         if portfolio is None:
             raise ValueError("Portfolio object must be provided.")
-        if data_provider is None:
-            raise ValueError("DataFetcher object must be provided for holdings valuation.")
         if not report_path.endswith(".xlsx"):
             logger.warning(f"Report path '{report_path}' does not end with .xlsx. Appending it.")
             report_path += ".xlsx"
 
-        logger.info(f"Generating holdings report for portfolio '{portfolio.portfolio_id}' as of {valuation_date.strftime('%Y-%m-%d')} to '{report_path}'.")
+        logger.info(
+            f"Generating holdings report for portfolio '{portfolio.portfolio_id}' as of "
+            f"{valuation_date.strftime('%Y-%m-%d')} to '{report_path}'.")
 
         try:
-            holdings_summary_df = portfolio.get_holdings_summary(data_provider, valuation_date)
+            holdings_summary_df = portfolio.get_holdings_summary()
 
             if holdings_summary_df.empty:
-                logger.warning(f"No holdings data to report for portfolio '{portfolio.portfolio_id}'. Excel file will be empty or not created.")
+                logger.warning(
+                    f"No holdings data to report for portfolio "
+                    f"'{portfolio.portfolio_id}'. Excel file will be empty or not created.")
                 # Create an empty sheet or just return
                 # For now, let's write an empty DataFrame if that's the case.
-            
+
             with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
                 holdings_summary_df.to_excel(writer, sheet_name='HoldingsSummary', index=False)
 
@@ -76,7 +80,7 @@ class ReportGenerator:
 
         except Exception as e:
             logger.error(f"Failed to generate or save holdings report to {report_path}: {e}")
-            raise ReportingError(f"Error generating holdings report: {e}")
+            raise ReportingError(f"Error generating holdings report: {e}") from e
 
     def _normalise_transactions_df(self,
                                    transactions_df: pd.DataFrame) -> pd.DataFrame:
@@ -85,14 +89,16 @@ class ReportGenerator:
             transactions_df['asset_id'] = transactions_df['asset'].apply(
                 lambda x: x.asset_id if hasattr(x, 'asset_id') else str(x)
             )
-            transactions_df.drop(columns=['asset'], inplace=True)  # Drop original asset object column
+            # Drop original asset object column
+            transactions_df.drop(columns=['asset'], inplace=True)
         return transactions_df
 
 
     def generate_performance_report_excel(self,
-                                          performance_data: pd.DataFrame, # Output from BacktestEngine or analysis
+                                          # Output from BacktestEngine or analysis
+                                          performance_data: pd.DataFrame,
                                           report_path: str,
-                                          report_title: Optional[str] = "Performance Report") -> None:
+                                          report_title: str | None = "Performance Report") -> None:
         """
         Generates an Excel report from a DataFrame of performance data.
         The performance_data DataFrame is typically the output of a backtest
@@ -117,13 +123,15 @@ class ReportGenerator:
             logger.warning(f"Report path '{report_path}' does not end with .xlsx. Appending it.")
             report_path += ".xlsx"
 
-        sheet_name = report_title.replace(" ", "_")[:30] if report_title else "PerformanceData" # Excel sheet name limits
+        # Excel sheet name limits
+        sheet_name = report_title.replace(" ", "_")[:30] if report_title else "PerformanceData"
         logger.info(f"Generating performance report '{sheet_name}' to '{report_path}'.")
 
         try:
             with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
-                performance_data.to_excel(writer, sheet_name=sheet_name, index=True) # Assuming DatetimeIndex should be written
+                # Assuming DatetimeIndex should be written
+                performance_data.to_excel(writer, sheet_name=sheet_name, index=True)
             logger.info(f"Performance report successfully saved to {report_path}")
         except Exception as e:
             logger.error(f"Failed to generate or save performance report to {report_path}: {e}")
-            raise ReportingError(f"Error generating performance report: {e}")
+            raise ReportingError(f"Error generating performance report: {e}") from e

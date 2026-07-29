@@ -1,13 +1,13 @@
 # tests/test_derivatives_futures.py
 """Unit tests for beacon.derivatives.futures.IndexFuture."""
 import math
-import pytest
+
 import pandas as pd
+import pytest
 
-from beacon.derivatives.futures import IndexFuture
 from beacon.derivatives.base import DerivativeBase
+from beacon.derivatives.futures import IndexFuture
 from beacon.derivatives.pricing import cost_of_carry_fair_value
-
 
 # ---------------------------------------------------------------------------
 # Helpers — an E-mini-style contract with T = 1 year (ACT/365)
@@ -19,15 +19,15 @@ MARKET = {"risk_free_rate": 0.05, "dividend_yield": 0.02}
 
 
 def _make(**overrides):
-    kwargs = dict(
-        derivative_id="ESZ4",
-        underlying_id="SPX",
-        currency="USD",
-        expiry_date=EXPIRY,
-        contract_multiplier=50.0,
-        tick_size=0.25,
-        tick_value=12.5,
-    )
+    kwargs = {
+        "derivative_id": "ESZ4",
+        "underlying_id": "SPX",
+        "currency": "USD",
+        "expiry_date": EXPIRY,
+        "contract_multiplier": 50.0,
+        "tick_size": 0.25,
+        "tick_value": 12.5,
+    }
     kwargs.update(overrides)
     return IndexFuture(**kwargs)
 

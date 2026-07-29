@@ -4,8 +4,9 @@ DataFetcher — unified interface for querying market and reference data.
 Accepts single identifiers or lists and passes through column names as-is.
 """
 
-from typing import List, Optional, Union
+
 import pandas as pd
+
 from .base import MarketData, ReferenceData
 
 
@@ -22,41 +23,41 @@ class DataFetcher:
 
     def __init__(self,
                  market_data: MarketData,
-                 reference_data: Optional[ReferenceData] = None):
+                 reference_data: ReferenceData | None = None):
         self._market = market_data
         self._reference = reference_data
 
     # -- properties ----------------------------------------------------------
 
     @property
-    def identifiers(self) -> List[str]:
+    def identifiers(self) -> list[str]:
         """Unique identifiers present in market data."""
         return self._market.identifiers
 
     @property
-    def market_columns(self) -> List[str]:
+    def market_columns(self) -> list[str]:
         """Column names in the market data."""
         return self._market.columns
 
     @property
-    def reference_columns(self) -> Optional[List[str]]:
+    def reference_columns(self) -> list[str] | None:
         """Column names in the reference data, or None if not loaded."""
         if self._reference is None:
             return None
         return self._reference.columns
 
     @property
-    def date_range(self):
+    def date_range(self) -> tuple[pd.Timestamp, pd.Timestamp]:
         """(earliest, latest) timestamps in the market data."""
         return self._market.date_range
 
     # -- market data ---------------------------------------------------------
 
     def fetch_market_data(self,
-                          identifier: Union[str, List[str]],
-                          start_date: Optional[str] = None,
-                          end_date: Optional[str] = None,
-                          columns: Optional[List[str]] = None) -> pd.DataFrame:
+                          identifier: str | list[str],
+                          start_date: str | None = None,
+                          end_date: str | None = None,
+                          columns: list[str] | None = None) -> pd.DataFrame:
         """Fetch time-series market data for one or more identifiers.
 
         Parameters
@@ -93,7 +94,7 @@ class DataFetcher:
     def fetch_shares_outstanding(self,
                                  identifier: str,
                                  date: str,
-                                 column: str = "SHARES_OUTSTANDING") -> Optional[float]:
+                                 column: str = "SHARES_OUTSTANDING") -> float | None:
         """Return shares outstanding for *identifier* on *date*.
 
         Sourced from the *column* market-data field. Returns ``None`` if the
@@ -104,7 +105,7 @@ class DataFetcher:
     def fetch_free_float_factor(self,
                                 identifier: str,
                                 date: str,
-                                column: str = "FREE_FLOAT") -> Optional[float]:
+                                column: str = "FREE_FLOAT") -> float | None:
         """Return the free-float factor for *identifier* on *date*.
 
         Sourced from the *column* market-data field. Returns ``None`` if the
@@ -115,7 +116,7 @@ class DataFetcher:
     def _market_scalar(self,
                        identifier: str,
                        date: str,
-                       column: str) -> Optional[float]:
+                       column: str) -> float | None:
         """Read a single market-data value for *identifier* on *date*."""
         if column not in self._market.columns:
             return None
@@ -128,8 +129,8 @@ class DataFetcher:
     def fetch_fx_rates(self,
                        from_currency: str,
                        to_currency: str,
-                       start_date: Optional[str] = None,
-                       end_date: Optional[str] = None,
+                       start_date: str | None = None,
+                       end_date: str | None = None,
                        column: str = "RATE") -> pd.Series:
         """Return the FX rate series converting *from_currency* into *to_currency*.
 
@@ -150,9 +151,9 @@ class DataFetcher:
     # -- reference data ------------------------------------------------------
 
     def fetch_reference_data(self,
-                             identifier: Union[str, List[str]],
-                             date: Optional[str] = None,
-                             columns: Optional[List[str]] = None) -> pd.DataFrame:
+                             identifier: str | list[str],
+                             date: str | None = None,
+                             columns: list[str] | None = None) -> pd.DataFrame:
         """Fetch reference data for one or more identifiers.
 
         Parameters

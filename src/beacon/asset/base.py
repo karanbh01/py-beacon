@@ -15,7 +15,7 @@ class Asset:
     asset_id: str = ""
     asset_type: str = ""
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         for field_name in ('asset_id', 'asset_type', 'name', 'currency'):
             if not getattr(self, field_name):
                 raise ValueError(f"{field_name} cannot be empty.")

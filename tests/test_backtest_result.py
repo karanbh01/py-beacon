@@ -1,15 +1,14 @@
 # tests/test_backtest_result.py
 """Unit tests for BacktestResult and BacktestAssetView."""
-import pytest
-import numpy as np
-import pandas as pd
 from unittest.mock import MagicMock
 
-from beacon.backtest.result import BacktestResult
+import pandas as pd
+import pytest
+
 from beacon.backtest.asset_view import BacktestAssetView
+from beacon.backtest.result import BacktestResult
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Transaction
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,17 +36,17 @@ def _make_weight_history(weights_per_asset,
 
 def _make_result(**overrides):
     """Create a BacktestResult with sensible defaults."""
-    defaults = dict(
-        portfolio_id="test_bt",
-        initial_capital=10000.0,
-        portfolio_nav=_make_nav([10000, 10100, 10200, 10150, 10300]),
-        cash_history=_make_nav([5000, 4000, 3000, 3000, 2500]),
-        transactions=[],
-        actual_weight_history=_make_weight_history(
+    defaults = {
+        "portfolio_id": "test_bt",
+        "initial_capital": 10000.0,
+        "portfolio_nav": _make_nav([10000, 10100, 10200, 10150, 10300]),
+        "cash_history": _make_nav([5000, 4000, 3000, 3000, 2500]),
+        "transactions": [],
+        "actual_weight_history": _make_weight_history(
             {"AAPL": [0.3, 0.31, 0.32, 0.31, 0.33],
              "MSFT": [0.2, 0.19, 0.18, 0.19, 0.17]},
         ),
-    )
+    }
     defaults.update(overrides)
     return BacktestResult(**defaults)
 

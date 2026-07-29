@@ -2,10 +2,11 @@
 """
 BacktestEngine — simulates portfolio execution against a target weight schedule.
 """
-import pandas as pd
 import logging
-from typing import Dict, List, Optional, TYPE_CHECKING
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+import pandas as pd
 
 if TYPE_CHECKING:
     # Imported under TYPE_CHECKING to avoid a circular import: rules.py imports
@@ -84,11 +85,11 @@ class BacktestEngine:
                  end_date: str,
                  initial_capital: float,
                  data_provider: DataFetcher,
-                 target_index_result: Optional[IndexResult] = None,
-                 target_weights: Optional[Dict[pd.Timestamp, Dict[str, float]]] = None,
+                 target_index_result: IndexResult | None = None,
+                 target_weights: dict[pd.Timestamp, dict[str, float]] | None = None,
                  price_column: str = "CLOSE",
                  transaction_cost_bps: float = 0.0,
-                 modifiers: Optional[List['BacktestModifier']] = None):
+                 modifiers: list['BacktestModifier'] | None = None):
         if target_index_result is not None and target_weights is not None:
             raise ValueError(
                 "Provide either target_index_result or target_weights, not both."
@@ -102,17 +103,21 @@ class BacktestEngine:
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
         self.initial_capital: float = initial_capital
         self.data_provider: DataFetcher = data_provider
-        self.target_index_result: Optional[IndexResult] = target_index_result
+        self.target_index_result: IndexResult | None = target_index_result
         self.price_column: str = price_column
 
         self.transaction_cost_bps: float = transaction_cost_bps
-        self.modifiers: List['BacktestModifier'] = modifiers or []
+        self.modifiers: list[BacktestModifier] = modifiers or []
 
         # Normalise weight schedule to a dict
         if target_weights is not None:
-            self._weight_schedule: Dict[pd.Timestamp, Dict[str, float]] = target_weights
-        else:
+            self._weight_schedule: dict[pd.Timestamp, dict[str, float]] = target_weights
+        elif target_index_result is not None:
             self._weight_schedule = target_index_result.weight_snapshots
+        else:
+            raise ValueError(
+                "One of target_index_result or target_weights must be provided."
+            )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -120,7 +125,7 @@ class BacktestEngine:
 
     def _fetch_price(self,
                      asset_id: str,
-                     date: pd.Timestamp) -> Optional[float]:
+                     date: pd.Timestamp) -> float | None:
         """Fetch a single closing price for *asset_id* on *date*."""
         date_str = date.strftime("%Y-%m-%d")
         try:
@@ -137,7 +142,7 @@ class BacktestEngine:
                                  portfolio: Portfolio,
                                  date: pd.Timestamp) -> None:
         """Fetch prices for all holdings and push into the portfolio."""
-        prices: Dict[str, float] = {}
+        prices: dict[str, float] = {}
         for asset_id in portfolio.holdings:
             price = self._fetch_price(asset_id, date)
             if price is not None:
@@ -145,17 +150,17 @@ class BacktestEngine:
         portfolio.update_prices(prices)
 
     def _get_target_weights_for_date(self,
-                                     date: pd.Timestamp) -> Optional[Dict[str, float]]:
+                                     date: pd.Timestamp) -> dict[str, float] | None:
         """Return target weights if *date* is a rebalance date, else None."""
         return self._weight_schedule.get(date)
 
     def _sell_instruction(self,
                           asset_id: str,
                           holding: Holding,
-                          target_weights: Dict[str, float],
+                          target_weights: dict[str, float],
                           current_value: float,
                           cost_rate: float,
-                          date: pd.Timestamp) -> Optional[TradeInstruction]:
+                          date: pd.Timestamp) -> TradeInstruction | None:
         """Return a SELL instruction for *asset_id* if not in target or overweight.
 
         Returns None if the asset should not be sold (no price, in-target
@@ -191,7 +196,7 @@ class BacktestEngine:
                          portfolio: Portfolio,
                          current_value: float,
                          cost_rate: float,
-                         date: pd.Timestamp) -> Optional[TradeInstruction]:
+                         date: pd.Timestamp) -> TradeInstruction | None:
         """Return a BUY instruction for *asset_id* if new or underweight.
 
         Returns None if the asset should not be bought (non-positive target
@@ -220,8 +225,8 @@ class BacktestEngine:
 
     def _generate_trades(self,
                          portfolio: Portfolio,
-                         target_weights: Dict[str, float],
-                         date: pd.Timestamp) -> List[TradeInstruction]:
+                         target_weights: dict[str, float],
+                         date: pd.Timestamp) -> list[TradeInstruction]:
         """Calculate trades needed to move *portfolio* to *target_weights*.
 
         Returns a list of :class:`TradeInstruction` objects ordered with
@@ -247,8 +252,8 @@ class BacktestEngine:
             return []
 
         cost_rate = self.transaction_cost_bps / 10_000.0
-        sells: List[TradeInstruction] = []
-        buys: List[TradeInstruction] = []
+        sells: list[TradeInstruction] = []
+        buys: list[TradeInstruction] = []
 
         # --- Sells: assets not in target, or overweight ---
         for asset_id, holding in portfolio.holdings.items():
@@ -268,7 +273,7 @@ class BacktestEngine:
 
     def _rebalance(self,
                    portfolio: Portfolio,
-                   target_weights: Dict[str, float],
+                   target_weights: dict[str, float],
                    date: pd.Timestamp) -> None:
         """Adjust *portfolio* to match *target_weights* using :meth:`_generate_trades`.
 
@@ -334,8 +339,8 @@ class BacktestEngine:
             logger.warning("No trading days in the specified date range.")
             return self._build_empty_result(portfolio)
 
-        nav_records: Dict[pd.Timestamp, float] = {}
-        cash_records: Dict[pd.Timestamp, float] = {}
+        nav_records: dict[pd.Timestamp, float] = {}
+        cash_records: dict[pd.Timestamp, float] = {}
         weight_records = []
 
         for idx, date in enumerate(trading_days):
@@ -354,7 +359,7 @@ class BacktestEngine:
             nav_records[date] = nav
             cash_records[date] = portfolio.cash_balance
 
-            daily_weights: Dict[str, float] = {}
+            daily_weights: dict[str, float] = {}
             for asset_id, w in portfolio.get_weights().items():
                 daily_weights[f"{asset_id}_weight"] = w
             weight_records.append({"Date": date, **daily_weights})

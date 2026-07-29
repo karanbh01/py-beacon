@@ -5,8 +5,8 @@ and ETFFuture (on an ETF).
 
 IndexFuture is implemented here. ETFFuture is implemented in issue BN-44.
 """
-from typing import Dict
 import logging
+from typing import Any
 
 import pandas as pd
 
@@ -91,7 +91,7 @@ class IndexFuture(DerivativeBase):
     def fair_value(self,
                    spot_price: float,
                    valuation_date: pd.Timestamp,
-                   market_data: Dict[str, float]) -> float:
+                   market_data: dict[str, Any]) -> float:
         """Cost-of-carry fair value ``F = S * exp((r - q + c) * T)`` in points.
 
         Returns *spot_price* when the contract is at or past expiry (``T == 0``).
@@ -156,7 +156,7 @@ class IndexFuture(DerivativeBase):
                        market_price: float,
                        spot_price: float,
                        valuation_date: pd.Timestamp,
-                       market_data: Dict[str, float]) -> Dict[str, float]:
+                       market_data: dict[str, Any]) -> dict[str, float]:
         """Mark the contract against an observed *market_price*.
 
         Returns a dict with ``fair_value`` (points), ``basis`` (market vs spot),
@@ -207,7 +207,7 @@ class ETFFuture(IndexFuture):
     def fair_value(self,
                    spot_price: float,
                    valuation_date: pd.Timestamp,
-                   market_data: Dict[str, float]) -> float:
+                   market_data: dict[str, Any]) -> float:
         """Discrete-dividend fair value, falling back to continuous carry.
 
         If ``market_data["discrete_dividends"]`` is present and non-empty, prices

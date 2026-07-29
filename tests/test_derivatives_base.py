@@ -1,10 +1,9 @@
 # tests/test_derivatives_base.py
 """Unit tests for beacon.derivatives.base.DerivativeBase."""
-import pytest
 import pandas as pd
+import pytest
 
 from beacon.derivatives.base import DerivativeBase
-
 
 # ---------------------------------------------------------------------------
 # Minimal concrete subclass for exercising the base class
@@ -27,14 +26,14 @@ class _ConcreteDerivative(DerivativeBase):
 
 
 def _make(**overrides):
-    kwargs = dict(
-        derivative_id="D1",
-        underlying_id="SPX",
-        underlying_type="INDEX",
-        currency="usd",
-        expiry_date="2025-01-01",
-        notional=1_000_000.0,
-    )
+    kwargs = {
+        "derivative_id": "D1",
+        "underlying_id": "SPX",
+        "underlying_type": "INDEX",
+        "currency": "usd",
+        "expiry_date": "2025-01-01",
+        "notional": 1_000_000.0,
+    }
     kwargs.update(overrides)
     return _ConcreteDerivative(**kwargs)
 

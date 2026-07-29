@@ -1,8 +1,9 @@
 # tests/test_index_result.py
 """Unit tests for IndexResult."""
-import pytest
-import pandas as pd
 from unittest.mock import MagicMock
+
+import pandas as pd
+import pytest
 
 from beacon.index.result import IndexResult
 

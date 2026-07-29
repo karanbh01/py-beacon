@@ -1,31 +1,29 @@
 # tests/test_derivatives_etf_future.py
 """Unit tests for beacon.derivatives.futures.ETFFuture."""
-import math
-import pytest
 import pandas as pd
+import pytest
 
-from beacon.derivatives.futures import IndexFuture, ETFFuture
 from beacon.derivatives.base import DerivativeBase
+from beacon.derivatives.futures import ETFFuture, IndexFuture
 from beacon.derivatives.pricing import (
-    discrete_dividend_fair_value,
     cost_of_carry_fair_value,
+    discrete_dividend_fair_value,
 )
-
 
 VAL_DATE = pd.Timestamp("2023-01-01")
 EXPIRY = "2024-01-01"  # T = 1.0 (ACT/365)
 
 
 def _make(**overrides):
-    kwargs = dict(
-        derivative_id="SPYZ4",
-        underlying_id="SPY",
-        currency="USD",
-        expiry_date=EXPIRY,
-        contract_multiplier=100.0,
-        tick_size=0.01,
-        tick_value=1.0,
-    )
+    kwargs = {
+        "derivative_id": "SPYZ4",
+        "underlying_id": "SPY",
+        "currency": "USD",
+        "expiry_date": EXPIRY,
+        "contract_multiplier": 100.0,
+        "tick_size": 0.01,
+        "tick_value": 1.0,
+    }
     kwargs.update(overrides)
     return ETFFuture(**kwargs)
 

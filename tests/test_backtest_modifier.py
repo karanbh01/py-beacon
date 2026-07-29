@@ -1,13 +1,13 @@
 # tests/test_backtest_modifier.py
 """Unit tests for BacktestModifier, DriftThresholdModifier, and engine integration."""
-import pytest
-import pandas as pd
 from unittest.mock import MagicMock
 
-from beacon.backtest.rules import BacktestModifier, DriftThresholdModifier
-from beacon.backtest.engine import BacktestEngine, TradeInstruction
-from beacon.portfolio.base import Portfolio
+import pandas as pd
+import pytest
 
+from beacon.backtest.engine import BacktestEngine, TradeInstruction
+from beacon.backtest.rules import BacktestModifier, DriftThresholdModifier
+from beacon.portfolio.base import Portfolio
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -5,12 +5,12 @@ The __init__.py for the 'portfolio' module.
 This module defines and manages investment portfolios, tracks holdings,
 transactions, and calculates portfolio values.
 """
-from .base import Transaction, Holding, Portfolio
+from .base import Holding, Portfolio, Transaction
 from .reporting import ReportGenerator
 
 __all__ = [
-    "Transaction",
     "Holding",
     "Portfolio",
     "ReportGenerator",
+    "Transaction",
 ]

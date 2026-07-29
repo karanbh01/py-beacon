@@ -5,17 +5,17 @@ Verifies the refactored method (which delegates to BacktestResult's tracking
 methods) yields the same numbers as the previous ETFAnalytics-based path for
 the same inputs.
 """
-import pytest
-import pandas as pd
-import numpy as np
 from unittest.mock import MagicMock
 
-from beacon.fund.etf import ETF
+import numpy as np
+import pandas as pd
+import pytest
+
+from beacon.analysis.etf.analytics import ETFAnalytics
 from beacon.backtest.result import BacktestResult
+from beacon.fund.etf import ETF
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Portfolio
-from beacon.analysis.etf.analytics import ETFAnalytics
-
 
 # ---------------------------------------------------------------------------
 # Helpers

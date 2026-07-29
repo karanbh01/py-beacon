@@ -2,9 +2,10 @@
 """
 Module for calculating analytics specific to Exchange Traded Funds (ETFs).
 """
-import pandas as pd
+
 import numpy as np
-from typing import Union
+import pandas as pd
+
 
 def calculate_tracking_difference(etf_returns: pd.Series,
                                   index_returns: pd.Series) -> float:
@@ -37,7 +38,8 @@ def calculate_tracking_difference(etf_returns: pd.Series,
     # Let's use the arithmetic difference of cumulative returns.
     etf_cumulative_return = (1 + etf_returns).prod() - 1
     index_cumulative_return = (1 + index_returns).prod() - 1
-    tracking_difference = etf_cumulative_return - index_cumulative_return # This is for the total period
+    # This is for the total period
+    tracking_difference = etf_cumulative_return - index_cumulative_return
     # To annualize, one might need to consider the period length.
     # For simplicity, this blueprint asks for a float. If annualized, needs periods.
     # Assuming this is the total difference over the period.
@@ -104,7 +106,6 @@ class ETFAnalytics:
     """
     def __init__(self) -> None:
         """Initializes the ETFAnalytics calculator."""
-        pass
 
     def calculate_tracking_difference(self,
                                       etf_returns: pd.Series,

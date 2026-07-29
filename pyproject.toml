@@ -44,6 +44,7 @@ dev = [
   "pytest-cov",
   "ruff",
   "mypy",
+  "pandas-stubs",
   "pre-commit",
   "hypothesis",
 ]
@@ -52,6 +53,60 @@ dev = [
 Homepage = "https://github.com/karanbh01/py-beacon"
 Source = "https://github.com/karanbh01/py-beacon"
 "Issue Tracker" = "https://github.com/karanbh01/py-beacon/issues"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+# Only the linter is adopted. `ruff format` is deliberately NOT used: it cannot
+# produce the signature style CLAUDE.md mandates (first parameter on the def
+# line, the rest aligned beneath it) and would revert the ~360 signatures
+# reformatted in BN-53. Signature layout stays a reviewed convention, not a
+# tool-enforced one.
+[tool.ruff.lint]
+select = [
+  "E",      # pycodestyle errors
+  "W",      # pycodestyle warnings
+  "F",      # pyflakes
+  "I",      # import sorting
+  "UP",     # pyupgrade
+  "B",      # bugbear
+  "C4",     # comprehensions
+  "SIM",    # simplifications
+  "PIE",    # misc lints
+  "PERF",   # performance
+  "RUF",    # ruff-specific
+  "PLC",    # pylint conventions
+  "PLE",    # pylint errors
+  "PLW",    # pylint warnings
+]
+ignore = [
+  "RUF002",  # en dashes in docstring prose are deliberate typography
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import inside functions on purpose: to assert on import-time behaviour
+# (the pricing-module isolation test) and to keep optional-dependency imports
+# out of collection.
+"tests/**" = ["PLC0415"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["beacon"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/beacon"]
+strict = true
+
+# pandas is treated as untyped rather than depending on pandas-stubs: those
+# stubs model Series/DataFrame arithmetic far more tightly than pandas actually
+# behaves, and adding them turns 68 real findings into 137 of which 69 are
+# spurious operator errors. Values arriving from pandas are therefore Any, and
+# strict mode still holds every Beacon-authored signature to account.
+[[tool.mypy.overrides]]
+module = ["pandas.*"]
+ignore_missing_imports = true
 
 [tool.hatch.version]
 path = "src/beacon/__init__.py"

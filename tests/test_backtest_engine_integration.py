@@ -7,16 +7,14 @@ verifies that portfolio NAV tracks the index, that transaction costs create a
 tracking difference, and that trades fire on rebalance dates with sells before
 buys.
 """
-import pytest
 import pandas as pd
-import numpy as np
+import pytest
 
 from beacon.backtest.engine import BacktestEngine
 from beacon.backtest.result import BacktestResult
 from beacon.data.base import MarketData
 from beacon.data.fetcher import DataFetcher
 from beacon.index.result import IndexResult
-
 
 # ---------------------------------------------------------------------------
 # Synthetic universe: 2 assets, equal weight, monthly rebalance, ~3 months
@@ -80,7 +78,7 @@ def _reference_index_levels() -> pd.Series:
     """
     rebal = set(REBALANCE_DATES)
     weight = 1.0 / len(ASSETS)
-    units = {a: 0.0 for a in ASSETS}
+    units = dict.fromkeys(ASSETS, 0.0)
     value = BASE_VALUE
     levels = {}
 

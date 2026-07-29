@@ -8,15 +8,14 @@ pandas Timestamps for date arithmetic). All rates are continuously compounded
 and expressed as annual decimals (e.g. ``0.05`` for 5%); times are in years.
 """
 import math
-from typing import List, Tuple
 
 import pandas as pd
 
 __all__ = [
     "cost_of_carry_fair_value",
     "discrete_dividend_fair_value",
-    "implied_repo_rate",
     "futures_roll_return",
+    "implied_repo_rate",
     "trs_breakeven_spread",
 ]
 
@@ -60,7 +59,7 @@ def cost_of_carry_fair_value(spot: float,
 def discrete_dividend_fair_value(spot: float,
                                  risk_free_rate: float,
                                  time_to_expiry_years: float,
-                                 dividends: List[Tuple[float, float]]) -> float:
+                                 dividends: list[tuple[float, float]]) -> float:
     """Fair forward/futures value with discrete cash dividends.
 
     ``F = (S - PV(divs)) * exp(r * T)`` where each dividend is discounted at the
@@ -157,7 +156,7 @@ def futures_roll_return(front_price: float,
     if back_price <= 0:
         raise ValueError(f"back_price must be positive, got {back_price}")
 
-    dt_years = (back_expiry - front_expiry).total_seconds() / _SECONDS_PER_YEAR
+    dt_years = float((back_expiry - front_expiry).total_seconds()) / _SECONDS_PER_YEAR
     if dt_years <= 0:
         raise ValueError("back_expiry must be strictly after front_expiry.")
 

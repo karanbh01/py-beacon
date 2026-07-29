@@ -2,18 +2,17 @@
 """
 Module defining the ETF (Exchange Traded Fund) class, inheriting from IndexFund.
 """
-import pandas as pd
-from typing import Dict, Any, Optional
-
-from .base import IndexFund
 import logging
+from typing import Any
 
-from ..index.constructor import IndexDefinition
-from ..portfolio.base import Portfolio
+import pandas as pd
+
 from ..backtest.result import BacktestResult
 from ..data.fetcher import DataFetcher
 from ..index.calculation import IndexCalculator
-
+from ..index.constructor import IndexDefinition
+from ..portfolio.base import Portfolio
+from .base import IndexFund
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +56,11 @@ class ETF(IndexFund):
 
         self.etf_ticker: str = etf_ticker
         self.creation_unit_size: int = creation_unit_size
-        self.market_price: Optional[float] = None # Simulated or actual market price
+        self.market_price: float | None = None # Simulated or actual market price
 
     def simulate_market_price(self,
                               current_date: pd.Timestamp,
-                              market_factors: Optional[Dict[str, Any]] = None) -> float:
+                              market_factors: dict[str, Any] | None = None) -> float:
         """
         Simulates the ETF's market price based on its NAV and other market factors.
         (Future Scope: Initial focus on NAV tracking implies market price might closely follow NAV,
@@ -80,8 +79,10 @@ class ETF(IndexFund):
         """
         nav_per_share = self.calculate_nav(current_date) # Assuming NAV is total value.
         # If NAV per share requires number of ETF shares outstanding:
-        # num_etf_shares = self.portfolio.get_total_shares() # Needs implementation if ETF shares tracked
-        # nav_per_share = self.calculate_nav(current_date) / num_etf_shares if num_etf_shares else nav_per_share
+        # num_etf_shares = self.portfolio.get_total_shares() # Needs implementation if ETF
+        # shares tracked
+        # nav_per_share = self.calculate_nav(current_date) / num_etf_shares if num_etf_shares
+        # else nav_per_share
 
         # Simplistic simulation: market price = NAV (perfect tracking for now)
         self.market_price = nav_per_share
@@ -92,7 +93,7 @@ class ETF(IndexFund):
 
 
     def get_tracking_performance(self,
-                                 result: BacktestResult) -> Dict[str, float]:
+                                 result: BacktestResult) -> dict[str, float | str]:
         """Calculate tracking metrics from a completed backtest.
 
         Compares the backtest's ``portfolio_nav`` against the target index's
@@ -105,9 +106,11 @@ class ETF(IndexFund):
                 already contains both the portfolio NAV and the target index.
 
         Returns:
-            A dictionary with ``tracking_error`` and ``tracking_difference``, or
-            an ``error`` entry if the result has no target index to compare
-            against.
+            A dictionary with float ``tracking_error`` and
+            ``tracking_difference`` entries. If the result has no target index
+            to compare against, a single ``error`` entry is returned instead,
+            whose value is an explanatory string — hence the ``float | str``
+            value type.
 
         Raises:
             ValueError: If *result* is None.

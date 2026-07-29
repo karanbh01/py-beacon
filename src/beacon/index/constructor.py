@@ -2,12 +2,11 @@
 """
 Module for defining the structure and rules of a financial index.
 """
-import pandas as pd
-from typing import List, Optional
 import logging
 
-from .methodology import EligibilityRuleBase, WeightingSchemeBase
+import pandas as pd
 
+from .methodology import EligibilityRuleBase, WeightingSchemeBase
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +20,11 @@ class IndexDefinition:
                  base_date: str, # YYYY-MM-DD
                  base_value: float,
                  currency: str,
-                 eligibility_rules: List[EligibilityRuleBase],
+                 eligibility_rules: list[EligibilityRuleBase],
                  weighting_scheme: WeightingSchemeBase,
                  rebalancing_frequency: str, # e.g., 'QUARTERLY', 'MONTHLY', 'SEMI-ANNUAL', 'ANNUAL'
-                 description: Optional[str] = None,
-                 universe_identifiers: Optional[List[str]] = None):
+                 description: str | None = None,
+                 universe_identifiers: list[str] | None = None):
         """
         Initializes an IndexDefinition.
 
@@ -47,14 +46,24 @@ class IndexDefinition:
             universe_identifiers: Optional list of string identifiers (e.g., tickers, ISINs)
                                   defining the asset universe from which constituents are selected.
         """
-        if not index_id: raise ValueError("index_id cannot be empty.")
-        if not index_name: raise ValueError("index_name cannot be empty.")
-        if not base_date: raise ValueError("base_date cannot be empty.")
-        if base_value <= 0: raise ValueError("base_value must be positive.")
-        if not currency: raise ValueError("currency cannot be empty.")
-        if not eligibility_rules: logger.warning(f"Index '{index_name}' defined with no eligibility rules.")
-        if not weighting_scheme: raise ValueError("weighting_scheme must be provided.")
-        if not rebalancing_frequency: raise ValueError("rebalancing_frequency cannot be empty.")
+        if not index_id:
+            raise ValueError("index_id cannot be empty.")
+        if not index_name:
+            raise ValueError("index_name cannot be empty.")
+        if not base_date:
+            raise ValueError("base_date cannot be empty.")
+        if base_value <= 0:
+            raise ValueError("base_value must be positive.")
+        if not currency:
+            raise ValueError("currency cannot be empty.")
+        if not weighting_scheme:
+            raise ValueError("weighting_scheme must be provided.")
+        if not rebalancing_frequency:
+            raise ValueError("rebalancing_frequency cannot be empty.")
+
+        if not eligibility_rules:
+            logger.warning(f"Index '{index_name}' defined with no eligibility rules.")
+
         if universe_identifiers is not None and not universe_identifiers:
             raise ValueError("universe_identifiers, when provided, must be a non-empty list.")
 
@@ -63,17 +72,18 @@ class IndexDefinition:
         self.base_date: pd.Timestamp = pd.Timestamp(base_date)
         self.base_value: float = base_value
         self.currency: str = currency.upper()
-        self.eligibility_rules: List[EligibilityRuleBase] = eligibility_rules
+        self.eligibility_rules: list[EligibilityRuleBase] = eligibility_rules
         self.weighting_scheme: WeightingSchemeBase = weighting_scheme
         self.rebalancing_frequency: str = rebalancing_frequency.upper()
-        self.description: Optional[str] = description
-        self.universe_identifiers: Optional[List[str]] = universe_identifiers
+        self.description: str | None = description
+        self.universe_identifiers: list[str] | None = universe_identifiers
 
-        logger.info(f"IndexDefinition for '{self.index_name}' ({self.index_id}) created successfully.")
+        logger.info(
+            f"IndexDefinition for '{self.index_name}' ({self.index_id}) created successfully.")
 
     def get_rebalance_dates(self,
                             start_date: str,
-                            end_date: str) -> List[pd.Timestamp]:
+                            end_date: str) -> list[pd.Timestamp]:
         """
         Return all rebalance dates within [start_date, end_date] based on
         the index's rebalancing frequency. Dates are adjusted to business days.
@@ -88,8 +98,11 @@ class IndexDefinition:
         Raises:
             ValueError: If the rebalancing frequency is unsupported.
         """
-        #todo: - This method currently supports only simple monthly/quarterly/semi-annual/annual frequencies.
-        #      - More complex schedules (e.g. "Third Friday of March, June...") would require a more sophisticated scheduler, potentially using a library like `dateutil` or `pandas` offsets.
+        #todo: - This method currently supports only simple
+        #        monthly/quarterly/semi-annual/annual frequencies.
+        #      - More complex schedules (e.g. "Third Friday of March, June...")
+        #        would require a more sophisticated scheduler, potentially using
+        #        a library like `dateutil` or `pandas` offsets.
         freq = self.rebalancing_frequency
         freq_map = {
             "MONTHLY": 1,
@@ -117,10 +130,7 @@ class IndexDefinition:
         )
 
         # Filter to only months matching the interval from the first candidate
-        candidates = []
-        for d in all_bmonth_starts:
-            if start <= d <= end:
-                candidates.append(d)
+        candidates = [d for d in all_bmonth_starts if start <= d <= end]
 
         if not candidates:
             return []
@@ -128,7 +138,8 @@ class IndexDefinition:
         # Select dates at the specified interval starting from the first candidate
         rebalance_dates = [candidates[0]]
         for d in candidates[1:]:
-            months_diff = (d.year - rebalance_dates[-1].year) * 12 + (d.month - rebalance_dates[-1].month)
+            months_diff = ((d.year - rebalance_dates[-1].year) * 12
+                            + (d.month - rebalance_dates[-1].month))
             if months_diff >= interval_months:
                 rebalance_dates.append(d)
 
@@ -138,5 +149,6 @@ class IndexDefinition:
         universe_size = len(self.universe_identifiers) if self.universe_identifiers else 0
         return (f"IndexDefinition(index_id='{self.index_id}', index_name='{self.index_name}', "
                 f"base_date='{self.base_date.strftime('%Y-%m-%d')}', base_value={self.base_value}, "
-                f"currency='{self.currency}', rebalancing_frequency='{self.rebalancing_frequency}', "
+                f"currency='{self.currency}', "
+                f"rebalancing_frequency='{self.rebalancing_frequency}', "
                 f"universe_size={universe_size})")

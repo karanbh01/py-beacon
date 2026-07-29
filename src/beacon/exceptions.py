@@ -25,7 +25,8 @@ class DataNotFoundError(BeaconError):
         self.source = source
 
 class InvalidRuleError(BeaconError):
-    """Raised when an index methodology rule or backtest rule is invalid or improperly configured."""
+    """Raised when an index methodology rule or backtest rule is invalid or
+    improperly configured."""
     def __init__(self,
                  rule_description: str,
                  reason: str):
@@ -63,7 +64,8 @@ class MissingDependencyError(BeaconError, ImportError):
         self.extra = extra
 
 class CalculationError(BeaconError):
-    """Raised during financial calculations if an error occurs (e.g., division by zero, bad inputs)."""
+    """Raised during financial calculations if an error occurs (e.g., division by
+    zero, bad inputs)."""
     def __init__(self,
                  calculation_name: str,
                  details: str):
@@ -73,4 +75,5 @@ class CalculationError(BeaconError):
         self.details = details
 
 # For the main __init__.py, they can be exposed directly:
-# from .beacon_exceptions import DataNotFoundError, InvalidRuleError # if beacon_exceptions.py is in root
+# from .beacon_exceptions import DataNotFoundError, InvalidRuleError
+# if beacon_exceptions.py is in root

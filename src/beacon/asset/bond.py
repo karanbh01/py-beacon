@@ -3,7 +3,7 @@
 Module defining the Bond asset class.
 """
 from dataclasses import dataclass
-from typing import Optional
+
 from .base import Asset
 
 
@@ -15,10 +15,10 @@ class Bond(Asset):
     coupon: float = 0.0
     maturity_date: str = ""
     issuer: str = ""
-    credit_rating: Optional[str] = None
+    credit_rating: str | None = None
     face_value: float = 1000.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.maturity_date:
             raise ValueError("maturity_date cannot be empty.")
         if not self.issuer:

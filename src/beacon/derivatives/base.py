@@ -2,9 +2,9 @@
 """
 DerivativeBase — abstract base class for all Delta-1 derivative instruments.
 """
-from abc import ABC, abstractmethod
-from typing import Dict
 import logging
+from abc import ABC, abstractmethod
+from typing import Any
 
 import pandas as pd
 
@@ -92,21 +92,23 @@ class DerivativeBase(ABC):
         Returns:
             Years to expiry, clamped to ``0.0`` once the contract has expired.
         """
-        seconds = (self.expiry_date - pd.Timestamp(valuation_date)).total_seconds()
+        seconds = float((self.expiry_date - pd.Timestamp(valuation_date)).total_seconds())
         return max(0.0, seconds / _SECONDS_PER_YEAR)
 
     @abstractmethod
     def fair_value(self,
                    spot_price: float,
                    valuation_date: pd.Timestamp,
-                   market_data: Dict[str, float]) -> float:
+                   market_data: dict[str, Any]) -> float:
         """Return the model fair value of the derivative.
 
         Args:
             spot_price: Current spot/level of the underlying.
             valuation_date: The valuation date.
-            market_data: Additional inputs (e.g. ``risk_free_rate``,
-                ``dividend_yield``) keyed by name.
+            market_data: Additional inputs keyed by name. Most are scalar rates
+                (e.g. ``risk_free_rate``, ``dividend_yield``), but subclasses
+                also read non-scalar entries such as ``discrete_dividends``
+                (a list of ``(time, amount)`` tuples).
 
         Returns:
             The fair value in contract currency.
@@ -118,7 +120,7 @@ class DerivativeBase(ABC):
                        market_price: float,
                        spot_price: float,
                        valuation_date: pd.Timestamp,
-                       market_data: Dict[str, float]) -> Dict[str, float]:
+                       market_data: dict[str, Any]) -> dict[str, float]:
         """Mark the position to market against an observed *market_price*.
 
         Args:

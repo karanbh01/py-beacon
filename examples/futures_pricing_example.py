@@ -19,14 +19,13 @@ import logging
 
 import pandas as pd
 
-# Keep the example output focused on the summary table.
-logging.getLogger("beacon").setLevel(logging.ERROR)
-
+from beacon.derivatives.futures import IndexFuture
+from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
-from beacon.index.calculation import IndexCalculator
-from beacon.derivatives.futures import IndexFuture
 
+# Keep the example output focused on the summary table.
+logging.getLogger("beacon").setLevel(logging.ERROR)
 
 # ---------------------------------------------------------------------------
 # 1. Synthetic market data

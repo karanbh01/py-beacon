@@ -1,13 +1,13 @@
 # tests/test_index_calculator.py
 """Unit tests for IndexCalculator._get_universe() and IndexCalculator.run()."""
-import pytest
-import pandas as pd
-import numpy as np
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
+import pandas as pd
+import pytest
+
+from beacon.asset.equity import Equity
 from beacon.index.calculation import IndexCalculator
 from beacon.index.result import IndexResult
-from beacon.asset.equity import Equity
 
 
 @pytest.fixture
@@ -152,13 +152,15 @@ class TestRun:
     def test_returns_index_result(self,
                                   calculator):
         """run() returns an IndexResult with data_fetcher bound."""
-        with patch.object(calculator, '_get_universe', return_value=[AAPL, MSFT]):
-            with patch.object(calculator, 'select_constituents', return_value=[AAPL, MSFT]):
-                with patch.object(calculator, 'calculate_constituent_weights',
-                                  return_value={AAPL: 0.6, MSFT: 0.4}):
-                    with patch.object(calculator, '_get_constituent_market_values',
-                                      return_value={AAPL: 6000.0, MSFT: 4000.0}):
-                        result = calculator.run(end_date="2025-01-02")
+        with (
+            patch.object(calculator, '_get_universe', return_value=[AAPL, MSFT]),
+            patch.object(calculator, 'select_constituents', return_value=[AAPL, MSFT]),
+            patch.object(calculator, 'calculate_constituent_weights',
+                         return_value={AAPL: 0.6, MSFT: 0.4}),
+            patch.object(calculator, '_get_constituent_market_values',
+                         return_value={AAPL: 6000.0, MSFT: 4000.0}),
+        ):
+            result = calculator.run(end_date="2025-01-02")
 
         assert isinstance(result, IndexResult)
         assert result.index_id == "TEST_IDX"
@@ -167,26 +169,30 @@ class TestRun:
     def test_base_date_level_equals_base_value(self,
                                                calculator):
         """On base date the index level should equal base_value."""
-        with patch.object(calculator, '_get_universe', return_value=[AAPL]):
-            with patch.object(calculator, 'select_constituents', return_value=[AAPL]):
-                with patch.object(calculator, 'calculate_constituent_weights',
-                                  return_value={AAPL: 1.0}):
-                    with patch.object(calculator, '_get_constituent_market_values',
-                                      return_value={AAPL: 5000.0}):
-                        result = calculator.run(end_date="2025-01-02")
+        with (
+            patch.object(calculator, '_get_universe', return_value=[AAPL]),
+            patch.object(calculator, 'select_constituents', return_value=[AAPL]),
+            patch.object(calculator, 'calculate_constituent_weights',
+                         return_value={AAPL: 1.0}),
+            patch.object(calculator, '_get_constituent_market_values',
+                         return_value={AAPL: 5000.0}),
+        ):
+            result = calculator.run(end_date="2025-01-02")
 
         assert result.index_levels.iloc[0] == 1000.0
 
     def test_base_date_records_snapshots(self,
                                          calculator):
         """Base date should create constituent and weight snapshots."""
-        with patch.object(calculator, '_get_universe', return_value=[AAPL, MSFT]):
-            with patch.object(calculator, 'select_constituents', return_value=[AAPL, MSFT]):
-                with patch.object(calculator, 'calculate_constituent_weights',
-                                  return_value={AAPL: 0.6, MSFT: 0.4}):
-                    with patch.object(calculator, '_get_constituent_market_values',
-                                      return_value={AAPL: 6000.0, MSFT: 4000.0}):
-                        result = calculator.run(end_date="2025-01-02")
+        with (
+            patch.object(calculator, '_get_universe', return_value=[AAPL, MSFT]),
+            patch.object(calculator, 'select_constituents', return_value=[AAPL, MSFT]),
+            patch.object(calculator, 'calculate_constituent_weights',
+                         return_value={AAPL: 0.6, MSFT: 0.4}),
+            patch.object(calculator, '_get_constituent_market_values',
+                         return_value={AAPL: 6000.0, MSFT: 4000.0}),
+        ):
+            result = calculator.run(end_date="2025-01-02")
 
         base = pd.Timestamp("2025-01-02")
         assert base in result.constituent_snapshots
@@ -197,15 +203,17 @@ class TestRun:
                                                     calculator):
         """After base date, regular days call calculate_index_level."""
         # base_date = 2025-01-02, run to 2025-01-03 (two business days)
-        with patch.object(calculator, '_get_universe', return_value=[AAPL]):
-            with patch.object(calculator, 'select_constituents', return_value=[AAPL]):
-                with patch.object(calculator, 'calculate_constituent_weights',
-                                  return_value={AAPL: 1.0}):
-                    with patch.object(calculator, '_get_constituent_market_values',
-                                      return_value={AAPL: 5000.0}):
-                        with patch.object(calculator, 'calculate_index_level',
-                                          return_value=(1050.0, 5.0)) as mock_calc:
-                            result = calculator.run(end_date="2025-01-03")
+        with (
+            patch.object(calculator, '_get_universe', return_value=[AAPL]),
+            patch.object(calculator, 'select_constituents', return_value=[AAPL]),
+            patch.object(calculator, 'calculate_constituent_weights',
+                         return_value={AAPL: 1.0}),
+            patch.object(calculator, '_get_constituent_market_values',
+                         return_value={AAPL: 5000.0}),
+            patch.object(calculator, 'calculate_index_level',
+                         return_value=(1050.0, 5.0)) as mock_calc,
+        ):
+            result = calculator.run(end_date="2025-01-03")
 
         # calculate_index_level should be called for Jan 3 (regular day)
         assert mock_calc.called
@@ -215,7 +223,6 @@ class TestRun:
     def test_rebalance_date_reconstitutes(self,
                                           calculator):
         """On a rebalance date, the universe is re-resolved and weights recalculated."""
-        base = pd.Timestamp("2025-01-02")
         # Make get_rebalance_dates return a date within our range
         rebal_date = pd.Timestamp("2025-01-06")  # Monday
         calculator.definition.get_rebalance_dates.return_value = [rebal_date]
@@ -236,15 +243,19 @@ class TestRun:
 
         def fake_mv(weights_dict,
                     date):
-            return {a: 5000.0 for a in weights_dict}
+            return dict.fromkeys(weights_dict, 5000.0)
 
-        with patch.object(calculator, '_get_universe', side_effect=fake_get_universe):
-            with patch.object(calculator, 'select_constituents', side_effect=fake_select):
-                with patch.object(calculator, 'calculate_constituent_weights', side_effect=fake_weights):
-                    with patch.object(calculator, '_get_constituent_market_values', side_effect=fake_mv):
-                        with patch.object(calculator, 'calculate_index_level',
-                                          return_value=(1000.0, 10.0)):
-                            result = calculator.run(end_date="2025-01-06")
+        with (
+            patch.object(calculator, '_get_universe', side_effect=fake_get_universe),
+            patch.object(calculator, 'select_constituents', side_effect=fake_select),
+            patch.object(calculator, 'calculate_constituent_weights',
+                         side_effect=fake_weights),
+            patch.object(calculator, '_get_constituent_market_values',
+                         side_effect=fake_mv),
+            patch.object(calculator, 'calculate_index_level',
+                         return_value=(1000.0, 10.0)),
+        ):
+            result = calculator.run(end_date="2025-01-06")
 
         # _get_universe called twice: base date + rebalance date
         assert call_count['universe'] == 2
@@ -255,13 +266,15 @@ class TestRun:
     def test_start_date_clamped_to_base_date(self,
                                              calculator):
         """If start_date < base_date, it's clamped to base_date."""
-        with patch.object(calculator, '_get_universe', return_value=[AAPL]):
-            with patch.object(calculator, 'select_constituents', return_value=[AAPL]):
-                with patch.object(calculator, 'calculate_constituent_weights',
-                                  return_value={AAPL: 1.0}):
-                    with patch.object(calculator, '_get_constituent_market_values',
-                                      return_value={AAPL: 5000.0}):
-                        result = calculator.run(start_date="2024-01-01", end_date="2025-01-02")
+        with (
+            patch.object(calculator, '_get_universe', return_value=[AAPL]),
+            patch.object(calculator, 'select_constituents', return_value=[AAPL]),
+            patch.object(calculator, 'calculate_constituent_weights',
+                         return_value={AAPL: 1.0}),
+            patch.object(calculator, '_get_constituent_market_values',
+                         return_value={AAPL: 5000.0}),
+        ):
+            result = calculator.run(start_date="2024-01-01", end_date="2025-01-02")
 
         # Should still start from base_date
         assert result.index_levels.index[0] == pd.Timestamp("2025-01-02")
@@ -278,14 +291,16 @@ class TestRun:
     def test_idempotent_multiple_calls(self,
                                        calculator):
         """Calling run() twice produces identical results (no side effects)."""
-        with patch.object(calculator, '_get_universe', return_value=[AAPL]):
-            with patch.object(calculator, 'select_constituents', return_value=[AAPL]):
-                with patch.object(calculator, 'calculate_constituent_weights',
-                                  return_value={AAPL: 1.0}):
-                    with patch.object(calculator, '_get_constituent_market_values',
-                                      return_value={AAPL: 5000.0}):
-                        r1 = calculator.run(end_date="2025-01-02")
-                        r2 = calculator.run(end_date="2025-01-02")
+        with (
+            patch.object(calculator, '_get_universe', return_value=[AAPL]),
+            patch.object(calculator, 'select_constituents', return_value=[AAPL]),
+            patch.object(calculator, 'calculate_constituent_weights',
+                         return_value={AAPL: 1.0}),
+            patch.object(calculator, '_get_constituent_market_values',
+                         return_value={AAPL: 5000.0}),
+        ):
+            r1 = calculator.run(end_date="2025-01-02")
+            r2 = calculator.run(end_date="2025-01-02")
 
         pd.testing.assert_series_equal(r1.index_levels, r2.index_levels)
         pd.testing.assert_series_equal(r1.divisor_history, r2.divisor_history)
@@ -293,15 +308,17 @@ class TestRun:
     def test_divisor_history_populated(self,
                                        calculator):
         """Every trading day should have a divisor entry."""
-        with patch.object(calculator, '_get_universe', return_value=[AAPL]):
-            with patch.object(calculator, 'select_constituents', return_value=[AAPL]):
-                with patch.object(calculator, 'calculate_constituent_weights',
-                                  return_value={AAPL: 1.0}):
-                    with patch.object(calculator, '_get_constituent_market_values',
-                                      return_value={AAPL: 5000.0}):
-                        with patch.object(calculator, 'calculate_index_level',
-                                          return_value=(1010.0, 5.0)):
-                            result = calculator.run(end_date="2025-01-03")
+        with (
+            patch.object(calculator, '_get_universe', return_value=[AAPL]),
+            patch.object(calculator, 'select_constituents', return_value=[AAPL]),
+            patch.object(calculator, 'calculate_constituent_weights',
+                         return_value={AAPL: 1.0}),
+            patch.object(calculator, '_get_constituent_market_values',
+                         return_value={AAPL: 5000.0}),
+            patch.object(calculator, 'calculate_index_level',
+                         return_value=(1010.0, 5.0)),
+        ):
+            result = calculator.run(end_date="2025-01-03")
 
         assert len(result.divisor_history) == len(result.index_levels)
         assert all(d > 0 for d in result.divisor_history.values)
@@ -309,13 +326,15 @@ class TestRun:
     def test_zero_market_value_base_date(self,
                                          calculator):
         """When base date MV is zero, divisor defaults to 1.0."""
-        with patch.object(calculator, '_get_universe', return_value=[AAPL]):
-            with patch.object(calculator, 'select_constituents', return_value=[AAPL]):
-                with patch.object(calculator, 'calculate_constituent_weights',
-                                  return_value={AAPL: 1.0}):
-                    with patch.object(calculator, '_get_constituent_market_values',
-                                      return_value={AAPL: 0.0}):
-                        result = calculator.run(end_date="2025-01-02")
+        with (
+            patch.object(calculator, '_get_universe', return_value=[AAPL]),
+            patch.object(calculator, 'select_constituents', return_value=[AAPL]),
+            patch.object(calculator, 'calculate_constituent_weights',
+                         return_value={AAPL: 1.0}),
+            patch.object(calculator, '_get_constituent_market_values',
+                         return_value={AAPL: 0.0}),
+        ):
+            result = calculator.run(end_date="2025-01-02")
 
         assert result.divisor_history.iloc[0] == 1.0
 

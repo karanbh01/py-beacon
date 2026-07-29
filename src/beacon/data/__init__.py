@@ -9,8 +9,8 @@ from .fetcher import DataFetcher
 from .loader import load_data
 
 __all__ = [
+    "DataFetcher",
     "MarketData",
     "ReferenceData",
-    "DataFetcher",
     "load_data",
 ]

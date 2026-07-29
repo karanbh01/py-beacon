@@ -3,7 +3,7 @@
 Module defining the Equity asset class.
 """
 from dataclasses import dataclass
-from typing import Optional
+
 from .base import Asset
 
 
@@ -14,11 +14,11 @@ class Equity(Asset):
     """
     ticker: str = ""
     exchange: str = ""
-    isin: Optional[str] = None
-    sector: Optional[str] = None
-    country: Optional[str] = None
+    isin: str | None = None
+    sector: str | None = None
+    country: str | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.ticker:
             raise ValueError("ticker cannot be empty.")
         if not self.exchange:

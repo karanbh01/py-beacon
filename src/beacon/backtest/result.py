@@ -2,10 +2,10 @@
 """
 BacktestResult — output container for backtest runs.
 """
+from dataclasses import dataclass, field
+
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult
@@ -38,10 +38,10 @@ class BacktestResult:
     initial_capital: float
     portfolio_nav: pd.Series
     cash_history: pd.Series
-    transactions: List[Transaction]
+    transactions: list[Transaction]
     actual_weight_history: pd.DataFrame
-    target_index_result: Optional[IndexResult] = None
-    _data_fetcher: Optional[DataFetcher] = field(default=None, repr=False, compare=False)
+    target_index_result: IndexResult | None = None
+    _data_fetcher: DataFetcher | None = field(default=None, repr=False, compare=False)
 
     def with_data(self,
                   data_fetcher: DataFetcher) -> 'BacktestResult':
@@ -105,7 +105,7 @@ class BacktestResult:
             return pd.Series(dtype=float)
         return self.portfolio_nav.pct_change().dropna()
 
-    def get_tracking_error(self) -> Optional[float]:
+    def get_tracking_error(self) -> float | None:
         """Calculate annualised tracking error against the target index.
 
         Tracking error is the annualised standard deviation of the
@@ -134,7 +134,7 @@ class BacktestResult:
         active_returns = aligned["port"] - aligned["index"]
         return float(active_returns.std() * np.sqrt(252))
 
-    def get_tracking_difference(self) -> Optional[float]:
+    def get_tracking_difference(self) -> float | None:
         """Calculate cumulative tracking difference against the target index.
 
         Tracking difference is the difference between the cumulative
@@ -159,7 +159,7 @@ class BacktestResult:
         index_cumulative = (1 + index_returns).prod() - 1
         return float(port_cumulative - index_cumulative)
 
-    def summary(self) -> Dict[str, Optional[float]]:
+    def summary(self) -> dict[str, float | None]:
         """Calculate key performance metrics for the backtest.
 
         Returns
@@ -199,7 +199,7 @@ class BacktestResult:
         else:
             max_drawdown = 0.0
 
-        result: Dict[str, Optional[float]] = {
+        result: dict[str, float | None] = {
             "total_return": total_return,
             "annualised_return": annualised_return,
             "volatility": volatility,

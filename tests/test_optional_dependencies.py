@@ -136,7 +136,8 @@ class TestCoreImportsAreDependencyFree:
 
         completed = subprocess.run([sys.executable, "-c", script],
                                    capture_output=True,
-                                   text=True)
+                                   text=True,
+                                   check=False)
 
         assert completed.returncode == 0, (
             f"core import pulled in an optional dependency:\n{completed.stderr}")

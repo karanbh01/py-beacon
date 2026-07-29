@@ -12,17 +12,16 @@ SHARES_OUTSTANDING market-data column.
 import pandas as pd
 import pytest
 
-from beacon.environment.config import Environment
-from beacon.data.base import MarketData, ReferenceData
-from beacon.data.fetcher import DataFetcher
-from beacon.index.constructor import IndexDefinition
-from beacon.index.methodology import EqualWeighted
-from beacon.index.calculation import IndexCalculator
-from beacon.index.result import IndexResult
 from beacon.backtest.engine import BacktestEngine
 from beacon.backtest.result import BacktestResult
+from beacon.data.base import MarketData, ReferenceData
+from beacon.data.fetcher import DataFetcher
+from beacon.environment.config import Environment
+from beacon.index.calculation import IndexCalculator
+from beacon.index.constructor import IndexDefinition
+from beacon.index.methodology import EqualWeighted
+from beacon.index.result import IndexResult
 from beacon.portfolio.base import Transaction
-
 
 # ---------------------------------------------------------------------------
 # Synthetic universe: 3 assets, ~6 months of daily prices, quarterly rebalance

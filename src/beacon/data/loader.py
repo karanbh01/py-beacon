@@ -3,6 +3,7 @@ Data loader that reads file paths from an Environment and returns a DataFetcher.
 """
 
 from beacon.environment.config import Environment
+
 from .base import MarketData, ReferenceData
 from .fetcher import DataFetcher
 

@@ -2,9 +2,10 @@
 """
 Module for calculating various risk metrics for financial instruments.
 """
-import pandas as pd
+
 import numpy as np
-from typing import Union
+import pandas as pd
+
 
 def calculate_volatility(price_series: pd.Series,
                          window: int = 252) -> float:
@@ -43,7 +44,8 @@ def calculate_sharpe_ratio(returns: pd.Series,
     Args:
         returns: A pandas Series of periodic returns.
         risk_free_rate: The annualized risk-free rate.
-        periods_per_year: The number of return periods in a year (e.g., 252 for daily, 12 for monthly).
+        periods_per_year: The number of return periods in a year (e.g., 252 for daily,
+                          12 for monthly).
 
     Returns:
         The annualized Sharpe Ratio as a float.
@@ -105,7 +107,6 @@ class RiskMetricsCalculator:
     """
     def __init__(self) -> None:
         """Initializes the RiskMetricsCalculator."""
-        pass
 
     def calculate_volatility(self,
                              price_series: pd.Series,
@@ -132,7 +133,8 @@ class RiskMetricsCalculator:
         Args:
             returns: A pandas Series of periodic returns.
             risk_free_rate: The annualized risk-free rate.
-            periods_per_year: The number of return periods in a year (e.g., 252 for daily, 12 for monthly).
+            periods_per_year: The number of return periods in a year (e.g., 252 for daily,
+                              12 for monthly).
 
         Returns:
             The annualized Sharpe Ratio as a float.

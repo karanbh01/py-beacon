@@ -3,8 +3,8 @@
 BacktestAssetView — asset view extended with backtest-specific context
 such as actual weight history, holding periods, and transaction analysis.
 """
+
 import pandas as pd
-from typing import Dict, List, Optional
 
 from ..asset.view import AssetView
 from ..data.fetcher import DataFetcher
@@ -36,8 +36,8 @@ class BacktestAssetView(AssetView):
                  data_fetcher: DataFetcher,
                  actual_weight_history: pd.DataFrame,
                  portfolio_nav: pd.Series,
-                 transactions: List[Transaction],
-                 target_weight_snapshots: Optional[Dict[pd.Timestamp, Dict[str, float]]] = None):
+                 transactions: list[Transaction],
+                 target_weight_snapshots: dict[pd.Timestamp, dict[str, float]] | None = None):
         super().__init__(asset_id, data_fetcher)
         self._actual_weight_history = actual_weight_history
         self._portfolio_nav = portfolio_nav
@@ -68,7 +68,7 @@ class BacktestAssetView(AssetView):
         ]
         return pd.DataFrame(rows)
 
-    def holding_periods(self) -> List[Dict[str, pd.Timestamp]]:
+    def holding_periods(self) -> list[dict[str, pd.Timestamp]]:
         """Identify continuous periods when this asset was held.
 
         Returns
@@ -87,6 +87,7 @@ class BacktestAssetView(AssetView):
         periods = []
         in_period = False
         start = None
+        prev_date = None
 
         for date, is_held in held.items():
             if is_held and not in_period:
@@ -172,7 +173,7 @@ class BacktestAssetView(AssetView):
 
         sorted_rebal_dates = sorted(self._target_weight_snapshots.keys())
 
-        def _target_on_date(date):
+        def _target_on_date(date: pd.Timestamp) -> float:
             applicable = [d for d in sorted_rebal_dates if d <= date]
             if not applicable:
                 return 0.0
@@ -194,7 +195,7 @@ class BacktestAssetView(AssetView):
         return sum(t.transaction_cost for t in self._transactions if t.asset_id == self._asset_id)
 
     def weight_on_date(self,
-                       date: pd.Timestamp) -> Optional[float]:
+                       date: pd.Timestamp) -> float | None:
         """Get this asset's portfolio weight on a specific date.
 
         Parameters

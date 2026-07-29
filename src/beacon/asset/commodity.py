@@ -3,6 +3,7 @@
 Module defining the Commodity asset class.
 """
 from dataclasses import dataclass
+
 from .base import Asset
 
 
@@ -14,7 +15,7 @@ class Commodity(Asset):
     commodity_type: str = ""
     contract_unit: str = ""
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.commodity_type:
             raise ValueError("commodity_type cannot be empty.")
         if not self.contract_unit:

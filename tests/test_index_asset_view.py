@@ -1,12 +1,13 @@
 # tests/test_index_asset_view.py
 """Unit tests for IndexAssetView."""
-import pytest
-import pandas as pd
 from unittest.mock import MagicMock
 
+import pandas as pd
+import pytest
+
+from beacon.asset.view import AssetView
 from beacon.index.asset_view import IndexAssetView
 from beacon.index.result import IndexResult
-from beacon.asset.view import AssetView
 
 
 @pytest.fixture

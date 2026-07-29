@@ -8,6 +8,6 @@ from .base import IndexFund
 from .etf import ETF
 
 __all__ = [
-    "IndexFund",
     "ETF",
+    "IndexFund",
 ]

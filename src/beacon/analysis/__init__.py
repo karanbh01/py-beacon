@@ -5,19 +5,29 @@ The __init__.py for the 'analysis' module.
 This module provides tools for analyzing the performance and
 risk characteristics of indices, ETFs, and portfolios.
 """
-from .risk import RiskMetricsCalculator, calculate_volatility, calculate_sharpe_ratio, calculate_max_drawdown
-from .etf.analytics import ETFAnalytics, calculate_tracking_difference, calculate_tracking_error, calculate_premium_discount
 from .attribution import Attribution, simple_performance_attribution
+from .etf.analytics import (
+    ETFAnalytics,
+    calculate_premium_discount,
+    calculate_tracking_difference,
+    calculate_tracking_error,
+)
+from .risk import (
+    RiskMetricsCalculator,
+    calculate_max_drawdown,
+    calculate_sharpe_ratio,
+    calculate_volatility,
+)
 
 __all__ = [
-    "RiskMetricsCalculator",
-    "calculate_volatility",
-    "calculate_sharpe_ratio",
-    "calculate_max_drawdown",
+    "Attribution",
     "ETFAnalytics",
+    "RiskMetricsCalculator",
+    "calculate_max_drawdown",
+    "calculate_premium_discount",
+    "calculate_sharpe_ratio",
     "calculate_tracking_difference",
     "calculate_tracking_error",
-    "calculate_premium_discount",
-    "Attribution",
+    "calculate_volatility",
     "simple_performance_attribution",
 ]

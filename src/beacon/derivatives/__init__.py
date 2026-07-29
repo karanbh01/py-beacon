@@ -4,24 +4,24 @@ The 'derivatives' package models exchange-traded and OTC Delta-1 derivatives
 that reference beacon indices, ETFs, and equities.
 """
 from .base import DerivativeBase
-from .futures import IndexFuture, ETFFuture
-from .swaps import TotalReturnSwap
+from .futures import ETFFuture, IndexFuture
 from .pricing import (
     cost_of_carry_fair_value,
     discrete_dividend_fair_value,
-    implied_repo_rate,
     futures_roll_return,
+    implied_repo_rate,
     trs_breakeven_spread,
 )
+from .swaps import TotalReturnSwap
 
 __all__ = [
     "DerivativeBase",
-    "IndexFuture",
     "ETFFuture",
+    "IndexFuture",
     "TotalReturnSwap",
     "cost_of_carry_fair_value",
     "discrete_dividend_fair_value",
-    "implied_repo_rate",
     "futures_roll_return",
+    "implied_repo_rate",
     "trs_breakeven_spread",
 ]

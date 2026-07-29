@@ -3,11 +3,10 @@
 IndexAssetView — asset view extended with index-specific context
 such as weight history and contribution analysis.
 """
+
 import pandas as pd
-from typing import Dict, Optional
 
 from ..asset.view import AssetView
-
 from ..data.fetcher import DataFetcher
 
 
@@ -30,14 +29,14 @@ class IndexAssetView(AssetView):
     def __init__(self,
                  asset_id: str,
                  data_fetcher: DataFetcher,
-                 weight_snapshots: Dict[pd.Timestamp, Dict[str, float]],
+                 weight_snapshots: dict[pd.Timestamp, dict[str, float]],
                  index_levels: pd.Series):
         super().__init__(asset_id, data_fetcher)
         self._weight_snapshots = weight_snapshots
         self._index_levels = index_levels
 
     def weight_on_date(self,
-                       date: pd.Timestamp) -> Optional[float]:
+                       date: pd.Timestamp) -> float | None:
         """Get this asset's index weight on a specific date.
 
         Finds the most recent rebalance on or before *date* and returns
@@ -104,7 +103,7 @@ class IndexAssetView(AssetView):
         # Build a weight series aligned to the return dates
         # For each return date, look up the weight from the most recent rebalance
         weights = asset_returns.index.to_series().apply(
-            lambda d: self.weight_on_date(d)
+            self.weight_on_date
         ).shift(1)  # weight_{t-1}
 
         contribution = weights * asset_returns

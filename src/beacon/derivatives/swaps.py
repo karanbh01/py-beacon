@@ -2,8 +2,8 @@
 """
 Swap contracts referencing beacon instruments: TotalReturnSwap.
 """
-from typing import Dict
 import logging
+from typing import Any
 
 import pandas as pd
 
@@ -135,7 +135,7 @@ class TotalReturnSwap(DerivativeBase):
         Raises:
             ValueError: If *valuation_date* precedes *last_reset_date*.
         """
-        days = (pd.Timestamp(valuation_date) - pd.Timestamp(last_reset_date)).days
+        days = int((pd.Timestamp(valuation_date) - pd.Timestamp(last_reset_date)).days)
         if days < 0:
             raise ValueError("valuation_date must be on or after last_reset_date.")
 
@@ -149,13 +149,13 @@ class TotalReturnSwap(DerivativeBase):
     def fair_value(self,
                    spot_price: float,
                    valuation_date: pd.Timestamp,
-                   market_data: Dict[str, float]) -> float:
+                   market_data: dict[str, Any]) -> float:
         """Total-return-receiver P&L: total return leg minus accrued financing.
 
         ``receiver_pnl = notional * (S_t / S_0 - 1) - accrued_financing``
         """
         market_data = market_data or {}
-        s0 = market_data.get("initial_price", spot_price)
+        s0 = float(market_data.get("initial_price", spot_price))
         if s0 <= 0:
             raise ValueError(f"initial_price must be positive, got {s0}.")
 
@@ -170,7 +170,7 @@ class TotalReturnSwap(DerivativeBase):
                        market_price: float,
                        spot_price: float,
                        valuation_date: pd.Timestamp,
-                       market_data: Dict[str, float]) -> Dict[str, float]:
+                       market_data: dict[str, Any]) -> dict[str, float]:
         """Decompose the swap P&L into its legs.
 
         *market_price* is unused (a TRS has no separately quoted price); it is

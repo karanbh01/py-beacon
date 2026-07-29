@@ -3,8 +3,8 @@
 AssetView — convenience wrapper combining an asset identifier with a DataFetcher
 for streamlined data retrieval.
 """
+
 import pandas as pd
-from typing import Optional
 
 from ..data.fetcher import DataFetcher
 
@@ -105,7 +105,7 @@ class AssetView:
         return series.pct_change().dropna()
 
     def reference_data(self,
-                       date: Optional[str] = None) -> pd.DataFrame:
+                       date: str | None = None) -> pd.DataFrame:
         """Fetch static reference data (e.g. name, sector, exchange).
 
         Parameters

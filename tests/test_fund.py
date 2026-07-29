@@ -7,19 +7,19 @@ provider exposing the unified DataFetcher interface — fetch_market_data,
 fetch_reference_data and fetch_shares_outstanding — so the full pipeline runs
 end to end with no external data.
 """
-import pytest
-import pandas as pd
 from unittest.mock import MagicMock
 
-from beacon.fund.base import IndexFund
-from beacon.fund.etf import ETF
-from beacon.index.constructor import IndexDefinition
-from beacon.index.methodology import EqualWeighted
-from beacon.index.calculation import IndexCalculator
+import pandas as pd
+import pytest
+
 from beacon.data.base import MarketData
 from beacon.data.fetcher import DataFetcher
+from beacon.fund.base import IndexFund
+from beacon.fund.etf import ETF
+from beacon.index.calculation import IndexCalculator
+from beacon.index.constructor import IndexDefinition
+from beacon.index.methodology import EqualWeighted
 from beacon.portfolio.base import Portfolio
-
 
 # ---------------------------------------------------------------------------
 # Synthetic universe: 2 assets, equal weight, monthly rebalance, ~3 months
@@ -359,7 +359,7 @@ class TestETFTrackingPerformance:
                                         data_provider):
         """A backtest driven by a raw weight dict has no target index."""
         from beacon.backtest.engine import BacktestEngine
-        weights = {pd.Timestamp(BASE_DATE): {a: 0.5 for a in ASSETS}}
+        weights = {pd.Timestamp(BASE_DATE): dict.fromkeys(ASSETS, 0.5)}
         result = BacktestEngine(
             start_date=BASE_DATE, end_date=END_DATE,
             initial_capital=INITIAL_CAPITAL, data_provider=data_provider,

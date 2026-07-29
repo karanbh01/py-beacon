@@ -2,23 +2,25 @@
 Environment configuration dataclasses and the central Environment class.
 """
 
-from dataclasses import dataclass, fields, asdict
+from dataclasses import dataclass, fields
+from typing import Any
+
 import pandas as pd
-from typing import Optional
+
 
 @dataclass
 class DataSourceConfig:
-    MARKET_DATA_PATH: Optional[str] = None
-    REFERENCE_DATA_PATH: Optional[str] = None
-    FUNDAMENTALS_DATA_PATH: Optional[str] = None
-    CORPORATE_ACTIONS_DATA_PATH: Optional[str] = None
-    FX_RATES_DATA_PATH: Optional[str] = None
-    MARKET_DATA: Optional[pd.DataFrame] = None
-    REFERENCE_DATA: Optional[pd.DataFrame] = None
-    FUNDAMENTALS_DATA: Optional[pd.DataFrame] = None
-    CORPORATE_ACTIONS_DATA: Optional[pd.DataFrame] = None
-    FX_RATES_DATA: Optional[pd.DataFrame] = None
-    
+    MARKET_DATA_PATH: str | None = None
+    REFERENCE_DATA_PATH: str | None = None
+    FUNDAMENTALS_DATA_PATH: str | None = None
+    CORPORATE_ACTIONS_DATA_PATH: str | None = None
+    FX_RATES_DATA_PATH: str | None = None
+    MARKET_DATA: pd.DataFrame | None = None
+    REFERENCE_DATA: pd.DataFrame | None = None
+    FUNDAMENTALS_DATA: pd.DataFrame | None = None
+    CORPORATE_ACTIONS_DATA: pd.DataFrame | None = None
+    FX_RATES_DATA: pd.DataFrame | None = None
+
 
 @dataclass
 class DataConfig:
@@ -38,7 +40,10 @@ class SimulationConfig:
 class IndexConfig:
     pass
 
-_CATEGORIES = {
+# A settings category: one of the dataclasses grouped on Environment.
+CategoryConfig = DataSourceConfig | DataConfig | CalendarConfig | SimulationConfig
+
+_CATEGORIES: dict[str, type[CategoryConfig]] = {
     "data_source": DataSourceConfig,
     "data": DataConfig,
     "calendar": CalendarConfig,
@@ -53,15 +58,15 @@ class Environment:
     ``set_environment(**kwargs)`` using flat parameter names.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.data_source = DataSourceConfig()
         self.data = DataConfig()
         self.calendar = CalendarConfig()
         self.simulation = SimulationConfig()
 
-    def _build_lookup(self) -> dict:
+    def _build_lookup(self) -> dict[str, tuple[CategoryConfig, str]]:
         """Map each field name to its (category_instance, field_name) pair."""
-        lookup = {}
+        lookup: dict[str, tuple[CategoryConfig, str]] = {}
         for attr, cls in _CATEGORIES.items():
             instance = getattr(self, attr)
             for f in fields(cls):
@@ -69,7 +74,7 @@ class Environment:
         return lookup
 
     def set_environment(self,
-                        **kwargs):
+                        **kwargs: Any) -> None:
         """Set one or more validated parameters.
 
         Raises ValueError on unknown parameter names.
@@ -87,9 +92,9 @@ class Environment:
             instance, field_name = lookup[name]
             setattr(instance, field_name, value)
 
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, dict[str, Any]]:
         """Return all current settings as a nested dict."""
-        result = {}
+        result: dict[str, dict[str, Any]] = {}
         for attr in _CATEGORIES:
             instance = getattr(self, attr)
             result[attr] = {

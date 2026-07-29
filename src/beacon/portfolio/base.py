@@ -3,11 +3,10 @@
 Module defining classes for managing investment portfolios, including
 Transaction, Holding, and the main Portfolio class.
 """
-import pandas as pd
-from typing import List, Dict, Optional
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ class Transaction:
     transaction_date: pd.Timestamp
     transaction_cost: float = 0.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.asset_id:
             raise ValueError("asset_id cannot be empty.")
         if self.quantity <= 0:
@@ -36,7 +35,8 @@ class Transaction:
             try:
                 object.__setattr__(self, 'transaction_date', pd.Timestamp(self.transaction_date))
             except Exception as e:
-                raise TypeError(f"transaction_date must be a pandas Timestamp. Error: {e}")
+                raise TypeError(
+                    f"transaction_date must be a pandas Timestamp. Error: {e}") from e
 
 
 @dataclass
@@ -48,10 +48,10 @@ class Holding:
     asset_id: str
     quantity: float
     average_cost_price: float
-    current_price: Optional[float] = None
-    market_value: Optional[float] = None
+    current_price: float | None = None
+    market_value: float | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.asset_id:
             raise ValueError("asset_id cannot be empty.")
         if self.quantity < 0:
@@ -61,10 +61,12 @@ class Holding:
 
     def update_market_data(self,
                            current_price: float,
-                           update_date: pd.Timestamp):
+                           update_date: pd.Timestamp) -> None:
         """Updates the holding with the latest market price and recalculates market value."""
         if current_price < 0:
-            logger.warning(f"Attempted to update holding for {self.asset_id} with negative price: {current_price}. Price not updated.")
+            logger.warning(
+                f"Attempted to update holding for {self.asset_id} with negative "
+                f"price: {current_price}. Price not updated.")
             return
         self.current_price = current_price
         self.market_value = self.quantity * self.current_price
@@ -87,11 +89,12 @@ class Portfolio:
             raise ValueError("Initial cash cannot be negative.")
 
         self.portfolio_id: str = portfolio_id
-        self.holdings: Dict[str, Holding] = {}
+        self.holdings: dict[str, Holding] = {}
         self.cash_balance: float = initial_cash
-        self.transactions: List[Transaction] = []
+        self.transactions: list[Transaction] = []
 
-        logger.info(f"Portfolio '{self.portfolio_id}' initialized with cash: {self.cash_balance:.2f}")
+        logger.info(
+            f"Portfolio '{self.portfolio_id}' initialized with cash: {self.cash_balance:.2f}")
 
 
     def execute_buy(self,
@@ -99,7 +102,7 @@ class Portfolio:
                     quantity: float,
                     price: float,
                     cost: float = 0.0,
-                    date: Optional[pd.Timestamp] = None) -> None:
+                    date: pd.Timestamp | None = None) -> None:
         """Buy an asset: deduct cash, create/update holding, record transaction.
 
         Args:
@@ -152,7 +155,7 @@ class Portfolio:
                      quantity: float,
                      price: float,
                      cost: float = 0.0,
-                     date: Optional[pd.Timestamp] = None) -> None:
+                     date: pd.Timestamp | None = None) -> None:
         """Sell an asset: add cash proceeds, reduce/remove holding, record transaction.
 
         Args:
@@ -192,7 +195,7 @@ class Portfolio:
 
 
     def update_prices(self,
-                      prices: Dict[str, float]) -> None:
+                      prices: dict[str, float]) -> None:
         """
         Update current prices for holdings from a dictionary.
 
@@ -226,13 +229,15 @@ class Portfolio:
             if holding.market_value is not None:
                 total_holdings_value += holding.market_value
             else:
-                logger.warning(f"Market value for {asset_id} is None. "
-                               "It will not be included in total portfolio value calculation based on market prices.")
+                logger.warning(
+                    f"Market value for {asset_id} is None. "
+                    "It will not be included in total portfolio value calculation "
+                    "based on market prices.")
 
         total_portfolio_value = total_holdings_value + self.cash_balance
         return total_portfolio_value
 
-    def get_weights(self) -> Dict[str, float]:
+    def get_weights(self) -> dict[str, float]:
         """
         Calculates the current weight of each asset in the portfolio.
         Weights are based on last-updated market values.
@@ -241,11 +246,13 @@ class Portfolio:
             A dictionary mapping asset_id strings to weight floats.
         """
         total_value = self.get_total_value()
-        weights: Dict[str, float] = {}
+        weights: dict[str, float] = {}
 
         if total_value == 0:
-            logger.warning(f"Total portfolio value is 0. Cannot calculate asset weights for portfolio '{self.portfolio_id}'.")
-            for asset_id in self.holdings.keys():
+            logger.warning(
+                f"Total portfolio value is 0. Cannot calculate asset weights for "
+                f"portfolio '{self.portfolio_id}'.")
+            for asset_id in self.holdings:
                 weights[asset_id] = 0.0
             return weights
 
@@ -270,7 +277,9 @@ class Portfolio:
 
         summary_data = []
         for asset_id, holding in self.holdings.items():
-            weight = (holding.market_value / portfolio_total_value) if portfolio_total_value != 0 and holding.market_value is not None else 0.0
+            weight = ((holding.market_value / portfolio_total_value)
+                      if portfolio_total_value != 0 and holding.market_value is not None
+                      else 0.0)
             summary_data.append({
                 'AssetID': asset_id,
                 'Quantity': holding.quantity,
@@ -287,7 +296,9 @@ class Portfolio:
             'AvgCostPrice': self.cash_balance,
             'CurrentPrice': self.cash_balance,
             'MarketValue': self.cash_balance,
-            'Weight': (self.cash_balance / portfolio_total_value) if portfolio_total_value != 0 else (1.0 if self.cash_balance > 0 else 0.0)
+            'Weight': ((self.cash_balance / portfolio_total_value)
+                       if portfolio_total_value != 0
+                       else (1.0 if self.cash_balance > 0 else 0.0))
         })
 
         return pd.DataFrame(summary_data)

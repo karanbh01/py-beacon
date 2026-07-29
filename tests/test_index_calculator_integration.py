@@ -1,16 +1,15 @@
 # tests/test_index_calculator_integration.py
 """Integration test for IndexCalculator.run() with synthetic market data."""
-import pytest
-import pandas as pd
-import numpy as np
 from unittest.mock import MagicMock
 
+import pandas as pd
+import pytest
+
+from beacon.asset.equity import Equity
 from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
 from beacon.index.result import IndexResult
-from beacon.asset.equity import Equity
-
 
 # ---------------------------------------------------------------------------
 # Synthetic universe
@@ -172,7 +171,6 @@ class TestIntegrationRun:
 
         for i in range(1, len(divisors)):
             date = divisors.index[i]
-            prev_date = divisors.index[i - 1]
             if date not in rebalance_dates:
                 assert divisors.iloc[i] == pytest.approx(divisors.iloc[i - 1]), (
                     f"Divisor changed on non-rebalance date {date}"
@@ -181,9 +179,9 @@ class TestIntegrationRun:
     def test_weight_snapshots_only_on_rebalance_dates(self,
                                                       result):
         """Weight entries should correspond to base + rebalance dates."""
-        rebal_dates_from_defn = set(
-            pd.Timestamp(d) for d in result.weight_snapshots.keys()
-        )
+        rebal_dates_from_defn = {
+            pd.Timestamp(d) for d in result.weight_snapshots
+        }
         # All snapshot dates should be in the trading range
         trading_days = set(result.index_levels.index)
         assert rebal_dates_from_defn.issubset(trading_days)
@@ -194,9 +192,9 @@ class TestIntegrationRun:
     def test_weights_are_equal(self,
                                result):
         """All weight snapshots should show 50/50 split."""
-        for date, weights in result.weight_snapshots.items():
+        for weights in result.weight_snapshots.values():
             assert len(weights) == 2
-            for asset_id, w in weights.items():
+            for w in weights.values():
                 assert w == pytest.approx(0.5)
 
     def test_return_calculation_matches_manual(self,
@@ -240,5 +238,5 @@ class TestIntegrationRun:
 
     def test_constituent_snapshots_contain_both_assets(self,
                                                        result):
-        for date, ids in result.constituent_snapshots.items():
+        for ids in result.constituent_snapshots.values():
             assert set(ids) == {"ASSET_A", "ASSET_B"}

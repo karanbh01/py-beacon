@@ -2,18 +2,17 @@
 """
 Module defining the IndexFund class.
 """
-import pandas as pd
-from typing import Optional
 import logging
 
-from ..index.constructor import IndexDefinition
-from ..portfolio.base import Portfolio
+import pandas as pd
+
+from ..backtest.engine import BacktestEngine
+from ..backtest.result import BacktestResult
 from ..data.fetcher import DataFetcher
 from ..index.calculation import IndexCalculator
+from ..index.constructor import IndexDefinition
 from ..index.result import IndexResult
-from ..backtest.result import BacktestResult
-from ..backtest.engine import BacktestEngine
-
+from ..portfolio.base import Portfolio
 
 logger = logging.getLogger(__name__)
 
@@ -70,26 +69,26 @@ class IndexFund:
         self.management_fee_bps: int = management_fee_bps  # e.g., 20 for 0.20%
 
         # Cached outputs of the composed calculator + engine pipeline.
-        self._index_result: Optional[IndexResult] = None
-        self._backtest_result: Optional[BacktestResult] = None
+        self._index_result: IndexResult | None = None
+        self._backtest_result: BacktestResult | None = None
 
     # ------------------------------------------------------------------
     # Composed pipeline
     # ------------------------------------------------------------------
 
     @property
-    def index_result(self) -> Optional[IndexResult]:
+    def index_result(self) -> IndexResult | None:
         """The target :class:`IndexResult` from the most recent run, if any."""
         return self._index_result
 
     @property
-    def backtest_result(self) -> Optional[BacktestResult]:
+    def backtest_result(self) -> BacktestResult | None:
         """The :class:`BacktestResult` from the most recent run, if any."""
         return self._backtest_result
 
     def run_backtest(self,
-                     start_date: Optional[str] = None,
-                     end_date: Optional[str] = None,
+                     start_date: str | None = None,
+                     end_date: str | None = None,
                      transaction_cost_bps: float = 0.0) -> BacktestResult:
         """Compute target weights and simulate the tracking portfolio.
 

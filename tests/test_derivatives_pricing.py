@@ -5,17 +5,17 @@ Uses textbook / hand-calculated examples and covers the required edge cases:
 zero time to expiry, zero spot, and negative rates.
 """
 import math
-import pytest
+
 import pandas as pd
+import pytest
 
 from beacon.derivatives.pricing import (
     cost_of_carry_fair_value,
     discrete_dividend_fair_value,
-    implied_repo_rate,
     futures_roll_return,
+    implied_repo_rate,
     trs_breakeven_spread,
 )
-
 
 # ---------------------------------------------------------------------------
 # cost_of_carry_fair_value
@@ -209,8 +209,9 @@ class TestTRSBreakevenSpread:
 
 def test_pricing_has_no_beacon_imports():
     """The pricing module must not depend on other Beacon modules."""
-    import beacon.derivatives.pricing as pricing
     import inspect
+
+    import beacon.derivatives.pricing as pricing
 
     source = inspect.getsource(pricing)
     assert "from beacon" not in source

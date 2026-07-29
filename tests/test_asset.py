@@ -3,10 +3,9 @@
 import pytest
 
 from beacon.asset.base import Asset
-from beacon.asset.equity import Equity
 from beacon.asset.bond import Bond
 from beacon.asset.commodity import Commodity
-
+from beacon.asset.equity import Equity
 
 # ── Asset (Base Class) ─────────────────────────────────────────────────
 
@@ -22,7 +21,7 @@ class TestAsset:
     @pytest.mark.parametrize("field", ["asset_id", "asset_type", "name", "currency"])
     def test_empty_field_raises(self,
                                 field):
-        kwargs = dict(name="N", currency="C", asset_id="ID", asset_type="T")
+        kwargs = {"name": "N", "currency": "C", "asset_id": "ID", "asset_type": "T"}
         kwargs[field] = ""
         with pytest.raises(ValueError, match=f"{field} cannot be empty"):
             Asset(**kwargs)

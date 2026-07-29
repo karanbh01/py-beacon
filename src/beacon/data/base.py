@@ -3,7 +3,6 @@ Base data containers for market and reference data.
 """
 
 import os
-from typing import List, Optional, Tuple, Union
 
 import pandas as pd
 
@@ -37,7 +36,7 @@ class MarketData:
     @classmethod
     def from_dataframe(cls,
                        df: pd.DataFrame,
-                       date_format: str = "%Y-%m-%d"):
+                       date_format: str = "%Y-%m-%d") -> "MarketData":
         """Create a MarketData instance from an existing DataFrame."""
         instance = object.__new__(cls)
         instance._df = cls._prepare(df.copy(), date_format)
@@ -62,17 +61,17 @@ class MarketData:
         return self._df.copy()
 
     @property
-    def identifiers(self) -> List[str]:
+    def identifiers(self) -> list[str]:
         """Unique identifiers present in the dataset."""
         return list(self._df.index.get_level_values("IDENTIFIER").unique())
 
     @property
-    def columns(self) -> List[str]:
+    def columns(self) -> list[str]:
         """Non-index column names."""
         return list(self._df.columns)
 
     @property
-    def date_range(self) -> Tuple[pd.Timestamp, pd.Timestamp]:
+    def date_range(self) -> tuple[pd.Timestamp, pd.Timestamp]:
         """(earliest, latest) timestamps in the dataset."""
         dates = self._df.index.get_level_values("DATE")
         return dates.min(), dates.max()
@@ -80,10 +79,10 @@ class MarketData:
     # -- query ---------------------------------------------------------------
 
     def get(self,
-            identifier: Union[str, List[str]],
-            start_date: Optional[str] = None,
-            end_date: Optional[str] = None,
-            columns: Optional[List[str]] = None) -> pd.DataFrame:
+            identifier: str | list[str],
+            start_date: str | None = None,
+            end_date: str | None = None,
+            columns: list[str] | None = None) -> pd.DataFrame:
         """Return data for one or more identifiers, optionally filtered.
 
         Parameters
@@ -114,7 +113,6 @@ class MarketData:
             return pd.DataFrame()
 
         if start_date is not None or end_date is not None:
-            date_level = "DATE" if isinstance(identifier, list) else None
             if isinstance(identifier, list):
                 dates = subset.index.get_level_values("DATE")
             else:
@@ -150,7 +148,7 @@ class ReferenceData:
 
     @classmethod
     def from_dataframe(cls,
-                       df: pd.DataFrame):
+                       df: pd.DataFrame) -> "ReferenceData":
         """Create a ReferenceData instance from an existing DataFrame."""
         instance = object.__new__(cls)
         instance._df = cls._prepare(df.copy())
@@ -179,21 +177,21 @@ class ReferenceData:
         return self._df.copy()
 
     @property
-    def identifiers(self) -> List[str]:
+    def identifiers(self) -> list[str]:
         """Unique identifiers present in the dataset."""
         return list(self._df.index.unique())
 
     @property
-    def columns(self) -> List[str]:
+    def columns(self) -> list[str]:
         """Column names (including DATE_FROM, DATE_TO)."""
         return list(self._df.columns)
 
     # -- query ---------------------------------------------------------------
 
     def get(self,
-            identifier: Union[str, List[str]],
-            date: Optional[str] = None,
-            columns: Optional[List[str]] = None) -> pd.DataFrame:
+            identifier: str | list[str],
+            date: str | None = None,
+            columns: list[str] | None = None) -> pd.DataFrame:
         """Return reference data for one or more identifiers.
 
         Parameters

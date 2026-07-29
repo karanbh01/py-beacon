@@ -1,8 +1,9 @@
 # tests/test_index_definition.py
 """Unit tests for IndexDefinition."""
-import pytest
-import pandas as pd
 from unittest.mock import MagicMock
+
+import pandas as pd
+import pytest
 
 from beacon.index.constructor import IndexDefinition
 
@@ -20,16 +21,16 @@ def mock_weighting_scheme():
 @pytest.fixture
 def default_kwargs(mock_eligibility_rule,
                    mock_weighting_scheme):
-    return dict(
-        index_id="TEST_IDX",
-        index_name="Test Index",
-        base_date="2020-01-01",
-        base_value=1000.0,
-        currency="usd",
-        eligibility_rules=[mock_eligibility_rule],
-        weighting_scheme=mock_weighting_scheme,
-        rebalancing_frequency="QUARTERLY",
-    )
+    return {
+        "index_id": "TEST_IDX",
+        "index_name": "Test Index",
+        "base_date": "2020-01-01",
+        "base_value": 1000.0,
+        "currency": "usd",
+        "eligibility_rules": [mock_eligibility_rule],
+        "weighting_scheme": mock_weighting_scheme,
+        "rebalancing_frequency": "QUARTERLY",
+    }
 
 
 # ── Construction & Validation ──────────────────────────────────────────
@@ -142,7 +143,7 @@ class TestUniverseIdentifiers:
 
     def test_empty_list_raises(self,
                                default_kwargs):
-        with pytest.raises(ValueError, match="universe_identifiers.*must be a non-empty list"):
+        with pytest.raises(ValueError, match=r"universe_identifiers.*must be a non-empty list"):
             IndexDefinition(**default_kwargs, universe_identifiers=[])
 
 

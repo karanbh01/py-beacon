@@ -3,7 +3,6 @@
 IndexResult — output container for index calculation results.
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 import pandas as pd
 
@@ -31,9 +30,9 @@ class IndexResult:
     index_id: str
     index_levels: pd.Series
     divisor_history: pd.Series
-    constituent_snapshots: Dict[pd.Timestamp, List[str]]
-    weight_snapshots: Dict[pd.Timestamp, Dict[str, float]]
-    _data_fetcher: Optional[DataFetcher] = field(default=None, repr=False, compare=False)
+    constituent_snapshots: dict[pd.Timestamp, list[str]]
+    weight_snapshots: dict[pd.Timestamp, dict[str, float]]
+    _data_fetcher: DataFetcher | None = field(default=None, repr=False, compare=False)
 
     def with_data(self,
                   data_fetcher: DataFetcher) -> 'IndexResult':
@@ -95,7 +94,7 @@ class IndexResult:
         return self.index_levels.pct_change().dropna()
 
     def get_weights_on_date(self,
-                            date: pd.Timestamp) -> Dict[str, float]:
+                            date: pd.Timestamp) -> dict[str, float]:
         """Get constituent weights effective on a given date.
 
         Locates the most recent rebalance date on or before *date*.

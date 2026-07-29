@@ -1,10 +1,9 @@
 # tests/test_portfolio.py
 """Unit tests for the refactored Portfolio class."""
-import pytest
 import pandas as pd
+import pytest
 
-from beacon.portfolio.base import Portfolio, Transaction, Holding
-
+from beacon.portfolio.base import Portfolio, Transaction
 
 AAPL = "AAPL"
 MSFT = "MSFT"
