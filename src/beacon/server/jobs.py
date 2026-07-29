@@ -149,7 +149,22 @@ class JobRegistry:
 
         Returns:
             Job: The registered job, already scheduled.
+
+        Raises:
+            RuntimeError: If called off the event loop. FastAPI runs a *sync*
+                endpoint in a worker thread, where there is no loop to attach
+                a task to — so a submitting endpoint must be `async def`. The
+                bare failure is an opaque "no running event loop", hence the
+                explicit check.
         """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "JobRegistry.submit() must be called from the event loop. The "
+                "endpoint submitting this job is probably a sync `def`; make "
+                "it `async def`.") from exc
+
         job = Job(id=str(uuid.uuid4()), kind=kind)
         self._jobs[job.id] = job
 

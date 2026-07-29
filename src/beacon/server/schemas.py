@@ -431,6 +431,37 @@ class PreviewResponse(BaseModel):
         default=0.0, description="Weight moved off capped names onto the rest.")
 
 
+class BacktestRequest(BaseModel):
+    """Body of `POST /beacon/{index_id}/backtest`."""
+    start: str | None = Field(
+        default=None,
+        description="Start date, YYYY-MM-DD. Defaults to the index base date.")
+    end: str | None = Field(default=None, description="End date, YYYY-MM-DD.")
+    initial_capital: float = Field(default=1_000_000.0, gt=0)
+    transaction_cost_bps: float = Field(
+        default=0.0, ge=0,
+        description="Cost per trade in basis points of notional.")
+
+
+class BacktestRunResult(BaseModel):
+    """Result payload of a completed backtest job.
+
+    Every series here derives from the same NAV, rebased to 100: `returns` is
+    the level's percentage change, `drawdown` is the level against its running
+    peak, and `annual_returns` compound back to the total. A client that
+    recomputes any of them lands on these numbers exactly.
+    """
+    level: SeriesPayload = Field(description="Portfolio value, rebased to 100.")
+    returns: SeriesPayload = Field(description="Period returns of `level`.")
+    drawdown: SeriesPayload = Field(
+        description="Level against its running peak; 0 at a new high.")
+    annual_returns: dict[str, float] = Field(
+        description="Calendar year -> return. Compounds to total_return.")
+    benchmark_level: SeriesPayload = Field(
+        description="The tracked index, rebased to 100 on the same axis.")
+    metrics: BacktestMetrics
+
+
 class JobStatus(BaseModel):
     """State of one background job."""
     job_id: str

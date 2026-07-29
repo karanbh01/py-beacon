@@ -45,6 +45,7 @@ dev = [
   "pytest",
   "pytest-asyncio",      # the job registry is driven on an event loop
   "pytest-cov",
+  "pytest-timeout",      # a hung job or socket read must fail, not stall CI
   "ruff",
   "mypy",
   "pre-commit",
@@ -67,6 +68,11 @@ addopts = [
   "--cov-report=term-missing",
   "--cov-fail-under=80",
 ]
+# The whole suite runs in well under a minute, so any test taking this long is
+# stuck rather than slow. Without it, a job that never completes or a socket
+# read with nothing to read blocks CI until the runner is killed.
+timeout = 120
+timeout_method = "thread"
 
 [tool.coverage.run]
 source = ["beacon"]
