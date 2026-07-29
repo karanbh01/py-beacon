@@ -13,17 +13,12 @@ from ..data.fetcher import DataFetcher
 class IndexAssetView(AssetView):
     """AssetView with index weight history and contribution analysis.
 
-    Parameters
-    ----------
-    asset_id : str
-        The identifier used to look up data in the DataFetcher.
-    data_fetcher : DataFetcher
-        The data provider instance.
-    weight_snapshots : dict
-        Mapping of rebalance date -> dict of {asset_id: weight} from
-        the parent IndexResult.
-    index_levels : pd.Series
-        Index level time series from the parent IndexResult.
+    Args:
+        asset_id: The identifier used to look up data in the DataFetcher.
+        data_fetcher: The data provider instance.
+        weight_snapshots: Mapping of rebalance date -> dict of
+            {asset_id: weight} from the parent IndexResult.
+        index_levels: Index level time series from the parent IndexResult.
     """
 
     def __init__(self,
@@ -43,14 +38,11 @@ class IndexAssetView(AssetView):
         the asset's weight. Returns ``None`` if the asset was not a
         constituent at that point.
 
-        Parameters
-        ----------
-        date : pd.Timestamp
-            The query date.
+        Args:
+            date: The query date.
 
-        Returns
-        -------
-        float or None
+        Returns:
+            float or None
         """
         applicable = [d for d in self._weight_snapshots if d <= date]
         if not applicable:
@@ -61,11 +53,9 @@ class IndexAssetView(AssetView):
     def weight_series(self) -> pd.Series:
         """Return a Series of this asset's weight at each rebalance date.
 
-        Returns
-        -------
-        pd.Series
-            Indexed by rebalance date. Rebalance dates where the asset
-            was not a constituent are excluded.
+        Returns:
+            pd.Series: Indexed by rebalance date. Rebalance dates where the
+            asset was not a constituent are excluded.
         """
         data = {}
         for rebal_date in sorted(self._weight_snapshots):
@@ -82,19 +72,13 @@ class IndexAssetView(AssetView):
 
         Contribution on day *t* = weight_{t-1} * asset_return_t.
 
-        Parameters
-        ----------
-        start : str
-            Start date (YYYY-MM-DD).
-        end : str
-            End date (YYYY-MM-DD).
-        price_column : str
-            Column name for return calculation.
+        Args:
+            start: Start date (YYYY-MM-DD).
+            end: End date (YYYY-MM-DD).
+            price_column: Column name for return calculation.
 
-        Returns
-        -------
-        pd.Series
-            Contribution series indexed by date.
+        Returns:
+            pd.Series: Contribution series indexed by date.
         """
         asset_returns = self.returns(start, end, price_column=price_column)
         if asset_returns.empty:

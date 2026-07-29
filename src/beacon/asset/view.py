@@ -12,12 +12,9 @@ from ..data.fetcher import DataFetcher
 class AssetView:
     """Queryable wrapper that pairs an asset identifier with a DataFetcher.
 
-    Parameters
-    ----------
-    asset_id : str
-        The identifier used to look up data in the DataFetcher.
-    data_fetcher : DataFetcher
-        The data provider instance.
+    Args:
+        asset_id: The identifier used to look up data in the DataFetcher.
+        data_fetcher: The data provider instance.
     """
 
     def __init__(self,
@@ -40,17 +37,12 @@ class AssetView:
                end: str) -> pd.DataFrame:
         """Retrieve historical OHLCV price data.
 
-        Parameters
-        ----------
-        start : str
-            Start date (YYYY-MM-DD).
-        end : str
-            End date (YYYY-MM-DD).
+        Args:
+            start: Start date (YYYY-MM-DD).
+            end: End date (YYYY-MM-DD).
 
-        Returns
-        -------
-        pd.DataFrame
-            Price data indexed by date.
+        Returns:
+            pd.DataFrame: Price data indexed by date.
         """
         return self._data_fetcher.fetch_market_data(self._asset_id, start, end)
 
@@ -61,26 +53,18 @@ class AssetView:
                 price_column: str = "CLOSE") -> pd.Series:
         """Calculate a return series from price data.
 
-        Parameters
-        ----------
-        start : str
-            Start date (YYYY-MM-DD).
-        end : str
-            End date (YYYY-MM-DD).
-        frequency : str
-            One of ``"daily"``, ``"weekly"``, or ``"monthly"``.
-        price_column : str
-            Column name to use for return calculation. Defaults to ``"CLOSE"``.
+        Args:
+            start: Start date (YYYY-MM-DD).
+            end: End date (YYYY-MM-DD).
+            frequency: One of ``"daily"``, ``"weekly"``, or ``"monthly"``.
+            price_column: Column name to use for return calculation. Defaults
+                to ``"CLOSE"``.
 
-        Returns
-        -------
-        pd.Series
-            Percentage returns indexed by date.
+        Returns:
+            pd.Series: Percentage returns indexed by date.
 
-        Raises
-        ------
-        ValueError
-            If *frequency* is not one of the supported values.
+        Raises:
+            ValueError: If *frequency* is not one of the supported values.
         """
         supported = ("daily", "weekly", "monthly")
         if frequency not in supported:
@@ -108,15 +92,11 @@ class AssetView:
                        date: str | None = None) -> pd.DataFrame:
         """Fetch static reference data (e.g. name, sector, exchange).
 
-        Parameters
-        ----------
-        date : str, optional
-            Point-in-time date for the reference snapshot.
+        Args:
+            date: Point-in-time date for the reference snapshot.
 
-        Returns
-        -------
-        pd.DataFrame
-            Reference data for this asset.
+        Returns:
+            pd.DataFrame: Reference data for this asset.
         """
         return self._data_fetcher.fetch_reference_data(self._asset_id, date)
 
@@ -125,17 +105,12 @@ class AssetView:
                           end: str) -> pd.DataFrame:
         """Retrieve corporate action events (dividends, splits, etc.).
 
-        Parameters
-        ----------
-        start : str
-            Start date (YYYY-MM-DD).
-        end : str
-            End date (YYYY-MM-DD).
+        Args:
+            start: Start date (YYYY-MM-DD).
+            end: End date (YYYY-MM-DD).
 
-        Returns
-        -------
-        pd.DataFrame
-            Corporate actions within the date range.
+        Returns:
+            pd.DataFrame: Corporate actions within the date range.
         """
         return self._data_fetcher.fetch_market_data(
             self._asset_id, start, end, columns=["DIVIDEND", "SPLIT"]

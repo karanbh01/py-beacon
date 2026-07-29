@@ -13,12 +13,9 @@ from .base import MarketData, ReferenceData
 class DataFetcher:
     """Unified query interface over MarketData and ReferenceData.
 
-    Parameters
-    ----------
-    market_data : MarketData
-        Time-series market data container.
-    reference_data : ReferenceData, optional
-        Reference data container.
+    Args:
+        market_data: Time-series market data container.
+        reference_data: Reference data container.
     """
 
     def __init__(self,
@@ -60,21 +57,16 @@ class DataFetcher:
                           columns: list[str] | None = None) -> pd.DataFrame:
         """Fetch time-series market data for one or more identifiers.
 
-        Parameters
-        ----------
-        identifier : str or list of str
-            One identifier or a list of identifiers.
-        start_date, end_date : str, optional
-            Date strings to filter the date range.
-        columns : list of str, optional
-            Subset of columns to return.
+        Args:
+            identifier: One identifier or a list of identifiers.
+            start_date: Date string to filter the start of the date range.
+            end_date: Date string to filter the end of the date range.
+            columns: Subset of columns to return.
 
-        Returns
-        -------
-        pd.DataFrame
-            Single identifier: indexed by ``DATE``.
-            Multiple identifiers: MultiIndexed by ``(IDENTIFIER, DATE)``.
-            Empty DataFrame if no matching data is found.
+        Returns:
+            pd.DataFrame: Single identifier: indexed by ``DATE``. Multiple
+            identifiers: MultiIndexed by ``(IDENTIFIER, DATE)``. Empty
+            DataFrame if no matching data is found.
         """
         return self._market.get(identifier, start_date, end_date, columns)
 
@@ -156,20 +148,15 @@ class DataFetcher:
                              columns: list[str] | None = None) -> pd.DataFrame:
         """Fetch reference data for one or more identifiers.
 
-        Parameters
-        ----------
-        identifier : str or list of str
-            One identifier or a list of identifiers.
-        date : str, optional
-            Point-in-time date. Only rows valid at this date are returned.
-        columns : list of str, optional
-            Subset of columns to return.
+        Args:
+            identifier: One identifier or a list of identifiers.
+            date: Point-in-time date. Only rows valid at this date are
+                returned.
+            columns: Subset of columns to return.
 
-        Returns
-        -------
-        pd.DataFrame
-            Indexed by ``IDENTIFIER``. Empty DataFrame if no reference data
-            is loaded or identifier is not found.
+        Returns:
+            pd.DataFrame: Indexed by ``IDENTIFIER``. Empty DataFrame if no
+            reference data is loaded or identifier is not found.
         """
         if self._reference is None:
             return pd.DataFrame()

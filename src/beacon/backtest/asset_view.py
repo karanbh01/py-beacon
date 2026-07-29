@@ -14,21 +14,16 @@ from ..portfolio.base import Transaction
 class BacktestAssetView(AssetView):
     """AssetView with backtest weight history for a specific asset.
 
-    Parameters
-    ----------
-    asset_id : str
-        The identifier used to look up data in the DataFetcher.
-    data_fetcher : DataFetcher
-        The data provider instance.
-    actual_weight_history : pd.DataFrame
-        DataFrame indexed by date with ``{asset_id}_weight`` columns.
-    portfolio_nav : pd.Series
-        Portfolio NAV time series from the parent BacktestResult.
-    transactions : list
-        All transactions from the backtest.
-    target_weight_snapshots : dict, optional
-        Mapping of rebalance date -> dict of {asset_id: weight} from
-        the target IndexResult.
+    Args:
+        asset_id: The identifier used to look up data in the DataFetcher.
+        data_fetcher: The data provider instance.
+        actual_weight_history: DataFrame indexed by date with
+            ``{asset_id}_weight`` columns.
+        portfolio_nav: Portfolio NAV time series from the parent
+            BacktestResult.
+        transactions: All transactions from the backtest.
+        target_weight_snapshots: Mapping of rebalance date -> dict of
+            {asset_id: weight} from the target IndexResult.
     """
 
     def __init__(self,
@@ -47,11 +42,9 @@ class BacktestAssetView(AssetView):
     def trades(self) -> pd.DataFrame:
         """Filter transactions for this asset.
 
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame with columns: date, type, quantity, price, cost.
-            Empty DataFrame if no trades exist for this asset.
+        Returns:
+            pd.DataFrame: DataFrame with columns: date, type, quantity, price,
+            cost. Empty DataFrame if no trades exist for this asset.
         """
         asset_txns = [t for t in self._transactions if t.asset_id == self._asset_id]
         if not asset_txns:
@@ -71,12 +64,10 @@ class BacktestAssetView(AssetView):
     def holding_periods(self) -> list[dict[str, pd.Timestamp]]:
         """Identify continuous periods when this asset was held.
 
-        Returns
-        -------
-        list of dict
-            Each dict has ``"start"`` and ``"end"`` keys with Timestamps.
-            An open position at the end of the backtest will have ``"end"``
-            set to the last date in the weight history.
+        Returns:
+            list of dict: Each dict has ``"start"`` and ``"end"`` keys with
+            Timestamps. An open position at the end of the backtest will
+            have ``"end"`` set to the last date in the weight history.
         """
         col = f"{self._asset_id}_weight"
         if col not in self._actual_weight_history.columns:
@@ -109,21 +100,17 @@ class BacktestAssetView(AssetView):
         Alias for :meth:`weight_series` with a clearer name for
         backtest context.
 
-        Returns
-        -------
-        pd.Series
-            Weight at each date where the asset was held.
+        Returns:
+            pd.Series: Weight at each date where the asset was held.
         """
         return self.weight_series()
 
     def weight_series(self) -> pd.Series:
         """Return time series of this asset's portfolio weight.
 
-        Returns
-        -------
-        pd.Series
-            Weight at each date where the asset was held. Dates where the
-            asset had zero or no weight are excluded.
+        Returns:
+            pd.Series: Weight at each date where the asset was held. Dates
+            where the asset had zero or no weight are excluded.
         """
         col = f"{self._asset_id}_weight"
         if col not in self._actual_weight_history.columns:
@@ -134,12 +121,10 @@ class BacktestAssetView(AssetView):
     def target_weight_series(self) -> pd.Series:
         """Return time series of this asset's target index weight.
 
-        Returns
-        -------
-        pd.Series
-            Target weight at each rebalance date. Rebalance dates
-            where the asset was not a constituent are excluded.
-            Empty Series if no target data is available.
+        Returns:
+            pd.Series: Target weight at each rebalance date. Rebalance dates
+            where the asset was not a constituent are excluded. Empty
+            Series if no target data is available.
         """
         if not self._target_weight_snapshots:
             return pd.Series(dtype=float)
@@ -157,11 +142,9 @@ class BacktestAssetView(AssetView):
         target weight (most recent rebalance on or before that date) and
         computes actual - target.
 
-        Returns
-        -------
-        pd.Series
-            Slippage series indexed by date. Positive values mean the
-            asset is overweight vs target. Empty Series if no target
+        Returns:
+            pd.Series: Slippage series indexed by date. Positive values mean
+            the asset is overweight vs target. Empty Series if no target
             data is available.
         """
         if not self._target_weight_snapshots:
@@ -187,10 +170,8 @@ class BacktestAssetView(AssetView):
     def total_cost(self) -> float:
         """Sum of all transaction costs for this asset.
 
-        Returns
-        -------
-        float
-            Total transaction costs incurred for this asset.
+        Returns:
+            float: Total transaction costs incurred for this asset.
         """
         return sum(t.transaction_cost for t in self._transactions if t.asset_id == self._asset_id)
 
@@ -198,15 +179,12 @@ class BacktestAssetView(AssetView):
                        date: pd.Timestamp) -> float | None:
         """Get this asset's portfolio weight on a specific date.
 
-        Parameters
-        ----------
-        date : pd.Timestamp
-            The query date.
+        Args:
+            date: The query date.
 
-        Returns
-        -------
-        float or None
-            The weight, or None if the asset was not held on that date.
+        Returns:
+            float or None: The weight, or None if the asset was not held on
+            that date.
         """
         col = f"{self._asset_id}_weight"
         if col not in self._actual_weight_history.columns:

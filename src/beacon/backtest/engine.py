@@ -26,18 +26,12 @@ logger = logging.getLogger(__name__)
 class TradeInstruction:
     """A single trade to execute during rebalancing.
 
-    Attributes
-    ----------
-    asset_id : str
-        Asset identifier.
-    side : str
-        ``"SELL"`` or ``"BUY"``.
-    quantity : float
-        Number of units to trade.
-    price : float
-        Execution price per unit.
-    cost : float
-        Transaction cost in currency terms.
+    Attributes:
+        asset_id: Asset identifier.
+        side: ``"SELL"`` or ``"BUY"``.
+        quantity: Number of units to trade.
+        price: Execution price per unit.
+        cost: Transaction cost in currency terms.
     """
     asset_id: str
     side: str      # "SELL" or "BUY"
@@ -53,31 +47,22 @@ class BacktestEngine:
     custom weight dictionary, and simulates trading over a date range
     using prices from a ``DataFetcher``.
 
-    Parameters
-    ----------
-    start_date : str
-        The start date of the backtest (YYYY-MM-DD).
-    end_date : str
-        The end date of the backtest (YYYY-MM-DD).
-    initial_capital : float
-        The starting capital for the backtest.
-    data_provider : DataFetcher
-        Data source for market prices.
-    target_index_result : IndexResult, optional
-        An IndexResult whose weight_snapshots provide the rebalance
-        schedule and target weights. Mutually exclusive with
-        *target_weights*.
-    target_weights : dict, optional
-        Custom weight schedule as a mapping of
-        ``pd.Timestamp -> Dict[str, float]``. Mutually exclusive with
-        *target_index_result*.
-    price_column : str
-        Column name to read from market data. Defaults to ``"CLOSE"``.
-    transaction_cost_bps : float
-        Transaction cost in basis points applied to each trade's
-        notional value. Defaults to 0 (no cost).
-    modifiers : list of BacktestModifier, optional
-        Optional hooks that can skip rebalances or adjust trades.
+    Args:
+        start_date: The start date of the backtest (YYYY-MM-DD).
+        end_date: The end date of the backtest (YYYY-MM-DD).
+        initial_capital: The starting capital for the backtest.
+        data_provider: Data source for market prices.
+        target_index_result: An IndexResult whose weight_snapshots provide
+            the rebalance schedule and target weights. Mutually exclusive
+            with *target_weights*.
+        target_weights: Custom weight schedule as a mapping of
+            ``pd.Timestamp -> Dict[str, float]``. Mutually exclusive with
+            *target_index_result*.
+        price_column: Column name to read from market data. Defaults to
+            ``"CLOSE"``.
+        transaction_cost_bps: Transaction cost in basis points applied to
+            each trade's notional value. Defaults to 0 (no cost).
+        modifiers: Optional hooks that can skip rebalances or adjust trades.
     """
 
     def __init__(self,
@@ -233,19 +218,13 @@ class BacktestEngine:
         sells first, then buys. Transaction costs are calculated from
         :attr:`transaction_cost_bps`.
 
-        Parameters
-        ----------
-        portfolio : Portfolio
-            The current portfolio state.
-        target_weights : dict
-            Mapping of asset_id to target weight (0 ≤ w ≤ 1).
-        date : pd.Timestamp
-            The trade date (used for price look-ups).
+        Args:
+            portfolio: The current portfolio state.
+            target_weights: Mapping of asset_id to target weight (0 ≤ w ≤ 1).
+            date: The trade date (used for price look-ups).
 
-        Returns
-        -------
-        list of TradeInstruction
-            Sells followed by buys.
+        Returns:
+            list of TradeInstruction: Sells followed by buys.
         """
         current_value = portfolio.get_total_value()
         if current_value <= 0:
@@ -322,9 +301,8 @@ class BacktestEngine:
     def run(self) -> BacktestResult:
         """Execute the backtest and return a :class:`BacktestResult`.
 
-        Returns
-        -------
-        BacktestResult
+        Returns:
+            BacktestResult
         """
         logger.info(
             f"Starting backtest from {self.start_date.date()} to "

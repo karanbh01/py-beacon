@@ -1,0 +1,66 @@
+# Publishes the documentation site to GitHub Pages when a release is published.
+#
+# The release workflow creates a DRAFT release, so this fires when that draft is
+# published by hand, not when the tag is pushed. workflow_dispatch is available
+# for republishing without cutting a release.
+#
+# Requires GitHub Pages to be enabled for this repository with "GitHub Actions"
+# as the source (Settings -> Pages). Note that Pages on a private repository
+# needs a paid plan; until that is in place this workflow will fail at the
+# deploy step, and the docs remain buildable locally with `mkdocs serve`.
+name: Docs
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; never cancel a running one midway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: build and deploy to Pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Install project with docs extra
+        run: uv pip install --system -e ".[docs]"
+
+      - name: Build documentation
+        run: mkdocs build --strict
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

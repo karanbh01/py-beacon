@@ -85,21 +85,16 @@ class MarketData:
             columns: list[str] | None = None) -> pd.DataFrame:
         """Return data for one or more identifiers, optionally filtered.
 
-        Parameters
-        ----------
-        identifier : str or list of str
-            Single identifier or list of identifiers.
-        start_date, end_date : str, optional
-            Date strings to slice the date range.
-        columns : list of str, optional
-            Subset of columns to return.
+        Args:
+            identifier: Single identifier or list of identifiers.
+            start_date: Date string to slice the start of the date range.
+            end_date: Date string to slice the end of the date range.
+            columns: Subset of columns to return.
 
-        Returns
-        -------
-        pd.DataFrame
-            Single identifier: indexed by ``DATE``.
-            List of identifiers: MultiIndexed by ``(IDENTIFIER, DATE)``.
-            Empty DataFrame if no matching data is found.
+        Returns:
+            pd.DataFrame: Single identifier: indexed by ``DATE``. List of
+            identifiers: MultiIndexed by ``(IDENTIFIER, DATE)``. Empty
+            DataFrame if no matching data is found.
         """
         if isinstance(identifier, list):
             existing = self._df.index.get_level_values("IDENTIFIER")
@@ -194,21 +189,16 @@ class ReferenceData:
             columns: list[str] | None = None) -> pd.DataFrame:
         """Return reference data for one or more identifiers.
 
-        Parameters
-        ----------
-        identifier : str or list of str
-            Single identifier or list of identifiers.
-        date : str, optional
-            Point-in-time date. If provided, only rows where
-            ``DATE_FROM <= date`` and (``DATE_TO >= date`` or ``DATE_TO`` is
-            NaT) are returned.
-        columns : list of str, optional
-            Subset of columns to return.
+        Args:
+            identifier: Single identifier or list of identifiers.
+            date: Point-in-time date. If provided, only rows where
+                ``DATE_FROM <= date`` and (``DATE_TO >= date`` or
+                ``DATE_TO`` is NaT) are returned.
+            columns: Subset of columns to return.
 
-        Returns
-        -------
-        pd.DataFrame
-            Indexed by ``IDENTIFIER``. Empty DataFrame if no match.
+        Returns:
+            pd.DataFrame: Indexed by ``IDENTIFIER``. Empty DataFrame if no
+            match.
         """
         if isinstance(identifier, list):
             existing = self._df.index

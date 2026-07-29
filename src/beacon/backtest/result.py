@@ -17,22 +17,19 @@ from .asset_view import BacktestAssetView
 class BacktestResult:
     """Container holding the output of a backtest run.
 
-    Parameters
-    ----------
-    portfolio_id : str
-        Identifier of the backtested portfolio.
-    initial_capital : float
-        Starting capital for the backtest.
-    portfolio_nav : pd.Series
-        Time series of portfolio NAV indexed by ``pd.DatetimeIndex``.
-    cash_history : pd.Series
-        Time series of cash balances indexed by ``pd.DatetimeIndex``.
-    transactions : list
-        List of Transaction objects executed during the backtest.
-    actual_weight_history : pd.DataFrame
-        DataFrame indexed by date with ``{asset_id}_weight`` columns.
-    target_index_result : IndexResult, optional
-        The IndexResult of the target index, if available.
+    Args:
+        portfolio_id: Identifier of the backtested portfolio.
+        initial_capital: Starting capital for the backtest.
+        portfolio_nav: Time series of portfolio NAV indexed by
+            ``pd.DatetimeIndex``.
+        cash_history: Time series of cash balances indexed by
+            ``pd.DatetimeIndex``.
+        transactions: List of Transaction objects executed during the
+            backtest.
+        actual_weight_history: DataFrame indexed by date with
+            ``{asset_id}_weight`` columns.
+        target_index_result: The IndexResult of the target index, if
+            available.
     """
     portfolio_id: str
     initial_capital: float
@@ -53,21 +50,16 @@ class BacktestResult:
               asset_id: str) -> BacktestAssetView:
         """Return a BacktestAssetView for a held asset.
 
-        Parameters
-        ----------
-        asset_id : str
-            Identifier of the asset.
+        Args:
+            asset_id: Identifier of the asset.
 
-        Returns
-        -------
-        BacktestAssetView
+        Returns:
+            BacktestAssetView
 
-        Raises
-        ------
-        RuntimeError
-            If no DataFetcher has been bound via :meth:`with_data`.
-        KeyError
-            If *asset_id* is not found in the weight history.
+        Raises:
+            RuntimeError: If no DataFetcher has been bound via
+                :meth:`with_data`.
+            KeyError: If *asset_id* is not found in the weight history.
         """
         if self._data_fetcher is None:
             raise RuntimeError(
@@ -96,10 +88,8 @@ class BacktestResult:
     def get_returns(self) -> pd.Series:
         """Derive a return series from portfolio NAV.
 
-        Returns
-        -------
-        pd.Series
-            Percentage returns (first entry is dropped).
+        Returns:
+            pd.Series: Percentage returns (first entry is dropped).
         """
         if self.portfolio_nav.empty:
             return pd.Series(dtype=float)
@@ -111,10 +101,9 @@ class BacktestResult:
         Tracking error is the annualised standard deviation of the
         difference between portfolio returns and index returns.
 
-        Returns
-        -------
-        float or None
-            Annualised tracking error, or None if no target index is available.
+        Returns:
+            float or None: Annualised tracking error, or None if no target
+            index is available.
         """
         if self.target_index_result is None:
             return None
@@ -141,10 +130,9 @@ class BacktestResult:
         portfolio return and the cumulative index return over the
         full backtest period.
 
-        Returns
-        -------
-        float or None
-            Tracking difference, or None if no target index is available.
+        Returns:
+            float or None: Tracking difference, or None if no target index
+            is available.
         """
         if self.target_index_result is None:
             return None
@@ -162,10 +150,8 @@ class BacktestResult:
     def summary(self) -> dict[str, float | None]:
         """Calculate key performance metrics for the backtest.
 
-        Returns
-        -------
-        dict
-            Dictionary containing: total_return, annualised_return,
+        Returns:
+            dict: Dictionary containing: total_return, annualised_return,
             volatility, sharpe_ratio, max_drawdown, and optionally
             tracking_error and tracking_difference.
         """

@@ -54,6 +54,31 @@ jobs:
       - name: Test
         run: pytest -q
 
+  docs:
+    name: build docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Install project with docs extra
+        run: uv pip install --system -e ".[docs]"
+
+      # --strict turns mkdocstrings/griffe warnings into errors, so a docstring
+      # that stops parsing or a broken internal link fails the build here.
+      - name: Build documentation
+        run: mkdocs build --strict
+
   build:
     name: build distributions
     runs-on: ubuntu-latest

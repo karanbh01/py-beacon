@@ -14,18 +14,16 @@ from .asset_view import IndexAssetView
 class IndexResult:
     """Container holding the output of an index calculation run.
 
-    Parameters
-    ----------
-    index_id : str
-        Identifier of the calculated index.
-    index_levels : pd.Series
-        Time series of index levels indexed by ``pd.DatetimeIndex``.
-    divisor_history : pd.Series
-        Time series of divisor values indexed by ``pd.DatetimeIndex``.
-    constituent_snapshots : dict
-        Mapping of rebalance date -> list of asset_id strings.
-    weight_snapshots : dict
-        Mapping of rebalance date -> dict of {asset_id: weight}.
+    Args:
+        index_id: Identifier of the calculated index.
+        index_levels: Time series of index levels indexed by
+            ``pd.DatetimeIndex``.
+        divisor_history: Time series of divisor values indexed by
+            ``pd.DatetimeIndex``.
+        constituent_snapshots: Mapping of rebalance date -> list of
+            asset_id strings.
+        weight_snapshots: Mapping of rebalance date -> dict of
+            {asset_id: weight}.
     """
     index_id: str
     index_levels: pd.Series
@@ -44,21 +42,17 @@ class IndexResult:
               asset_id: str) -> IndexAssetView:
         """Return an IndexAssetView for a constituent.
 
-        Parameters
-        ----------
-        asset_id : str
-            Identifier of the constituent asset.
+        Args:
+            asset_id: Identifier of the constituent asset.
 
-        Returns
-        -------
-        IndexAssetView
+        Returns:
+            IndexAssetView
 
-        Raises
-        ------
-        RuntimeError
-            If no DataFetcher has been bound via :meth:`with_data`.
-        KeyError
-            If *asset_id* is not found in any constituent snapshot.
+        Raises:
+            RuntimeError: If no DataFetcher has been bound via
+                :meth:`with_data`.
+            KeyError: If *asset_id* is not found in any constituent
+                snapshot.
         """
         if self._data_fetcher is None:
             raise RuntimeError(
@@ -84,10 +78,8 @@ class IndexResult:
     def get_returns(self) -> pd.Series:
         """Derive a return series from index levels.
 
-        Returns
-        -------
-        pd.Series
-            Percentage returns (first entry is dropped).
+        Returns:
+            pd.Series: Percentage returns (first entry is dropped).
         """
         if self.index_levels.empty:
             return pd.Series(dtype=float)
@@ -99,15 +91,11 @@ class IndexResult:
 
         Locates the most recent rebalance date on or before *date*.
 
-        Parameters
-        ----------
-        date : pd.Timestamp
-            The query date.
+        Args:
+            date: The query date.
 
-        Returns
-        -------
-        dict
-            Mapping of asset_id to weight. Empty dict if no rebalance
+        Returns:
+            dict: Mapping of asset_id to weight. Empty dict if no rebalance
             has occurred on or before *date*.
         """
         applicable_dates = [d for d in self.weight_snapshots if d <= date]
@@ -119,10 +107,8 @@ class IndexResult:
     def to_dataframe(self) -> pd.DataFrame:
         """Flatten index levels and divisor history into a DataFrame.
 
-        Returns
-        -------
-        pd.DataFrame
-            Columns: ``index_level``, ``divisor``.
+        Returns:
+            pd.DataFrame: Columns: ``index_level``, ``divisor``.
         """
         df = pd.DataFrame({
             "index_level": self.index_levels,
