@@ -41,12 +41,14 @@ plot-interactive = ["plotly"]         # placeholder extra; backend lands in BN-8
 server = ["fastapi", "uvicorn[standard]", "orjson", "websockets"]
 docs = ["mkdocs-material", "mkdocstrings[python]"]
 dev = [
+  "py-beacon[server]",   # the server tests exercise the real app
   "pytest",
   "pytest-cov",
   "ruff",
   "mypy",
   "pre-commit",
   "hypothesis",
+  "httpx",               # required by fastapi's TestClient
 ]
 
 [project.urls]
