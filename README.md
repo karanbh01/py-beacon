@@ -121,6 +121,20 @@ pre-commit install --hook-type pre-push   # strict type check on push
 tool-enforced — signature layout follows a reviewed convention rather than a
 formatter, so `ruff format` is deliberately not part of the hook set.
 
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the conventions, the issue and
+commit format, and the release process, and [CHANGELOG.md](./CHANGELOG.md) for
+what has changed.
+
+## Versioning
+
+Beacon follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+While the major version is `0` the public API may change in any release — the
+surface is still settling. Breaking changes are recorded under **Changed** or
+**Removed** in the changelog. From 1.0 onward, a deprecated name keeps working
+for at least one minor release with a `DeprecationWarning` naming its
+replacement, and removals only land in a major release; the full policy is in
+[CONTRIBUTING.md](./CONTRIBUTING.md#versioning-and-deprecation-policy).
+
 ## Quickstart
 
 Define an index, calculate it, backtest a portfolio that tracks it, and view
