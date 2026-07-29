@@ -271,10 +271,11 @@ class WeightingSpec(BaseModel):
                         min_length=1)
     params: dict[str, Any] = Field(default_factory=dict,
                                    description="Constructor arguments for the scheme.")
-    caps: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Weight caps. NOT IMPLEMENTED: a non-empty list is rejected "
-                    "with a finding rather than silently ignored.")
+    max_weight: float | None = Field(
+        default=None,
+        description="Cap on any single constituent's weight, as a fraction "
+                    "(0.1 is 10%). Applied after the scheme and iterated until "
+                    "nothing breaches it. Null means uncapped.")
 
 
 class TreatmentSpec(BaseModel):

@@ -41,7 +41,7 @@ TECH10 = {
             "id": "weighting",
             "scheme": "MarketCapWeighted",
             "params": {"use_free_float": True},
-            "caps": [],
+            "max_weight": 0.2,
         },
         "treatment": {"corporate_actions": "ADJUST_DIVISOR"},
     },
@@ -214,18 +214,39 @@ class TestValidationFindings:
 
         assert "DUPLICATE_RULE_ID" in codes
 
-    def test_caps_are_rejected_rather_than_ignored(self,
-                                                   client):
-        """Capping is not implemented; accepting a cap would produce an index
-        that silently ignores it."""
+    def test_out_of_range_cap_is_rejected(self,
+                                          client):
         body = tech10()
-        body["pipeline"]["weighting"]["caps"] = [{"max_weight": 0.1}]
+        body["pipeline"]["weighting"]["max_weight"] = 1.5
 
         response = client.post("/indices", json=body, headers=auth())
         finding = next(f for f in findings_from(response)
-                       if f["code"] == "CAPS_NOT_SUPPORTED")
+                       if f["code"] == "INVALID_CAP")
 
-        assert finding["path"] == "pipeline.weighting.caps"
+        assert finding["path"] == "pipeline.weighting.max_weight"
+
+    def test_infeasible_cap_names_the_minimum(self,
+                                              client):
+        """A 5% cap across 10 names can reach only 50%; say so while editing."""
+        body = tech10()
+        body["pipeline"]["weighting"]["max_weight"] = 0.05
+
+        response = client.post("/indices", json=body, headers=auth())
+        finding = next(f for f in findings_from(response)
+                       if f["code"] == "INFEASIBLE_CAP")
+
+        assert "10.0000%" in finding["message"]
+
+    def test_exactly_feasible_cap_warns_but_saves(self,
+                                                  client):
+        """1/n is feasible only if every member survives selection."""
+        body = tech10()
+        body["pipeline"]["weighting"]["max_weight"] = 0.1
+
+        response = client.post("/indices", json=body, headers=auth())
+
+        assert response.status_code == 200
+        assert any(f["code"] == "TIGHT_CAP" for f in response.json()["findings"])
 
     def test_unsupported_frequency_is_reported(self,
                                                client):
@@ -316,15 +337,30 @@ class TestUniverses:
     def test_index_resolves_a_referenced_universe(self,
                                                   client):
         """A definition may reference a universe instead of listing members."""
+        members = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
         client.put("/universes/tech",
-                   json={"name": "Tech", "identifiers": ["AAA", "BBB", "CCC"]},
+                   json={"name": "Tech", "identifiers": members},
                    headers=auth())
         body = tech10()
         body["universe"] = {"universe_id": "tech", "identifiers": []}
 
         saved = client.post("/indices", json=body, headers=auth()).json()
 
-        assert saved["index"]["universe"]["identifiers"] == ["AAA", "BBB", "CCC"]
+        assert saved["index"]["universe"]["identifiers"] == members
+
+    def test_cap_feasibility_is_checked_against_the_resolved_universe(self,
+                                                                      client):
+        """The cap must be judged on the members it will actually apply to."""
+        client.put("/universes/tiny",
+                   json={"name": "Tiny", "identifiers": ["AAA", "BBB"]},
+                   headers=auth())
+        body = tech10()   # max_weight 0.2, impossible across two names
+        body["universe"] = {"universe_id": "tiny", "identifiers": []}
+
+        response = client.post("/indices", json=body, headers=auth())
+        codes = {f["code"] for f in findings_from(response)}
+
+        assert "INFEASIBLE_CAP" in codes
 
     def test_reference_to_a_missing_universe_fails_on_save(self,
                                                            client):

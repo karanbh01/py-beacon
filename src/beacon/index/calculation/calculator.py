@@ -11,6 +11,7 @@ from ...asset.base import Asset
 from ...asset.equity import Equity
 from ...data.fetcher import DataFetcher
 from ...exceptions import CalculationError
+from ..capping import CapReport, apply_cap
 from ..constructor import IndexDefinition
 from ..result import IndexResult
 from .corporate_actions import CorporateActionsMixin
@@ -206,6 +207,33 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         logger.info(f"Weights calculated for '{self.definition.index_name}'.")
         return weights
 
+    def cap_weights(self,
+                    weights: dict[Asset, float]) -> tuple[dict[Asset, float], CapReport]:
+        """Apply the definition's cap, returning the weights and a report.
+
+        Capping happens here rather than inside a weighting scheme so that it
+        composes with every scheme, and it returns its report rather than
+        storing one so the calculator stays stateless and `run()` stays
+        idempotent.
+
+        Args:
+            weights: Normalised weights keyed by Asset.
+
+        Returns:
+            tuple: The capped weights and a CapReport. With no cap configured
+            the weights are returned unchanged and the report is empty.
+        """
+        cap = self.definition.max_constituent_weight
+        if cap is None or not weights:
+            return weights, CapReport(cap=cap)
+
+        # apply_cap works on identifiers so its report can name constituents
+        # without depending on the asset classes.
+        by_id = {asset.asset_id: weight for asset, weight in weights.items()}
+        capped, report = apply_cap(by_id, cap)
+
+        return {asset: capped[asset.asset_id] for asset in weights}, report
+
     def initialize_divisor(self,
                            initial_total_market_value: float) -> float:
         """
@@ -346,6 +374,9 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         divisor_values: dict[pd.Timestamp, float] = {}
         constituent_snapshots: dict[pd.Timestamp, list[str]] = {}
         weight_snapshots: dict[pd.Timestamp, dict[str, float]] = {}
+        # Only rebalances where the cap actually bound get an entry, so an
+        # uncapped index carries an empty mapping rather than noise.
+        cap_reports: dict[pd.Timestamp, CapReport] = {}
 
         # Running state
         constituents: list[Asset] = []
@@ -359,6 +390,9 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
                 constituents_raw = self._get_universe(date)
                 constituents = self.select_constituents(constituents_raw, date)
                 weights = self.calculate_constituent_weights(constituents, date)
+                weights, cap_report = self.cap_weights(weights)
+                if cap_report.was_capped:
+                    cap_reports[date] = cap_report
 
                 mv_map = self._get_constituent_market_values(weights, date)
                 total_mv = sum(mv_map.values())
@@ -387,6 +421,9 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
                 constituents_raw = self._get_universe(date)
                 constituents = self.select_constituents(constituents_raw, date)
                 weights = self.calculate_constituent_weights(constituents, date)
+                weights, cap_report = self.cap_weights(weights)
+                if cap_report.was_capped:
+                    cap_reports[date] = cap_report
 
                 # New market value under new composition
                 new_mv_map = self._get_constituent_market_values(weights, date)
@@ -436,6 +473,7 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
             divisor_history=pd.Series(divisor_values),
             constituent_snapshots=constituent_snapshots,
             weight_snapshots=weight_snapshots,
+            cap_reports=cap_reports,
         ).with_data(self.data)
 
     def run_daily_calculation(self,

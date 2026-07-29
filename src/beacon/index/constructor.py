@@ -24,7 +24,8 @@ class IndexDefinition:
                  weighting_scheme: WeightingSchemeBase,
                  rebalancing_frequency: str, # e.g., 'QUARTERLY', 'MONTHLY', 'SEMI-ANNUAL', 'ANNUAL'
                  description: str | None = None,
-                 universe_identifiers: list[str] | None = None):
+                 universe_identifiers: list[str] | None = None,
+                 max_constituent_weight: float | None = None):
         """
         Initializes an IndexDefinition.
 
@@ -45,6 +46,11 @@ class IndexDefinition:
             description: Optional textual description of the index.
             universe_identifiers: Optional list of string identifiers (e.g., tickers, ISINs)
                                   defining the asset universe from which constituents are selected.
+            max_constituent_weight: Optional cap on any single constituent's
+                                  weight, as a fraction (0.1 is 10%). Applied
+                                  after the weighting scheme and iterated until
+                                  no constituent breaches it. None means
+                                  uncapped.
         """
         if not index_id:
             raise ValueError("index_id cannot be empty.")
@@ -67,6 +73,11 @@ class IndexDefinition:
         if universe_identifiers is not None and not universe_identifiers:
             raise ValueError("universe_identifiers, when provided, must be a non-empty list.")
 
+        if max_constituent_weight is not None and not 0.0 < max_constituent_weight <= 1.0:
+            raise ValueError(
+                "max_constituent_weight, when provided, must be in (0, 1]; got "
+                f"{max_constituent_weight}.")
+
         self.index_id: str = index_id
         self.index_name: str = index_name
         self.base_date: pd.Timestamp = pd.Timestamp(base_date)
@@ -77,6 +88,7 @@ class IndexDefinition:
         self.rebalancing_frequency: str = rebalancing_frequency.upper()
         self.description: str | None = description
         self.universe_identifiers: list[str] | None = universe_identifiers
+        self.max_constituent_weight: float | None = max_constituent_weight
 
         logger.info(
             f"IndexDefinition for '{self.index_name}' ({self.index_id}) created successfully.")

@@ -8,6 +8,7 @@ import pandas as pd
 
 from ..data.fetcher import DataFetcher
 from .asset_view import IndexAssetView
+from .capping import CapReport
 
 
 @dataclass
@@ -24,13 +25,34 @@ class IndexResult:
             asset_id strings.
         weight_snapshots: Mapping of rebalance date -> dict of
             {asset_id: weight}.
+        cap_reports: Mapping of rebalance date -> CapReport, for the
+            rebalances where a weight cap actually bound. Empty for an
+            uncapped index, so its presence is itself the signal that
+            capping occurred.
     """
     index_id: str
     index_levels: pd.Series
     divisor_history: pd.Series
     constituent_snapshots: dict[pd.Timestamp, list[str]]
     weight_snapshots: dict[pd.Timestamp, dict[str, float]]
+    cap_reports: dict[pd.Timestamp, CapReport] = field(default_factory=dict)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False, compare=False)
+
+    def capped_assets_on_date(self,
+                              date: pd.Timestamp) -> dict[str, float]:
+        """Return the constituents held at the cap at the given rebalance.
+
+        Args:
+            date: A rebalance date.
+
+        Returns:
+            dict: ``{asset_id: uncapped_weight}`` for names the cap bound on
+            that date. Empty when nothing was capped, or when *date* is not a
+            rebalance date.
+        """
+        report = self.cap_reports.get(date)
+
+        return dict(report.capped) if report is not None else {}
 
     def with_data(self,
                   data_fetcher: DataFetcher) -> 'IndexResult':

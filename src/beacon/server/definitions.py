@@ -15,6 +15,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ..exceptions import InvalidRuleError
+from ..index.capping import minimum_feasible_cap
 from ..index.constructor import IndexDefinition
 from ..index.methodology import (
     EligibilityRuleBase,
@@ -158,19 +159,63 @@ def _validate_weighting(document: IndexDocument) -> list[Finding]:
             for name in _unknown_params(weighting.params,
                                         WEIGHTING_SCHEMES[weighting.scheme]))
 
-    # Caps are in this issue's brief and in the UI vocabulary, but no capping
-    # exists in the library. Reporting a finding is the honest answer: silently
-    # accepting a cap would produce an index that ignores it.
-    if weighting.caps:
-        findings.append(Finding(
-            path="pipeline.weighting.caps",
-            rule_id=weighting.id,
-            severity="error",
-            code="CAPS_NOT_SUPPORTED",
-            message="Weight capping is not implemented. Remove the caps to save "
-                    "this definition; the index would otherwise ignore them."))
+    findings.extend(_validate_cap(document))
 
     return findings
+
+
+def _validate_cap(document: IndexDocument) -> list[Finding]:
+    """Check the weight cap against its bounds and against the universe.
+
+    An infeasible cap is caught here rather than at calculation time: a cap
+    of 5% across 10 names can distribute at most 50%, and discovering that
+    mid-run is far worse than being told while editing.
+    """
+    weighting = document.pipeline.weighting
+    cap = weighting.max_weight
+
+    if cap is None:
+        return []
+
+    if not 0.0 < cap <= 1.0:
+        return [Finding(
+            path="pipeline.weighting.max_weight",
+            rule_id=weighting.id,
+            severity="error",
+            code="INVALID_CAP",
+            message=f"max_weight must be a fraction in (0, 1]; got {cap}.")]
+
+    count = len(document.universe.identifiers)
+    if not count:
+        return []
+
+    reachable = cap * count
+
+    if reachable < 1.0:
+        return [Finding(
+            path="pipeline.weighting.max_weight",
+            rule_id=weighting.id,
+            severity="error",
+            code="INFEASIBLE_CAP",
+            message=f"A cap of {cap:.4%} cannot be satisfied by {count} "
+                    f"universe members: the total would reach at most "
+                    f"{reachable:.4%}. The smallest feasible cap is "
+                    f"{minimum_feasible_cap(count):.4%}.")]
+
+    # Feasible only because every single member is included. Selection rules
+    # can only shrink that set, so one exclusion makes the cap impossible —
+    # worth warning about while editing rather than failing mid-run.
+    if reachable < 1.0 + cap:
+        return [Finding(
+            path="pipeline.weighting.max_weight",
+            rule_id=weighting.id,
+            severity="warning",
+            code="TIGHT_CAP",
+            message=f"A cap of {cap:.4%} needs all {count} universe members to "
+                    "be selected. If any rule excludes one, the cap becomes "
+                    "infeasible.")]
+
+    return []
 
 
 def _validate_treatment(document: IndexDocument) -> list[Finding]:
@@ -297,4 +342,5 @@ def build_index_definition(document: IndexDocument) -> IndexDefinition:
                            weighting_scheme=scheme,
                            rebalancing_frequency=document.rebalancing_frequency,
                            description=document.description,
-                           universe_identifiers=list(document.universe.identifiers))
+                           universe_identifiers=list(document.universe.identifiers),
+                           max_constituent_weight=weighting.max_weight)

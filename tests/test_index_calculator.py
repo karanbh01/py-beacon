@@ -20,6 +20,10 @@ def mock_definition():
     defn.base_date = pd.Timestamp("2025-01-02")
     defn.universe_identifiers = ["AAPL", "MSFT", "GOOG"]
     defn.rebalancing_frequency = "MONTHLY"
+    # Set explicitly: a bare MagicMock attribute is truthy, so capping would
+    # try to compare weights against a mock instead of taking the uncapped
+    # path these tests intend.
+    defn.max_constituent_weight = None
     return defn
 
 

@@ -34,6 +34,7 @@ from beacon.asset.equity import Equity
 from beacon.backtest.result import BacktestResult
 from beacon.derivatives.pricing import cost_of_carry_fair_value, implied_repo_rate
 from beacon.index.calculation import IndexCalculator
+from beacon.index.capping import TOLERANCE, apply_cap
 from beacon.index.methodology import EqualWeighted, MarketCapWeighted
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Portfolio
@@ -209,6 +210,103 @@ class TestWeightingSchemes:
 # ---------------------------------------------------------------------------
 # Divisor continuity: IndexCalculator.adjust_divisor_for_rebalance
 # ---------------------------------------------------------------------------
+
+@st.composite
+def _weights_and_cap(draw,
+                     min_size: int = 2,
+                     max_size: int = 12) -> tuple[dict[str, float], float]:
+    """Generate normalised weights alongside a cap that is feasible for them.
+
+    The cap is drawn from ``[1/n, 1]`` because anything below ``1/n`` is
+    genuinely impossible to satisfy — every name would sit at the cap and the
+    total would still fall short of 1.0. Infeasible caps are covered by their
+    own test in tests/test_capping.py, which asserts they raise.
+    """
+    size = draw(st.integers(min_value=min_size, max_value=max_size))
+    raw = draw(st.lists(st.floats(min_value=0.01, max_value=1e4,
+                                  allow_nan=False, allow_infinity=False),
+                        min_size=size, max_size=size))
+    total = sum(raw)
+    weights = {f"A{i}": value / total for i, value in enumerate(raw)}
+
+    cap = draw(st.floats(min_value=1.0 / size, max_value=1.0,
+                         allow_nan=False, allow_infinity=False))
+
+    return weights, cap
+
+
+class TestCapping:
+    """The two invariants BN-57 had to defer until capping existed."""
+
+    @given(_weights_and_cap())
+    @settings(max_examples=200, deadline=None)
+    def test_weights_sum_to_one_after_capping(self,
+                                              case):
+        weights, cap = case
+
+        capped, _ = apply_cap(weights, cap)
+
+        assert math.isclose(sum(capped.values()), 1.0, rel_tol=1e-9)
+
+    @given(_weights_and_cap())
+    @settings(max_examples=200, deadline=None)
+    def test_no_weight_exceeds_the_cap(self,
+                                       case):
+        weights, cap = case
+
+        capped, _ = apply_cap(weights, cap)
+
+        assert max(capped.values()) <= cap * (1 + TOLERANCE)
+
+    @given(_weights_and_cap())
+    @settings(max_examples=200, deadline=None)
+    def test_iteration_converges(self,
+                                 case):
+        """Each pass caps at least one more name, so it cannot run away."""
+        weights, cap = case
+
+        _, report = apply_cap(weights, cap)
+
+        assert report.passes <= len(weights)
+
+    @given(_weights_and_cap())
+    @settings(max_examples=200, deadline=None)
+    def test_capping_never_creates_a_negative_weight(self,
+                                                     case):
+        weights, cap = case
+
+        capped, _ = apply_cap(weights, cap)
+
+        assert all(weight >= 0.0 for weight in capped.values())
+
+    @given(_weights_and_cap())
+    @settings(max_examples=200, deadline=None)
+    def test_redistribution_matches_what_was_taken(self,
+                                                   case):
+        """Weight is conserved: what comes off capped names goes to the rest."""
+        weights, cap = case
+
+        capped, report = apply_cap(weights, cap)
+
+        gained = sum(capped[name] - weights[name]
+                     for name in weights if name not in report.capped)
+
+        assert math.isclose(gained, report.redistributed, rel_tol=1e-6, abs_tol=1e-12)
+
+    @given(_weights_and_cap())
+    @settings(max_examples=100, deadline=None)
+    def test_capping_is_idempotent(self,
+                                   case):
+        """Capping already-capped weights changes nothing."""
+        weights, cap = case
+
+        once, _ = apply_cap(weights, cap)
+        twice, report = apply_cap(once, cap)
+
+        assert report.was_capped is False
+        for name, weight in once.items():
+            assert math.isclose(twice[name], weight, rel_tol=1e-9)
+
 
 class TestDivisorContinuity:
 
