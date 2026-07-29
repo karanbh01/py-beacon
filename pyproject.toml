@@ -28,7 +28,25 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3 :: Only",
 ]
-dependencies = ["pandas", "numpy"]
+dependencies = ["pandas", "numpy", "pydantic>=2"]
+
+# Core stays importable without any of these. Modules that need one import it
+# through beacon._optional.require(), which names the extra when it is absent.
+[project.optional-dependencies]
+data = ["yfinance"]
+excel = ["openpyxl"]
+optimise = ["scipy"]
+plot = ["matplotlib"]
+plot-interactive = ["plotly"]         # placeholder extra; backend lands in BN-83
+server = ["fastapi", "uvicorn[standard]", "orjson", "websockets"]
+dev = [
+  "pytest",
+  "pytest-cov",
+  "ruff",
+  "mypy",
+  "pre-commit",
+  "hypothesis",
+]
 
 [project.urls]
 Homepage = "https://github.com/karanbh01/py-beacon"

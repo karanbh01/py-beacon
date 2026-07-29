@@ -7,15 +7,8 @@ import pandas as pd
 from typing import Optional
 import logging
 
-# Try importing openpyxl for Excel writing
-try:
-    import openpyxl
-    OPENPYXL_AVAILABLE = True
-except ImportError:
-    logging.warning("openpyxl library not found. Excel reporting will be disabled.")
-    OPENPYXL_AVAILABLE = False
-
 from .base import Portfolio
+from .._optional import require
 from ..data.fetcher import DataFetcher # For portfolio methods needing it
 
 logger = logging.getLogger(__name__)
@@ -27,12 +20,10 @@ class ReportingError(Exception):
 class ReportGenerator:
     """
     Generates various reports for a portfolio or backtest results.
-    """
-    def __init__(self):
-        """Initializes the ReportGenerator."""
-        if not OPENPYXL_AVAILABLE:
-            logger.warning("ReportGenerator initialized, but openpyxl is missing. Excel output will fail.")
 
+    Excel output needs the 'excel' extra; the dependency is checked when a
+    report is generated, so the class itself is always constructible.
+    """
     def generate_holdings_report_excel(self,
                                        portfolio: Portfolio,
                                        report_path: str,
@@ -48,11 +39,12 @@ class ReportGenerator:
             data_provider: DataFetcher instance needed by portfolio methods to get current prices.
 
         Raises:
-            ReportingError: If openpyxl is not available or if there's an issue writing the file.
+            MissingDependencyError: If openpyxl is not installed.
+            ReportingError: If there's an issue writing the file.
             ValueError: If portfolio or data_provider is None.
         """
-        if not OPENPYXL_AVAILABLE:
-            raise ReportingError("openpyxl library is required for Excel reports but not installed.")
+        require("openpyxl", "Excel reporting")
+
         if portfolio is None:
             raise ValueError("Portfolio object must be provided.")
         if data_provider is None:
@@ -113,11 +105,12 @@ class ReportGenerator:
             report_title: An optional title for the report (used as sheet name or in header).
 
         Raises:
-            ReportingError: If openpyxl is not available or if there's an issue writing the file.
+            MissingDependencyError: If openpyxl is not installed.
+            ReportingError: If there's an issue writing the file.
             ValueError: If performance_data is not a non-empty DataFrame.
         """
-        if not OPENPYXL_AVAILABLE:
-            raise ReportingError("openpyxl library is required for Excel reports but not installed.")
+        require("openpyxl", "Excel reporting")
+
         if not isinstance(performance_data, pd.DataFrame) or performance_data.empty:
             raise ValueError("performance_data must be a non-empty pandas DataFrame.")
         if not report_path.endswith(".xlsx"):

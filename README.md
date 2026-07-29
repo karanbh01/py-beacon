@@ -84,11 +84,27 @@ pip install -e .
 ```
 
 The distribution is named `py-beacon`; the import package is `beacon`. Core
-dependencies (pandas, numpy) are installed automatically. To run the test
-suite:
+dependencies (pandas, numpy, pydantic) are installed automatically.
+
+Everything beyond the core pipeline lives behind an extra, so a plain install
+stays light:
+
+| Extra | Installs | Needed for |
+| --- | --- | --- |
+| `data` | yfinance | Downloading market data |
+| `excel` | openpyxl | `ReportGenerator` Excel output |
+| `optimise` | scipy | Portfolio optimisation |
+| `plot` | matplotlib | Chart accessors on result objects |
+| `plot-interactive` | plotly | Interactive charts (planned) |
+| `server` | fastapi, uvicorn, orjson, websockets | The local API server |
+| `dev` | pytest, ruff, mypy, pre-commit, hypothesis | Contributing |
+
+Install one with `pip install "py-beacon[plot]"`, or several with
+`pip install "py-beacon[plot,data]"`. Using a feature without its extra raises
+an error naming the extra to install. To run the test suite:
 
 ```bash
-pip install pytest
+pip install -e ".[dev]"
 pytest
 ```
 

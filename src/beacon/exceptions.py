@@ -44,6 +44,24 @@ class ConfigurationError(BeaconError):
         self.config_param = config_param
         self.details = details
 
+class MissingDependencyError(BeaconError, ImportError):
+    """Raised when a feature is used without its optional dependency installed.
+
+    Subclasses ImportError as well as BeaconError so that callers already
+    handling a missing import keep working.
+    """
+    def __init__(self,
+                 module_name: str,
+                 feature: str,
+                 extra: str):
+        message = (f"{feature} requires the '{module_name}' package, which is "
+                   f"not installed. Install it with: "
+                   f'pip install "py-beacon[{extra}]"')
+        super().__init__(message)
+        self.module_name = module_name
+        self.feature = feature
+        self.extra = extra
+
 class CalculationError(BeaconError):
     """Raised during financial calculations if an error occurs (e.g., division by zero, bad inputs)."""
     def __init__(self,
