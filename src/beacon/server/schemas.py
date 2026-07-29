@@ -373,6 +373,64 @@ class UniverseMembers(BaseModel):
     identifiers: list[str]
 
 
+class PreviewRequest(BaseModel):
+    """Body of `POST /indices/{id}/preview`."""
+    as_of: str | None = Field(
+        default=None,
+        description="Date to evaluate the pipeline at, YYYY-MM-DD. Defaults "
+                    "to the index's base date.")
+
+
+class PreviewStep(BaseModel):
+    """One rung of the derivation waterfall.
+
+    There is one of these per selection rule, in pipeline order, plus a first
+    entry for the universe itself so the funnel starts from a stated total.
+    """
+    position: int = Field(description="0 is the universe; rules follow in order.")
+    rule_id: str | None = Field(
+        default=None, description="Rule responsible, or null for the universe row.")
+    rule_type: str | None = Field(default=None, description="Rule class name.")
+    remaining: int = Field(description="Constituents surviving after this step.")
+    excluded: list[str] = Field(
+        default_factory=list,
+        description="Identifiers this step removed. Empty for the universe row.")
+
+
+class PreviewAsset(BaseModel):
+    """Per-asset outcome of the derivation."""
+    identifier: str
+    included: bool = Field(description="Whether it reached the final index.")
+    excluded_by: str | None = Field(
+        default=None,
+        description="Id of the first rule that excluded it. Null when included.")
+    excluded_at: int | None = Field(
+        default=None, description="Waterfall position where it dropped out.")
+    weight: float | None = Field(
+        default=None, description="Final weight as a fraction. Null when excluded.")
+    uncapped_weight: float | None = Field(
+        default=None,
+        description="Weight before capping, when the cap bound this name.")
+    capped: bool = Field(default=False,
+                         description="Whether this name sits at the cap.")
+
+
+class PreviewResponse(BaseModel):
+    """Response of `POST /indices/{id}/preview`."""
+    index_id: str
+    as_of: str
+    steps: list[PreviewStep]
+    assets: list[PreviewAsset]
+    weights: dict[str, float] = Field(
+        description="Final weights as fractions, keyed by identifier.")
+    total_weight: float = Field(
+        description="Sum of the final weights; 1.0 for a non-empty index.")
+    cap: float | None = Field(default=None,
+                              description="Cap applied, as a fraction, if any.")
+    cap_redistributed: float = Field(
+        default=0.0, description="Weight moved off capped names onto the rest.")
+
+
 class DatasetCoverage(BaseModel):
     """What the loaded data actually spans, for one dataset."""
     dataset: str = Field(description="'market' or 'reference'.")

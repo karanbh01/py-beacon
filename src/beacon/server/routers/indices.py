@@ -8,11 +8,16 @@ the client can mark the offending row rather than showing one message for the
 whole form.
 """
 from ..._optional import require
-from ...exceptions import DataNotFoundError, InvalidRuleError
+from ...data.fetcher import DataFetcher
+from ...exceptions import ConfigurationError, DataNotFoundError, InvalidRuleError
+from ..config import ServerConfig
 from ..definitions import PipelineValidationError, has_errors, validate_document
+from ..preview import build_preview
 from ..schemas import (
     IndexCollection,
     IndexDocument,
+    PreviewRequest,
+    PreviewResponse,
     SavedIndex,
     ValidationReport,
 )
@@ -31,6 +36,22 @@ def _store(request: Request) -> DocumentStore:
     store: DocumentStore = request.app.state.index_store
 
     return store
+
+
+def _data_fetcher(request: Request) -> DataFetcher:
+    """Return the process's data source, or fail with a mapped error.
+
+    Preview evaluates real rules against real prices, so unlike the CRUD
+    endpoints it cannot run without one.
+    """
+    config: ServerConfig = request.app.state.config
+    if config.data_fetcher is None:
+        raise ConfigurationError(
+            "data_source",
+            "This server was started without a data source, so a constituent "
+            "preview cannot be derived. Restart it with one configured.")
+
+    return config.data_fetcher
 
 
 def _resolve_universe(request: Request,
@@ -76,6 +97,20 @@ def build_indices_router() -> APIRouter:
         findings = validate_document(resolved)
 
         return ValidationReport(valid=not has_errors(findings), findings=findings)
+
+    @router.post("/{index_id}/preview", response_model=PreviewResponse)
+    def preview(request: Request,
+                index_id: str,
+                body: PreviewRequest | None = None) -> PreviewResponse:
+        document = _store(request).read(index_id)
+        if document is None:
+            raise DataNotFoundError(f"index '{index_id}'", source="DocumentStore")
+
+        as_of = body.as_of if body is not None else None
+
+        return build_preview(IndexDocument.model_validate(document),
+                             _data_fetcher(request),
+                             as_of)
 
     @router.get("/{index_id}", response_model=IndexDocument)
     def get_index(request: Request,

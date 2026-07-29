@@ -102,6 +102,23 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         )
         return assets
 
+    def resolve_universe(self,
+                         date: pd.Timestamp) -> list[Asset]:
+        """Resolve the definition's universe identifiers into Asset objects.
+
+        The public entry point for universe resolution, for callers outside
+        the calculation loop — the constituent preview, for one. Delegates to
+        the internal implementation, so anything that stubs that also governs
+        this.
+
+        Args:
+            date: Point-in-time date for the reference-data lookup.
+
+        Returns:
+            list[Asset]: Assets for every identifier that resolved.
+        """
+        return self._get_universe(date)
+
     def select_constituents(self,
                             universe: list[Asset],
                             current_date: pd.Timestamp) -> list[Asset]:
