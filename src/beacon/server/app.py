@@ -18,10 +18,13 @@ from fastapi import APIRouter, Depends, FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from .errors import register_exception_handlers  # noqa: E402
+from .jobs import JobRegistry  # noqa: E402
 from .routers import (  # noqa: E402
     build_coverage_router,
     build_data_router,
+    build_events_router,
     build_indices_router,
+    build_jobs_router,
     build_universes_router,
     build_watchlists_router,
 )
@@ -107,6 +110,7 @@ def create_app(config: ServerConfig) -> FastAPI:
     app.state.watchlist_store = DocumentStore("watchlists", root=config.storage_root)
     app.state.universe_store = DocumentStore("universes", root=config.storage_root)
     app.state.index_store = DocumentStore("indices", root=config.storage_root)
+    app.state.jobs = JobRegistry()
 
     app.add_middleware(CORSMiddleware,
                        allow_origins=list(config.cors_origins),
@@ -126,7 +130,13 @@ def create_app(config: ServerConfig) -> FastAPI:
                    build_watchlists_router(),
                    build_coverage_router(),
                    build_universes_router(),
-                   build_indices_router()):
+                   build_indices_router(),
+                   build_jobs_router()):
         app.include_router(router, dependencies=guard, responses=ERROR_RESPONSES)
+
+    # The event socket authorises itself: the bearer dependency above takes a
+    # Request and cannot run on a WebSocket handshake, and browsers cannot set
+    # an Authorization header on one either.
+    app.include_router(build_events_router())
 
     return app

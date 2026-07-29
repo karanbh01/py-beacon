@@ -43,6 +43,7 @@ docs = ["mkdocs-material", "mkdocstrings[python]"]
 dev = [
   "py-beacon[server]",   # the server tests exercise the real app
   "pytest",
+  "pytest-asyncio",      # the job registry is driven on an event loop
   "pytest-cov",
   "ruff",
   "mypy",
@@ -58,6 +59,9 @@ Source = "https://github.com/karanbh01/py-beacon"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Explicit rather than auto: an async test without the marker is far more
+# likely to be a mistake than an intention, and strict mode says so.
+asyncio_mode = "strict"
 addopts = [
   "--cov=beacon",
   "--cov-report=term-missing",

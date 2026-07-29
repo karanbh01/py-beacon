@@ -431,6 +431,27 @@ class PreviewResponse(BaseModel):
         default=0.0, description="Weight moved off capped names onto the rest.")
 
 
+class JobStatus(BaseModel):
+    """State of one background job."""
+    job_id: str
+    kind: str = Field(description="What the job is, e.g. 'backtest'.")
+    status: str = Field(
+        description="pending, running, succeeded, failed or cancelled. The "
+                    "last three are terminal.")
+    progress: float = Field(description="Fraction complete, 0.0 to 1.0.")
+    message: str = Field(default="", description="Latest progress message.")
+    result: Any = Field(
+        default=None,
+        description="Present only once the job has succeeded; null otherwise.")
+    error: str | None = Field(default=None,
+                              description="Failure reason, when status is failed.")
+
+
+class JobCollection(BaseModel):
+    """Response of `GET /jobs`."""
+    jobs: list[JobStatus]
+
+
 class DatasetCoverage(BaseModel):
     """What the loaded data actually spans, for one dataset."""
     dataset: str = Field(description="'market' or 'reference'.")
