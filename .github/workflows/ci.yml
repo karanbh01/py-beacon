@@ -28,12 +28,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # setup-python (not uv's own Python) so that `uv pip install --system`
+      # has a real system interpreter to target and the installed console
+      # scripts land on PATH on all three runners. uv is here for install speed.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
-          python-version: ${{ matrix.python-version }}
 
       - name: Install project
         run: uv pip install --system -e ".[dev]"
