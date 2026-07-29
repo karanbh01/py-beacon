@@ -1,5 +1,7 @@
 # Beacon
 
+[![CI](https://github.com/karanbh01/py-beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/karanbh01/py-beacon/actions/workflows/ci.yml)
+
 ![Beacon logo](./logo.svg)
 
 Beacon (***Be***t***a*** ***Con***structor) is a Python toolkit for end-to-end

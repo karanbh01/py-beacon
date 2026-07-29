@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "[deps]"
+
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "[deps]"
+    # Core runtime pins stay loose on purpose; these are the dev-tool versions
+    # that CI and the pre-commit hooks are expected to agree on.
+    groups:
+      dev-tooling:
+        patterns:
+          - ruff
+          - mypy
+          - pytest*
+          - pre-commit
+          - hypothesis
