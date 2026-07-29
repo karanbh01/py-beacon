@@ -9,10 +9,14 @@ process configuration.
 """
 from .coverage import build_coverage_router
 from .data import build_data_router
+from .indices import build_indices_router
+from .universes import build_universes_router
 from .watchlists import build_watchlists_router
 
 __all__ = [
     "build_coverage_router",
     "build_data_router",
+    "build_indices_router",
+    "build_universes_router",
     "build_watchlists_router",
 ]

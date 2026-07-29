@@ -21,6 +21,8 @@ from .errors import register_exception_handlers  # noqa: E402
 from .routers import (  # noqa: E402
     build_coverage_router,
     build_data_router,
+    build_indices_router,
+    build_universes_router,
     build_watchlists_router,
 )
 from .schemas import DataSourceStatus, ErrorEnvelope, HealthResponse  # noqa: E402
@@ -103,6 +105,8 @@ def create_app(config: ServerConfig) -> FastAPI:
     app.state.config = config
     app.state.auth_token = config.auth_token
     app.state.watchlist_store = DocumentStore("watchlists", root=config.storage_root)
+    app.state.universe_store = DocumentStore("universes", root=config.storage_root)
+    app.state.index_store = DocumentStore("indices", root=config.storage_root)
 
     app.add_middleware(CORSMiddleware,
                        allow_origins=list(config.cors_origins),
@@ -120,7 +124,9 @@ def create_app(config: ServerConfig) -> FastAPI:
     guard = [Depends(verify_bearer_token)]
     for router in (build_data_router(),
                    build_watchlists_router(),
-                   build_coverage_router()):
+                   build_coverage_router(),
+                   build_universes_router(),
+                   build_indices_router()):
         app.include_router(router, dependencies=guard, responses=ERROR_RESPONSES)
 
     return app

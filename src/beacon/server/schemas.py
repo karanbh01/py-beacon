@@ -254,6 +254,124 @@ class WatchlistCollection(BaseModel):
     watchlists: list[Watchlist]
 
 
+class RuleSpec(BaseModel):
+    """One rule in the pipeline, addressable by its id."""
+    id: str = Field(description="Client-assigned id, unique within the pipeline.",
+                    min_length=1)
+    type: str = Field(description="Rule class name, e.g. 'MarketCapRule'.",
+                      min_length=1)
+    params: dict[str, Any] = Field(default_factory=dict,
+                                   description="Constructor arguments for the rule.")
+
+
+class WeightingSpec(BaseModel):
+    """The weighting group of the pipeline."""
+    id: str = Field(default="weighting", description="Id used to address findings.")
+    scheme: str = Field(description="Scheme class name, e.g. 'EqualWeighted'.",
+                        min_length=1)
+    params: dict[str, Any] = Field(default_factory=dict,
+                                   description="Constructor arguments for the scheme.")
+    caps: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Weight caps. NOT IMPLEMENTED: a non-empty list is rejected "
+                    "with a finding rather than silently ignored.")
+
+
+class TreatmentSpec(BaseModel):
+    """The treatment group of the pipeline."""
+    corporate_actions: str = Field(
+        default="ADJUST_DIVISOR",
+        description="How corporate actions affect the index. Only "
+                    "ADJUST_DIVISOR is supported.")
+
+
+class PipelineSpec(BaseModel):
+    """The grouped rule pipeline: Selection, Weighting, Treatment."""
+    selection: list[RuleSpec] = Field(default_factory=list)
+    weighting: WeightingSpec
+    treatment: TreatmentSpec = Field(default_factory=TreatmentSpec)
+
+
+class UniverseRef(BaseModel):
+    """Where an index's universe comes from.
+
+    Either a reference to a stored universe or a literal list. `identifiers`
+    is always populated on read, so consumers never have to resolve it.
+    """
+    universe_id: str | None = Field(
+        default=None, description="Id of a stored universe, if referenced.")
+    identifiers: list[str] = Field(default_factory=list,
+                                   description="Resolved instrument identifiers.")
+
+
+class IndexDocument(BaseModel):
+    """A stored index definition."""
+    id: str = Field(description="Stable identifier, used in the URL.",
+                    min_length=1, max_length=64)
+    name: str = Field(description="Display name.", min_length=1)
+    base_date: str = Field(description="Base date, YYYY-MM-DD.")
+    base_value: float = Field(description="Index level on the base date.")
+    currency: str = Field(description="Index currency.", min_length=3, max_length=3)
+    rebalancing_frequency: str = Field(
+        description="MONTHLY, QUARTERLY, SEMI-ANNUAL or ANNUAL.")
+    universe: UniverseRef
+    pipeline: PipelineSpec
+    description: str | None = None
+
+
+class Finding(BaseModel):
+    """One validation result, addressable to the rule that caused it."""
+    path: str = Field(description="Dotted path to the offending field.")
+    rule_id: str | None = Field(
+        default=None, description="Id of the rule responsible, when there is one.")
+    severity: str = Field(description="'error' blocks saving; 'warning' does not.")
+    code: str = Field(description="Stable machine-readable code.")
+    message: str = Field(description="Human-readable explanation.")
+
+
+class ValidationReport(BaseModel):
+    """Response of the validation endpoint, and of a rejected save."""
+    valid: bool = Field(description="False when any finding has severity 'error'.")
+    findings: list[Finding]
+
+
+class IndexCollection(BaseModel):
+    """Response of `GET /indices`."""
+    indices: list[IndexDocument]
+
+
+class SavedIndex(BaseModel):
+    """Response of a successful save: the document plus any warnings."""
+    index: IndexDocument
+    findings: list[Finding] = Field(
+        default_factory=list,
+        description="Non-blocking warnings. Errors would have prevented the save.")
+
+
+class Universe(BaseModel):
+    """A named set of instrument identifiers."""
+    id: str = Field(description="Stable identifier.", min_length=1, max_length=64)
+    name: str = Field(description="Display name.", min_length=1)
+    identifiers: list[str] = Field(default_factory=list)
+
+
+class UniverseUpsert(BaseModel):
+    """Body of `PUT /universes/{id}`."""
+    name: str = Field(description="Display name.", min_length=1)
+    identifiers: list[str] = Field(default_factory=list)
+
+
+class UniverseCollection(BaseModel):
+    """Response of `GET /universes`."""
+    universes: list[Universe]
+
+
+class UniverseMembers(BaseModel):
+    """Response of `GET /universes/{id}/members`."""
+    universe_id: str
+    identifiers: list[str]
+
+
 class DatasetCoverage(BaseModel):
     """What the loaded data actually spans, for one dataset."""
     dataset: str = Field(description="'market' or 'reference'.")
