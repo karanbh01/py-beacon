@@ -16,17 +16,11 @@ or network access), takes the latest index level as the spot, and prices a
     python examples/futures_pricing_example.py
 """
 import logging
-import os
-import sys
 
 import pandas as pd
 
 # Keep the example output focused on the summary table.
 logging.getLogger("beacon").setLevel(logging.ERROR)
-
-# Make the example runnable from any working directory (beacon lives one level
-# up from examples/). Packaging/install is handled separately in BN-47.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted

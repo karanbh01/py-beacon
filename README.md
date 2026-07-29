@@ -73,7 +73,7 @@ Derivatives layer prices instruments off the levels an `IndexResult` produces.
 
 ## Installation
 
-Beacon targets Python 3.9+. Clone the repository and install it in editable
+Beacon targets Python 3.11+. Clone the repository and install it in editable
 mode (a virtual environment is recommended):
 
 ```bash
@@ -83,8 +83,9 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e .
 ```
 
-Core dependencies (pandas, numpy, scipy, matplotlib, seaborn,
-scikit-optimize) are installed automatically. To run the test suite:
+The distribution is named `py-beacon`; the import package is `beacon`. Core
+dependencies (pandas, numpy) are installed automatically. To run the test
+suite:
 
 ```bash
 pip install pytest

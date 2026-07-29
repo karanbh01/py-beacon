@@ -1,0 +1,458 @@
+# src/beacon/index/calculation/calculator.py
+"""
+Module for the IndexCalculator, responsible for the logic of
+constituent selection, weighting, index level calculation, and corporate action adjustments.
+"""
+import pandas as pd
+from typing import List, Dict, Tuple, Optional
+import logging
+
+from ..constructor import IndexDefinition
+from ...asset.base import Asset
+from ...asset.equity import Equity
+from ...data.fetcher import DataFetcher
+from ...exceptions import CalculationError
+from ..result import IndexResult
+from .market_values import MarketValuesMixin
+from .corporate_actions import CorporateActionsMixin
+
+logger = logging.getLogger(__name__)
+
+class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
+    """
+    Stateless index calculator. Accepts an IndexDefinition and DataFetcher,
+    and provides methods for constituent selection, weighting, index level
+    calculation, and corporate action adjustments. All state is passed
+    through method parameters and return values.
+    """
+    def __init__(self,
+                 index_definition: IndexDefinition,
+                 data_provider: DataFetcher,
+                 price_column: str = "CLOSE"):
+        """
+        Initializes the IndexCalculator.
+
+        Args:
+            index_definition: The IndexDefinition object that specifies the index rules.
+            data_provider: A DataFetcher instance to access market and asset data.
+            price_column: Market-data column read as the constituent price when
+                computing market values. Defaults to ``"CLOSE"``.
+        """
+        if not index_definition:
+            raise ValueError("index_definition must be provided.")
+        if not data_provider:
+            raise ValueError("data_provider must be provided.")
+
+        self.definition: IndexDefinition = index_definition
+        self.data: DataFetcher = data_provider
+        self.price_column: str = price_column
+
+        logger.info(f"IndexCalculator initialized for index '{self.definition.index_name}'.")
+
+
+    def _get_universe(self,
+                      date: pd.Timestamp) -> List[Asset]:
+        """Resolve universe_identifiers from the IndexDefinition into Asset objects.
+
+        Uses ``self.data.fetch_reference_data`` to look up metadata for each
+        identifier and constructs :class:`Equity` objects.  Identifiers that
+        cannot be resolved are logged as warnings and skipped.
+
+        Args:
+            date: Point-in-time date for reference data lookup.
+
+        Returns:
+            A list of Asset objects corresponding to resolvable identifiers.
+        """
+        identifiers = self.definition.universe_identifiers
+        if identifiers is None:
+            logger.warning(
+                f"universe_identifiers is None for index '{self.definition.index_name}'. "
+                "Returning empty universe."
+            )
+            return []
+
+        assets: List[Asset] = []
+        date_str = date.strftime('%Y-%m-%d')
+
+        for identifier in identifiers:
+            try:
+                ref_df = self.data.fetch_reference_data(identifier, date_str)
+                if ref_df.empty:
+                    logger.warning(f"_get_universe: No reference data for '{identifier}' on {date_str}. Skipping.")
+                    continue
+
+                row = ref_df.iloc[0]
+                asset = Equity(
+                    name=row.get("NAME", identifier),
+                    currency=row.get("CURRENCY", self.definition.currency),
+                    ticker=identifier,
+                    exchange=row.get("EXCHANGE", "UNKNOWN"),
+                )
+                assets.append(asset)
+            except Exception as e:
+                logger.warning(f"_get_universe: Failed to resolve '{identifier}': {e}. Skipping.")
+
+        logger.info(
+            f"_get_universe: Resolved {len(assets)}/{len(identifiers)} identifiers "
+            f"for '{self.definition.index_name}' on {date_str}."
+        )
+        return assets
+
+    def select_constituents(self,
+                            universe: List[Asset],
+                            current_date: pd.Timestamp) -> List[Asset]:
+        """
+        Selects index constituents from a given universe based on eligibility rules.
+
+        Args:
+            universe: A list of potential Asset objects to consider for inclusion.
+            current_date: The date for which selection is being made.
+
+        Returns:
+            A list of Asset objects that are eligible for the index.
+        """
+        logger.info(f"[{current_date.strftime('%Y-%m-%d')}] Selecting constituents for '{self.definition.index_name}'. Universe size: {len(universe)}")
+        eligible_constituents: List[Asset] = []
+        if not universe:
+            logger.warning("Constituent selection called with an empty universe.")
+            return []
+
+        for asset in universe:
+            if self._passes_all_rules(asset, current_date):
+                eligible_constituents.append(asset)
+                logger.debug(f"Asset {asset.asset_id} passed all eligibility rules.")
+
+        logger.info(f"Selected {len(eligible_constituents)} constituents for '{self.definition.index_name}'.")
+        return eligible_constituents
+
+    def _passes_all_rules(self,
+                          asset: Asset,
+                          current_date: pd.Timestamp) -> bool:
+        """Check whether ``asset`` passes every eligibility rule on ``current_date``.
+
+        Extracted from :meth:`select_constituents` to keep nesting shallow;
+        behaviour (including all log messages) is unchanged.
+        """
+        for rule in self.definition.eligibility_rules:
+            try:
+                if not rule.is_eligible(asset, current_date, self.data):
+                    logger.debug(f"Asset {asset.asset_id} failed eligibility rule: {rule.rule_name}")
+                    return False
+            except Exception as e:
+                logger.error(f"Error applying eligibility rule {rule.rule_name} to asset {asset.asset_id}: {e}")
+                return False
+        return True
+
+    def calculate_constituent_weights(self,
+                                      constituents: List[Asset],
+                                      current_date: pd.Timestamp) -> Dict[Asset, float]:
+        """
+        Calculates the weights for the given constituents based on the index's weighting scheme.
+
+        Args:
+            constituents: A list of Asset objects that are part of the index.
+            current_date: The date for which weights are calculated.
+
+        Returns:
+            A dictionary mapping each Asset to its float weight. Sum of weights should be 1.0.
+        """
+        if not constituents:
+            logger.warning(f"[{current_date.strftime('%Y-%m-%d')}] Calculating weights for an empty list of constituents for '{self.definition.index_name}'.")
+            return {}
+
+        logger.info(f"[{current_date.strftime('%Y-%m-%d')}] Calculating weights for {len(constituents)} constituents of '{self.definition.index_name}'.")
+
+        try:
+            weights = self.definition.weighting_scheme.calculate_weights(
+                constituents, current_date, self.data
+            )
+        except Exception as e:
+            logger.error(f"Error applying weighting scheme {self.definition.weighting_scheme.scheme_name}: {e}")
+            raise CalculationError(calculation_name=f"WeightingScheme-{self.definition.weighting_scheme.scheme_name}", details=str(e))
+
+        # Normalize weights to sum to 1, if not already
+        #todo: check if normalisation is needed based on the weighting scheme's output. Some schemes may guarantee this.
+        weight_sum = sum(weights.values())
+        if abs(weight_sum - 1.0) > 1e-9 and weight_sum != 0:
+            logger.warning(f"Weights from scheme {self.definition.weighting_scheme.scheme_name} sum to {weight_sum}. Normalizing.")
+            weights = {asset: w / weight_sum for asset, w in weights.items()}
+        elif weight_sum == 0 and weights:
+             logger.error(f"Calculated weights sum to zero for {len(weights)} constituents. Cannot normalize.")
+
+        logger.info(f"Weights calculated for '{self.definition.index_name}'.")
+        return weights
+
+    def initialize_divisor(self,
+                           initial_total_market_value: float) -> float:
+        """
+        Calculates the initial divisor for the index on its base_date.
+        Divisor = Initial Total Market Value / Base Index Value.
+
+        Args:
+            initial_total_market_value: The sum of (price * shares * fx_rate * free_float_if_applicable)
+                                        for all base constituents on the base_date, expressed in index currency.
+
+        Returns:
+            The initial divisor as a float.
+        """
+        if initial_total_market_value <= 0:
+            logger.error("Initial total market value must be positive to initialize divisor.")
+            raise CalculationError("DivisorInitialization", "Initial total market value is non-positive.")
+        if self.definition.base_value <= 0:
+            logger.error("Base index value must be positive to initialize divisor.")
+            raise CalculationError("DivisorInitialization", "Base index value is non-positive.")
+
+        divisor = initial_total_market_value / self.definition.base_value
+        logger.info(f"Divisor for '{self.definition.index_name}' initialized to: {divisor:.4f} "
+                    f"(Initial Market Value: {initial_total_market_value:.2f}, Base Value: {self.definition.base_value})")
+        return divisor
+
+    @staticmethod
+    def adjust_divisor_for_rebalance(old_divisor: float,
+                                     old_market_value: float,
+                                     new_market_value: float) -> float:
+        """Adjust the divisor to maintain index level continuity across a rebalance.
+
+        When index composition or weights change, the total market value shifts.
+        To prevent an artificial jump in the index level the divisor is scaled:
+
+            new_divisor = old_divisor * (new_market_value / old_market_value)
+
+        This guarantees: level_before == level_after.
+
+        Args:
+            old_divisor: The divisor in effect before the rebalance.
+            old_market_value: Aggregate market value under the **old** composition.
+            new_market_value: Aggregate market value under the **new** composition.
+
+        Returns:
+            The adjusted divisor.
+
+        Raises:
+            ValueError: If *old_divisor*, *old_market_value* or *new_market_value*
+                is zero or negative.
+        """
+        if old_divisor <= 0:
+            raise ValueError(f"old_divisor must be positive, got {old_divisor}")
+        if old_market_value <= 0:
+            raise ValueError(f"old_market_value must be positive, got {old_market_value}")
+        if new_market_value <= 0:
+            raise ValueError(f"new_market_value must be positive, got {new_market_value}")
+
+        new_divisor = old_divisor * (new_market_value / old_market_value)
+
+        logger.info(
+            f"Divisor adjusted for rebalance: {old_divisor:.6f} -> {new_divisor:.6f} "
+            f"(old_mv={old_market_value:.2f}, new_mv={new_market_value:.2f})"
+        )
+        return new_divisor
+
+    #todo: run() is currently iterating through all dates, this function should be vectorised for efficiency.
+    def run(self,
+            start_date: Optional[str] = None,
+            end_date: Optional[str] = None) -> IndexResult:
+        """Run the full index calculation over a date range.
+
+        Iterates through business days from *start_date* to *end_date*,
+        handling three day types:
+
+        1. **Base date** – resolve universe, select constituents, compute
+           weights, initialise divisor, set level = base_value.
+        2. **Rebalance date** – reconstitute (re-resolve universe, re-select,
+           re-weight) and adjust divisor for continuity.
+        3. **Regular day** – compute index level using current constituents
+           and weights.
+
+        The method is idempotent: it carries no state between calls.
+
+        Args:
+            start_date: First calculation date (YYYY-MM-DD).  Defaults to
+                ``definition.base_date``.
+            end_date: Last calculation date (YYYY-MM-DD).  Required.
+
+        Returns:
+            An :class:`IndexResult` containing index levels, divisor history,
+            constituent snapshots and weight snapshots.
+
+        Raises:
+            ValueError: If *end_date* is not provided or precedes the base date.
+        """
+        base_date = self.definition.base_date
+        pd_start = pd.Timestamp(start_date) if start_date else base_date
+        if end_date is None:
+            raise ValueError("end_date must be provided.")
+        pd_end = pd.Timestamp(end_date)
+
+        if pd_end < base_date:
+            raise ValueError(
+                f"end_date ({pd_end.strftime('%Y-%m-%d')}) precedes "
+                f"base_date ({base_date.strftime('%Y-%m-%d')})."
+            )
+
+        # Ensure start is not before base_date
+        if pd_start < base_date:
+            pd_start = base_date
+
+        trading_days = pd.bdate_range(start=pd_start, end=pd_end)
+        if trading_days.empty:
+            logger.warning("No trading days in the requested range.")
+            return IndexResult(
+                index_id=self.definition.index_id,
+                index_levels=pd.Series(dtype=float),
+                divisor_history=pd.Series(dtype=float),
+                constituent_snapshots={},
+                weight_snapshots={},
+            )
+
+        # Pre-compute rebalance dates (excluding base date which is handled separately)
+        rebalance_dates_list = self.definition.get_rebalance_dates(
+            pd_start.strftime('%Y-%m-%d'),
+            pd_end.strftime('%Y-%m-%d'),
+        )
+        rebalance_dates = set(rebalance_dates_list)
+        rebalance_dates.discard(base_date)
+
+        # Accumulators
+        index_levels: Dict[pd.Timestamp, float] = {}
+        divisor_values: Dict[pd.Timestamp, float] = {}
+        constituent_snapshots: Dict[pd.Timestamp, List[str]] = {}
+        weight_snapshots: Dict[pd.Timestamp, Dict[str, float]] = {}
+
+        # Running state
+        constituents: List[Asset] = []
+        weights: Dict[Asset, float] = {}
+        divisor: float = 0.0
+        level: float = self.definition.base_value
+
+        for date in trading_days:
+            if date == base_date:
+                # --- Base date initialisation ---
+                constituents_raw = self._get_universe(date)
+                constituents = self.select_constituents(constituents_raw, date)
+                weights = self.calculate_constituent_weights(constituents, date)
+
+                mv_map = self._get_constituent_market_values(weights, date)
+                total_mv = sum(mv_map.values())
+                if total_mv > 0:
+                    divisor = self.initialize_divisor(total_mv)
+                else:
+                    logger.warning(
+                        f"Zero market value on base date {date.strftime('%Y-%m-%d')}. "
+                        "Setting divisor to 1.0."
+                    )
+                    divisor = 1.0
+
+                level = self.definition.base_value
+
+                # Record snapshots
+                constituent_snapshots[date] = [a.asset_id for a in constituents]
+                weight_snapshots[date] = {a.asset_id: w for a, w in weights.items()}
+
+            elif date in rebalance_dates:
+                # --- Rebalance date ---
+                # Capture pre-rebalance market value for divisor adjustment
+                old_mv_map = self._get_constituent_market_values(weights, date)
+                old_total_mv = sum(old_mv_map.values())
+
+                # Reconstitute
+                constituents_raw = self._get_universe(date)
+                constituents = self.select_constituents(constituents_raw, date)
+                weights = self.calculate_constituent_weights(constituents, date)
+
+                # New market value under new composition
+                new_mv_map = self._get_constituent_market_values(weights, date)
+                new_total_mv = sum(new_mv_map.values())
+
+                # Adjust divisor for continuity
+                if old_total_mv > 0 and new_total_mv > 0:
+                    divisor = self.adjust_divisor_for_rebalance(
+                        divisor, old_total_mv, new_total_mv
+                    )
+                elif new_total_mv > 0:
+                    divisor = new_total_mv / level if level > 0 else 1.0
+
+                # Compute level with adjusted divisor
+                level = new_total_mv / divisor if divisor > 0 else level
+
+                # Record snapshots
+                constituent_snapshots[date] = [a.asset_id for a in constituents]
+                weight_snapshots[date] = {a.asset_id: w for a, w in weights.items()}
+
+            else:
+                # --- Regular trading day ---
+                if not constituents or divisor <= 0:
+                    # Before base date initialisation or no constituents
+                    pass
+                else:
+                    level, divisor = self.calculate_index_level(
+                        current_date=date,
+                        constituents=constituents,
+                        weights=weights,
+                        divisor=divisor,
+                        previous_index_level=level,
+                    )
+
+            index_levels[date] = level
+            divisor_values[date] = divisor
+
+        logger.info(
+            f"run() completed for '{self.definition.index_name}': "
+            f"{len(trading_days)} trading days, "
+            f"{len(constituent_snapshots)} rebalance(s)."
+        )
+
+        return IndexResult(
+            index_id=self.definition.index_id,
+            index_levels=pd.Series(index_levels),
+            divisor_history=pd.Series(divisor_values),
+            constituent_snapshots=constituent_snapshots,
+            weight_snapshots=weight_snapshots,
+        ).with_data(self.data)
+
+    def run_daily_calculation(self,
+                              current_date: pd.Timestamp,
+                              constituents: List[Asset],
+                              weights: Dict[Asset, float],
+                              previous_index_level: float,
+                              previous_divisor: float) -> Tuple[float, float]:
+        """
+        Runs a single day's index calculation process.
+
+        Args:
+            current_date: The date for which to perform calculations.
+            constituents: Current index constituents.
+            weights: Current constituent weights.
+            previous_index_level: Index level from the previous period.
+            previous_divisor: Divisor from the previous period.
+
+        Returns:
+            Tuple of (new_index_level, new_divisor).
+        """
+        divisor = previous_divisor
+
+        if divisor is None or divisor <= 0:
+            if current_date == self.definition.base_date:
+                if not constituents:
+                    raise ValueError("Base date calculation: Constituents not provided. Cannot initialize divisor.")
+                base_day_values = self._get_constituent_market_values(
+                    constituents_with_weights={asset: 0 for asset in constituents},
+                    current_date=current_date
+                )
+                initial_mv = sum(base_day_values.values())
+                if initial_mv > 0:
+                    divisor = self.initialize_divisor(initial_mv)
+                else:
+                    raise ValueError(f"Cannot initialize divisor on base date {current_date} due to zero or negative market value.")
+            else:
+                raise ValueError("Divisor not initialized for index calculation.")
+
+        new_level, final_divisor = self.calculate_index_level(
+            current_date=current_date,
+            constituents=constituents,
+            weights=weights,
+            divisor=divisor,
+            previous_index_level=previous_index_level,
+        )
+
+        return new_level, final_divisor

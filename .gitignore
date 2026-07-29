@@ -59,7 +59,8 @@ docs/_build/
 .roo/
 /.roomodes
 /.rooignore
-.claude/ 
+.claude/
+CLAUDE.md
 
 planning/
 testing/
