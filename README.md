@@ -108,6 +108,17 @@ pip install -e ".[dev]"
 pytest
 ```
 
+Contributors should also install the git hooks once per clone:
+
+```bash
+pre-commit install                        # lint + whitespace checks on commit
+pre-commit install --hook-type pre-push   # strict type check on push
+```
+
+`ruff check` and `mypy` are the enforced gates. Code formatting is not
+tool-enforced — signature layout follows a reviewed convention rather than a
+formatter, so `ruff format` is deliberately not part of the hook set.
+
 ## Quickstart
 
 Define an index, calculate it, backtest a portfolio that tracks it, and view

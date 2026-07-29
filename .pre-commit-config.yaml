@@ -1,0 +1,35 @@
+# Run `pre-commit install && pre-commit install --hook-type pre-push` once per
+# clone. `ruff-format` is deliberately absent: it cannot produce the signature
+# style CLAUDE.md mandates and would revert BN-53 (decided in BN-56). Lint and
+# type checks are the enforced gates; signature layout stays a reviewed
+# convention.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-toml
+      - id: check-yaml
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Keep in step with the ruff pin in the dev extra so local runs and CI agree.
+    rev: v0.16.0
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+
+  # mypy runs from the project environment rather than an isolated one: it needs
+  # the [tool.mypy] settings in pyproject (which scope it to src/beacon), so
+  # filenames are not passed through. Push stage only — it is too slow per commit.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (strict, src/beacon)
+        entry: mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
