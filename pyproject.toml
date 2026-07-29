@@ -112,9 +112,16 @@ ignore = [
 known-first-party = ["beacon"]
 
 [tool.mypy]
-python_version = "3.11"
 files = ["src/beacon"]
 strict = true
+
+# python_version is deliberately NOT pinned. Pinning it to 3.11 also forces
+# mypy to parse third-party stubs as 3.11, and numpy's __init__.pyi uses PEP
+# 695 `type` statements, so every 3.12/3.13 CI cell died on a syntax error in
+# numpy rather than on anything in this codebase. Unpinned, mypy targets the
+# interpreter it runs under, and the 3.11 matrix cell still checks this code
+# as 3.11. Ruff's target-version = "py311" is what keeps the source itself
+# free of 3.12-only syntax.
 
 # pandas is treated as untyped rather than depending on pandas-stubs: those
 # stubs model Series/DataFrame arithmetic far more tightly than pandas actually
