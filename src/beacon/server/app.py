@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from .errors import register_exception_handlers  # noqa: E402
+from .routers import build_data_router  # noqa: E402
 from .schemas import DataSourceStatus, ErrorEnvelope, HealthResponse  # noqa: E402
 from .security import verify_bearer_token  # noqa: E402
 
@@ -104,6 +105,13 @@ def create_app(config: ServerConfig) -> FastAPI:
                        allow_headers=["*"])
 
     register_exception_handlers(app)
+
     app.include_router(build_router())
+
+    # Auth and the documented error responses are applied at mount time, so a
+    # router cannot end up unauthenticated by forgetting to declare them.
+    app.include_router(build_data_router(),
+                       dependencies=[Depends(verify_bearer_token)],
+                       responses=ERROR_RESPONSES)
 
     return app

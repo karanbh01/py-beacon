@@ -188,6 +188,47 @@ class BacktestResultSummary(BaseModel):
                    metrics=metrics)
 
 
+class PricesResponse(BaseModel):
+    """Response of `GET /data/prices/{identifier}`."""
+    identifier: str
+    interval: str = Field(
+        description="Resolution actually served: 'native', 'weekly' or 'monthly'.")
+    prices: TableFrame = Field(description="Date-indexed market data.")
+
+    @classmethod
+    def from_frame(cls,
+                   identifier: str,
+                   interval: str,
+                   frame: pd.DataFrame) -> "PricesResponse":
+        """Build from a date-indexed market-data frame."""
+        return cls(identifier=identifier,
+                   interval=interval,
+                   prices=TableFrame.from_dataframe(frame))
+
+
+class ReferenceResponse(BaseModel):
+    """Response of `GET /data/reference/{identifier}`.
+
+    Fields are whatever columns the loaded reference data carries — the
+    library does not impose a schema on it — so they are returned as a
+    mapping rather than as named attributes.
+    """
+    identifier: str
+    fields: dict[str, Any] = Field(
+        description="Reference columns for this identifier, e.g. NAME, "
+                    "CURRENCY, EXCHANGE. Timestamps are ISO 8601 strings.")
+
+    @classmethod
+    def from_row(cls,
+                 identifier: str,
+                 row: pd.Series) -> "ReferenceResponse":
+        """Build from a single reference-data row."""
+        payload = series_to_payload(row)
+        fields = dict(zip(payload["index"], payload["data"], strict=True))
+
+        return cls(identifier=identifier, fields=fields)
+
+
 class ErrorDetail(BaseModel):
     """The body of an error envelope."""
     code: str = Field(
