@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build and draft release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      # A tag that disagrees with __version__ would publish artifacts whose
+      # filenames contradict the release title. Fail before building.
+      - name: Verify the tag matches __version__
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+          import sys
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          source = pathlib.Path("src/beacon/__init__.py").read_text(encoding="utf-8")
+          match = re.search(r'^__version__ = "([^"]+)"', source, re.MULTILINE)
+          if match is None:
+              sys.exit("could not find __version__ in src/beacon/__init__.py")
+
+          version = match.group(1)
+          if tag != f"v{version}":
+              sys.exit(f"tag {tag} does not match __version__ {version} (expected v{version})")
+
+          print(f"tag {tag} matches __version__ {version}")
+          PY
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      - name: Check metadata
+        run: uvx twine check dist/*
+
+      - name: Verify the wheel installs and imports
+        run: |
+          uv venv /tmp/smoke
+          uv pip install --python /tmp/smoke/bin/python dist/*.whl
+          /tmp/smoke/bin/python -c "import beacon; print(beacon.__version__)"
+
+      # Pulls this version's section out of CHANGELOG.md (Keep a Changelog
+      # format). CHANGELOG.md arrives with BN-62; until then, and for any tag
+      # with no matching section, this writes nothing and the release falls
+      # back to GitHub's generated notes.
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          version = tag.removeprefix("v")
+          changelog = pathlib.Path("CHANGELOG.md")
+          notes = pathlib.Path("release-notes.md")
+
+          if not changelog.exists():
+              print("no CHANGELOG.md; falling back to generated notes")
+              raise SystemExit(0)
+
+          text = changelog.read_text(encoding="utf-8")
+          pattern = rf"^## \[?{re.escape(version)}\]?.*?$(.*?)(?=^## |\Z)"
+          match = re.search(pattern, text, re.MULTILINE | re.DOTALL)
+
+          if match is None or not match.group(1).strip():
+              print(f"no section for {version} in CHANGELOG.md; falling back to generated notes")
+              raise SystemExit(0)
+
+          notes.write_text(match.group(1).strip() + "\n", encoding="utf-8")
+          print(f"extracted {len(match.group(1).strip().splitlines())} lines for {version}")
+          PY
+
+          if [ -f release-notes.md ]; then
+            echo "have_notes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_notes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: ${{ github.ref_name }}
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+          body_path: ${{ steps.changelog.outputs.have_notes == 'true' && 'release-notes.md' || '' }}
+          generate_release_notes: ${{ steps.changelog.outputs.have_notes != 'true' }}
+          fail_on_unmatched_files: true
+
+  # PyPI trusted publishing is intentionally NOT enabled while this repository
+  # is private: publishing would make the package public regardless. Release
+  # artifacts on the GitHub Release are the distribution channel for now.
+  #
+  # To turn it on: register the publisher at
+  # https://pypi.org/manage/account/publishing/ for repo karanbh01/py-beacon,
+  # workflow release.yml, environment pypi. Then delete the `if: false` below,
+  # so the job runs once the draft release above is published.
+  publish:
+    name: publish to PyPI (disabled)
+    needs: release
+    if: false
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Build
+        run: uv build
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
