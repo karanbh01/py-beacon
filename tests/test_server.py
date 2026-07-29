@@ -8,10 +8,31 @@ import time
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
+from beacon.backtest.result import BacktestResult
 from beacon.data.base import MarketData
 from beacon.data.fetcher import DataFetcher
-from beacon.server import ServerConfig, create_app, dataframe_to_payload, series_to_payload
+from beacon.exceptions import (
+    BeaconError,
+    CalculationError,
+    ConfigurationError,
+    DataNotFoundError,
+    InvalidRuleError,
+    MissingDependencyError,
+)
+from beacon.index.result import IndexResult
+from beacon.portfolio.base import Transaction
+from beacon.server import (
+    BacktestResultSummary,
+    IndexResultSummary,
+    Money,
+    ServerConfig,
+    classify,
+    create_app,
+    dataframe_to_payload,
+    series_to_payload,
+)
 from beacon.server.__main__ import PORT_ANNOUNCEMENT, bind_socket, build_parser, main
 from beacon.server.config import TOKEN_ENV_VAR
 
@@ -258,6 +279,156 @@ class TestLauncher:
 
         assert main([]) == 2
         assert "No auth token supplied" in capsys.readouterr().err
+
+
+class TestErrorEnvelope:
+    """Every non-2xx response carries {error: {code, message, detail}}."""
+
+    def test_auth_failure_uses_the_envelope(self,
+                                            client):
+        body = client.get("/health").json()
+
+        assert body["error"]["code"] == "UNAUTHORIZED"
+        assert "token" in body["error"]["message"].lower()
+
+    def test_unknown_route_uses_the_envelope(self,
+                                             client):
+        body = client.get("/does-not-exist", headers=auth()).json()
+
+        assert body["error"]["code"] == "NOT_FOUND"
+
+    @pytest.mark.parametrize(
+        ("exception", "expected_status", "expected_code"),
+        [
+            (DataNotFoundError("prices for AAA"), 404, "DATA_NOT_FOUND"),
+            (InvalidRuleError("MarketCapRule", "threshold is negative"), 422, "INVALID_RULE"),
+            (CalculationError("IndexLevel", "divisor is zero"), 500, "CALCULATION_ERROR"),
+            (ConfigurationError("base_value", "must be positive"), 500, "CONFIGURATION_ERROR"),
+            (MissingDependencyError("scipy", "Optimisation", "optimise"), 503,
+             "MISSING_DEPENDENCY"),
+        ])
+    def test_library_errors_map_to_stable_codes(self,
+                                                exception,
+                                                expected_status,
+                                                expected_code):
+        """A forced library error surfaces as the envelope with its code."""
+        config = ServerConfig(auth_token=TOKEN)
+        app = create_app(config)
+
+        @app.get("/boom")
+        def boom() -> None:
+            raise exception
+
+        response = TestClient(app, raise_server_exceptions=False).get(
+            "/boom", headers=auth())
+
+        assert response.status_code == expected_status
+        assert response.json()["error"]["code"] == expected_code
+
+    def test_envelope_carries_structured_detail(self):
+        """Exception attributes reach the client without parsing prose."""
+        config = ServerConfig(auth_token=TOKEN)
+        app = create_app(config)
+
+        @app.get("/boom")
+        def boom() -> None:
+            raise DataNotFoundError("prices for AAA", source="MarketData")
+
+        body = TestClient(app, raise_server_exceptions=False).get(
+            "/boom", headers=auth()).json()
+
+        assert body["error"]["detail"]["data_description"] == "prices for AAA"
+        assert body["error"]["detail"]["source"] == "MarketData"
+
+    def test_unregistered_beacon_subclass_falls_back(self):
+        """A future BeaconError subclass must not escape as an unlabelled 500."""
+
+        class FutureError(BeaconError):
+            pass
+
+        assert classify(FutureError("something new")) == (500, "BEACON_ERROR")
+
+    def test_specific_mapping_beats_the_catch_all(self):
+        assert classify(DataNotFoundError("x"))[1] == "DATA_NOT_FOUND"
+
+
+class TestOpenApi:
+
+    def test_schema_generates(self,
+                              client):
+        schema = client.app.openapi()
+
+        assert schema["info"]["title"] == "Beacon API"
+        assert "/health" in schema["paths"]
+
+    def test_health_declares_its_response_model(self,
+                                                client):
+        schema = client.app.openapi()
+        health = schema["paths"]["/health"]["get"]["responses"]
+
+        assert "200" in health
+        assert "HealthResponse" in schema["components"]["schemas"]
+
+    def test_error_envelope_is_documented_on_every_route(self,
+                                                         client):
+        schema = client.app.openapi()
+        responses = schema["paths"]["/health"]["get"]["responses"]
+
+        for code in ("401", "404", "422", "500", "503"):
+            assert code in responses, f"{code} missing from the documented responses"
+        assert "ErrorEnvelope" in schema["components"]["schemas"]
+
+
+class TestResultSchemas:
+    """Result objects are mapped explicitly; dataclasses never cross the wire."""
+
+    def test_index_result_round_trips(self):
+        levels = pd.Series([1000.0, 1010.0], index=DATES[:2])
+        divisors = pd.Series([10.0, 10.0], index=DATES[:2])
+        rebalance = DATES[0]
+        result = IndexResult(index_id="DEMO",
+                             index_levels=levels,
+                             divisor_history=divisors,
+                             constituent_snapshots={rebalance: ["AAA", "BBB"]},
+                             weight_snapshots={rebalance: {"AAA": 0.6, "BBB": 0.4}})
+
+        payload = IndexResultSummary.from_result(result).model_dump()
+
+        assert payload["index_id"] == "DEMO"
+        assert payload["index_levels"]["data"] == [1000.0, 1010.0]
+        assert payload["rebalance_dates"] == [rebalance.isoformat()]
+        assert payload["weight_snapshots"][rebalance.isoformat()] == {"AAA": 0.6, "BBB": 0.4}
+
+    def test_backtest_result_round_trips(self):
+        nav = pd.Series([1000.0, 1100.0], index=DATES[:2])
+        cash = pd.Series([1000.0, 0.0], index=DATES[:2])
+        transaction = Transaction(asset_id="AAA",
+                                  quantity=10.0,
+                                  price=100.0,
+                                  transaction_type="BUY",
+                                  transaction_date=DATES[0],
+                                  transaction_cost=1.0)
+        result = BacktestResult(portfolio_id="bt",
+                                initial_capital=1000.0,
+                                portfolio_nav=nav,
+                                cash_history=cash,
+                                transactions=[transaction],
+                                actual_weight_history=pd.DataFrame())
+
+        payload = BacktestResultSummary.from_result(result).model_dump()
+
+        assert payload["portfolio_id"] == "bt"
+        assert payload["transactions"]["columns"] == [
+            "date", "asset_id", "type", "quantity", "price", "cost"]
+        assert payload["transactions"]["data"][0][1] == "AAA"
+        assert payload["metrics"]["total_return"] == pytest.approx(0.1)
+        assert payload["metrics"]["tracking_error"] is None
+
+    def test_money_requires_a_currency_code(self):
+        assert Money(value=1.5, currency="USD").currency == "USD"
+
+        with pytest.raises(ValidationError):
+            Money(value=1.5, currency="DOLLARS")
 
 
 class TestOptionalDependencyGuard:

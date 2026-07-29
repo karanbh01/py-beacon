@@ -17,19 +17,32 @@ require("fastapi", "The Beacon API server")
 from fastapi import APIRouter, Depends, FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
+from .errors import register_exception_handlers  # noqa: E402
+from .schemas import DataSourceStatus, ErrorEnvelope, HealthResponse  # noqa: E402
 from .security import verify_bearer_token  # noqa: E402
 
+# Applied to every route, so the envelope shows up in the generated OpenAPI
+# rather than only at runtime.
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    401: {"model": ErrorEnvelope, "description": "Missing or invalid bearer token."},
+    404: {"model": ErrorEnvelope, "description": "Requested data does not exist."},
+    422: {"model": ErrorEnvelope, "description": "Request or rule failed validation."},
+    500: {"model": ErrorEnvelope, "description": "Library error during processing."},
+    503: {"model": ErrorEnvelope, "description": "A required optional dependency is absent."},
+}
 
-def _describe_data_source(config: ServerConfig) -> dict[str, Any]:
+
+def _describe_data_source(config: ServerConfig) -> DataSourceStatus:
     """Summarise the configured data source for /health.
 
-    Returns a shape that is the same whether or not a source is present, so
-    the client can read it without branching on null.
+    Returns the same shape whether or not a source is present, so the client
+    can read it without branching on null.
     """
     if config.data_fetcher is None:
-        return {"configured": False, "identifiers": 0}
+        return DataSourceStatus(configured=False, identifiers=0)
 
-    return {"configured": True, "identifiers": len(config.data_fetcher.identifiers)}
+    return DataSourceStatus(configured=True,
+                            identifiers=len(config.data_fetcher.identifiers))
 
 
 def build_router() -> APIRouter:
@@ -38,22 +51,22 @@ def build_router() -> APIRouter:
     Returns:
         APIRouter: Router with /health, guarded by the bearer dependency.
     """
-    router = APIRouter(dependencies=[Depends(verify_bearer_token)])
+    router = APIRouter(dependencies=[Depends(verify_bearer_token)],
+                       responses=ERROR_RESPONSES)
 
-    @router.get("/health")
-    def health(request: Request) -> dict[str, Any]:
+    @router.get("/health", response_model=HealthResponse)
+    def health(request: Request) -> HealthResponse:
         config: ServerConfig = request.app.state.config
 
-        return {
-            "status": "ok",
-            "version": __version__,
-            "data_source": _describe_data_source(config),
+        return HealthResponse(
+            status="ok",
+            version=__version__,
+            data_source=_describe_data_source(config),
             # Always null: DataFetcher reads straight from in-memory
             # MarketData/ReferenceData and caches nothing, so there is no age
             # to report. The field is present because the client's contract
             # expects it, and it becomes meaningful if caching is added.
-            "cache_age": None,
-        }
+            cache_age=None)
 
     return router
 
@@ -90,6 +103,7 @@ def create_app(config: ServerConfig) -> FastAPI:
                        allow_methods=["*"],
                        allow_headers=["*"])
 
+    register_exception_handlers(app)
     app.include_router(build_router())
 
     return app
