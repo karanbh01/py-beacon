@@ -35,6 +35,7 @@ dependencies = ["pandas", "numpy", "pydantic>=2"]
 [project.optional-dependencies]
 data = ["yfinance"]
 excel = ["openpyxl"]
+pdf = ["reportlab"]
 optimise = ["scipy"]
 plot = ["matplotlib"]
 plot-interactive = ["plotly"]         # placeholder extra; backend lands in BN-83
@@ -43,6 +44,7 @@ docs = ["mkdocs-material", "mkdocstrings[python]"]
 dev = [
   "py-beacon[server]",   # the server tests exercise the real app
   "py-beacon[optimise]", # and the optimiser tests solve real problems
+  "py-beacon[pdf]",      # and the report tests render real documents
   "pytest",
   "pytest-asyncio",      # the job registry is driven on an event loop
   "pytest-cov",
@@ -153,6 +155,13 @@ ignore_missing_imports = true
 # result through named locals with explicit casts at the boundary.
 [[tool.mypy.overrides]]
 module = ["scipy.*"]
+ignore_missing_imports = true
+
+# reportlab ships no type information at all and has no stub package worth
+# depending on. The renderer confines it to one module and reads nothing back
+# out of it, so untyped here costs very little.
+[[tool.mypy.overrides]]
+module = ["reportlab.*"]
 ignore_missing_imports = true
 
 [tool.hatch.version]
