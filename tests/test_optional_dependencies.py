@@ -98,6 +98,7 @@ CORE_MODULES = [
     "beacon.fund",
     "beacon.index",
     "beacon.portfolio",
+    "beacon.testing",
     "beacon.tokens",
 ]
 

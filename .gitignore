@@ -65,5 +65,8 @@ site/
 .claude/
 CLAUDE.md
 
-planning/
-testing/
+/planning/
+# Anchored to the repository root. Unanchored, `testing/` also matched
+# src/beacon/testing — the shipped fixture dataset — and silently kept it out
+# of a commit whose tests import it.
+/testing/
