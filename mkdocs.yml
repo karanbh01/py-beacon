@@ -69,6 +69,7 @@ nav:
       - Risk Model: concepts/risk-model.md
   - Decisions:
       - Design tokens: decisions/0001-design-token-source-of-truth.md
+      - Caching and data freshness: decisions/0002-caching-and-data-freshness.md
   - Reference:
       - Index: reference/index.md
       - Backtest: reference/backtest.md

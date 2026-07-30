@@ -297,12 +297,35 @@ class TestCoverage:
         assert reference["configured"] is True
         assert reference["identifiers"] == 2
 
-    def test_cache_age_is_null(self,
+    def test_cache_age_is_real(self,
                                client):
-        """No cache exists, so no age is reported rather than a fabricated one."""
+        """BN-66's criterion, amended by BN-99 rather than dropped.
+
+        It used to assert null, correctly: nothing tracked when data was
+        loaded. It is tracked now, so a loaded dataset reports a real age.
+        """
         datasets = client.get("/data/coverage", headers=auth()).json()["datasets"]
 
-        assert all(d["cache_age"] is None for d in datasets)
+        for dataset in datasets:
+            assert dataset["cache_age"] is not None
+            assert dataset["cache_age"] >= 0.0
+            assert dataset["last_refreshed"] is not None
+
+    def test_cache_age_is_null_when_a_dataset_is_absent(self,
+                                                        tmp_path):
+        """Not loaded is a different statement from loaded and never refreshed."""
+        market = MarketData.from_dataframe(pd.DataFrame({
+            "IDENTIFIER": ["AAA"], "DATE": ["2024-01-01"], "CLOSE": [1.0]}))
+        config = ServerConfig(auth_token=TOKEN,
+                              data_fetcher=DataFetcher(market),
+                              storage_root=tmp_path)
+        client = TestClient(create_app(config))
+
+        datasets = client.get("/data/coverage", headers=auth()).json()["datasets"]
+        reference = next(d for d in datasets if d["dataset"] == "reference")
+
+        assert reference["cache_age"] is None
+        assert reference["last_refreshed"] is None
 
     def test_without_a_data_source(self,
                                    tmp_path):

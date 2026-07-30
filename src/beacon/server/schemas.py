@@ -77,8 +77,9 @@ class HealthResponse(BaseModel):
     data_source: DataSourceStatus
     cache_age: float | None = Field(
         default=None,
-        description="Seconds since the data cache was refreshed. Always null: "
-                    "DataFetcher reads from memory and caches nothing today.")
+        description="Seconds since the market data was last loaded or synced. "
+                    "Null only when no data source is configured — there is "
+                    "then nothing whose age could be reported.")
 
 
 class IndexResultSummary(BaseModel):
@@ -611,9 +612,15 @@ class DatasetCoverage(BaseModel):
     end: str | None = Field(default=None, description="Latest date held, ISO 8601.")
     cache_age: float | None = Field(
         default=None,
-        description="Seconds since this dataset was refreshed. Always null: "
-                    "data is loaded into memory once and never cached, so "
-                    "there is no refresh time to measure.")
+        description="Seconds since this dataset was last loaded or synced. "
+                    "Null when the dataset is not loaded at all, which is a "
+                    "different statement from 'loaded and never refreshed'.")
+    last_refreshed: str | None = Field(
+        default=None,
+        description="When this dataset was last loaded or synced, ISO 8601. "
+                    "Carried alongside the age because an age is only "
+                    "meaningful at the instant it was read, and a client "
+                    "holding a response for a minute needs the timestamp.")
 
 
 class CoverageResponse(BaseModel):

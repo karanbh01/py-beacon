@@ -2,8 +2,11 @@
 """
 Data-coverage reporting and the sync job.
 
-Coverage reports what is genuinely knowable about each dataset: whether it is
-loaded, how many identifiers it holds, and the span of dates it covers.
+Coverage reports whether each dataset is loaded, how many identifiers it holds,
+the span of dates it covers, and — since BN-99 — when it was last refreshed. A
+null age means the dataset is not loaded at all, which is a different statement
+from "loaded and never refreshed"; see
+`docs/decisions/0002-caching-and-data-freshness.md`.
 
 `POST /{dataset}/sync` returned 501 until BN-100 gave the library an ingestion
 path. It is a job now: fetching several hundred identifiers over a network is
@@ -39,6 +42,20 @@ REFERENCE = "reference"
 DATASETS = (MARKET, REFERENCE)
 
 
+def _freshness(fetcher: DataFetcher,
+               dataset: str) -> dict[str, Any]:
+    """Age and timestamp for one dataset.
+
+    Both, not just the age: an age is only true at the instant it was read, and
+    a client holding a response for a minute needs the timestamp to work out
+    what it now has.
+    """
+    stamped = fetcher.last_refreshed(dataset)
+
+    return {"cache_age": fetcher.age_seconds(dataset),
+            "last_refreshed": stamped.isoformat() if stamped else None}
+
+
 def _market_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
     """Describe the market dataset."""
     if fetcher is None:
@@ -46,7 +63,8 @@ def _market_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
 
     identifiers = fetcher.identifiers
     if not identifiers:
-        return DatasetCoverage(dataset=MARKET, configured=True, identifiers=0)
+        return DatasetCoverage(dataset=MARKET, configured=True, identifiers=0,
+                               **_freshness(fetcher, MARKET))
 
     start, end = fetcher.date_range
 
@@ -54,7 +72,8 @@ def _market_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
                            configured=True,
                            identifiers=len(identifiers),
                            start=start.isoformat(),
-                           end=end.isoformat())
+                           end=end.isoformat(),
+                           **_freshness(fetcher, MARKET))
 
 
 def _reference_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
@@ -68,7 +87,8 @@ def _reference_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
 
     return DatasetCoverage(dataset=REFERENCE,
                            configured=True,
-                           identifiers=len(fetcher.reference_identifiers))
+                           identifiers=len(fetcher.reference_identifiers),
+                           **_freshness(fetcher, REFERENCE))
 
 
 def build_coverage_router() -> APIRouter:

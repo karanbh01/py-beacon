@@ -5,10 +5,18 @@ Accepts single identifiers or lists and passes through column names as-is.
 """
 
 
+from datetime import UTC, datetime
+
 import pandas as pd
 
 from .base import MarketData, ReferenceData
 from .corporate_actions import CorporateActions
+
+# The two datasets a fetcher can report freshness for. Named here so the server
+# and the fetcher cannot drift apart on the spelling.
+MARKET_DATASET = "market"
+REFERENCE_DATASET = "reference"
+DATASETS = (MARKET_DATASET, REFERENCE_DATASET)
 
 # The classification column read when none is named. Sector is the one every
 # reference dataset carries and the one group constraints are usually built on.
@@ -38,6 +46,17 @@ class DataFetcher:
         self._reference = reference_data
         self._actions = (corporate_actions if corporate_actions is not None
                          else CorporateActions.empty())
+
+        # Loading is a refresh. Stamping construction rather than leaving this
+        # empty is what makes an age meaningful from the first request: a
+        # freshly started server holds data that is genuinely seconds old, and
+        # reporting "unknown" until someone happens to sync would be less true,
+        # not more careful.
+        now = datetime.now(UTC)
+        self._refreshed: dict[str, datetime | None] = {
+            MARKET_DATASET: now,
+            REFERENCE_DATASET: now if reference_data is not None else None,
+        }
 
     # -- properties ----------------------------------------------------------
 
@@ -76,6 +95,66 @@ class DataFetcher:
         """The action history. Empty rather than None when none was loaded."""
         return self._actions
 
+    # -- freshness -----------------------------------------------------------
+
+    def record_refresh(self,
+                       dataset: str,
+                       when: datetime | None = None) -> None:
+        """Note that a dataset has just been refreshed.
+
+        Args:
+            dataset: MARKET_DATASET or REFERENCE_DATASET.
+            when: The moment. None uses now, which is what a real sync wants;
+                tests pass an explicit time so an age can be asserted rather
+                than approximated.
+
+        Raises:
+            ValueError: If the dataset is not one this fetcher holds.
+        """
+        if dataset not in DATASETS:
+            raise ValueError(
+                f"unknown dataset '{dataset}'. Known: {', '.join(DATASETS)}.")
+
+        self._refreshed[dataset] = when if when is not None else datetime.now(UTC)
+
+    def last_refreshed(self,
+                       dataset: str) -> datetime | None:
+        """When a dataset was last loaded or synced.
+
+        Returns:
+            datetime or None: The moment, or None when the dataset is not
+            loaded at all — which is a different statement from "loaded and
+            never refreshed" and should not be collapsed into it.
+        """
+        if dataset not in DATASETS:
+            raise ValueError(
+                f"unknown dataset '{dataset}'. Known: {', '.join(DATASETS)}.")
+
+        return self._refreshed[dataset]
+
+    def age_seconds(self,
+                    dataset: str,
+                    now: datetime | None = None) -> float | None:
+        """How long ago a dataset was last refreshed, in seconds.
+
+        Args:
+            dataset: Which dataset.
+            now: The reference moment, for tests.
+
+        Returns:
+            float or None: The age, or None when the dataset is not loaded.
+            Never negative: a clock adjustment between the two readings would
+            otherwise report data refreshed in the future, which is noise
+            rather than information.
+        """
+        stamped = self.last_refreshed(dataset)
+        if stamped is None:
+            return None
+
+        elapsed = ((now if now is not None else datetime.now(UTC)) - stamped)
+
+        return max(elapsed.total_seconds(), 0.0)
+
     # -- ingestion -----------------------------------------------------------
 
     def merge_market_data(self,
@@ -113,6 +192,7 @@ class DataFetcher:
                                             keep="last")
 
         self._market = MarketData.from_dataframe(combined)
+        self.record_refresh(MARKET_DATASET)
 
         return len(combined) - before
 
@@ -131,6 +211,7 @@ class DataFetcher:
 
         if self._reference is None:
             self._reference = ReferenceData.from_dataframe(frame)
+            self.record_refresh(REFERENCE_DATASET)
 
             return len(frame)
 
@@ -142,6 +223,7 @@ class DataFetcher:
                                             keep="last")
 
         self._reference = ReferenceData.from_dataframe(combined)
+        self.record_refresh(REFERENCE_DATASET)
 
         return len(combined) - before
 

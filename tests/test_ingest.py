@@ -1,11 +1,13 @@
 # tests/test_ingest.py
 """BN-100: data ingestion and the sync job."""
+from datetime import UTC, datetime, timedelta
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from beacon.data.base import MarketData, ReferenceData
-from beacon.data.fetcher import DataFetcher
+from beacon.data.fetcher import MARKET_DATASET, REFERENCE_DATASET, DataFetcher
 from beacon.data.ingest import (
     IngestResult,
     ingest_market_data,
@@ -590,3 +592,107 @@ class TestEmptyReferenceIngest:
 
         assert result.reference.empty
         assert "IDENTIFIER" in result.reference.columns
+
+
+class TestFreshness:
+    """BN-99: real ages, now that BN-100 gave the data somewhere to come from."""
+
+    def test_loading_counts_as_a_refresh(self,
+                                         fetcher):
+        """A freshly started server holds data that is genuinely seconds old.
+
+        Reporting "unknown" until someone happened to sync would be less true,
+        not more careful.
+        """
+        assert fetcher.last_refreshed(MARKET_DATASET) is not None
+        assert fetcher.age_seconds(MARKET_DATASET) >= 0.0
+
+    def test_an_absent_dataset_has_no_age(self,
+                                          fetcher):
+        """Not loaded and loaded-but-never-refreshed are different statements."""
+        assert fetcher.last_refreshed(REFERENCE_DATASET) is None
+        assert fetcher.age_seconds(REFERENCE_DATASET) is None
+
+    def test_the_age_grows(self,
+                           fetcher):
+        stamped = fetcher.last_refreshed(MARKET_DATASET)
+
+        assert fetcher.age_seconds(
+            MARKET_DATASET, now=stamped + timedelta(seconds=90)) == pytest.approx(90.0)
+
+    def test_a_backwards_clock_does_not_report_the_future(self,
+                                                          fetcher):
+        """A clock adjustment between two readings is noise, not information."""
+        stamped = fetcher.last_refreshed(MARKET_DATASET)
+
+        assert fetcher.age_seconds(
+            MARKET_DATASET, now=stamped - timedelta(seconds=30)) == 0.0
+
+    def test_a_sync_resets_the_age(self,
+                                   fetcher):
+        fetcher.record_refresh(MARKET_DATASET,
+                               datetime.now(UTC) - timedelta(hours=5))
+        stale = fetcher.age_seconds(MARKET_DATASET)
+
+        fetcher.merge_market_data(ingest_market_data(["AAA"], fake_downloader).market)
+
+        assert stale > 3600
+        assert fetcher.age_seconds(MARKET_DATASET) < 60
+
+    def test_a_reference_sync_starts_the_clock(self,
+                                               fetcher):
+        assert fetcher.last_refreshed(REFERENCE_DATASET) is None
+
+        fetcher.merge_reference_data(
+            ingest_reference_data(["AAA"], fake_reference).reference)
+
+        assert fetcher.last_refreshed(REFERENCE_DATASET) is not None
+
+    def test_an_unknown_dataset_is_refused(self,
+                                           fetcher):
+        with pytest.raises(ValueError, match="unknown dataset"):
+            fetcher.last_refreshed("fundamentals")
+
+        with pytest.raises(ValueError, match="unknown dataset"):
+            fetcher.record_refresh("fundamentals")
+
+    def test_health_reports_a_real_cache_age(self,
+                                             client):
+        """The BN-66 criterion, end to end."""
+        payload = client.get("/health", headers=auth()).json()
+
+        assert payload["cache_age"] is not None
+        assert payload["cache_age"] >= 0.0
+
+    def test_health_reports_null_without_a_data_source(self):
+        config = ServerConfig(auth_token=TOKEN)
+        bare = TestClient(create_app(config))
+
+        assert bare.get("/health", headers=auth()).json()["cache_age"] is None
+
+    def test_a_sync_moves_the_reported_age(self,
+                                           client,
+                                           fetcher):
+        fetcher.record_refresh(MARKET_DATASET,
+                               datetime.now(UTC) - timedelta(hours=3))
+        before = client.get("/data/coverage", headers=auth()).json()["datasets"]
+        stale = next(d for d in before if d["dataset"] == "market")["cache_age"]
+
+        client.post("/data/coverage/market/sync",
+                    json={"identifiers": ["AAA"]}, headers=auth())
+        client.portal.call(client.app.state.jobs.drain)
+
+        after = client.get("/data/coverage", headers=auth()).json()["datasets"]
+        fresh = next(d for d in after if d["dataset"] == "market")["cache_age"]
+
+        assert stale > 3600
+        assert fresh < 60
+
+    def test_coverage_carries_the_timestamp_as_well_as_the_age(self,
+                                                               client):
+        """An age is only true at the instant it was read."""
+        datasets = client.get("/data/coverage", headers=auth()).json()["datasets"]
+        market = next(d for d in datasets if d["dataset"] == "market")
+
+        assert market["last_refreshed"] is not None
+        assert market["last_refreshed"].startswith("20")

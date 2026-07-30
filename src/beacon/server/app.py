@@ -10,6 +10,7 @@ from typing import Any
 
 from .. import __version__
 from .._optional import require
+from ..data.fetcher import MARKET_DATASET
 from .config import LOCALHOST_ORIGIN_PATTERN, ServerConfig
 
 require("fastapi", "The Beacon API server")
@@ -75,11 +76,12 @@ def build_router() -> APIRouter:
             status="ok",
             version=__version__,
             data_source=_describe_data_source(config),
-            # Always null: DataFetcher reads straight from in-memory
-            # MarketData/ReferenceData and caches nothing, so there is no age
-            # to report. The field is present because the client's contract
-            # expects it, and it becomes meaningful if caching is added.
-            cache_age=None)
+            # Real since BN-99: the market data's age in seconds, counted from
+            # whenever it was last loaded or synced. Null only when there is no
+            # data source, because then there is nothing whose age could be
+            # reported.
+            cache_age=(config.data_fetcher.age_seconds(MARKET_DATASET)
+                       if config.data_fetcher is not None else None))
 
     return router
 
