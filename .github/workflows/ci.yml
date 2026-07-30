@@ -54,6 +54,24 @@ jobs:
       - name: Test
         run: pytest -q
 
+  tokens:
+    name: design token drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # No install step: the script is standard library only, deliberately, so
+      # a drift in the design system cannot be masked by a dependency problem.
+      # It fails on drift and also when beacon-ui cannot be reached — a check
+      # that could not run has not run.
+      - name: Check tokens against beacon-ui
+        run: python scripts/check_token_drift.py
+
   docs:
     name: build docs
     runs-on: ubuntu-latest
@@ -107,6 +125,10 @@ jobs:
           uv pip install --python /tmp/smoke/bin/python dist/*.whl
           /tmp/smoke/bin/python -c "import beacon; print(beacon.__version__)"
           /tmp/smoke/bin/python -c "import glob, zipfile; names = zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); assert 'beacon/py.typed' in names, 'py.typed missing from wheel'; print('py.typed present')"
+          # The design tokens are data, not code, so nothing else would notice
+          # if the build stopped shipping them until a chart failed for a user.
+          /tmp/smoke/bin/python -c "import glob, zipfile; names = zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); assert 'beacon/tokens/colors.json' in names, 'colors.json missing from wheel'; print('colors.json present')"
+          /tmp/smoke/bin/python -c "from beacon import tokens; print(f'{len(tokens.token_names())} tokens load from the installed wheel')"
 
       - name: Upload distributions
         uses: actions/upload-artifact@v4

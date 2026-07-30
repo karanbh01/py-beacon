@@ -67,6 +67,8 @@ nav:
       - Backtest: concepts/backtest.md
       - Optimiser: concepts/optimiser.md
       - Risk Model: concepts/risk-model.md
+  - Decisions:
+      - Design tokens: decisions/0001-design-token-source-of-truth.md
   - Reference:
       - Index: reference/index.md
       - Backtest: reference/backtest.md

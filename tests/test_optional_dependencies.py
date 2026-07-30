@@ -98,6 +98,7 @@ CORE_MODULES = [
     "beacon.fund",
     "beacon.index",
     "beacon.portfolio",
+    "beacon.tokens",
 ]
 
 # Imports every core module in a fresh interpreter where the optional packages

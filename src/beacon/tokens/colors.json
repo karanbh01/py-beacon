@@ -1,0 +1,202 @@
+{
+  "comment": [
+    "Source of truth for colour tokens. Everything under src/renderer/src/tokens",
+    "is GENERATED from this file by scripts/build-tokens.mjs — edit here, not there.",
+    "",
+    "Each token carries `source` per mode:",
+    "  figma       — read from the Figma variable, verified.",
+    "  provisional — invented placeholder, NOT the real value. Replace.",
+    "  new         — added in BU-4, needs mirroring back into Figma.",
+    "",
+    "Exported from Figma 0GMEqKcFlQRBUgSpTpjAYN, frames Data Explorer – Prices",
+    "234:4402 (light) and 234:4541 (dark), cross-checked against Home 2:3 / 4:8",
+    "and the Status Pill set 68:351. All 24 Figma tokens agree across those.",
+    "",
+    "BU-4's token list named 14. The real system has 24: it omitted chrome-text,",
+    "chrome-icon, info-*, and the four status-* pairs.",
+    "",
+    "Four tokens are translucent (8-digit hex): surface, chrome-search-bg,",
+    "sidebar-active-bg and — in dark only — a different alpha on the last."
+  ],
+  "modes": ["light", "dark"],
+  "tokens": {
+    "canvas": {
+      "description": "App background; also the zebra stripe inside surface cards.",
+      "light": "#ffedd8",
+      "dark": "#232323",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "surface": {
+      "description": "Card and pane fill. Translucent by design — a wash over canvas, not an opaque fill.",
+      "light": "#fbf3e233",
+      "dark": "#201e1a33",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "border": {
+      "description": "Card and control outlines.",
+      "light": "#ddd2b8",
+      "dark": "#3d392f",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "divider": {
+      "description": "Hairline rules inside a surface; table thead underline, dot separators.",
+      "light": "#ede3cb",
+      "dark": "#35322a",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "text-primary": {
+      "description": "Values, headings, active labels.",
+      "light": "#2a2419",
+      "dark": "#ede6d6",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "text-secondary": {
+      "description": "Read-only field values, benchmark chart lines.",
+      "light": "#6b6455",
+      "dark": "#b5ad9a",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "text-muted": {
+      "description": "Field labels, table headers, axes, footnotes.",
+      "light": "#8b8577",
+      "dark": "#8a8371",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "accent": {
+      "description": "Primary chart series, affirmative button outlines, active states.",
+      "light": "#4a88c7",
+      "dark": "#6fa7dc",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "success": {
+      "description": "Positive signed numerics; right side of diverging bars.",
+      "light": "#4e9455",
+      "dark": "#5fa867",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "danger": {
+      "description": "Negative signed numerics; left side of diverging bars.",
+      "light": "#8f2f2a",
+      "dark": "#e09a92",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "chrome-border": {
+      "description": "Menu bar, sidebar and footer edges; chip strokes at 0.5px.",
+      "light": "#b1997d",
+      "dark": "#373737",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "chrome-icon": {
+      "description": "Menu bar and sidebar glyph fill.",
+      "light": "#62513c",
+      "dark": "#7f7f7f",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "chrome-text": {
+      "description": "Menu bar label text. Same value as chrome-icon in both modes today, but kept separate because they are separate Figma variables and may diverge.",
+      "light": "#62513c",
+      "dark": "#7f7f7f",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "chrome-search-bg": {
+      "description": "Menu bar search field fill. Translucent by design.",
+      "light": "#b1997d33",
+      "dark": "#37373733",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "chrome-search-stroke": {
+      "description": "Menu bar search field outline.",
+      "light": "#b1997d",
+      "dark": "#373737",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "info-text": {
+      "description": "Informational pill text. Tracks accent in both modes.",
+      "light": "#4a88c7",
+      "dark": "#6fa7dc",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "info-bg": {
+      "description": "Informational pill fill.",
+      "light": "#e3edf7",
+      "dark": "#253546",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "status-done-text": {
+      "description": "Completed job pill text (BU-21 job flow).",
+      "light": "#2f6b3f",
+      "dark": "#9cc79a",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "status-done-bg": {
+      "description": "Completed job pill fill.",
+      "light": "#e4efdd",
+      "dark": "#2c3b2c",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "status-running-text": {
+      "description": "In-flight job pill text.",
+      "light": "#7a5b14",
+      "dark": "#d9bc6a",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "status-running-bg": {
+      "description": "In-flight job pill fill.",
+      "light": "#f4e8c8",
+      "dark": "#453c22",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "status-failed-text": {
+      "description": "Failed job pill text. Same value as danger in both modes today, but a separate variable.",
+      "light": "#8f2f2a",
+      "dark": "#e09a92",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "status-failed-bg": {
+      "description": "Failed job pill fill.",
+      "light": "#f3ddd8",
+      "dark": "#462b28",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "sidebar-active-bg": {
+      "description": "Active sidebar page wash; also the full-row selection wash (taxonomy 5). Translucent, and the two modes use different alpha: light darkens canvas at 20%, dark lightens it at 15%.",
+      "light": "#2a241933",
+      "dark": "#44444426",
+      "source": { "light": "figma", "dark": "figma" }
+    },
+    "series-2": {
+      "description": "NEW in BU-4. Second compare line. Previously borrowed success, which wrongly implied 'up'. Purple: distinct from accent blue, success green and danger red.",
+      "light": "#7d4fb8",
+      "dark": "#b98fd9",
+      "source": { "light": "new", "dark": "new" }
+    },
+    "series-3": {
+      "description": "NEW in BU-4. Third compare line. Previously borrowed danger, which wrongly implied 'down'. Amber, tuned away from both status-running-* and raw.heatmap-mid so a chart line never reads as a running pill or a heatmap cell.",
+      "light": "#b5701a",
+      "dark": "#e8a33d",
+      "source": { "light": "new", "dark": "new" }
+    }
+  },
+  "raw": {
+    "comment": [
+      "Mode-independent by design (taxonomy 9). Emitted as TS constants only —",
+      "deliberately NOT CSS variables, so they cannot be picked up by ordinary",
+      "themed components.",
+      "",
+      "heatmap-*: the risk colormap is a measurement scale, not themed chrome,",
+      "so it must not flip between modes.",
+      "",
+      "paper-*: everything inside a report page is raw ink. A factsheet is a",
+      "print artefact that happens to be shown on screen — it must look the",
+      "same in both themes, and identical to the PDF it will become."
+    ],
+    "heatmap-low": "#4ca56b",
+    "heatmap-mid": "#d9b34c",
+    "heatmap-high": "#ca5851",
+    "paper-page": "#ffffff",
+    "paper-ink": "#1a1a1a",
+    "paper-ink-muted": "#6b6b6b",
+    "paper-rule": "#d0d0d0",
+    "paper-accent": "#2f6ba8"
+  }
+}
