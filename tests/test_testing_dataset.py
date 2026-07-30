@@ -18,12 +18,22 @@ from beacon.testing import dataset
 # The hash of the price frame as first generated. If this changes, every image
 # baseline and every recorded expectation built on the dataset has changed too,
 # so the failure is meant to be loud rather than a nuisance to update.
-PRICES_DIGEST = "816b1fcd9f23c2ae"
+PRICES_DIGEST = "6263faa7aab1c2ee"
 
 
 def digest(frame: pd.DataFrame) -> str:
-    """A short, stable fingerprint of a frame's contents."""
-    return hashlib.sha256(frame.to_csv().encode()).hexdigest()[:16]
+    """A short, stable fingerprint of a frame's numbers.
+
+    Hashes the raw float64 bytes rather than a CSV rendering. The first version
+    of this used `to_csv()` and failed on every non-Windows runner: pandas
+    picks the platform line terminator, so `
+
+` against `
+` changed the
+    hash while every number in the frame was identical. The values are what the
+    dataset promises to keep stable, so the values are what this hashes.
+    """
+    return hashlib.sha256(frame.to_numpy().tobytes()).hexdigest()[:16]
 
 
 class TestDeterminism:
@@ -47,7 +57,7 @@ class TestDeterminism:
         """No dependence on import order, RNG state or anything else ambient."""
         script = ("from beacon.testing import dataset;"
                   "import hashlib;"
-                  "print(hashlib.sha256(dataset.prices().to_csv().encode())"
+                  "print(hashlib.sha256(dataset.prices().to_numpy().tobytes())"
                   ".hexdigest()[:16])")
 
         first = subprocess.run([sys.executable, "-c", script],
@@ -60,6 +70,13 @@ class TestDeterminism:
 
     def test_the_prices_match_their_recorded_digest(self):
         assert digest(dataset.prices()) == PRICES_DIGEST
+
+    def test_the_index_is_stable_too(self):
+        """The digest covers the values; the dates need their own check."""
+        index = dataset.prices().index
+
+        assert (str(index[0].date()), str(index[-1].date()), len(index)) == (
+            "2023-01-02", "2025-12-31", 783)
 
     def test_callers_cannot_disturb_each_other(self):
         """Each caller gets a copy; one test's mutation is not another's bug."""
