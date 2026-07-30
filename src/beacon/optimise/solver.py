@@ -1,6 +1,12 @@
 # src/beacon/optimise/solver.py
 """
-Constrained tracking-error minimisation.
+Constrained minimisation, and the tracking-error objective built on it.
+
+:func:`solve_constrained` is the objective-agnostic core: give it something to
+minimise and a list of constraints and it handles the box, the infeasibility
+messages, the non-convex cardinality stage and the verification pass. The
+frontier objectives in `beacon.optimise.frontier` use the same core, so the
+guarantees below hold for all of them.
 
 The first objective an index business needs is not mean-variance: it is "get me
 as close as possible to this target, subject to what I am allowed to hold".
@@ -35,7 +41,8 @@ the diagnostics would make "this is the best answer" and "this is merely an
 answer" look identical to anyone who does not check the flag.
 """
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -107,29 +114,92 @@ def minimise_tracking_error(target_weights: pd.Series | dict[str, float],
     if not assets:
         raise CalculationError("Optimiser", "the target weights are empty.")
 
-    for rule in rules:
-        rule.validate(assets)
-
-    covariance = _covariance_matrix(risk_model, assets)
-    lows, highs = _box(rules, assets)
-    _reject_infeasible(rules, assets, lows, highs)
-
+    covariance = covariance_matrix(risk_model, assets)
     vector = target.to_numpy(dtype=float)
-    solution, outcome, heuristic = _solve_with_cardinality(
-        rules, assets, covariance, vector, lows, highs)
 
-    slacks = _all_slacks(rules, solution, assets)
-    _reject_violations(slacks, outcome)
+    def objective(weights: Vector) -> float:
+        active = weights - vector
 
-    result = _build_result(target, assets, solution, outcome, slacks, heuristic)
+        return float(active @ covariance @ active)
+
+    def gradient(weights: Vector) -> Vector:
+        return np.asarray(2.0 * covariance @ (weights - vector), dtype=np.float64)
+
+    solved = solve_constrained(objective, gradient, rules, assets, hint=vector)
+    result = _build_result(target, assets, solved)
 
     logger.info(
         f"Optimised {len(assets)} assets: tracking error "
         f"{result.tracking_error():.6f}, turnover {result.turnover():.4%}, "
         f"{len(result.binding)} binding constraint(s), "
-        f"{outcome.nit} iteration(s).")
+        f"{solved.outcome.nit} iteration(s).")
 
     return result
+
+
+@dataclass(frozen=True)
+class Solution:
+    """A verified answer to a constrained problem.
+
+    Attributes:
+        weights: The solution vector, aligned to the universe.
+        outcome: The solver's own result object.
+        slacks: Every constraint's room at the solution.
+        heuristic: Whether a non-convex constraint forced a restricted
+            re-solve, in which case the answer is feasible but not proven
+            optimal.
+    """
+    weights: Vector
+    outcome: Any
+    slacks: list[Slack]
+    heuristic: bool
+
+
+def solve_constrained(objective: Callable[[Vector], float],
+                      gradient: Callable[[Vector], Vector],
+                      rules: Sequence[Constraint],
+                      assets: Sequence[str],
+                      hint: Vector | None = None) -> Solution:
+    """Minimise *objective* over the weights, subject to *rules*.
+
+    The objective-agnostic core. Tracking error is one objective; portfolio
+    variance, expected return and the Sharpe ratio are others, and all of them
+    want the same constraint handling, the same infeasibility messages and the
+    same refusal to return a violating answer.
+
+    Args:
+        objective: What to minimise, as a function of the weight vector.
+        gradient: Its derivative. Required rather than optional — finite
+            differences on a problem this small cost more accuracy than they
+            save effort.
+        rules: The constraints.
+        assets: The universe, fixing the meaning of each weight position.
+        hint: Where to start the search. None starts from equal weights.
+
+    Returns:
+        Solution: The verified answer.
+
+    Raises:
+        CalculationError: If the constraints cannot all be satisfied, if the
+            solver fails to converge, or if the weights violate a constraint.
+    """
+    for rule in rules:
+        rule.validate(assets)
+
+    lows, highs = weight_box(rules, assets)
+    _reject_infeasible(rules, assets, lows, highs)
+
+    start = hint if hint is not None else np.full(len(assets), 1.0 / len(assets))
+    weights, outcome, heuristic = _solve_with_cardinality(
+        objective, gradient, rules, assets, start, lows, highs)
+
+    slacks = _all_slacks(rules, weights, assets)
+    _reject_violations(slacks, outcome)
+
+    return Solution(weights=weights,
+                    outcome=outcome,
+                    slacks=slacks,
+                    heuristic=heuristic)
 
 
 def _as_series(weights: pd.Series | dict[str, float]) -> pd.Series:
@@ -140,7 +210,7 @@ def _as_series(weights: pd.Series | dict[str, float]) -> pd.Series:
     return pd.Series(weights, dtype=float)
 
 
-def _covariance_matrix(risk_model: RiskModel | None,
+def covariance_matrix(risk_model: RiskModel | None,
                        assets: Sequence[str]) -> Vector:
     """The metric the objective measures distance in.
 
@@ -162,7 +232,7 @@ def _covariance_matrix(risk_model: RiskModel | None,
     return np.asarray(ordered.to_numpy(), dtype=np.float64)
 
 
-def _box(rules: Sequence[Constraint],
+def weight_box(rules: Sequence[Constraint],
          assets: Sequence[str]) -> tuple[Vector, Vector]:
     """Intersect every position-bound constraint into one box.
 
@@ -323,10 +393,11 @@ def _must_hold(lows: Vector,
             if lows[position] > 0.0 or highs[position] < 0.0]
 
 
-def _solve_with_cardinality(rules: Sequence[Constraint],
+def _solve_with_cardinality(objective: Callable[[Vector], float],
+                            gradient: Callable[[Vector], Vector],
+                            rules: Sequence[Constraint],
                             assets: Sequence[str],
-                            covariance: Vector,
-                            target: Vector,
+                            hint: Vector,
                             lows: Vector,
                             highs: Vector) -> tuple[Vector, Any, bool]:
     """Solve, then enforce any holding limit by a second restricted solve.
@@ -341,7 +412,7 @@ def _solve_with_cardinality(rules: Sequence[Constraint],
     names to keep is a combinatorial problem, and the largest positions of the
     unrestricted solution are a good guess rather than a provably right one.
     """
-    outcome = _solve(rules, assets, covariance, target, lows, highs)
+    outcome = _solve(objective, gradient, rules, assets, hint, lows, highs)
     limit = _cardinality_limit(rules)
 
     if limit is None or count_holdings(outcome.x) <= limit:
@@ -359,9 +430,36 @@ def _solve_with_cardinality(rules: Sequence[Constraint],
         f"Cardinality limit of {limit} bound: re-solving with "
         f"{len(dropped)} name(s) pinned at zero.")
 
-    second = _solve(rules, assets, covariance, target, restricted_lows, restricted_highs)
+    second = _solve(objective, gradient, rules, assets, hint,
+                    restricted_lows, restricted_highs)
+    _reject_infeasible_restriction(rules, assets, second.x, limit)
 
     return second.x, second, True
+
+
+def _reject_infeasible_restriction(rules: Sequence[Constraint],
+                                   assets: Sequence[str],
+                                   weights: Vector,
+                                   limit: int) -> None:
+    """Raise when pinning names at zero broke a constraint the full set met.
+
+    Worth its own message rather than falling through to the generic violation
+    error, which would name the constraint that broke and imply the caller
+    asked for something impossible. They did not: the constraint was satisfiable
+    before the heuristic chose a subset, and it is the choice that failed.
+    """
+    violated = [slack.label for slack in _all_slacks(rules, weights, assets)
+                if slack.is_violated]
+    if not violated:
+        return
+
+    raise CalculationError(
+        "Optimiser",
+        f"a holding limit of {limit} could not be met without breaking "
+        f"{'; '.join(violated)}. Which names to keep is a combinatorial "
+        f"problem, and the heuristic here keeps the largest positions of the "
+        f"unrestricted solution — it cannot see that a different subset of the "
+        f"same size would have satisfied everything.")
 
 
 def _names_to_keep(weights: Vector,
@@ -383,23 +481,16 @@ def _names_to_keep(weights: Vector,
     return set(ranked[:limit]) | forced
 
 
-def _solve(rules: Sequence[Constraint],
+def _solve(objective: Callable[[Vector], float],
+           gradient: Callable[[Vector], Vector],
+           rules: Sequence[Constraint],
            assets: Sequence[str],
-           covariance: Vector,
-           target: Vector,
+           hint: Vector,
            lows: Vector,
            highs: Vector) -> Any:
     """Run SLSQP once over the given box."""
-    def objective(weights: Vector) -> float:
-        active = weights - target
-
-        return float(active @ covariance @ active)
-
-    def gradient(weights: Vector) -> Vector:
-        return 2.0 * covariance @ (weights - target)
-
     return minimize(objective,
-                    x0=_starting_point(rules, target, lows, highs),
+                    x0=_starting_point(rules, hint, lows, highs),
                     jac=gradient,
                     method=METHOD,
                     bounds=list(zip(lows, highs, strict=True)),
@@ -424,17 +515,18 @@ def _scipy_constraints(rules: Sequence[Constraint],
 
 
 def _starting_point(rules: Sequence[Constraint],
-                    target: Vector,
+                    hint: Vector,
                     lows: Vector,
                     highs: Vector) -> Vector:
     """Where to start the search.
 
-    The target itself, pulled inside the box and then nudged to invest the
-    right total. When the target is already feasible this starts on the answer,
-    which is the correct behaviour rather than a shortcut: with nothing else
-    binding, the closest feasible portfolio to the target *is* the target.
+    The hint, pulled inside the box and then nudged to invest the right total.
+    For a tracking solve the hint is the target itself, so when the target is
+    already feasible the search starts on the answer — the correct behaviour
+    rather than a shortcut, since with nothing else binding the closest
+    feasible portfolio to the target *is* the target.
     """
-    start = np.clip(target, lows, highs)
+    start = np.clip(hint, lows, highs)
 
     investment = _investment_target(rules)
     if investment is None:
@@ -487,13 +579,11 @@ def _reject_violations(slacks: Sequence[Slack],
 
 def _build_result(target: pd.Series,
                   assets: Sequence[str],
-                  solution: Vector,
-                  outcome: Any,
-                  slacks: Sequence[Slack],
-                  heuristic: bool) -> OptimisationResult:
+                  solved: Solution) -> OptimisationResult:
     """Assemble the result object from a verified solution."""
+    outcome = solved.outcome
     binding = [BindingConstraint(label=slack.label, kind=slack.kind, slack=slack.slack)
-               for slack in slacks if slack.is_binding]
+               for slack in solved.slacks if slack.is_binding]
     binding.sort(key=lambda constraint: abs(constraint.slack))
 
     diagnostics = SolverDiagnostics(converged=bool(outcome.success),
@@ -504,9 +594,9 @@ def _build_result(target: pd.Series,
                                     message=str(outcome.message))
 
     return OptimisationResult(
-        weights=pd.Series(solution, index=list(assets), name="optimal_weight"),
+        weights=pd.Series(solved.weights, index=list(assets), name="optimal_weight"),
         target_weights=target.rename("target_weight"),
         binding=binding,
         diagnostics=diagnostics,
-        slacks=list(slacks),
-        heuristic=heuristic)
+        slacks=list(solved.slacks),
+        heuristic=solved.heuristic)

@@ -42,10 +42,12 @@ from beacon.index.result import IndexResult
 from beacon.optimise import (
     FullInvestment,
     PositionBounds,
+    efficient_frontier,
     minimise_tracking_error,
 )
 from beacon.portfolio.base import Portfolio
 from beacon.risk import estimate_risk_model
+from beacon.risk.factors import fit_factor_model, z_scores
 
 # ---------------------------------------------------------------------------
 # Shared strategies and helpers
@@ -816,3 +818,119 @@ class TestOptimiserProperties:
         assert not any(slack.is_violated for slack in result.slacks)
         assert float(result.weights.max()) <= cap + 1e-7
         assert float(result.weights.min()) >= -1e-7
+
+
+# --- BN-93: frontier and factor-model invariants ----------------------------
+
+_POSITIVE_VOLATILITIES = st.lists(
+    st.floats(min_value=0.005, max_value=0.05, allow_nan=False,
+              allow_infinity=False),
+    min_size=3,
+    max_size=6)
+
+_ACTIVE_BETS = st.lists(
+    st.floats(min_value=-0.15, max_value=0.15, allow_nan=False,
+              allow_infinity=False),
+    min_size=4,
+    max_size=8)
+
+
+def _risk_model_from(volatilities: list[float], seed: int = 5):
+    """A risk model over independent assets with the given volatilities."""
+    generator = np.random.default_rng(seed)
+    periods = 300
+
+    panel = pd.DataFrame(
+        {f"A{index}": generator.normal(0.0, volatility, periods)
+         for index, volatility in enumerate(volatilities)},
+        index=pd.bdate_range("2024-01-01", periods=periods))
+
+    return estimate_risk_model(panel, intensity=0.1)
+
+
+class TestFrontierProperties:
+    """Invariants the efficient frontier guarantees for any feasible problem."""
+
+    @given(_POSITIVE_VOLATILITIES)
+    @settings(max_examples=25, deadline=None)
+    def test_risk_never_falls_as_return_rises(self,
+                                              volatilities):
+        """The defining property of a frontier, on arbitrary universes.
+
+        Insisting on more return can only shrink the feasible set, so the least
+        risk available cannot improve. A point that solved to a local rather
+        than global optimum would show up as a dip in the curve.
+        """
+        model = _risk_model_from(volatilities)
+        returns = {asset: 0.02 + 0.02 * index
+                   for index, asset in enumerate(model.covariance.index)}
+
+        frontier = efficient_frontier(model, returns, points=5)
+
+        assert frontier.is_monotonic()
+
+    @given(_POSITIVE_VOLATILITIES)
+    @settings(max_examples=25, deadline=None)
+    def test_no_frontier_point_beats_the_minimum_variance_portfolio(self,
+                                                                    volatilities):
+        model = _risk_model_from(volatilities)
+        returns = {asset: 0.02 + 0.02 * index
+                   for index, asset in enumerate(model.covariance.index)}
+
+        frontier = efficient_frontier(model, returns, points=5)
+
+        assert min(frontier.volatilities) >= frontier.minimum_variance.volatility - 1e-9
+
+    @given(_POSITIVE_VOLATILITIES)
+    @settings(max_examples=25, deadline=None)
+    def test_the_tangency_is_the_best_sharpe_ratio_found(self,
+                                                         volatilities):
+        model = _risk_model_from(volatilities)
+        returns = {asset: 0.02 + 0.02 * index
+                   for index, asset in enumerate(model.covariance.index)}
+
+        frontier = efficient_frontier(model, returns, points=5, risk_free_rate=0.01)
+        best = max(point.sharpe_ratio for point in frontier.points)
+
+        assert frontier.tangency.sharpe_ratio >= best - 1e-9
+
+
+class TestActiveRiskIdentity:
+    """TE² = factor + specific, for any active position at all."""
+
+    @given(_ACTIVE_BETS)
+    @settings(max_examples=100, deadline=None)
+    def test_the_decomposition_always_reconciles(self,
+                                                 bets):
+        """Exact by construction, so this holds for arbitrary bets.
+
+        Not a tolerance question: Sigma is *defined* as BFBᵀ + D, so the split
+        is algebra rather than approximation. Anything above float noise means
+        the algebra is wrong.
+        """
+        assets = [f"A{index}" for index in range(len(bets))]
+        generator = np.random.default_rng(31)
+
+        exposures = z_scores(pd.DataFrame(
+            {"value": generator.normal(0.0, 1.0, len(assets)),
+             "momentum": generator.normal(0.0, 1.0, len(assets))},
+            index=assets))
+
+        panel = pd.DataFrame(
+            generator.normal(0.0, 0.01, (200, len(assets))),
+            index=pd.bdate_range("2024-01-01", periods=200),
+            columns=assets)
+
+        model = fit_factor_model(panel, exposures)
+
+        benchmark = dict.fromkeys(assets, 1.0 / len(assets))
+        # Centred so the active position sums to zero, as a real one does.
+        centred = np.array(bets) - np.mean(bets)
+        weights = {asset: benchmark[asset] + bet
+                   for asset, bet in zip(assets, centred, strict=True)}
+
+        decomposition = model.decompose_active_risk(weights, benchmark)
+
+        assert abs(decomposition.residual) < 1e-15
+        assert decomposition.factor_variance >= 0.0
+        assert decomposition.specific_variance >= 0.0

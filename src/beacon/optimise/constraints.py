@@ -442,6 +442,53 @@ class TurnoverBudget(Constraint):
             gradient=lambda w: -np.sign(w - current) / 2.0)]
 
 
+class ExpectedReturnTarget(Constraint):
+    """The portfolio must be expected to return exactly this much.
+
+    The constraint that traces out a frontier: fix the return, minimise the
+    variance, repeat. It is an equality rather than a floor because a frontier
+    point is a specific point, and a floor would let every solve collapse onto
+    the minimum-variance portfolio whenever that portfolio happened to clear
+    the bar.
+
+    Attributes:
+        expected_returns: Expected return per asset, in the same units and over
+            the same horizon as the risk model's covariance. Annualised, if the
+            risk model is.
+        target: The portfolio return being asked for.
+    """
+
+    def __init__(self,
+                 expected_returns: dict[str, float],
+                 target: float):
+        self.expected_returns = dict(expected_returns)
+        self.target = float(target)
+
+    def validate(self,
+                 assets: Sequence[str]) -> None:
+        """Every asset must have an expected return.
+
+        Treating an absent one as zero would quietly bias the whole frontier
+        towards holding it, since a zero-return asset looks like the safest way
+        to satisfy a low return target.
+        """
+        missing = sorted(set(assets) - set(self.expected_returns))
+        if missing:
+            raise CalculationError(
+                "Optimiser",
+                f"no expected return was given for: {missing}.")
+
+    def conditions(self,
+                   assets: Sequence[str]) -> list[Condition]:
+        returns = np.array([self.expected_returns[asset_id] for asset_id in assets])
+        target = self.target
+
+        return [Condition(label=f"expected return of {target:.4%}",
+                          kind=EQUALITY,
+                          evaluate=lambda w: float(returns @ w) - target,
+                          gradient=lambda w: returns)]
+
+
 class Cardinality(Constraint):
     """A limit on how many names may be held.
 

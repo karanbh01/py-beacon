@@ -26,6 +26,13 @@ from .covariance import (
     scaled_identity_target,
     shrink_covariance,
 )
+from .factors import (
+    MARKET_FACTOR,
+    ActiveRiskDecomposition,
+    FactorRiskModel,
+    fit_factor_model,
+    z_scores,
+)
 from .model import (
     CONSTANT_CORRELATION,
     SCALED_IDENTITY,
@@ -37,10 +44,13 @@ from .model import (
 
 __all__ = [
     "CONSTANT_CORRELATION",
+    "MARKET_FACTOR",
     "PERIODS_PER_YEAR",
     "PSD_TOLERANCE",
     "SCALED_IDENTITY",
     "TARGETS",
+    "ActiveRiskDecomposition",
+    "FactorRiskModel",
     "RiskDiagnostics",
     "RiskModel",
     "annualise",
@@ -50,10 +60,12 @@ __all__ = [
     "correlation_from_covariance",
     "eigenvalues",
     "estimate_risk_model",
+    "fit_factor_model",
     "heuristic_intensity",
     "is_positive_semi_definite",
     "nearest_positive_semi_definite",
     "sample_covariance",
     "scaled_identity_target",
     "shrink_covariance",
+    "z_scores",
 ]

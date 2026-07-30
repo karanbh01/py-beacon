@@ -8,6 +8,7 @@ from beacon.exceptions import CalculationError
 from beacon.optimise import (
     BINDING_TOLERANCE,
     Cardinality,
+    ExpectedReturnTarget,
     FullInvestment,
     GroupBounds,
     OptimisationResult,
@@ -569,3 +570,32 @@ class TestCountHoldings:
 
     def test_short_positions_count(self):
         assert count_holdings(np.array([1.2, -0.2])) == 2
+
+
+class TestExpectedReturnTargetConstraint:
+
+    def test_it_pins_the_portfolio_return(self):
+        returns = {"A": 0.10, "B": 0.05, "C": 0.02}
+
+        result = solve(FullInvestment(),
+                       PositionBounds(0.0, 1.0),
+                       ExpectedReturnTarget(returns, 0.06))
+        realised = sum(result.weights[asset] * value
+                       for asset, value in returns.items())
+
+        assert realised == pytest.approx(0.06, abs=1e-7)
+
+    def test_a_missing_expected_return_is_rejected(self):
+        """Treating it as zero would bias the answer towards holding it."""
+        with pytest.raises(CalculationError, match="no expected return"):
+            solve(FullInvestment(),
+                  ExpectedReturnTarget({"A": 0.10, "B": 0.05}, 0.06))
+
+    def test_it_reports_as_binding(self):
+        returns = {"A": 0.10, "B": 0.05, "C": 0.02}
+
+        result = solve(FullInvestment(),
+                       PositionBounds(0.0, 1.0),
+                       ExpectedReturnTarget(returns, 0.06))
+
+        assert any("expected return" in label for label in result.binding_labels())

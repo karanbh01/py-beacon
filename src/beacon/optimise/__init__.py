@@ -22,6 +22,7 @@ from .constraints import (
     Cardinality,
     Condition,
     Constraint,
+    ExpectedReturnTarget,
     FullInvestment,
     GroupBounds,
     PositionBounds,
@@ -30,11 +31,21 @@ from .constraints import (
     count_holdings,
     one_way_turnover,
 )
+from .frontier import (
+    DEFAULT_POINTS,
+    EfficientFrontier,
+    FrontierPoint,
+    default_constraints,
+    efficient_frontier,
+    maximum_return_portfolio,
+    minimum_variance_portfolio,
+)
 from .result import BindingConstraint, OptimisationResult, SolverDiagnostics
-from .solver import minimise_tracking_error
+from .solver import Solution, minimise_tracking_error, solve_constrained
 
 __all__ = [
     "BINDING_TOLERANCE",
+    "DEFAULT_POINTS",
     "EQUALITY",
     "FEASIBILITY_TOLERANCE",
     "HOLDING_THRESHOLD",
@@ -43,14 +54,23 @@ __all__ = [
     "Cardinality",
     "Condition",
     "Constraint",
+    "EfficientFrontier",
+    "ExpectedReturnTarget",
+    "FrontierPoint",
     "FullInvestment",
     "GroupBounds",
     "OptimisationResult",
     "PositionBounds",
     "Slack",
+    "Solution",
     "SolverDiagnostics",
     "TurnoverBudget",
     "count_holdings",
+    "default_constraints",
+    "efficient_frontier",
+    "maximum_return_portfolio",
     "minimise_tracking_error",
+    "minimum_variance_portfolio",
     "one_way_turnover",
+    "solve_constrained",
 ]
