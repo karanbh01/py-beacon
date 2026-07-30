@@ -11,20 +11,25 @@ apart at the last decimal and nobody would know which to trust.
 """
 import pandas as pd
 
+from ..analysis.relative import align_on_common_window, relative_metrics
 from ..backtest.engine import BacktestEngine
 from ..backtest.result import BacktestResult
 from ..data.fetcher import DataFetcher
 from ..index.calculation import IndexCalculator
 from ..index.result import IndexResult
+from .benchmarks import resolve_benchmark
 from .definitions import build_index_definition
 from .jobs import JobBody, ProgressReporter
 from .schemas import (
     BacktestMetrics,
     BacktestRequest,
     BacktestRunResult,
+    BenchmarkRef,
     IndexDocument,
+    RelativeMetricsPayload,
     SeriesPayload,
 )
+from .store import DocumentStore
 
 # Every series is rebased to this so the portfolio and its benchmark start
 # together and can be read off the same axis.
@@ -97,16 +102,19 @@ def _metrics(result: BacktestResult) -> BacktestMetrics:
 
 
 def assemble_result(result: BacktestResult,
-                    index_result: IndexResult) -> BacktestRunResult:
+                    index_result: IndexResult,
+                    benchmark: RelativeMetricsPayload | None = None) -> BacktestRunResult:
     """Build the wire payload from a completed backtest.
 
     Args:
         result: The finished backtest.
-        index_result: The index it tracked, used as the benchmark.
+        index_result: The index it tracked, reported alongside as the
+            replication reference.
+        benchmark: Optional comparison against an external benchmark.
 
     Returns:
-        BacktestRunResult: Level, returns, drawdown, annual returns, benchmark
-        and metrics, all derived from the same NAV series.
+        BacktestRunResult: Level, returns, drawdown, annual returns, the
+        tracked index and metrics, all derived from the same NAV series.
     """
     level = _rebase(result.portfolio_nav)
     returns = level.pct_change().dropna()
@@ -117,12 +125,57 @@ def assemble_result(result: BacktestResult,
         drawdown=SeriesPayload.from_series(_drawdown(level)),
         annual_returns=annual_returns(level),
         benchmark_level=SeriesPayload.from_series(_rebase(index_result.index_levels)),
-        metrics=_metrics(result))
+        metrics=_metrics(result),
+        benchmark=benchmark)
+
+
+def compare_against_benchmark(nav: pd.Series,
+                              reference: BenchmarkRef,
+                              fetcher: DataFetcher,
+                              index_store: DocumentStore,
+                              start: str,
+                              end: str) -> RelativeMetricsPayload:
+    """Resolve a benchmark and measure the portfolio against it.
+
+    The benchmark series is rebased on the *aligned* window rather than its own
+    full history, so both lines start at 100 on the same date and can be read
+    off one axis. Rebasing before alignment would leave the benchmark starting
+    somewhere other than 100 once trimmed.
+
+    Args:
+        nav: Portfolio NAV series.
+        reference: What to compare against.
+        fetcher: Data source.
+        index_store: Where stored index definitions live.
+        start: Window start, YYYY-MM-DD.
+        end: Window end, YYYY-MM-DD.
+
+    Returns:
+        RelativeMetricsPayload: The comparison and the rebased benchmark.
+    """
+    levels = resolve_benchmark(reference, fetcher, index_store, start, end)
+    metrics = relative_metrics(nav, levels)
+
+    _, aligned_benchmark = align_on_common_window(nav, levels)
+
+    return RelativeMetricsPayload(
+        reference=reference,
+        observations=metrics.observations,
+        start=metrics.start,
+        end=metrics.end,
+        total_return=metrics.total_return,
+        benchmark_return=metrics.benchmark_return,
+        excess_return=metrics.excess_return,
+        tracking_error=metrics.tracking_error,
+        correlation=metrics.correlation,
+        beta=metrics.beta,
+        level=SeriesPayload.from_series(_rebase(aligned_benchmark)))
 
 
 def build_backtest_job(document: IndexDocument,
                        fetcher: DataFetcher,
-                       request: BacktestRequest) -> JobBody:
+                       request: BacktestRequest,
+                       index_store: DocumentStore) -> JobBody:
     """Build the job body that runs one backtest.
 
     Returned as a closure rather than run inline: the caller submits it to the
@@ -159,8 +212,15 @@ def build_backtest_job(document: IndexDocument,
                                 transaction_cost_bps=request.transaction_cost_bps)
         backtest = engine.run()
 
+        comparison = None
+        if request.benchmark is not None:
+            await report(0.8, f"Comparing against benchmark '{request.benchmark.id}'.")
+            comparison = compare_against_benchmark(
+                backtest.portfolio_nav, request.benchmark, fetcher, index_store,
+                start, end)
+
         await report(0.9, "Assembling results.")
-        payload = assemble_result(backtest, index_result)
+        payload = assemble_result(backtest, index_result, comparison)
 
         await report(1.0, "Complete.")
 

@@ -70,8 +70,10 @@ def build_beacon_router() -> APIRouter:
         settings = body if body is not None else BacktestRequest()
 
         registry: JobRegistry = request.app.state.jobs
-        job = registry.submit(f"backtest:{index_id}",
-                              build_backtest_job(document, fetcher, settings))
+        store: DocumentStore = request.app.state.index_store
+        job = registry.submit(
+            f"backtest:{index_id}",
+            build_backtest_job(document, fetcher, settings, store))
 
         return JobStatus(**job.snapshot())
 

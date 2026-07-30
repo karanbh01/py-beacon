@@ -8,7 +8,7 @@ otherwise become an API contract by accident. Everything crossing the wire is
 declared here, so OpenAPI describes it and a library refactor cannot silently
 reshape a response.
 """
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import pandas as pd
 from pydantic import BaseModel, Field
@@ -431,6 +431,47 @@ class PreviewResponse(BaseModel):
         default=0.0, description="Weight moved off capped names onto the rest.")
 
 
+BENCHMARK_INDEX = "index"
+BENCHMARK_IDENTIFIER = "identifier"
+
+
+class BenchmarkRef(BaseModel):
+    """What to compare a backtest against.
+
+    Distinct from the index being tracked. The tracked index measures
+    replication accuracy; a benchmark measures relative performance against
+    something the portfolio was never trying to replicate.
+    """
+    kind: Literal["index", "identifier"] = Field(
+        description="'index' for a stored index definition, 'identifier' for a "
+                    "market-data series.")
+    id: str = Field(description="Index id, or market-data identifier.",
+                    min_length=1)
+    price_column: str = Field(
+        default="CLOSE",
+        description="Market-data column to read. Ignored when kind is 'index'.")
+
+
+class RelativeMetricsPayload(BaseModel):
+    """Performance against a benchmark, over their shared window."""
+    reference: BenchmarkRef
+    observations: int = Field(
+        description="Aligned dates used, which may be fewer than either series "
+                    "carried on its own.")
+    start: str
+    end: str
+    total_return: Pct
+    benchmark_return: Pct
+    excess_return: Pct = Field(
+        description="Portfolio minus benchmark; also the tracking difference.")
+    tracking_error: Pct = Field(
+        description="Annualised standard deviation of return differences.")
+    correlation: float
+    beta: float
+    level: SeriesPayload = Field(
+        description="The benchmark, rebased to 100 on the shared window.")
+
+
 class BacktestRequest(BaseModel):
     """Body of `POST /beacon/{index_id}/backtest`."""
     start: str | None = Field(
@@ -441,6 +482,10 @@ class BacktestRequest(BaseModel):
     transaction_cost_bps: float = Field(
         default=0.0, ge=0,
         description="Cost per trade in basis points of notional.")
+    benchmark: BenchmarkRef | None = Field(
+        default=None,
+        description="Optional external benchmark. The tracked index is always "
+                    "reported separately; this adds a second comparison.")
 
 
 class BacktestRunResult(BaseModel):
@@ -460,6 +505,12 @@ class BacktestRunResult(BaseModel):
     benchmark_level: SeriesPayload = Field(
         description="The tracked index, rebased to 100 on the same axis.")
     metrics: BacktestMetrics
+    benchmark: RelativeMetricsPayload | None = Field(
+        default=None,
+        description="Comparison against the requested external benchmark, if "
+                    "one was given. Null otherwise; `metrics.tracking_error` "
+                    "still reports replication accuracy against the tracked "
+                    "index either way.")
 
 
 class JobStatus(BaseModel):
