@@ -16,6 +16,12 @@ from ..constructor import IndexDefinition
 from ..result import IndexResult
 from .corporate_actions import CorporateActionsMixin
 from .market_values import MarketValuesMixin
+from .selection import (
+    UNIVERSE_POSITION,
+    SelectionResult,
+    SelectionStep,
+    select_with_provenance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +131,12 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         """
         Selects index constituents from a given universe based on eligibility rules.
 
+        A thin projection of :meth:`select_with_provenance`: the survivors, with
+        the record of which rule removed each excluded name discarded. Callers
+        wanting that record — the preview waterfall, anything answering "why is
+        this name missing" — should use the fuller method rather than repeating
+        the walk, which is what BN-102 existed to stop.
+
         Args:
             universe: A list of potential Asset objects to consider for inclusion.
             current_date: The date for which selection is being made.
@@ -132,44 +144,42 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         Returns:
             A list of Asset objects that are eligible for the index.
         """
+        return self.select_with_provenance(universe, current_date).survivors
+
+    def select_with_provenance(self,
+                               universe: list[Asset],
+                               current_date: pd.Timestamp) -> SelectionResult:
+        """Select constituents, keeping the record of how the universe narrowed.
+
+        Args:
+            universe: A list of potential Asset objects to consider for inclusion.
+            current_date: The date for which selection is being made.
+
+        Returns:
+            SelectionResult: Survivors, one step per rule, and the position of
+            the rule that excluded each removed asset.
+        """
         logger.info(
             f"[{current_date.strftime('%Y-%m-%d')}] Selecting constituents for "
             f"'{self.definition.index_name}'. Universe size: {len(universe)}")
-        eligible_constituents: list[Asset] = []
+
         if not universe:
             logger.warning("Constituent selection called with an empty universe.")
-            return []
 
-        for asset in universe:
-            if self._passes_all_rules(asset, current_date):
-                eligible_constituents.append(asset)
-                logger.debug(f"Asset {asset.asset_id} passed all eligibility rules.")
+            return SelectionResult(survivors=[],
+                                   steps=[SelectionStep(position=UNIVERSE_POSITION,
+                                                        remaining=0)])
+
+        result = select_with_provenance(universe,
+                                        self.definition.eligibility_rules,
+                                        current_date,
+                                        self.data)
 
         logger.info(
-            f"Selected {len(eligible_constituents)} constituents for "
+            f"Selected {len(result.survivors)} constituents for "
             f"'{self.definition.index_name}'.")
-        return eligible_constituents
 
-    def _passes_all_rules(self,
-                          asset: Asset,
-                          current_date: pd.Timestamp) -> bool:
-        """Check whether ``asset`` passes every eligibility rule on ``current_date``.
-
-        Extracted from :meth:`select_constituents` to keep nesting shallow;
-        behaviour (including all log messages) is unchanged.
-        """
-        for rule in self.definition.eligibility_rules:
-            try:
-                if not rule.is_eligible(asset, current_date, self.data):
-                    logger.debug(
-                        f"Asset {asset.asset_id} failed eligibility rule: {rule.rule_name}")
-                    return False
-            except Exception as e:
-                logger.error(
-                    f"Error applying eligibility rule {rule.rule_name} to asset "
-                    f"{asset.asset_id}: {e}")
-                return False
-        return True
+        return result
 
     def calculate_constituent_weights(self,
                                       constituents: list[Asset],

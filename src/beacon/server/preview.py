@@ -8,75 +8,51 @@ attributability — every excluded asset reports the rule that excluded it, so a
 methodology author can see *why* a name is missing rather than only *that* it
 is.
 
-`IndexCalculator.select_constituents` answers only "which assets survive", so
-the waterfall re-walks the rules here to record provenance. It calls the same
-`rule.is_eligible` in the same order, and a test asserts the survivors match
-`select_constituents` exactly — that guard is what keeps preview from drifting
-away from what a real run would produce.
+The narrowing itself is not done here. It was, once: this module re-walked the
+rules to record provenance because `select_constituents` returned only
+survivors, and a test asserted the two agreed. Since BN-102 there is one walk,
+in `beacon.index.calculation.selection`, and the calculator is the one throwing
+information away. A preview and the run it previews can no longer disagree,
+because they are the same code.
+
+What remains here is presentation: mapping the core's rule *positions* onto the
+stored document's rule *ids*. Those ids belong to the document rather than to
+the rules — a rule object knows its type, not which line of a saved definition
+it came from — so the mapping is the server's job and stays the server's job.
 """
 import pandas as pd
 
 from ..asset.base import Asset
 from ..data.fetcher import DataFetcher
-from ..index.calculation import IndexCalculator
-from ..index.methodology import EligibilityRuleBase
+from ..index.calculation import IndexCalculator, SelectionResult
+from ..index.calculation.selection import SelectionStep
 from .definitions import build_index_definition
 from .schemas import IndexDocument, PreviewAsset, PreviewResponse, PreviewStep
 
 
-def _evaluate(rule: EligibilityRuleBase,
-              asset: Asset,
-              date: pd.Timestamp,
-              fetcher: DataFetcher) -> bool:
-    """Apply one rule to one asset, treating a failure as exclusion.
+def _as_preview_step(step: SelectionStep,
+                     rule_ids: list[str]) -> PreviewStep:
+    """Render one core rung as the wire shape, attaching the document's rule id.
 
-    `IndexCalculator._passes_all_rules` swallows rule exceptions and excludes
-    the asset. Preview mirrors that rather than surfacing the error, so the
-    waterfall matches what a real run would do.
+    The universe rung has no rule and therefore no id; every other position
+    indexes the document's selection list one-for-one, because the definition
+    the calculator was built from was derived from that list in order.
     """
-    try:
-        return rule.is_eligible(asset, date, fetcher)
-    except Exception:
-        return False
+    if step.is_universe:
+        return PreviewStep(position=step.position, remaining=step.remaining)
+
+    return PreviewStep(position=step.position,
+                       rule_id=rule_ids[step.position - 1],
+                       rule_type=step.rule_name,
+                       remaining=step.remaining,
+                       excluded=list(step.excluded))
 
 
-def _walk_rules(universe: list[Asset],
-                rules: list[EligibilityRuleBase],
-                rule_ids: list[str],
-                date: pd.Timestamp,
-                fetcher: DataFetcher) -> tuple[list[Asset], list[PreviewStep],
-                                               dict[str, tuple[str, int]]]:
-    """Run the rules in order, recording what each one removed.
-
-    Returns:
-        tuple: the surviving assets, one step per rung (starting with the
-        universe), and a mapping of excluded identifier -> (rule_id, position).
-    """
-    surviving = list(universe)
-    steps = [PreviewStep(position=0, remaining=len(surviving))]
-    exclusions: dict[str, tuple[str, int]] = {}
-
-    for position, (rule, rule_id) in enumerate(zip(rules, rule_ids, strict=True), start=1):
-        kept: list[Asset] = []
-        removed: list[str] = []
-
-        for asset in surviving:
-            if _evaluate(rule, asset, date, fetcher):
-                kept.append(asset)
-            else:
-                removed.append(asset.asset_id)
-                # First rule to exclude an asset owns it: later rules never
-                # see it, which is what makes the funnel attributable.
-                exclusions[asset.asset_id] = (rule_id, position)
-
-        surviving = kept
-        steps.append(PreviewStep(position=position,
-                                 rule_id=rule_id,
-                                 rule_type=rule.rule_name,
-                                 remaining=len(surviving),
-                                 excluded=sorted(removed)))
-
-    return surviving, steps, exclusions
+def _exclusions_by_rule_id(selection: SelectionResult,
+                           rule_ids: list[str]) -> dict[str, tuple[str, int]]:
+    """Translate positional provenance into ``id -> (rule_id, position)``."""
+    return {asset_id: (rule_ids[position - 1], position)
+            for asset_id, position in selection.exclusions.items()}
 
 
 def build_preview(document: IndexDocument,
@@ -99,10 +75,11 @@ def build_preview(document: IndexDocument,
     universe = calculator.resolve_universe(date)
     rule_ids = [rule.id for rule in document.pipeline.selection]
 
-    surviving, steps, exclusions = _walk_rules(
-        universe, definition.eligibility_rules, rule_ids, date, fetcher)
+    selection = calculator.select_with_provenance(universe, date)
+    steps = [_as_preview_step(step, rule_ids) for step in selection.steps]
+    exclusions = _exclusions_by_rule_id(selection, rule_ids)
 
-    raw_weights = calculator.calculate_constituent_weights(surviving, date)
+    raw_weights = calculator.calculate_constituent_weights(selection.survivors, date)
     weights, cap_report = calculator.cap_weights(raw_weights)
 
     by_id = {asset.asset_id: weight for asset, weight in weights.items()}
