@@ -39,6 +39,11 @@ from beacon.index.calculation import IndexCalculator
 from beacon.index.capping import TOLERANCE, apply_cap
 from beacon.index.methodology import EqualWeighted, MarketCapWeighted
 from beacon.index.result import IndexResult
+from beacon.optimise import (
+    FullInvestment,
+    PositionBounds,
+    minimise_tracking_error,
+)
 from beacon.portfolio.base import Portfolio
 from beacon.risk import estimate_risk_model
 
@@ -725,3 +730,89 @@ class TestCostOfCarryPricing:
                                                            tenor):
         fair_value = cost_of_carry_fair_value(spot, rate, rate, tenor, borrow_cost=0.0)
         assert math.isclose(fair_value, spot, rel_tol=1e-9)
+
+
+# --- BN-92: constrained tracking-error minimisation -------------------------
+
+_TARGET_WEIGHTS = st.lists(
+    st.floats(min_value=0.01, max_value=1.0, allow_nan=False, allow_infinity=False),
+    min_size=2,
+    max_size=8)
+
+
+def _normalised(raw: list[float]) -> pd.Series:
+    """A target weight vector summing to one."""
+    total = sum(raw)
+
+    return pd.Series({f"A{index}": value / total
+                      for index, value in enumerate(raw)})
+
+
+class TestOptimiserProperties:
+    """Invariants the tracking optimiser guarantees for any feasible problem."""
+
+    @given(_TARGET_WEIGHTS)
+    @settings(max_examples=100, deadline=None)
+    def test_a_feasible_target_is_reproduced(self,
+                                             raw):
+        """With nothing binding, the closest feasible portfolio is the target."""
+        target = _normalised(raw)
+
+        result = minimise_tracking_error(target, [FullInvestment()])
+
+        assert (result.weights - target).abs().max() < 1e-7
+
+    @given(_TARGET_WEIGHTS)
+    @settings(max_examples=100, deadline=None)
+    def test_the_solution_is_always_fully_invested(self,
+                                                   raw):
+        target = _normalised(raw)
+        cap = max(float(target.max()) / 2.0, 1.0 / len(target))
+
+        result = minimise_tracking_error(
+            target, [FullInvestment(), PositionBounds(0.0, cap)])
+
+        assert abs(float(result.weights.sum()) - 1.0) < 1e-7
+
+    @given(_TARGET_WEIGHTS,
+           st.floats(min_value=0.0, max_value=0.4, allow_nan=False,
+                     allow_infinity=False))
+    @settings(max_examples=150, deadline=None)
+    def test_tightening_a_cap_cannot_improve_the_objective(self,
+                                                           raw,
+                                                           squeeze):
+        """Shrinking the feasible set can only move the optimum further away.
+
+        A genuine theorem rather than a smoke test: every portfolio allowed
+        under the tighter cap was already allowed under the looser one, so the
+        looser problem's minimum is taken over a superset and cannot be worse.
+        An optimiser that quietly relaxed a constraint, or that returned a
+        local rather than global optimum, would break this.
+        """
+        target = _normalised(raw)
+        floor = 1.0 / len(target)
+
+        loose = max(float(target.max()), floor)
+        tight = max(loose * (1.0 - squeeze), floor)
+
+        looser = minimise_tracking_error(
+            target, [FullInvestment(), PositionBounds(0.0, loose)])
+        tighter = minimise_tracking_error(
+            target, [FullInvestment(), PositionBounds(0.0, tight)])
+
+        assert tighter.diagnostics.objective >= looser.diagnostics.objective - 1e-9
+
+    @given(_TARGET_WEIGHTS)
+    @settings(max_examples=100, deadline=None)
+    def test_no_returned_solution_ever_violates_its_constraints(self,
+                                                                raw):
+        """The contract: an answer comes back only if it satisfies everything."""
+        target = _normalised(raw)
+        cap = max(float(target.max()) * 0.8, 1.0 / len(target))
+
+        result = minimise_tracking_error(
+            target, [FullInvestment(), PositionBounds(0.0, cap)])
+
+        assert not any(slack.is_violated for slack in result.slacks)
+        assert float(result.weights.max()) <= cap + 1e-7
+        assert float(result.weights.min()) >= -1e-7

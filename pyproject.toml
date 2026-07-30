@@ -42,6 +42,7 @@ server = ["fastapi", "uvicorn[standard]", "orjson", "websockets", "platformdirs"
 docs = ["mkdocs-material", "mkdocstrings[python]"]
 dev = [
   "py-beacon[server]",   # the server tests exercise the real app
+  "py-beacon[optimise]", # and the optimiser tests solve real problems
   "pytest",
   "pytest-asyncio",      # the job registry is driven on an event loop
   "pytest-cov",
@@ -143,6 +144,15 @@ strict = true
 # strict mode still holds every Beacon-authored signature to account.
 [[tool.mypy.overrides]]
 module = ["pandas.*"]
+ignore_missing_imports = true
+
+# scipy is treated the same way, and for the same reason pandas-stubs was
+# rejected: scipy-stubs types `minimize` as returning an OptimizeResult whose
+# attributes are all Any anyway, so it buys nothing here while adding a stub
+# package whose release cadence is tied to scipy's. The optimiser reads the
+# result through named locals with explicit casts at the boundary.
+[[tool.mypy.overrides]]
+module = ["scipy.*"]
 ignore_missing_imports = true
 
 [tool.hatch.version]

@@ -160,6 +160,25 @@ class TestGuardedFeatures:
                 report_path="unused.xlsx")
 
 
+    def test_the_optimiser_reports_the_missing_extra(self):
+        """Importing beacon.optimise without scipy names the extra to install.
+
+        Run in a subprocess with scipy blocked, because the guard fires at
+        import time and this interpreter has already imported the package.
+        """
+        script = BARE_ENVIRONMENT_SCRIPT.format(blocked=["scipy"],
+                                                modules=["beacon.optimise"])
+
+        completed = subprocess.run([sys.executable, "-c", script],
+                                   capture_output=True,
+                                   text=True,
+                                   check=False)
+
+        assert completed.returncode != 0
+        assert 'py-beacon[optimise]' in completed.stderr
+        assert "MissingDependencyError" in completed.stderr
+
+
 class TestExtrasAreDeclared:
     """Every extra referenced by the guard must exist in pyproject.toml."""
 
