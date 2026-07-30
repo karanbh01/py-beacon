@@ -13,6 +13,31 @@ from ..portfolio.base import Transaction
 from .asset_view import BacktestAssetView
 
 
+@dataclass(frozen=True)
+class UnfilledOrder:
+    """A buy the simulation could not execute in full.
+
+    Recorded on the result rather than only logged: a partially filled
+    rebalance leaves the portfolio off its target weights, and a caller
+    comparing tracking error against expectations needs to know that happened
+    rather than reading it as a modelling result.
+
+    Attributes:
+        date: The rebalance date.
+        asset_id: Asset that could not be fully bought.
+        requested_quantity: Quantity the rebalance asked for.
+        filled_quantity: Quantity actually bought; 0.0 when nothing was.
+        price: Execution price used.
+        shortfall_value: Notional value that went unfilled, at *price*.
+    """
+    date: pd.Timestamp
+    asset_id: str
+    requested_quantity: float
+    filled_quantity: float
+    price: float
+    shortfall_value: float
+
+
 @dataclass
 class BacktestResult:
     """Container holding the output of a backtest run.
@@ -30,6 +55,10 @@ class BacktestResult:
             ``{asset_id}_weight`` columns.
         target_index_result: The IndexResult of the target index, if
             available.
+        unfilled: Buys the simulation could not execute in full. Empty for a
+            run where every rebalance leg filled, so a non-empty list is
+            itself the signal that the portfolio drifted off target for a
+            reason other than price movement.
     """
     portfolio_id: str
     initial_capital: float
@@ -38,7 +67,13 @@ class BacktestResult:
     transactions: list[Transaction]
     actual_weight_history: pd.DataFrame
     target_index_result: IndexResult | None = None
+    unfilled: list[UnfilledOrder] = field(default_factory=list)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def total_unfilled_value(self) -> float:
+        """Total notional that went unfilled across the run."""
+        return sum(order.shortfall_value for order in self.unfilled)
 
     def with_data(self,
                   data_fetcher: DataFetcher) -> 'BacktestResult':

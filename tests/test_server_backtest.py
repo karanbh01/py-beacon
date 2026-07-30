@@ -268,22 +268,21 @@ class TestSeriesShape:
         assert result["metrics"]["tracking_error"] is not None
         assert result["metrics"]["tracking_difference"] is not None
 
-    def test_costs_change_the_outcome(self,
-                                      module_client):
-        """Transaction costs reach the simulation.
+    def test_costs_reduce_the_total_return(self,
+                                           module_client):
+        """Tightened once BN-85 (#104) landed.
 
-        Deliberately not asserting that costs *reduce* the return. This engine
-        drops a buy entirely when cash falls short rather than sizing it down,
-        so a cost can remove one leg of a rebalance and leave the portfolio
-        concentrated in whichever name happened to perform better. That is a
-        real engine defect, raised separately; asserting the intuitive
-        direction here would just encode the bug as expected behaviour.
+        This previously asserted only that costs *changed* the result: the
+        engine dropped a buy entirely when cash fell short, so a cost could
+        remove one leg of a rebalance and leave the portfolio concentrated in
+        whichever name performed better — making a costlier run look better.
+        Orders are now sized down instead, so the intuitive direction holds.
         """
         free = run_backtest(module_client, transaction_cost_bps=0.0)
         costly = run_backtest(module_client, transaction_cost_bps=100.0)
 
         assert (costly["metrics"]["total_return"]
-                != free["metrics"]["total_return"])
+                < free["metrics"]["total_return"])
 
 
 class TestProgressOverTheSocket:

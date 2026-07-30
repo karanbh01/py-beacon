@@ -7,7 +7,7 @@ and ETF tracking strategies.
 """
 from .asset_view import BacktestAssetView
 from .engine import BacktestEngine, TradeInstruction
-from .result import BacktestResult
+from .result import BacktestResult, UnfilledOrder
 from .rules import BacktestModifier, DriftThresholdModifier
 
 __all__ = [
@@ -17,4 +17,5 @@ __all__ = [
     "BacktestResult",
     "DriftThresholdModifier",
     "TradeInstruction",
+    "UnfilledOrder",
 ]

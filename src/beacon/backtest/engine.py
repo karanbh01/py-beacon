@@ -16,8 +16,19 @@ if TYPE_CHECKING:
 
 from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult
+from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 from ..portfolio.base import Holding, Portfolio
-from .result import BacktestResult
+from .result import BacktestResult, UnfilledOrder
+
+# Reused from the portfolio rather than redefined: the engine decides whether
+# to size an order down, the portfolio decides whether to accept it, and the
+# two must agree on where "affordable" ends or an order sized to the boundary
+# would be rejected on arrival.
+CASH_TOLERANCE = PORTFOLIO_CASH_TOLERANCE
+
+# Below this notional a reduced order is not worth placing; the position would
+# be noise and the cost would dominate it.
+MIN_TRADE_VALUE = 0.01
 
 logger = logging.getLogger(__name__)
 
@@ -253,21 +264,25 @@ class BacktestEngine:
     def _rebalance(self,
                    portfolio: Portfolio,
                    target_weights: dict[str, float],
-                   date: pd.Timestamp) -> None:
+                   date: pd.Timestamp) -> list[UnfilledOrder]:
         """Adjust *portfolio* to match *target_weights* using :meth:`_generate_trades`.
 
         Modifiers may veto the rebalance or adjust the trade list.
+
+        Returns:
+            list of UnfilledOrder: Buys that could not be filled in full.
+            Empty when every leg executed.
         """
         current_value = portfolio.get_total_value()
         if current_value <= 0:
             logger.warning(f"[{date}] Portfolio value is {current_value:.2f}. Skipping rebalance.")
-            return
+            return []
 
         # Check modifiers for skip
         for modifier in self.modifiers:
             if modifier.should_skip_rebalance(date, portfolio, target_weights):
                 logger.info(f"[{date}] Rebalance skipped by {modifier.__class__.__name__}.")
-                return
+                return []
 
         logger.info(f"[{date}] Rebalancing to target weights: {target_weights}")
         trades = self._generate_trades(portfolio, target_weights, date)
@@ -276,22 +291,86 @@ class BacktestEngine:
         for modifier in self.modifiers:
             trades = modifier.adjust_trades(trades, date, portfolio)
 
+        unfilled: list[UnfilledOrder] = []
+
         for trade in trades:
             if trade.side == "SELL":
                 portfolio.execute_sell(trade.asset_id, trade.quantity, trade.price,
                                       cost=trade.cost, date=date)
                 logger.debug(f"[{date}] Sold {trade.quantity:.4f} of {trade.asset_id}")
             elif trade.side == "BUY":
-                total_needed = trade.quantity * trade.price + trade.cost
-                if portfolio.cash_balance >= total_needed:
-                    portfolio.execute_buy(trade.asset_id, trade.quantity, trade.price,
-                                          cost=trade.cost, date=date)
-                    logger.debug(f"[{date}] Bought {trade.quantity:.4f} of {trade.asset_id}")
-                else:
-                    logger.warning(
-                        f"[{date}] Insufficient cash for {trade.asset_id}. "
-                        f"Need {total_needed:.2f}, have {portfolio.cash_balance:.2f}"
-                    )
+                shortfall = self._execute_buy(portfolio, trade, date)
+                if shortfall is not None:
+                    unfilled.append(shortfall)
+
+        return unfilled
+
+    def _execute_buy(self,
+                     portfolio: Portfolio,
+                     trade: TradeInstruction,
+                     date: pd.Timestamp) -> UnfilledOrder | None:
+        """Buy as much of *trade* as the available cash supports.
+
+        A rebalance sells before it buys, so the final buy is *expected* to
+        consume almost exactly the proceeds. Comparing cash against the
+        required amount exactly therefore fails routinely on sub-cent floating
+        point noise, and dropping the whole order when cash falls a little
+        short distorts the simulation far more than a slightly smaller
+        position would: the freed weight silently accrues to whatever else is
+        held.
+
+        Args:
+            portfolio: Portfolio to buy into. Mutated.
+            trade: The requested buy.
+            date: Trade date.
+
+        Returns:
+            UnfilledOrder or None: A record when the order could not be filled
+            in full, otherwise None.
+        """
+        required = trade.quantity * trade.price + trade.cost
+
+        # Affordable, allowing for accumulated float error on the cash balance.
+        if portfolio.cash_balance >= required * (1 - CASH_TOLERANCE):
+            portfolio.execute_buy(trade.asset_id, trade.quantity, trade.price,
+                                  cost=trade.cost, date=date)
+            logger.debug(f"[{date}] Bought {trade.quantity:.4f} of {trade.asset_id}")
+            return None
+
+        # Size down instead of abandoning the leg. Cash has to cover the
+        # notional *and* the cost charged on it, so the affordable quantity
+        # solves cash = q * price * (1 + cost_rate).
+        cost_rate = self.transaction_cost_bps / 10_000.0
+        affordable = min(portfolio.cash_balance / (trade.price * (1 + cost_rate)),
+                         trade.quantity)
+
+        if affordable * trade.price < MIN_TRADE_VALUE:
+            logger.warning(
+                f"[{date}] Cannot buy {trade.asset_id}: need "
+                f"{required:.2f}, have {portfolio.cash_balance:.2f}, and the "
+                f"affordable quantity is below the minimum trade value.")
+            return UnfilledOrder(date=date,
+                                 asset_id=trade.asset_id,
+                                 requested_quantity=trade.quantity,
+                                 filled_quantity=0.0,
+                                 price=trade.price,
+                                 shortfall_value=trade.quantity * trade.price)
+
+        available = portfolio.cash_balance
+        reduced_cost = affordable * trade.price * cost_rate
+        portfolio.execute_buy(trade.asset_id, affordable, trade.price,
+                              cost=reduced_cost, date=date)
+        logger.warning(
+            f"[{date}] Partially filled {trade.asset_id}: bought "
+            f"{affordable:.4f} of {trade.quantity:.4f} requested "
+            f"(needed {required:.2f}, had {available:.2f}).")
+
+        return UnfilledOrder(date=date,
+                             asset_id=trade.asset_id,
+                             requested_quantity=trade.quantity,
+                             filled_quantity=affordable,
+                             price=trade.price,
+                             shortfall_value=(trade.quantity - affordable) * trade.price)
 
     # ------------------------------------------------------------------
     # Public API
@@ -320,6 +399,7 @@ class BacktestEngine:
         nav_records: dict[pd.Timestamp, float] = {}
         cash_records: dict[pd.Timestamp, float] = {}
         weight_records = []
+        unfilled: list[UnfilledOrder] = []
 
         for idx, date in enumerate(trading_days):
             # 1. Update prices for existing holdings
@@ -328,7 +408,7 @@ class BacktestEngine:
             # 2. Check for rebalance
             target_w = self._get_target_weights_for_date(date)
             if target_w is not None:
-                self._rebalance(portfolio, target_w, date)
+                unfilled.extend(self._rebalance(portfolio, target_w, date))
                 # Re-price after rebalance
                 self._update_portfolio_prices(portfolio, date)
 
@@ -368,6 +448,7 @@ class BacktestEngine:
             transactions=list(portfolio.transactions),
             actual_weight_history=weight_df,
             target_index_result=self.target_index_result,
+            unfilled=unfilled,
         )
 
     def _build_empty_result(self,

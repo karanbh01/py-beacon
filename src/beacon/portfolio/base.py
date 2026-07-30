@@ -10,6 +10,11 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Relative slack on the cash check in execute_buy. Sized to absorb float error
+# accumulated over a sequence of trades, while staying far below any amount a
+# caller would consider money.
+CASH_TOLERANCE = 1e-9
+
 @dataclass(frozen=True)
 class Transaction:
     """
@@ -118,15 +123,24 @@ class Portfolio:
             raise ValueError("price cannot be negative.")
 
         trade_value = quantity * price
-        if self.cash_balance < (trade_value + cost):
+        required = trade_value + cost
+
+        # Compared with tolerance, not exactly. A caller spending down a
+        # balance — the backtest engine selling and then reinvesting the
+        # proceeds is the normal case — arrives here with a required amount
+        # that differs from the balance only by accumulated float error, and an
+        # exact comparison rejects a purchase the portfolio can plainly afford.
+        if self.cash_balance < required * (1 - CASH_TOLERANCE):
             logger.error(
                 f"Insufficient cash for BUY of {asset_id}. "
-                f"Required: {(trade_value + cost):.2f}, Available: {self.cash_balance:.2f}"
+                f"Required: {required:.2f}, Available: {self.cash_balance:.2f}"
             )
             return
 
         tx_date = date if date is not None else pd.Timestamp.now()
-        self.cash_balance -= (trade_value + cost)
+        # Clamped at zero so a purchase accepted inside the tolerance cannot
+        # leave a residual negative balance.
+        self.cash_balance = max(self.cash_balance - required, 0.0)
 
         if asset_id in self.holdings:
             h = self.holdings[asset_id]
