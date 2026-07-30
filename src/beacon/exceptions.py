@@ -45,6 +45,18 @@ class ConfigurationError(BeaconError):
         self.config_param = config_param
         self.details = details
 
+class ReportingError(BeaconError):
+    """Raised when a report cannot be generated or written.
+
+    A BeaconError rather than a bare Exception so it reaches a client through
+    the API's error envelope with a stable code, like every other library
+    failure, instead of as an unlabelled 500.
+    """
+    def __init__(self,
+                 details: str):
+        super().__init__(f"Reporting failed: {details}")
+        self.details = details
+
 class MissingDependencyError(BeaconError, ImportError):
     """Raised when a feature is used without its optional dependency installed.
 

@@ -1,15 +1,19 @@
 # tests/test_server.py
 """Unit tests for the Beacon API server skeleton (app factory, auth, /health)."""
+import importlib
+import pkgutil
 import socket
 import subprocess
 import sys
 import time
+from typing import ClassVar
 
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+import beacon
 from beacon.backtest.result import BacktestResult
 from beacon.data.base import MarketData
 from beacon.data.fetcher import DataFetcher
@@ -20,6 +24,7 @@ from beacon.exceptions import (
     DataNotFoundError,
     InvalidRuleError,
     MissingDependencyError,
+    ReportingError,
 )
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Transaction
@@ -35,6 +40,7 @@ from beacon.server import (
 )
 from beacon.server.__main__ import PORT_ANNOUNCEMENT, bind_socket, build_parser, main
 from beacon.server.config import TOKEN_ENV_VAR
+from beacon.server.errors import EXCEPTION_MAPPING
 
 TOKEN = "test-token-value"
 ASSETS = ["AAA", "BBB", "CCC"]
@@ -350,6 +356,117 @@ class TestErrorEnvelope:
 
     def test_specific_mapping_beats_the_catch_all(self):
         assert classify(DataNotFoundError("x"))[1] == "DATA_NOT_FOUND"
+
+
+def all_beacon_error_subclasses() -> set[type]:
+    """Every BeaconError subclass anywhere in the package.
+
+    Imports every module first: `__subclasses__` only knows about classes that
+    have actually been imported, so without the walk this would silently miss
+    exceptions in modules no test happens to touch — exactly the hole this
+    check exists to close.
+    """
+    for module in pkgutil.walk_packages(beacon.__path__, "beacon."):
+        try:
+            importlib.import_module(module.name)
+        except MissingDependencyError:
+            # A module behind an extra that is not installed cannot hide an
+            # exception from the mapping, because it cannot be reached either.
+            continue
+
+    def descendants(cls: type) -> set[type]:
+        found = set()
+        for subclass in cls.__subclasses__():
+            found.add(subclass)
+            found |= descendants(subclass)
+        return found
+
+    # Library classes only. Tests define throwaway subclasses to exercise the
+    # catch-all, and those are never shipped, so holding them to the mapping
+    # would be noise.
+    return {cls for cls in descendants(BeaconError)
+            if cls.__module__.startswith("beacon.")}
+
+
+class TestEnvelopeExhaustiveness:
+    """No library exception may reach a client without a stable code.
+
+    BN-86: `ReportingError` subclassed plain Exception, so it fell outside the
+    mapping entirely and would have surfaced as an unlabelled 500. This check
+    fails when the next exception is added without a decision being made about
+    how it should be reported.
+    """
+
+    # Subclasses deliberately absent from EXCEPTION_MAPPING, with the reason.
+    # Inheriting a parent's mapping is a legitimate choice; forgetting to map
+    # something is not, and only this list distinguishes them.
+    DELIBERATELY_INHERITED: ClassVar[dict[str, str]] = {
+        "PipelineValidationError":
+            "subclasses InvalidRuleError to inherit its 422 / INVALID_RULE "
+            "mapping, and adds structured findings to the envelope detail",
+    }
+
+    def test_every_subclass_is_mapped_or_deliberately_inherited(self):
+        listed = {exception_type for exception_type, _, _ in EXCEPTION_MAPPING}
+
+        unaccounted = [
+            cls.__name__ for cls in all_beacon_error_subclasses()
+            if cls not in listed and cls.__name__ not in self.DELIBERATELY_INHERITED
+        ]
+
+        assert not unaccounted, (
+            f"These BeaconError subclasses are neither in EXCEPTION_MAPPING nor "
+            f"listed as deliberately inheriting a parent's mapping: "
+            f"{sorted(unaccounted)}. Add a mapping in beacon/server/errors.py, "
+            f"or record the reason in DELIBERATELY_INHERITED.")
+
+    def test_the_exclusion_list_has_no_stale_entries(self):
+        """A name left here after the class is mapped or deleted is misleading."""
+        names = {cls.__name__ for cls in all_beacon_error_subclasses()}
+
+        stale = set(self.DELIBERATELY_INHERITED) - names
+
+        assert not stale, f"DELIBERATELY_INHERITED lists unknown classes: {sorted(stale)}"
+
+    def test_every_mapped_type_produces_a_distinct_code(self):
+        """Two exceptions sharing a code would be indistinguishable to a client."""
+        codes = [code for _, _, code in EXCEPTION_MAPPING]
+
+        assert len(codes) == len(set(codes)), f"duplicate codes in the mapping: {codes}"
+
+    def test_the_catch_all_is_last(self):
+        """classify() walks in order, so BeaconError earlier would shadow all."""
+        types = [exception_type for exception_type, _, _ in EXCEPTION_MAPPING]
+
+        assert types[-1] is BeaconError
+
+    def test_reporting_error_is_mapped(self):
+        """The specific defect BN-86 fixed."""
+        assert classify(ReportingError("disk full")) == (500, "REPORTING_ERROR")
+
+    def test_reporting_error_is_a_beacon_error(self):
+        assert issubclass(ReportingError, BeaconError)
+
+    def test_reporting_error_reaches_the_client_in_the_envelope(self):
+        config = ServerConfig(auth_token=TOKEN)
+        app = create_app(config)
+
+        @app.get("/boom")
+        def boom() -> None:
+            raise ReportingError("could not write the workbook")
+
+        response = TestClient(app, raise_server_exceptions=False).get(
+            "/boom", headers=auth())
+
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == "REPORTING_ERROR"
+        assert "could not write the workbook" in response.json()["error"]["message"]
+
+    def test_reporting_error_is_still_importable_from_its_old_home(self):
+        """Moving it to beacon.exceptions must not break existing imports."""
+        from beacon.portfolio.reporting import ReportingError as FromReporting
+
+        assert FromReporting is ReportingError
 
 
 class TestOpenApi:

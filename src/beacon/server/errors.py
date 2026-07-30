@@ -16,6 +16,7 @@ from ..exceptions import (
     DataNotFoundError,
     InvalidRuleError,
     MissingDependencyError,
+    ReportingError,
 )
 from .schemas import ErrorDetail, ErrorEnvelope
 
@@ -39,6 +40,7 @@ EXCEPTION_MAPPING: tuple[tuple[type[BeaconError], int, str], ...] = (
     (MissingDependencyError, status.HTTP_503_SERVICE_UNAVAILABLE, "MISSING_DEPENDENCY"),
     (ConfigurationError, status.HTTP_500_INTERNAL_SERVER_ERROR, "CONFIGURATION_ERROR"),
     (CalculationError, status.HTTP_500_INTERNAL_SERVER_ERROR, "CALCULATION_ERROR"),
+    (ReportingError, status.HTTP_500_INTERNAL_SERVER_ERROR, "REPORTING_ERROR"),
     # Catch-all for any BeaconError subclass added later without a mapping.
     (BeaconError, status.HTTP_500_INTERNAL_SERVER_ERROR, "BEACON_ERROR"),
 )

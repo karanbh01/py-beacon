@@ -8,12 +8,14 @@ import logging
 import pandas as pd
 
 from .._optional import require
+from ..exceptions import ReportingError
 from .base import Portfolio
 
 logger = logging.getLogger(__name__)
 
-class ReportingError(Exception):
-    """Custom exception for errors during report generation."""
+# Re-exported so `from beacon.portfolio.reporting import ReportingError` keeps
+# working; the class itself lives in beacon.exceptions with the rest.
+__all__ = ["ReportGenerator", "ReportingError"]
 
 class ReportGenerator:
     """
