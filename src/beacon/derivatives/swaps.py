@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 # Financing legs accrue on an ACT/360 money-market basis.
 _FINANCING_DAY_COUNT = 360.0
 
+# The standard rate bump for a sensitivity. Defined here rather than imported
+# from curves.py so this module keeps working without one.
+_ONE_BASIS_POINT = 0.0001
+
 
 class TotalReturnSwap(DerivativeBase):
     """A total return swap (TRS) on an index or equity basket.
@@ -145,6 +149,66 @@ class TotalReturnSwap(DerivativeBase):
 
         day_count_fraction = days / _FINANCING_DAY_COUNT
         return self.notional * rate * day_count_fraction
+
+    def dv01(self,
+             valuation_date: pd.Timestamp,
+             last_reset_date: pd.Timestamp,
+             reference_rate: float = 0.0) -> float:
+        """Change in the receiver's value for a one-basis-point rate rise.
+
+        Computed by bumping and revaluing rather than by the closed form. The
+        two agree exactly here — financing is linear in the rate — and a test
+        holds them to that. The bump-and-revalue version is the one kept
+        because it stays correct if the financing leg ever stops being linear,
+        and because it is obviously right by inspection.
+
+        **The sign is negative for a total-return receiver**, and that is not a
+        convention choice. The receiver *pays* financing, so a higher rate
+        makes their position worth less. Reporting DV01 as a positive magnitude
+        is common, but it loses the one piece of information a risk report most
+        needs: which way this position hurts.
+
+        A ``FUNDED`` swap returns 0.0. Only the spread accrues on one, and the
+        spread does not move with the reference rate — so the position genuinely
+        has no sensitivity to it, rather than a small one.
+
+        Args:
+            valuation_date: The accrual end date.
+            last_reset_date: Start of the current accrual period.
+            reference_rate: The floating rate the bump is applied to. The
+                answer does not depend on its level, since financing is linear,
+                but it is accepted so the call reads the same as the others.
+
+        Returns:
+            float: Value change per +1bp, in contract currency. Negative for a
+            receiver on an unfunded swap.
+
+        Raises:
+            ValueError: If *valuation_date* precedes *last_reset_date*.
+        """
+        base = self.financing_cost(valuation_date, last_reset_date, reference_rate)
+        bumped = self.financing_cost(valuation_date, last_reset_date,
+                                     reference_rate + _ONE_BASIS_POINT)
+
+        # Financing is a cost to the receiver, so more of it is less value.
+        # Subtracting this way round rather than negating the difference keeps
+        # a zero-sensitivity funded swap at 0.0 instead of -0.0.
+        return base - bumped
+
+    def financing_duration(self,
+                           valuation_date: pd.Timestamp,
+                           last_reset_date: pd.Timestamp) -> float:
+        """The accrual year fraction the DV01 scales with, ACT/360.
+
+        Exposed because it is the whole of the DV01 story: the sensitivity is
+        notional × 1bp × this, so a reader who wants to check the number by hand
+        needs it rather than having to rederive the day count.
+        """
+        days = int((pd.Timestamp(valuation_date) - pd.Timestamp(last_reset_date)).days)
+        if days < 0:
+            raise ValueError("valuation_date must be on or after last_reset_date.")
+
+        return days / _FINANCING_DAY_COUNT
 
     def fair_value(self,
                    spot_price: float,
