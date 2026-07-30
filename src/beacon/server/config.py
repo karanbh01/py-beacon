@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..data.fetcher import DataFetcher
+from ..data.ingest import Downloader
 
 # Environment variable consulted when no token is passed on the command line.
 TOKEN_ENV_VAR = "BEACON_API_TOKEN"
@@ -35,6 +36,10 @@ class ServerConfig:
         data_fetcher: The data source to serve, or None to run without one.
         cors_origins: Exact origins allowed, in addition to the localhost
             pattern.
+        market_downloader: Where a sync fetches market data from. None builds
+            the yfinance-backed downloader on first use, which is the real
+            deployment; tests and offline runs inject their own so the sync
+            path is exercisable without a network.
         storage_root: Base directory for persisted documents. None uses the
             platform app-data location; tests point it at a temporary path.
     """
@@ -42,6 +47,7 @@ class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 0
     data_fetcher: DataFetcher | None = None
+    market_downloader: Downloader | None = None
     cors_origins: tuple[str, ...] = field(default=DEFAULT_CORS_ORIGINS)
     storage_root: Path | None = None
 

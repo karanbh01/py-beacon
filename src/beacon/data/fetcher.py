@@ -76,6 +76,75 @@ class DataFetcher:
         """The action history. Empty rather than None when none was loaded."""
         return self._actions
 
+    # -- ingestion -----------------------------------------------------------
+
+    def merge_market_data(self,
+                          frame: pd.DataFrame) -> int:
+        """Fold freshly ingested rows into the market data.
+
+        Newly fetched rows win where they overlap an existing identifier and
+        date. A re-sync of a window is a correction — a restated close, a
+        backfilled volume — so keeping the older value would make the sync
+        pointless.
+
+        The swap at the end is a single assignment, so a reader either sees the
+        whole old dataset or the whole new one. This process is single-threaded
+        and cooperatively scheduled, so there is no torn state to guard
+        against; a reader that started before the swap simply finishes against
+        the data it began with.
+
+        Args:
+            frame: Long-form rows carrying ``IDENTIFIER`` and ``DATE``.
+
+        Returns:
+            int: Rows added, counting only genuinely new identifier/date pairs
+            — a re-sync that restates existing rows returns 0, which is the
+            truthful answer to "how much did this add".
+        """
+        if frame.empty:
+            return 0
+
+        existing = self._market.data.reset_index()
+        combined = pd.concat([existing, frame], ignore_index=True)
+        combined["DATE"] = pd.to_datetime(combined["DATE"])
+
+        before = len(existing)
+        combined = combined.drop_duplicates(subset=["IDENTIFIER", "DATE"],
+                                            keep="last")
+
+        self._market = MarketData.from_dataframe(combined)
+
+        return len(combined) - before
+
+    def merge_reference_data(self,
+                             frame: pd.DataFrame) -> int:
+        """Fold freshly ingested reference records in.
+
+        Args:
+            frame: Rows carrying ``IDENTIFIER`` and ``DATE_FROM``.
+
+        Returns:
+            int: Records added.
+        """
+        if frame.empty:
+            return 0
+
+        if self._reference is None:
+            self._reference = ReferenceData.from_dataframe(frame)
+
+            return len(frame)
+
+        existing = self._reference.data.reset_index()
+        combined = pd.concat([existing, frame], ignore_index=True)
+
+        before = len(existing)
+        combined = combined.drop_duplicates(subset=["IDENTIFIER", "DATE_FROM"],
+                                            keep="last")
+
+        self._reference = ReferenceData.from_dataframe(combined)
+
+        return len(combined) - before
+
     # -- corporate actions ---------------------------------------------------
 
     def fetch_corporate_actions(self,

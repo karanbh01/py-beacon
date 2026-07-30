@@ -313,13 +313,22 @@ class TestCoverage:
         assert all(d["configured"] is False for d in datasets)
         assert all(d["identifiers"] == 0 for d in datasets)
 
-    def test_sync_reports_not_implemented(self,
-                                          client):
-        """No ingestion path exists; a 200 would claim a sync that never ran."""
-        response = client.post("/data/coverage/market/sync", headers=auth())
+    def test_sync_without_a_data_source_reports_500(self,
+                                                    tmp_path):
+        """Used to be a 501: no ingestion path existed at all.
 
-        assert response.status_code == 501
-        assert response.json()["error"]["code"] == "NOT_IMPLEMENTED"
+        BN-100 built one, so the honest failure here is now about this server
+        having nothing to sync *into*, not about the feature being absent. The
+        sync itself is covered in tests/test_ingest.py, which injects a
+        downloader so the path runs without a network.
+        """
+        bare = TestClient(create_app(ServerConfig(auth_token=TOKEN,
+                                                  storage_root=tmp_path)),
+                          raise_server_exceptions=False)
+
+        response = bare.post("/data/coverage/market/sync", headers=auth())
+
+        assert response.status_code == 500
 
     def test_sync_unknown_dataset_is_404(self,
                                          client):

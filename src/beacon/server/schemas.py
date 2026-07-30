@@ -284,6 +284,18 @@ class CorporateActionsResponse(BaseModel):
                    cumulative_split_ratio=cumulative_split_ratio)
 
 
+class SyncRequest(BaseModel):
+    """Body of `POST /data/coverage/{dataset}/sync`."""
+    identifiers: list[str] = Field(
+        default_factory=list,
+        description="What to fetch. Empty re-syncs everything already loaded, "
+                    "which is the common case: refresh what I have.")
+    start: str | None = Field(default=None,
+                              description="Inclusive start date, YYYY-MM-DD.")
+    end: str | None = Field(default=None,
+                            description="Inclusive end date, YYYY-MM-DD.")
+
+
 class Watchlist(BaseModel):
     """A named set of instrument identifiers."""
     id: str = Field(description="Stable identifier, used in the URL.",
