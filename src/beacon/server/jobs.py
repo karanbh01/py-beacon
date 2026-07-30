@@ -18,7 +18,10 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
+
+from .store import DocumentStore
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,17 @@ TERMINAL_STATES = frozenset({SUCCEEDED, FAILED, CANCELLED})
 # is a stream of snapshots rather than a ledger, so a dropped intermediate
 # frame costs nothing; the terminal event still arrives.
 SUBSCRIBER_QUEUE_SIZE = 100
+
+# Completed results kept on disk. A backtest payload measures about 164 bytes
+# per day, so a 30-year daily run is roughly 1.2 MB and this bound is a few tens
+# of megabytes at absolute worst — small enough that plain JSON through the
+# DocumentStore is the right storage, and no compact format is warranted.
+MAX_STORED_RESULTS = 50
+
+# Fields of a job snapshot that survive a restart. Anything else in the stored
+# document is bookkeeping and is not part of the API's job shape.
+PERSISTED_FIELDS = ("job_id", "kind", "status", "progress", "message",
+                    "result", "error")
 
 # Signature a job body must satisfy: it receives a progress reporter and
 # returns whatever should become the job's result.
@@ -80,9 +94,17 @@ class Job:
 class JobRegistry:
     """Owns running jobs and the subscribers watching them."""
 
-    def __init__(self) -> None:
+    def __init__(self,
+                 result_store: DocumentStore | None = None) -> None:
+        """
+        Args:
+            result_store: Where completed results are persisted. None keeps
+                everything in memory, which is what the unit tests want and
+                what a process with nowhere to write falls back to.
+        """
         self._jobs: dict[str, Job] = {}
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+        self._results = result_store
 
     # -- subscriptions -------------------------------------------------------
 
@@ -131,8 +153,92 @@ class JobRegistry:
 
     def get(self,
             job_id: str) -> Job | None:
-        """Return a job by id, or None."""
+        """Return an in-memory job by id, or None.
+
+        Only jobs this process ran. Use :meth:`snapshot` to include results
+        persisted by an earlier process.
+        """
         return self._jobs.get(job_id)
+
+    def snapshot(self,
+                 job_id: str) -> dict[str, Any] | None:
+        """Return a job's state, from memory or from disk.
+
+        A job this process ran is authoritative; otherwise the persisted result
+        of an earlier process is served, which is what lets a completed
+        backtest survive a restart and still be readable.
+
+        Args:
+            job_id: Identifier of the job.
+
+        Returns:
+            dict or None: The snapshot, or None if the job is unknown to both.
+        """
+        job = self._jobs.get(job_id)
+        if job is not None:
+            return job.snapshot()
+
+        return self._stored(job_id)
+
+    def _stored(self,
+                job_id: str) -> dict[str, Any] | None:
+        """Read a persisted result, keeping only the API's job fields."""
+        if self._results is None:
+            return None
+
+        document = self._results.read(job_id)
+        if document is None:
+            return None
+
+        return {field: document.get(field) for field in PERSISTED_FIELDS}
+
+    def stored_snapshots(self) -> list[dict[str, Any]]:
+        """Every persisted result, for jobs this process did not run."""
+        if self._results is None:
+            return []
+
+        return [
+            {field: document.get(field) for field in PERSISTED_FIELDS}
+            for document in self._results.read_all()
+            if document.get("job_id") not in self._jobs
+        ]
+
+    def _persist(self,
+                 job: Job) -> None:
+        """Write a finished job's snapshot to disk and prune old ones."""
+        if self._results is None or not job.is_terminal:
+            return
+
+        try:
+            self._results.write(job.id,
+                                {**job.snapshot(),
+                                 "completed_at": datetime.now(UTC).isoformat()})
+            self._prune()
+        except Exception as exc:
+            # Persistence is a convenience, not part of the job's contract. A
+            # full disk must not turn a successful backtest into a failed one.
+            logger.error(f"Could not persist result for job {job.id}: {exc}")
+
+    def _prune(self) -> None:
+        """Keep only the most recent MAX_STORED_RESULTS results."""
+        if self._results is None:
+            return
+
+        documents = self._results.read_all()
+        excess = len(documents) - MAX_STORED_RESULTS
+        if excess <= 0:
+            return
+
+        # Oldest first by completion time. Ids are UUIDs, so name order says
+        # nothing about age.
+        oldest = sorted(documents, key=lambda doc: str(doc.get("completed_at", "")))
+
+        for document in oldest[:excess]:
+            job_id = document.get("job_id")
+            if isinstance(job_id, str):
+                self._results.delete(job_id)
+
+        logger.info(f"Pruned {excess} stored job result(s) beyond the retention limit.")
 
     def list_jobs(self) -> list[Job]:
         """Every job this process knows about."""
@@ -203,6 +309,7 @@ class JobRegistry:
         finally:
             if job.status != CANCELLED:
                 self._emit(job)
+            self._persist(job)
 
     def _emit(self,
               job: Job) -> None:

@@ -111,7 +111,10 @@ def create_app(config: ServerConfig) -> FastAPI:
     app.state.watchlist_store = DocumentStore("watchlists", root=config.storage_root)
     app.state.universe_store = DocumentStore("universes", root=config.storage_root)
     app.state.index_store = DocumentStore("indices", root=config.storage_root)
-    app.state.jobs = JobRegistry()
+    # Completed results outlive the process: compare and report rendering both
+    # need a result the request that produced it did not have to hold open.
+    app.state.jobs = JobRegistry(
+        result_store=DocumentStore("job_results", root=config.storage_root))
 
     app.add_middleware(CORSMiddleware,
                        allow_origins=list(config.cors_origins),

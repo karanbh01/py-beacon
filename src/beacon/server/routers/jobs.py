@@ -61,17 +61,23 @@ def build_jobs_router() -> APIRouter:
 
     @router.get("/jobs", response_model=JobCollection)
     def list_jobs(request: Request) -> JobCollection:
+        registry = _registry(request)
+        live = [job.snapshot() for job in registry.list_jobs()]
+
+        # Results persisted by an earlier process appear alongside this one's,
+        # so a restart does not make completed work vanish from the listing.
         return JobCollection(
-            jobs=[JobStatus(**job.snapshot()) for job in _registry(request).list_jobs()])
+            jobs=[JobStatus(**snapshot)
+                  for snapshot in live + registry.stored_snapshots()])
 
     @router.get("/jobs/{job_id}", response_model=JobStatus)
     def get_job(request: Request,
                 job_id: str) -> JobStatus:
-        job = _registry(request).get(job_id)
-        if job is None:
+        snapshot = _registry(request).snapshot(job_id)
+        if snapshot is None:
             raise DataNotFoundError(f"job '{job_id}'", source="JobRegistry")
 
-        return JobStatus(**job.snapshot())
+        return JobStatus(**snapshot)
 
     @router.delete("/jobs/{job_id}", response_model=JobStatus)
     def cancel_job(request: Request,
