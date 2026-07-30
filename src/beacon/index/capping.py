@@ -38,13 +38,18 @@ class CapReport:
         capped: Identifiers held at the cap, mapped to the weight each would
             have had uncapped. The difference is what was redistributed.
         redistributed: Total weight moved off capped names and onto the rest.
-            This is the quantity a report calls "cap drag".
         passes: Iterations the loop took to settle. 0 means nothing breached.
+        uncapped_weights: The full weight vector before capping. Kept so the
+            counterfactual — what the index would have returned uncapped — can
+            be computed later. Reconstructing it from `capped` and
+            `redistributed` alone is only possible for a single pass, and the
+            loop routinely takes more.
     """
     cap: float | None = None
     capped: dict[str, float] = field(default_factory=dict)
     redistributed: float = 0.0
     passes: int = 0
+    uncapped_weights: dict[str, float] = field(default_factory=dict)
 
     @property
     def was_capped(self) -> bool:
@@ -88,7 +93,7 @@ def apply_cap(weights: dict[str, float],
             or if the iteration fails to settle within MAX_PASSES.
     """
     if cap is None or not weights:
-        return dict(weights), CapReport(cap=cap)
+        return dict(weights), CapReport(cap=cap, uncapped_weights=dict(weights))
 
     if not 0.0 < cap <= 1.0:
         raise ValueError(f"cap must be in (0, 1], got {cap}.")
@@ -96,7 +101,7 @@ def apply_cap(weights: dict[str, float],
     # A cap at or above 1.0 cannot bind, and neither can one at or above the
     # largest weight. Skip the loop rather than iterating to a no-op.
     if cap >= 1.0 or max(weights.values()) <= cap * (1 + TOLERANCE):
-        return dict(weights), CapReport(cap=cap)
+        return dict(weights), CapReport(cap=cap, uncapped_weights=dict(weights))
 
     _reject_infeasible_cap(weights, cap)
 
@@ -184,7 +189,8 @@ def _finalise(original: dict[str, float],
     report = CapReport(cap=cap,
                        capped={asset_id: original[asset_id] for asset_id in sorted(capped)},
                        redistributed=redistributed,
-                       passes=passes)
+                       passes=passes,
+                       uncapped_weights=dict(original))
 
     if capped:
         logger.info(

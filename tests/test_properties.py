@@ -31,6 +31,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from beacon.analysis import attribute
 from beacon.asset.equity import Equity
 from beacon.backtest.result import BacktestResult
 from beacon.derivatives.pricing import cost_of_carry_fair_value, implied_repo_rate
@@ -404,6 +405,86 @@ class TestRiskModelInvariants:
         model = estimate_risk_model(panel, intensity=0.0)
 
         assert model.diagnostics.positive_semi_definite
+
+
+@st.composite
+def _attribution_inputs(draw,
+                        min_assets: int = 2,
+                        max_assets: int = 5,
+                        min_periods: int = 2,
+                        max_periods: int = 40):
+    """Generate weights and asset returns for an attribution.
+
+    Weights are normalised per period so they sum to 1, and returns are bounded
+    away from -100% so the linking coefficient stays defined — an index that
+    goes to zero has no attribution, which the code raises on rather than
+    fudging.
+    """
+    assets = draw(st.integers(min_value=min_assets, max_value=max_assets))
+    periods = draw(st.integers(min_value=min_periods, max_value=max_periods))
+    names = [f"A{i}" for i in range(assets)]
+    dates = pd.bdate_range("2024-01-01", periods=periods)
+
+    raw = draw(st.lists(
+        st.lists(st.floats(min_value=0.01, max_value=10.0,
+                           allow_nan=False, allow_infinity=False),
+                 min_size=assets, max_size=assets),
+        min_size=periods, max_size=periods))
+    weights = pd.DataFrame(raw, index=dates, columns=names)
+    weights = weights.div(weights.sum(axis=1), axis=0)
+
+    returns = draw(st.lists(
+        st.lists(st.floats(min_value=-0.3, max_value=0.3,
+                           allow_nan=False, allow_infinity=False),
+                 min_size=assets, max_size=assets),
+        min_size=periods, max_size=periods))
+    asset_returns = pd.DataFrame(returns, index=dates, columns=names)
+
+    period_returns = (weights.shift(1) * asset_returns).sum(axis=1)
+
+    return period_returns, weights, asset_returns
+
+
+class TestAttributionInvariants:
+    """BN-57's last deferred invariant: attribution reconciles."""
+
+    @given(_attribution_inputs())
+    @settings(max_examples=200, deadline=None)
+    def test_contributions_sum_to_the_total_return(self,
+                                                   case):
+        """Exact after Carino linking, for any weights and returns."""
+        result = attribute(*case)
+
+        assert result.explained == pytest.approx(result.total_return, abs=1e-9)
+
+    @given(_attribution_inputs())
+    @settings(max_examples=200, deadline=None)
+    def test_the_residual_is_negligible(self,
+                                        case):
+        result = attribute(*case)
+
+        assert result.reconciles(), f"residual {result.residual:.3e}"
+
+    @given(_attribution_inputs())
+    @settings(max_examples=200, deadline=None)
+    def test_every_constituent_is_accounted_for(self,
+                                                case):
+        """No constituent may be dropped — its contribution would vanish."""
+        _, weights, _ = case
+        result = attribute(*case)
+
+        assert {item.asset_id for item in result.contributions} == set(weights.columns)
+
+    @given(_attribution_inputs())
+    @settings(max_examples=100, deadline=None)
+    def test_linking_preserves_the_sign_of_the_total(self,
+                                                    case):
+        """A positive total cannot decompose into a negative explained sum."""
+        result = attribute(*case)
+
+        if abs(result.total_return) > 1e-9:
+            assert math.copysign(1.0, result.explained) == math.copysign(
+                1.0, result.total_return)
 
 
 class TestDivisorContinuity:
