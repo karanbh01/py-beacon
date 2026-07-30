@@ -78,7 +78,7 @@ def scaled_identity_target(covariance: Matrix) -> Matrix:
     assets = covariance.shape[0]
     average_variance = float(np.trace(covariance)) / assets
 
-    return np.eye(assets) * average_variance
+    return _as_matrix(np.eye(assets) * average_variance)
 
 
 def constant_correlation_target(covariance: Matrix) -> Matrix:
@@ -325,7 +325,7 @@ def annualise(covariance: Matrix,
             "Annualisation",
             f"periods_per_year must be positive, got {periods_per_year}.")
 
-    return covariance * periods_per_year
+    return _as_matrix(covariance * periods_per_year)
 
 
 def _validate_panel(returns: Matrix) -> tuple[int, int]:
@@ -350,4 +350,15 @@ def _validate_panel(returns: Matrix) -> tuple[int, int]:
 
 def _symmetrise(matrix: Matrix) -> Matrix:
     """Average a matrix with its transpose to remove float asymmetry."""
-    return (matrix + matrix.T) / 2.0
+    return _as_matrix((matrix + matrix.T) / 2.0)
+
+
+def _as_matrix(values: object) -> Matrix:
+    """Pin an array expression to float64.
+
+    Numpy's stubs type some expressions — ``np.eye(n) * scalar`` among them —
+    loosely enough that strict mypy sees Any, and which expressions those are
+    changes between numpy releases. Routing every return through here means a
+    stub change cannot reintroduce that error one function at a time.
+    """
+    return np.asarray(values, dtype=np.float64)
