@@ -8,6 +8,14 @@ Accepts single identifiers or lists and passes through column names as-is.
 import pandas as pd
 
 from .base import MarketData, ReferenceData
+from .corporate_actions import CorporateActions
+
+# The classification column read when none is named. Sector is the one every
+# reference dataset carries and the one group constraints are usually built on.
+DEFAULT_SCHEME = "SECTOR"
+
+# Where instruments with no classification are collected, rather than dropped.
+UNCLASSIFIED = "UNCLASSIFIED"
 
 
 class DataFetcher:
@@ -16,13 +24,20 @@ class DataFetcher:
     Args:
         market_data: Time-series market data container.
         reference_data: Reference data container.
+        corporate_actions: Action history. Absent means an empty history
+            rather than None, so callers never have to check before asking —
+            "this instrument paid nothing" and "we hold no action data" give
+            the same answer to every question this class can be asked.
     """
 
     def __init__(self,
                  market_data: MarketData,
-                 reference_data: ReferenceData | None = None):
+                 reference_data: ReferenceData | None = None,
+                 corporate_actions: CorporateActions | None = None):
         self._market = market_data
         self._reference = reference_data
+        self._actions = (corporate_actions if corporate_actions is not None
+                         else CorporateActions.empty())
 
     # -- properties ----------------------------------------------------------
 
@@ -55,6 +70,74 @@ class DataFetcher:
     def date_range(self) -> tuple[pd.Timestamp, pd.Timestamp]:
         """(earliest, latest) timestamps in the market data."""
         return self._market.date_range
+
+    @property
+    def corporate_actions(self) -> CorporateActions:
+        """The action history. Empty rather than None when none was loaded."""
+        return self._actions
+
+    # -- corporate actions ---------------------------------------------------
+
+    def fetch_corporate_actions(self,
+                                identifier: str,
+                                start_date: str | pd.Timestamp | None = None,
+                                end_date: str | pd.Timestamp | None = None,
+                                types: list[str] | None = None) -> pd.DataFrame:
+        """Corporate actions for one identifier over a window.
+
+        Args:
+            identifier: The instrument.
+            start_date: Earliest ex-date, inclusive.
+            end_date: Latest ex-date, inclusive.
+            types: Restrict to these action types.
+
+        Returns:
+            pd.DataFrame: Matching actions, oldest first; empty when there are
+            none.
+        """
+        return self._actions.get(identifier, start_date, end_date, types)
+
+    def fetch_trailing_dividend(self,
+                                identifier: str,
+                                as_of: str | pd.Timestamp) -> float:
+        """Ordinary dividends per share over the trailing twelve months."""
+        return self._actions.trailing_dividend(identifier, as_of)
+
+    def fetch_trailing_dividend_yield(self,
+                                      identifier: str,
+                                      as_of: str | pd.Timestamp,
+                                      price: float | None = None) -> float | None:
+        """Trailing dividend yield, priced off the market data by default.
+
+        Args:
+            identifier: The instrument.
+            as_of: End of the trailing window.
+            price: Price to divide by. None reads the close on or before
+                *as_of* from the market data.
+
+        Returns:
+            float or None: The yield, or None when no price is available — a
+            missing price is a reason to say nothing rather than to guess.
+        """
+        if price is None:
+            price = self._close_on_or_before(identifier, as_of)
+
+        if price is None or price <= 0.0:
+            return None
+
+        return self._actions.trailing_dividend_yield(identifier, as_of, price)
+
+    def _close_on_or_before(self,
+                            identifier: str,
+                            as_of: str | pd.Timestamp) -> float | None:
+        """The most recent close at or before *as_of*, or None."""
+        frame = self._market.get(identifier, end_date=str(pd.Timestamp(as_of).date()))
+        if frame.empty or "CLOSE" not in frame.columns:
+            return None
+
+        closes = frame["CLOSE"].dropna()
+
+        return float(closes.iloc[-1]) if len(closes) else None
 
     # -- market data ---------------------------------------------------------
 
@@ -170,3 +253,101 @@ class DataFetcher:
             return pd.DataFrame()
 
         return self._reference.get(identifier, date, columns)
+
+    def fetch_classification(self,
+                             identifier: str,
+                             date: str | pd.Timestamp | None = None,
+                             scheme: str = DEFAULT_SCHEME) -> str | None:
+        """One instrument's classification as it stood on a date.
+
+        Reference data already carries validity ranges, so a name that moved
+        from Industrials to Technology has two rows and this returns whichever
+        was in force. That matters for anything historical: attributing a 2021
+        return to a sector the company only joined in 2023 is a real way to get
+        a breakdown wrong.
+
+        Args:
+            identifier: The instrument.
+            date: The as-of date. None takes the currently-active record — the
+                one with no end date — falling back to the latest start date if
+                every record has been closed off.
+            scheme: Which column to read, e.g. ``"SECTOR"``, ``"INDUSTRY"``,
+                ``"COUNTRY"``. Free-form, because which columns a client loads
+                is its own business.
+
+        Returns:
+            str or None: The classification, or None when it is unknown: no
+            reference data, no such instrument, no such column, or no record
+            valid on that date.
+        """
+        if self._reference is None:
+            return None
+
+        frame = self._reference.get(identifier,
+                                    str(date) if date is not None else None)
+        if frame.empty or scheme not in frame.columns:
+            return None
+
+        if date is None:
+            frame = self._current_record(frame)
+
+        value = frame[scheme].iloc[0]
+
+        return None if pd.isna(value) else str(value)
+
+    @staticmethod
+    def _current_record(frame: pd.DataFrame) -> pd.DataFrame:
+        """The record in force today: open-ended, else the most recent."""
+        open_ended = frame[frame["DATE_TO"].isna()]
+        if not open_ended.empty:
+            return open_ended
+
+        return frame.sort_values("DATE_FROM").tail(1)
+
+    def fetch_classifications(self,
+                              identifiers: list[str],
+                              date: str | pd.Timestamp | None = None,
+                              scheme: str = DEFAULT_SCHEME) -> dict[str, str | None]:
+        """Classifications for several instruments at once.
+
+        Every identifier appears, with None where the classification is
+        unknown, so a caller can see what is missing rather than finding it
+        silently absent.
+
+        Args:
+            identifiers: The instruments.
+            date: As-of date, as for :meth:`fetch_classification`.
+            scheme: Which column to read.
+
+        Returns:
+            dict: Identifier to classification.
+        """
+        return {identifier: self.fetch_classification(identifier, date, scheme)
+                for identifier in identifiers}
+
+    def group_by_classification(self,
+                                identifiers: list[str],
+                                date: str | pd.Timestamp | None = None,
+                                scheme: str = DEFAULT_SCHEME) -> dict[str, list[str]]:
+        """Instruments grouped by classification, ready for GroupBounds.
+
+        Unclassified instruments are collected under UNCLASSIFIED rather than
+        dropped. A name missing from every bucket is how a constraint set
+        quietly stops covering part of the universe.
+
+        Args:
+            identifiers: The instruments.
+            date: As-of date.
+            scheme: Which column to read.
+
+        Returns:
+            dict: Classification to the identifiers carrying it, each list in
+            the order the identifiers were given.
+        """
+        grouped: dict[str, list[str]] = {}
+
+        for identifier in identifiers:
+            label = self.fetch_classification(identifier, date, scheme)
+            grouped.setdefault(label or UNCLASSIFIED, []).append(identifier)
+
+        return grouped

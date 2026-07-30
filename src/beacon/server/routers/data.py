@@ -9,9 +9,10 @@ served by a general *features* endpoint covering any per-instrument datapoint
 that is neither reference data nor a corporate action and that can drive a
 backtest or an index rule. That endpoint is not designed yet.
 
-`/data/corporate-actions` is blocked. `IndexCalculator` adjusts a divisor for
-an action it is handed, but nothing in the data layer stores or serves a
-history, so there is no series to aggregate into TTM figures.
+`/data/corporate-actions` is served since BN-98 added a history to the data
+layer. It returns the raw actions plus the aggregates that need the whole
+series — a trailing dividend, its yield, and the compounded split ratio — so a
+client does not reimplement the trailing window and get its boundary wrong.
 """
 from typing import Annotated
 
@@ -21,7 +22,7 @@ from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError, DataNotFoundError
 from ..config import ServerConfig
-from ..schemas import PricesResponse, ReferenceResponse
+from ..schemas import CorporateActionsResponse, PricesResponse, ReferenceResponse
 
 require("fastapi", "The Beacon API server")
 
@@ -47,6 +48,9 @@ ColumnsQuery = Annotated[
 AsOfQuery = Annotated[
     str | None,
     Query(description="Point-in-time date, YYYY-MM-DD. Returns only rows valid then.")]
+TypesQuery = Annotated[
+    list[str] | None,
+    Query(description="Restrict to these action types, e.g. DIVIDEND, SPLIT.")]
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
@@ -140,5 +144,33 @@ def build_data_router() -> APIRouter:
                                     source="ReferenceData")
 
         return ReferenceResponse.from_row(identifier, frame.iloc[0])
+
+    @router.get("/corporate-actions/{identifier}",
+                response_model=CorporateActionsResponse)
+    def corporate_actions(request: Request,
+                          identifier: str,
+                          start: StartQuery = None,
+                          end: EndQuery = None,
+                          types: TypesQuery = None) -> CorporateActionsResponse:
+        # An instrument with no actions is not an error: plenty of companies
+        # pay nothing, and a 404 would make "no dividends" indistinguishable
+        # from "no such instrument". The identifier is checked separately.
+        fetcher = _data_fetcher(request)
+
+        if identifier not in fetcher.identifiers:
+            raise DataNotFoundError(f"instrument '{identifier}'",
+                                    source="MarketData")
+
+        frame = fetcher.fetch_corporate_actions(identifier, start, end, types)
+        as_of = pd.Timestamp(end) if end else fetcher.date_range[1]
+
+        return CorporateActionsResponse.from_frame(
+            identifier=identifier,
+            frame=frame,
+            trailing_dividend=fetcher.fetch_trailing_dividend(identifier, as_of),
+            trailing_dividend_yield=fetcher.fetch_trailing_dividend_yield(
+                identifier, as_of),
+            cumulative_split_ratio=fetcher.corporate_actions.cumulative_ratio(
+                identifier, start, end))
 
     return router

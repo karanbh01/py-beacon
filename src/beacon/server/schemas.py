@@ -229,6 +229,61 @@ class ReferenceResponse(BaseModel):
         return cls(identifier=identifier, fields=fields)
 
 
+class CorporateAction(BaseModel):
+    """One corporate action."""
+    ex_date: str = Field(description="Ex-date, ISO 8601.")
+    type: str = Field(description="Action type, e.g. DIVIDEND or SPLIT.")
+    value: float = Field(
+        description="Cash amount per share for cash actions; a share-count "
+                    "multiplier for ratio actions. What it means depends on "
+                    "the type, so the two are never summed together.")
+
+
+class CorporateActionsResponse(BaseModel):
+    """Response of `GET /data/corporate-actions/{identifier}`.
+
+    Carries the raw history and the two aggregates that need the whole series
+    to compute, so a client asking "what did this pay" does not have to
+    reimplement the trailing window and get its boundary subtly wrong.
+    """
+    identifier: str
+    actions: list[CorporateAction] = Field(default_factory=list)
+    trailing_dividend: float = Field(
+        default=0.0,
+        description="Ordinary dividends per share over the twelve calendar "
+                    "months ending at the as-of date.")
+    trailing_dividend_yield: float | None = Field(
+        default=None,
+        description="Trailing dividend over the close on the as-of date. Null "
+                    "when no price is available — a missing price is a reason "
+                    "to say nothing rather than to guess.")
+    cumulative_split_ratio: float = Field(
+        default=1.0,
+        description="Compounded share-count multiplier across the returned "
+                    "window. 1.0 when there were no splits.")
+
+    @classmethod
+    def from_frame(cls,
+                   identifier: str,
+                   frame: pd.DataFrame,
+                   trailing_dividend: float,
+                   trailing_dividend_yield: float | None,
+                   cumulative_split_ratio: float) -> "CorporateActionsResponse":
+        """Build from a corporate-action history slice."""
+        actions = [
+            CorporateAction(ex_date=pd.Timestamp(row["EX_DATE"]).isoformat(),
+                            type=str(row["TYPE"]),
+                            value=float(row["VALUE"]))
+            for _, row in frame.iterrows()
+        ]
+
+        return cls(identifier=identifier,
+                   actions=actions,
+                   trailing_dividend=trailing_dividend,
+                   trailing_dividend_yield=trailing_dividend_yield,
+                   cumulative_split_ratio=cumulative_split_ratio)
+
+
 class Watchlist(BaseModel):
     """A named set of instrument identifiers."""
     id: str = Field(description="Stable identifier, used in the URL.",

@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from beacon.data.base import MarketData, ReferenceData
+from beacon.data.corporate_actions import CorporateActions
 from beacon.data.fetcher import DataFetcher
 from beacon.server import ServerConfig, create_app
 
@@ -36,8 +37,19 @@ def build_fetcher() -> DataFetcher:
          "EXCHANGE": "LSE"},
     ])
 
+    # Two ordinary dividends and a split on AAA, none on BBB, so the endpoint
+    # has both a populated and an empty case to serve.
+    actions = pd.DataFrame([
+        {"IDENTIFIER": "AAA", "EX_DATE": DATES[2], "TYPE": "DIVIDEND",
+         "VALUE": 0.25},
+        {"IDENTIFIER": "AAA", "EX_DATE": DATES[10], "TYPE": "DIVIDEND",
+         "VALUE": 0.35},
+        {"IDENTIFIER": "AAA", "EX_DATE": DATES[5], "TYPE": "SPLIT", "VALUE": 2.0},
+    ])
+
     return DataFetcher(MarketData.from_dataframe(market),
-                       ReferenceData.from_dataframe(reference))
+                       ReferenceData.from_dataframe(reference),
+                       CorporateActions.from_dataframe(actions))
 
 
 def auth() -> dict[str, str]:
@@ -192,21 +204,25 @@ class TestReference:
 
 class TestOpenApiContract:
 
-    def test_both_endpoints_are_documented(self,
-                                           client):
+    def test_every_endpoint_is_documented(self,
+                                          client):
         paths = client.app.openapi()["paths"]
 
         assert "/data/prices/{identifier}" in paths
         assert "/data/reference/{identifier}" in paths
+        assert "/data/corporate-actions/{identifier}" in paths
 
-    def test_dropped_endpoints_are_absent(self,
-                                          client):
-        """Fundamentals is superseded by a future features endpoint;
-        corporate actions has no data source. Neither is stubbed out."""
+    def test_fundamentals_stays_absent(self,
+                                       client):
+        """Superseded by a future features endpoint, so not stubbed out.
+
+        Corporate actions used to be listed here too. It is served since BN-98
+        gave the data layer a history to serve from, which is what that issue
+        existed to unblock.
+        """
         paths = client.app.openapi()["paths"]
 
         assert not [p for p in paths if "fundamentals" in p]
-        assert not [p for p in paths if "corporate-actions" in p]
 
     def test_error_envelope_documented_on_data_routes(self,
                                                       client):
@@ -215,3 +231,87 @@ class TestOpenApiContract:
 
         for code in ("401", "404", "500"):
             assert code in responses
+
+
+class TestCorporateActionsEndpoint:
+    """BN-65's remaining endpoint, unblocked by BN-98's action history."""
+
+    def test_it_returns_the_history(self,
+                                    client):
+        response = client.get("/data/corporate-actions/AAA", headers=auth())
+
+        assert response.status_code == 200
+        assert len(response.json()["actions"]) == 3
+
+    def test_actions_come_back_oldest_first(self,
+                                            client):
+        actions = client.get("/data/corporate-actions/AAA",
+                             headers=auth()).json()["actions"]
+        dates = [action["ex_date"] for action in actions]
+
+        assert dates == sorted(dates)
+
+    def test_each_action_carries_type_and_value(self,
+                                                client):
+        actions = client.get("/data/corporate-actions/AAA",
+                             headers=auth()).json()["actions"]
+
+        assert {action["type"] for action in actions} == {"DIVIDEND", "SPLIT"}
+
+    def test_the_trailing_dividend_is_aggregated(self,
+                                                 client):
+        """The endpoint does the trailing window so a client cannot get its
+        boundary subtly wrong."""
+        payload = client.get("/data/corporate-actions/AAA", headers=auth()).json()
+
+        assert payload["trailing_dividend"] == pytest.approx(0.60)
+
+    def test_the_split_ratio_is_compounded(self,
+                                           client):
+        payload = client.get("/data/corporate-actions/AAA", headers=auth()).json()
+
+        assert payload["cumulative_split_ratio"] == pytest.approx(2.0)
+
+    def test_a_type_filter_applies(self,
+                                   client):
+        response = client.get("/data/corporate-actions/AAA",
+                              params={"types": ["SPLIT"]}, headers=auth())
+
+        assert [a["type"] for a in response.json()["actions"]] == ["SPLIT"]
+
+    def test_a_date_window_applies(self,
+                                   client):
+        response = client.get("/data/corporate-actions/AAA",
+                              params={"start": str(DATES[6].date())},
+                              headers=auth())
+
+        assert len(response.json()["actions"]) == 1
+
+    def test_an_instrument_with_no_actions_is_not_an_error(self,
+                                                           client):
+        """A 404 would make "pays no dividends" indistinguishable from "no
+        such instrument", which are very different answers."""
+        response = client.get("/data/corporate-actions/BBB", headers=auth())
+
+        assert response.status_code == 200
+        assert response.json()["actions"] == []
+        assert response.json()["trailing_dividend"] == 0.0
+        assert response.json()["cumulative_split_ratio"] == 1.0
+
+    def test_an_unknown_instrument_is_a_404(self,
+                                            client):
+        response = client.get("/data/corporate-actions/ZZZ", headers=auth())
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "DATA_NOT_FOUND"
+
+    def test_it_requires_authentication(self,
+                                        client):
+        assert client.get("/data/corporate-actions/AAA").status_code == 401
+
+    def test_it_reports_a_missing_data_source(self,
+                                              client_without_data):
+        response = client_without_data.get("/data/corporate-actions/AAA",
+                                           headers=auth())
+
+        assert response.status_code == 500
