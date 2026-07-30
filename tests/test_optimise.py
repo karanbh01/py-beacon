@@ -599,3 +599,65 @@ class TestExpectedReturnTargetConstraint:
                        ExpectedReturnTarget(returns, 0.06))
 
         assert any("expected return" in label for label in result.binding_labels())
+
+
+class TestDeterminedByBounds:
+    """When the bounds leave one feasible point, it is arithmetic, not a search.
+
+    A cap of exactly 1/n on n assets is what anyone gets who caps an
+    equal-weighted index at its natural weight, so this is a real case rather
+    than a contrived one. It is also the case that broke CI on one cell of
+    nine: with a single-point feasible set there is no descent direction, and
+    whether SLSQP reports success or a stalled line search varies between scipy
+    builds. Computing the answer directly removes the question.
+    """
+
+    def test_a_cap_at_one_over_n_forces_equal_weights(self):
+        result = solve(FullInvestment(), PositionBounds(0.0, 1.0 / 3.0))
+
+        for weight in result.weights:
+            assert weight == pytest.approx(1.0 / 3.0, abs=PRECISION)
+
+    def test_a_floor_at_one_over_n_forces_equal_weights(self):
+        result = solve(FullInvestment(), PositionBounds(1.0 / 3.0, 1.0))
+
+        for weight in result.weights:
+            assert weight == pytest.approx(1.0 / 3.0, abs=PRECISION)
+
+    def test_no_search_was_needed(self):
+        result = solve(FullInvestment(), PositionBounds(0.0, 1.0 / 3.0))
+
+        assert result.diagnostics.iterations == 0
+        assert result.diagnostics.converged
+        assert "exactly one feasible portfolio" in result.diagnostics.message
+
+    def test_the_objective_is_still_reported(self):
+        """Determined does not mean free — the answer is far from the target."""
+        result = solve(FullInvestment(), PositionBounds(0.0, 1.0 / 3.0))
+
+        assert result.diagnostics.objective > 0.0
+        assert result.tracking_error() > 0.0
+
+    def test_the_determined_answer_is_still_checked(self):
+        """The bounds fix the weights; nothing says a group agrees with them."""
+        with pytest.raises(CalculationError, match="no feasible portfolio"):
+            solve(FullInvestment(),
+                  PositionBounds(0.0, 1.0 / 3.0),
+                  GroupBounds("pair", ["A", "B"], maximum=0.5))
+
+    def test_uneven_bounds_that_sum_to_one_are_also_determined(self):
+        """The rule is about the sum, not about the bounds being equal."""
+        result = solve(FullInvestment(),
+                       PositionBounds(0.0, 0.5, assets=["A"]),
+                       PositionBounds(0.0, 0.3, assets=["B"]),
+                       PositionBounds(0.0, 0.2, assets=["C"]))
+
+        assert result.weights["A"] == pytest.approx(0.5, abs=PRECISION)
+        assert result.weights["B"] == pytest.approx(0.3, abs=PRECISION)
+        assert result.weights["C"] == pytest.approx(0.2, abs=PRECISION)
+
+    def test_room_to_optimise_still_goes_to_the_solver(self):
+        """The shortcut must not swallow problems that need solving."""
+        result = solve(FullInvestment(), PositionBounds(0.0, 0.4))
+
+        assert result.diagnostics.iterations > 0

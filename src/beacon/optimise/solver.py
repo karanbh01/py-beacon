@@ -189,6 +189,10 @@ def solve_constrained(objective: Callable[[Vector], float],
     lows, highs = weight_box(rules, assets)
     _reject_infeasible(rules, assets, lows, highs)
 
+    forced = _forced_by_bounds(rules, lows, highs)
+    if forced is not None:
+        return _forced_solution(objective, forced, rules, assets)
+
     start = hint if hint is not None else np.full(len(assets), 1.0 / len(assets))
     weights, outcome, heuristic = _solve_with_cardinality(
         objective, gradient, rules, assets, start, lows, highs)
@@ -200,6 +204,85 @@ def solve_constrained(objective: Callable[[Vector], float],
                     outcome=outcome,
                     slacks=slacks,
                     heuristic=heuristic)
+
+
+@dataclass(frozen=True)
+class _DeterminedOutcome:
+    """Stands in for a solver result when no solve was needed.
+
+    Carries the same attributes the rest of this module reads off scipy's
+    result object, so a determined answer flows through the reporting and
+    verification path unchanged.
+    """
+    x: Vector
+    fun: float
+    success: bool = True
+    status: int = 0
+    message: str = "The bounds leave exactly one feasible portfolio."
+    nit: int = 0
+    nfev: int = 0
+
+
+def _forced_by_bounds(rules: Sequence[Constraint],
+                      lows: Vector,
+                      highs: Vector) -> Vector | None:
+    """The only feasible point, when the box and the budget leave exactly one.
+
+    If the upper bounds sum to precisely the amount that must be invested, then
+    every weight has to sit at its upper bound: there is no choice left to
+    make. The same holds at the lower bounds.
+
+    Worth detecting rather than handing to the solver. The feasible set is a
+    single point, so no descent direction exists, and whether SLSQP calls that
+    success or "positive directional derivative for linesearch" turns out to
+    vary between scipy builds — the same input passed on eight CI cells and
+    failed on the ninth. Computing the answer directly removes the question:
+    it is arithmetic, not a search.
+
+    A cap of exactly 1/n on n assets is not a contrived case, either. It is
+    what anyone gets who caps an equal-weighted index at its natural weight.
+
+    Returns:
+        Vector or None: The determined weights, or None if the bounds leave
+        room to optimise.
+    """
+    investment = _investment_target(rules)
+    if investment is None:
+        return None
+
+    # Infinite bounds sum to infinity and never match a finite budget, so the
+    # comparisons below are safe without a separate finiteness check.
+    if abs(float(highs.sum()) - investment) <= BOUND_TOLERANCE:
+        return np.asarray(highs, dtype=np.float64)
+
+    if abs(float(lows.sum()) - investment) <= BOUND_TOLERANCE:
+        return np.asarray(lows, dtype=np.float64)
+
+    return None
+
+
+def _forced_solution(objective: Callable[[Vector], float],
+                     weights: Vector,
+                     rules: Sequence[Constraint],
+                     assets: Sequence[str]) -> Solution:
+    """Package a determined answer, still checking it against every constraint.
+
+    The bounds fix the weights, but nothing says a group limit or a turnover
+    budget agrees with them. If one does not, the problem really is infeasible
+    and it is refused exactly as any other violating answer would be.
+    """
+    slacks = _all_slacks(rules, weights, assets)
+    outcome = _DeterminedOutcome(x=weights, fun=float(objective(weights)))
+    _reject_violations(slacks, outcome)
+
+    logger.info(
+        "The position bounds leave a single feasible portfolio; returning it "
+        "without a search.")
+
+    return Solution(weights=weights,
+                    outcome=outcome,
+                    slacks=slacks,
+                    heuristic=False)
 
 
 def _as_series(weights: pd.Series | dict[str, float]) -> pd.Series:
@@ -566,8 +649,8 @@ def _reject_violations(slacks: Sequence[Slack],
                            for slack in violated)
         raise CalculationError(
             "Optimiser",
-            f"no feasible portfolio was found: the best the solver reached "
-            f"still violates {len(violated)} constraint(s) — {detail}.")
+            f"no feasible portfolio was found: the best available point still "
+            f"violates {len(violated)} constraint(s) — {detail}.")
 
     if not outcome.success:
         raise CalculationError(
