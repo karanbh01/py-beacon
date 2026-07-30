@@ -25,6 +25,7 @@ away by loosening a tolerance.
 """
 import math
 
+import numpy as np
 import pandas as pd
 import pytest
 from hypothesis import given, settings
@@ -38,6 +39,7 @@ from beacon.index.capping import TOLERANCE, apply_cap
 from beacon.index.methodology import EqualWeighted, MarketCapWeighted
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Portfolio
+from beacon.risk import estimate_risk_model
 
 # ---------------------------------------------------------------------------
 # Shared strategies and helpers
@@ -306,6 +308,102 @@ class TestCapping:
         assert report.was_capped is False
         for name, weight in once.items():
             assert math.isclose(twice[name], weight, rel_tol=1e-9)
+
+
+@st.composite
+def _returns_panels(draw,
+                    min_assets: int = 1,
+                    max_assets: int = 6,
+                    min_observations: int = 2,
+                    max_observations: int = 40) -> pd.DataFrame:
+    """Generate a returns panel, deliberately including degenerate shapes.
+
+    Observations are drawn independently of the asset count, so panels with
+    fewer periods than assets — where the sample covariance is singular and
+    shrinkage matters most — turn up regularly rather than being excluded.
+    """
+    assets = draw(st.integers(min_value=min_assets, max_value=max_assets))
+    observations = draw(st.integers(min_value=min_observations,
+                                    max_value=max_observations))
+
+    values = draw(st.lists(
+        st.lists(st.floats(min_value=-0.5, max_value=0.5,
+                           allow_nan=False, allow_infinity=False),
+                 min_size=assets, max_size=assets),
+        min_size=observations, max_size=observations))
+
+    return pd.DataFrame(values, columns=[f"A{i}" for i in range(assets)])
+
+
+class TestRiskModelInvariants:
+    """The PSD invariant BN-57 had to defer until a risk model existed."""
+
+    @given(_returns_panels())
+    @settings(max_examples=200, deadline=None)
+    def test_shrunk_covariance_is_positive_semi_definite(self,
+                                                         panel):
+        """Holds for any panel, including fewer observations than assets.
+
+        Both the sample covariance and the shrinkage target are PSD, and the
+        estimate is a convex combination of them, so PSD is preserved by
+        construction rather than by luck.
+        """
+        model = estimate_risk_model(panel)
+
+        assert model.diagnostics.positive_semi_definite
+
+    @given(_returns_panels())
+    @settings(max_examples=200, deadline=None)
+    def test_correlation_diagonal_is_exactly_one(self,
+                                                panel):
+        correlation = estimate_risk_model(panel).correlation.to_numpy()
+
+        assert (np.diag(correlation) == 1.0).all()
+
+    @given(_returns_panels())
+    @settings(max_examples=200, deadline=None)
+    def test_matrices_are_symmetric(self,
+                                    panel):
+        model = estimate_risk_model(panel)
+
+        for matrix in (model.covariance.to_numpy(), model.correlation.to_numpy()):
+            assert (matrix == matrix.T).all()
+
+    @given(_returns_panels())
+    @settings(max_examples=200, deadline=None)
+    def test_correlations_stay_within_minus_one_and_one(self,
+                                                        panel):
+        correlation = estimate_risk_model(panel).correlation.to_numpy()
+
+        assert correlation.min() >= -1.0 - 1e-9
+        assert correlation.max() <= 1.0 + 1e-9
+
+    @given(_returns_panels(min_assets=2))
+    @settings(max_examples=200, deadline=None)
+    def test_portfolio_variance_is_never_negative(self,
+                                                 panel):
+        """A PSD covariance cannot produce a negative variance."""
+        model = estimate_risk_model(panel)
+        weights = dict.fromkeys(model.asset_ids, 1.0 / len(model.asset_ids))
+
+        assert model.portfolio_variance(weights) >= 0.0
+
+    @given(_returns_panels(min_assets=2))
+    @settings(max_examples=100, deadline=None)
+    def test_variances_are_non_negative(self,
+                                        panel):
+        diagonal = np.diag(estimate_risk_model(panel).covariance.to_numpy())
+
+        assert (diagonal >= -1e-12).all()
+
+    @given(_returns_panels())
+    @settings(max_examples=100, deadline=None)
+    def test_zero_intensity_leaves_the_sample_covariance_psd(self,
+                                                             panel):
+        """The unshrunk estimate is PSD too — shrinkage is not what rescues it."""
+        model = estimate_risk_model(panel, intensity=0.0)
+
+        assert model.diagnostics.positive_semi_definite
 
 
 class TestDivisorContinuity:
