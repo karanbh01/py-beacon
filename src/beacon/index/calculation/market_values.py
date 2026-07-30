@@ -107,6 +107,160 @@ class MarketValuesMixin:
             logger.error(f"Error calculating market value for {asset.ticker}: {e}")
             return 0.0
 
+    def asset_unit_value(self,
+                         asset: Asset,
+                         current_date: pd.Timestamp) -> float:
+        """Value of one unit of *asset* in the index currency: price times FX.
+
+        Distinct from :meth:`_asset_market_value`, which multiplies by shares
+        outstanding and free float. Those belong to the *weighting* of the
+        index; this is what one unit is worth, which is what the index's
+        holdings are valued at day to day.
+
+        Args:
+            asset: The constituent. Must be an Equity.
+            current_date: Valuation date.
+
+        Returns:
+            float: Price in index currency, or 0.0 when price or FX is
+            missing — matching the behaviour of the market-value path.
+        """
+        if not isinstance(asset, Equity):
+            logger.warning(f"Asset {asset.asset_id} is not Equity. Unit value is 0.")
+            return 0.0
+
+        try:
+            date_str = current_date.strftime('%Y-%m-%d')
+            price_df = self.data.fetch_market_data(asset.ticker, date_str, date_str)
+
+            if (price_df.empty or self.price_column not in price_df.columns
+                    or pd.isna(price_df[self.price_column].iloc[0])):
+                logger.warning(f"asset_unit_value: No price for {asset.ticker}. Value is 0.")
+                return 0.0
+
+            price = float(price_df[self.price_column].iloc[0])
+
+            return price * self._fx_rate(asset, current_date, date_str)
+
+        except Exception as e:
+            logger.error(f"Error calculating unit value for {asset.asset_id}: {e}")
+            return 0.0
+
+    def _fx_rate(self,
+                 asset: Asset,
+                 current_date: pd.Timestamp,
+                 date_str: str) -> float:
+        """FX rate converting *asset*'s currency into the index currency.
+
+        Returns 0.0 rather than 1.0 when a needed rate is missing, so a
+        constituent whose rate cannot be found drops out of the aggregate
+        instead of being silently valued as though no conversion were needed.
+        """
+        if asset.currency.upper() == self.definition.currency.upper():
+            return 1.0
+
+        fx_series = self.data.fetch_fx_rates(asset.currency, self.definition.currency,
+                                             date_str, date_str)
+        if fx_series.empty:
+            logger.warning(
+                f"No FX rate found for {asset.currency}/{self.definition.currency} "
+                f"on {current_date}. Excluding from the aggregate.")
+            return 0.0
+
+        return float(fx_series.iloc[0])
+
+    def index_units(self,
+                    weights: dict[Asset, float],
+                    aggregate: float,
+                    current_date: pd.Timestamp) -> dict[Asset, float]:
+        """Units of each constituent the index holds to realise *weights*.
+
+        The index holds a fixed number of units of each constituent between
+        rebalances, which is what makes weights *drift* with relative
+        performance rather than being silently reset every day.
+
+        Units are set so that ``unit_value * units`` is ``weight`` of
+        *aggregate*, which makes the weights exactly right on the rebalance
+        date and lets them move from there.
+
+        For a market-capitalisation weighting this reduces to shares
+        outstanding — the weight is itself the share of aggregate market value
+        — so that methodology produces exactly the levels it did before units
+        existed.
+
+        Args:
+            weights: Target weight per constituent, summing to 1.
+            aggregate: Total value the index represents on this date.
+            current_date: Rebalance date.
+
+        Returns:
+            dict: Units per constituent. A constituent with no unit value gets
+            zero units rather than an infinite position.
+        """
+        units: dict[Asset, float] = {}
+
+        for asset, weight in weights.items():
+            unit_value = self.asset_unit_value(asset, current_date)
+
+            if unit_value <= 0.0:
+                logger.warning(
+                    f"No unit value for {asset.asset_id} on {current_date}; it "
+                    "holds zero units and contributes nothing.")
+                units[asset] = 0.0
+                continue
+
+            units[asset] = weight * aggregate / unit_value
+
+        return units
+
+    def aggregate_value(self,
+                        units: dict[Asset, float],
+                        current_date: pd.Timestamp) -> float:
+        """Total value of the index's holdings: units times unit value."""
+        return float(sum(count * self.asset_unit_value(asset, current_date)
+                         for asset, count in units.items()))
+
+    def level_from_units(self,
+                         units: dict[Asset, float],
+                         divisor: float,
+                         current_date: pd.Timestamp,
+                         previous_index_level: float) -> float:
+        """Index level on an ordinary day: holdings value over the divisor.
+
+        Args:
+            units: What the index holds, fixed since the last rebalance.
+            divisor: Current divisor.
+            current_date: Valuation date.
+            previous_index_level: Carried forward when the index cannot be
+                valued today, so a missing price shows as a flat day rather
+                than a collapse to zero.
+
+        Returns:
+            float: The index level.
+
+        Raises:
+            CalculationError: If the divisor is not positive.
+        """
+        if divisor <= 0:
+            logger.error(f"Invalid divisor: {divisor}. Cannot calculate index level.")
+            raise CalculationError("IndexLevelCalculation", f"Invalid divisor: {divisor}")
+
+        if not units:
+            logger.warning(
+                f"[{current_date.strftime('%Y-%m-%d')}] No holdings for "
+                f"'{self.definition.index_name}'. Returning previous level.")
+            return previous_index_level
+
+        aggregate = self.aggregate_value(units, current_date)
+
+        if aggregate <= 0.0:
+            logger.warning(
+                f"[{current_date.strftime('%Y-%m-%d')}] Holdings are worth "
+                f"{aggregate}. Returning previous level.")
+            return previous_index_level
+
+        return aggregate / divisor
+
     def calculate_index_level(self,
                               current_date: pd.Timestamp,
                               constituents: list[Asset],

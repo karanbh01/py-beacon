@@ -26,6 +26,12 @@ Matrix = NDArray[np.float64]
 # values of either sign in floating point.
 PSD_TOLERANCE = 1e-10
 
+# A variance at or below this counts as no variance. The floor sits well above
+# the subnormal range (~1e-308), where a float retains so few mantissa bits
+# that a square root and division produce nonsense. A daily return variance of
+# 1e-200 is not a small signal; it is noise being mistaken for one.
+NEGLIGIBLE_VARIANCE = 1e-200
+
 # Trading periods per year, used to annualise a covariance estimated from
 # daily returns. Covariance scales linearly with the horizon.
 PERIODS_PER_YEAR = 252
@@ -189,22 +195,33 @@ def correlation_from_covariance(covariance: Matrix) -> Matrix:
         zero-variance asset yields zero correlation with everything rather
         than a division by zero — it has no variation to correlate.
     """
-    volatilities = np.sqrt(np.diag(covariance))
-    safe = np.where(volatilities > 0.0, volatilities, 1.0)
+    variances = np.diag(covariance)
+    volatilities = np.sqrt(np.where(variances > 0.0, variances, 0.0))
+
+    # Anything below NEGLIGIBLE_VARIANCE counts as no variance at all, not just
+    # a variance of exactly zero. A variance in the subnormal range carries
+    # almost no mantissa, so dividing by its square root loses catastrophic
+    # precision: a panel of returns around 1e-162 produced a variance of
+    # 1e-323 and a "correlation" of 1.0485, which is not a correlation.
+    degenerate = variances <= NEGLIGIBLE_VARIANCE
+    safe = np.where(degenerate, 1.0, volatilities)
 
     correlation = covariance / np.outer(safe, safe)
 
-    # Zero-variance assets get a zero row and column, then a unit diagonal, so
-    # the matrix stays a valid correlation matrix in shape if not in content.
-    degenerate = volatilities <= 0.0
     if degenerate.any():
         correlation[degenerate, :] = 0.0
         correlation[:, degenerate] = 0.0
 
     correlation = _symmetrise(correlation)
+
+    # Clip as a final guarantee. The true value is in [-1, 1] by definition, so
+    # anything outside is accumulated error, and a caller must never see a
+    # correlation above 1 — it would be displayed, or fed to a formula that
+    # assumes the bound.
+    correlation = np.clip(correlation, -1.0, 1.0)
     np.fill_diagonal(correlation, 1.0)
 
-    return correlation
+    return _as_matrix(correlation)
 
 
 def average_pairwise_correlation(correlation: Matrix) -> float:

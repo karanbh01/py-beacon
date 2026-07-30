@@ -240,6 +240,38 @@ class TestCorrelation:
         assert correlation[0, 1] == 0.0
         assert correlation[1, 1] == 1.0
 
+    def test_subnormal_variance_does_not_escape_the_bounds(self):
+        """Regression: Hypothesis found this and it produced |rho| = 1.0485.
+
+        Returns around 1e-162 give a variance around 1e-323 — a subnormal
+        float carrying almost no mantissa — so dividing by its square root
+        loses catastrophic precision.
+        """
+        panel = pd.DataFrame({"A0": [0.0, 0.5], "A1": [4.661305e-162, 0.0]})
+
+        model = estimate_risk_model(panel)
+        correlation = model.correlation.to_numpy()
+
+        assert correlation.min() >= -1.0
+        assert correlation.max() <= 1.0
+
+    def test_a_negligible_variance_asset_correlates_with_nothing(self):
+        covariance = np.array([[4.0, 1e-180], [1e-180, 1e-320]])
+
+        correlation = correlation_from_covariance(covariance)
+
+        assert correlation[0, 1] == 0.0
+        assert correlation[1, 1] == 1.0
+
+    def test_correlations_are_clipped_to_the_valid_range(self):
+        """Accumulated error must never surface as a correlation above 1."""
+        covariance = np.array([[1.0, 1.0 + 1e-9], [1.0 + 1e-9, 1.0]])
+
+        correlation = correlation_from_covariance(covariance)
+
+        assert correlation.max() <= 1.0
+        assert correlation.min() >= -1.0
+
     def test_average_pairwise_ignores_the_diagonal(self):
         correlation = np.array([[1.0, 0.5], [0.5, 1.0]])
 

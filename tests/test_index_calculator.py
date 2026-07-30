@@ -203,9 +203,14 @@ class TestRun:
         assert set(result.constituent_snapshots[base]) == {"AAPL", "MSFT"}
         assert result.weight_snapshots[base] == {"AAPL": 0.6, "MSFT": 0.4}
 
-    def test_regular_day_uses_calculate_index_level(self,
-                                                    calculator):
-        """After base date, regular days call calculate_index_level."""
+    def test_regular_day_values_the_held_units(self,
+                                               calculator):
+        """After the base date, an ordinary day revalues the index's holdings.
+
+        The index holds units fixed at the last rebalance (BN-103), so a
+        regular day is just those units marked at today's prices over the
+        divisor — no reselection, no reweighting.
+        """
         # base_date = 2025-01-02, run to 2025-01-03 (two business days)
         with (
             patch.object(calculator, '_get_universe', return_value=[AAPL]),
@@ -214,14 +219,12 @@ class TestRun:
                          return_value={AAPL: 1.0}),
             patch.object(calculator, '_get_constituent_market_values',
                          return_value={AAPL: 5000.0}),
-            patch.object(calculator, 'calculate_index_level',
-                         return_value=(1050.0, 5.0)) as mock_calc,
+            patch.object(calculator, 'level_from_units',
+                         return_value=1050.0) as mock_level,
         ):
             result = calculator.run(end_date="2025-01-03")
 
-        # calculate_index_level should be called for Jan 3 (regular day)
-        assert mock_calc.called
-        # Jan 3 level should be what calculate_index_level returned
+        assert mock_level.called
         assert result.index_levels[pd.Timestamp("2025-01-03")] == 1050.0
 
     def test_rebalance_date_reconstitutes(self,

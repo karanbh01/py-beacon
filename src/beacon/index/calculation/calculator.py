@@ -395,9 +395,12 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         # uncapped index carries an empty mapping rather than noise.
         cap_reports: dict[pd.Timestamp, CapReport] = {}
 
-        # Running state
+        # Running state. `units` is what the index actually holds: fixed
+        # between rebalances, so weights drift with relative performance
+        # instead of being reset every day.
         constituents: list[Asset] = []
         weights: dict[Asset, float] = {}
+        units: dict[Asset, float] = {}
         divisor: float = 0.0
         level: float = self.definition.base_value
 
@@ -411,8 +414,15 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
                 if cap_report.was_capped:
                     cap_reports[date] = cap_report
 
+                # The aggregate the index represents is still the constituents'
+                # total market value, which keeps the divisor's magnitude and
+                # meaning unchanged. What changes is that the holdings are now
+                # units derived from the weights, rather than shares
+                # outstanding — so the methodology actually drives the level.
                 mv_map = self._get_constituent_market_values(weights, date)
                 total_mv = sum(mv_map.values())
+                units = self.index_units(weights, total_mv, date)
+
                 if total_mv > 0:
                     divisor = self.initialize_divisor(total_mv)
                 else:
@@ -430,9 +440,10 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
 
             elif date in rebalance_dates:
                 # --- Rebalance date ---
-                # Capture pre-rebalance market value for divisor adjustment
-                old_mv_map = self._get_constituent_market_values(weights, date)
-                old_total_mv = sum(old_mv_map.values())
+                # Value the outgoing holdings at today's prices. This is the
+                # level the new composition has to start from, which is what
+                # the divisor adjustment preserves.
+                old_aggregate = self.aggregate_value(units, date)
 
                 # Reconstitute
                 constituents_raw = self._get_universe(date)
@@ -442,20 +453,24 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
                 if cap_report.was_capped:
                     cap_reports[date] = cap_report
 
-                # New market value under new composition
+                # Rebuild the holdings to the new weights, scaled to the
+                # constituents' total market value so the divisor keeps the
+                # magnitude it has always had.
                 new_mv_map = self._get_constituent_market_values(weights, date)
                 new_total_mv = sum(new_mv_map.values())
+                units = self.index_units(weights, new_total_mv, date)
+                new_aggregate = self.aggregate_value(units, date)
 
                 # Adjust divisor for continuity
-                if old_total_mv > 0 and new_total_mv > 0:
+                if old_aggregate > 0 and new_aggregate > 0:
                     divisor = self.adjust_divisor_for_rebalance(
-                        divisor, old_total_mv, new_total_mv
+                        divisor, old_aggregate, new_aggregate
                     )
-                elif new_total_mv > 0:
-                    divisor = new_total_mv / level if level > 0 else 1.0
+                elif new_aggregate > 0:
+                    divisor = new_aggregate / level if level > 0 else 1.0
 
                 # Compute level with adjusted divisor
-                level = new_total_mv / divisor if divisor > 0 else level
+                level = new_aggregate / divisor if divisor > 0 else level
 
                 # Record snapshots
                 constituent_snapshots[date] = [a.asset_id for a in constituents]
@@ -467,11 +482,10 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
                     # Before base date initialisation or no constituents
                     pass
                 else:
-                    level, divisor = self.calculate_index_level(
-                        current_date=date,
-                        constituents=constituents,
-                        weights=weights,
+                    level = self.level_from_units(
+                        units=units,
                         divisor=divisor,
+                        current_date=date,
                         previous_index_level=level,
                     )
 
