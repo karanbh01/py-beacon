@@ -805,3 +805,41 @@ class TestDegenerateSeries:
             pass
 
         assert _label_of(Nameless(), 0) == "Series 1"
+
+
+class TestRegistrationIsSelfSufficient:
+    """Registering must not depend on pyplot having been imported first.
+
+    `matplotlib.style` is a submodule, so importing the package alone does not
+    bind it — it is merely present once pyplot has pulled it in. An earlier
+    version of `register()` read `matplotlib.style.core` and worked locally,
+    where pyplot is always imported by the time a test runs, and failed on
+    every CI runner.
+    """
+
+    def test_it_registers_in_a_process_that_never_imported_pyplot(self):
+        script = ("import matplotlib\n"
+                  "matplotlib.use('Agg')\n"
+                  "import sys\n"
+                  "assert 'matplotlib.pyplot' not in sys.modules\n"
+                  "from beacon.plot import style\n"
+                  "style.register()\n"
+                  "import matplotlib.style\n"
+                  "assert style.BEACON in matplotlib.style.available\n"
+                  "assert style.BEACON_DARK in matplotlib.style.available\n"
+                  "print('ok')\n")
+
+        completed = subprocess.run([sys.executable, "-c", script],
+                                   capture_output=True, text=True, check=False)
+
+        assert completed.returncode == 0, completed.stderr
+        assert "ok" in completed.stdout
+
+    def test_it_uses_only_public_matplotlib_names(self):
+        """`matplotlib.style.core` is private and its layout has changed."""
+        from pathlib import Path
+
+        source = Path(style.__file__).read_text(encoding="utf-8")
+        body = source.split('"""', 2)[-1]
+
+        assert "style.core" not in body

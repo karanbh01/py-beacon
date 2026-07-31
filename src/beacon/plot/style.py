@@ -190,18 +190,26 @@ def register() -> None:
     importing matplotlib to do it, which is exactly what the lazy accessor
     exists to avoid.
     """
-    matplotlib = require("matplotlib", "Charting")
+    require("matplotlib", "Charting")
 
-    import matplotlib.pyplot as plt
+    # The submodule is imported explicitly, which also binds `matplotlib`
+    # itself. Importing the package alone does not bind `matplotlib.style`; it
+    # is merely present once pyplot has pulled it in, which made an earlier
+    # version of this work locally and fail on every CI runner.
+    import matplotlib.style
+
+    # matplotlib types the library's values as RcParams, but it accepts and
+    # stores a plain mapping — `plt.style.use` takes either. The cast keeps the
+    # declaration honest without pretending to build an RcParams here.
+    library: dict[str, Any] = matplotlib.style.library
 
     for mode in MODES:
-        matplotlib.style.core.library[STYLE_FOR_MODE[mode]] = style_dict(mode)
+        library[STYLE_FOR_MODE[mode]] = style_dict(mode)
 
-    # available is a cached list rather than a view, so it needs rebuilding or
-    # `plt.style.available` reports the styles missing while use() finds them.
-    plt.style.reload_library = getattr(plt.style, "reload_library",
-                                       lambda: None)
-    matplotlib.style.core.available[:] = sorted(matplotlib.style.core.library)
+    # `available` is a cached list rather than a view over the library, so it
+    # needs rebuilding or `plt.style.available` reports the styles missing
+    # while `use()` finds them.
+    matplotlib.style.available[:] = sorted(matplotlib.style.library)
 
     if CORRELATION_COLORMAP not in matplotlib.colormaps:
         matplotlib.colormaps.register(correlation_colormap(),
