@@ -409,6 +409,91 @@ class IndexCollection(BaseModel):
     indices: list[IndexDocument]
 
 
+class RiskModelRequest(BaseModel):
+    """Body of `POST /risk-models/{model_id}/estimate`."""
+    identifiers: list[str] = Field(
+        default_factory=list,
+        description="Names to estimate over. Empty uses the index named by "
+                    "`index_id`.")
+    index_id: str | None = Field(
+        default=None,
+        description="Take the universe from this index's latest run instead of "
+                    "listing names.")
+    start: str | None = Field(default=None,
+                              description="Start of the estimation window.")
+    end: str | None = Field(default=None, description="End of that window.")
+    target: str = Field(
+        default="constant_correlation",
+        description="Structured target to shrink toward: 'constant_correlation' "
+                    "or 'scaled_identity'.")
+    intensity: float | None = Field(
+        default=None,
+        description="Weight on the target, in [0, 1]. Null uses the heuristic "
+                    "from the panel's shape; 0 gives the raw sample covariance, "
+                    "which on a short history across many names is mostly "
+                    "noise.")
+    repair: bool = Field(
+        default=False,
+        description="Clip negative eigenvalues if the result is not PSD. Off by "
+                    "default because shrinkage should make it unnecessary and "
+                    "clipping silently shifts the variances.")
+
+
+class RiskDiagnosticsPayload(BaseModel):
+    """How an estimate was produced, and how far it can be trusted."""
+    observations: int = Field(
+        description="Periods used, after dropping incomplete rows.")
+    assets: int
+    target: str
+    intensity: float = Field(
+        description="Weight placed on the structured target. 0 means the "
+                    "estimate is the raw sample covariance.")
+    average_correlation: float = Field(
+        description="Mean off-diagonal correlation. The sanity check a person "
+                    "can actually do: a diversified equity universe sits "
+                    "around 0.3-0.6, and a figure far outside that says the "
+                    "window or the universe is not what someone thought.")
+    condition_number: float = Field(
+        description="Largest eigenvalue over smallest. An optimiser inverts "
+                    "this matrix, and a large value means the inverse "
+                    "amplifies estimation error rather than reflecting it.")
+    smallest_eigenvalue: float
+    positive_semi_definite: bool = Field(
+        description="Computed from the eigenvalues, not asserted. A matrix "
+                    "that fails this can produce a negative portfolio "
+                    "variance, and a caller about to invert it needs to know.")
+    repaired: bool
+
+
+class RiskModelView(BaseModel):
+    """Response of `GET /risk-models/{model_id}`."""
+    model_id: str
+    asset_ids: list[str]
+    start: str | None = None
+    end: str | None = None
+    correlation: TableFrame = Field(
+        description="Symmetric with a unit diagonal, by construction.")
+    covariance: TableFrame = Field(description="Annualised.")
+    volatilities: dict[str, float] = Field(
+        description="Annualised standard deviation per asset — the square root "
+                    "of the covariance diagonal.")
+    diagnostics: RiskDiagnosticsPayload
+
+
+class RiskModelSummary(BaseModel):
+    """One entry in `GET /risk-models`."""
+    model_id: str
+    assets: int
+    observations: int
+    average_correlation: float
+    positive_semi_definite: bool
+
+
+class RiskModelCollection(BaseModel):
+    """Response of `GET /risk-models`."""
+    risk_models: list[RiskModelSummary]
+
+
 class ConstraintRow(BaseModel):
     """One constraint, in the shape a client's editor holds it.
 

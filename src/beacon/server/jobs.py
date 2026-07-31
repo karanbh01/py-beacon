@@ -236,6 +236,44 @@ class JobRegistry:
 
         return result
 
+    def latest_results_by_kind(self,
+                               prefix: str) -> dict[str, dict[str, Any]]:
+        """The newest successful result for every kind under a prefix.
+
+        Reads the store, which holds every terminal job including the ones this
+        process ran. `stored_snapshots()` deliberately excludes those so a
+        listing does not show a job twice, and using it here would hide every
+        model the running process had just estimated — which is most of them.
+
+        Args:
+            prefix: Kind prefix including its separator, e.g. ``"risk:"``.
+
+        Returns:
+            dict: Kind to its newest result.
+        """
+        if self._results is None:
+            return {}
+
+        newest: dict[str, dict[str, Any]] = {}
+        stamps: dict[str, str] = {}
+
+        for document in self._results.read_all():
+            kind = str(document.get("kind", ""))
+            if not kind.startswith(prefix):
+                continue
+            if document.get("status") != SUCCEEDED or document.get("result") is None:
+                continue
+
+            # Ordered by completion time: ids are UUIDs and say nothing about
+            # age, so a later estimate under the same kind must win on its
+            # timestamp rather than on where it happened to land.
+            stamp = str(document.get("completed_at", ""))
+            if kind not in stamps or stamp > stamps[kind]:
+                newest[kind] = document["result"]
+                stamps[kind] = stamp
+
+        return newest
+
     def _persist(self,
                  job: Job) -> None:
         """Write a finished job's snapshot to disk and prune old ones."""
