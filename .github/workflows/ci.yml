@@ -54,6 +54,13 @@ jobs:
       - name: Test
         run: pytest -q
 
+      # --mpl turns the chart tests from smoke tests into image comparison.
+      # Without it they still run, so a contributor without the baselines gets
+      # the charts exercised rather than failures they cannot act on; CI is
+      # where a pixel of drift has to fail.
+      - name: Compare chart images
+        run: pytest tests/test_plot_images.py -q --no-cov --mpl
+
   tokens:
     name: design token drift
     runs-on: ubuntu-latest
@@ -123,6 +130,12 @@ jobs:
 
       - name: Install project with docs extra
         run: uv pip install --system -e ".[docs]"
+
+      # Generated at build time so the gallery shows what the code currently
+      # draws. A gallery that can go stale is worse than none: it becomes a
+      # record of what the charts used to look like.
+      - name: Render the chart gallery
+        run: python scripts/build_gallery.py docs/gallery
 
       # --strict turns mkdocstrings/griffe warnings into errors, so a docstring
       # that stops parsing or a broken internal link fails the build here.

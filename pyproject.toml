@@ -46,11 +46,13 @@ plot-interactive = ["plotly"]         # placeholder extra; backend lands in BN-8
 # surface vary by installation, and the client contract with it.
 server = ["fastapi", "uvicorn[standard]", "orjson", "websockets", "platformdirs",
           "py-beacon[optimise]", "py-beacon[pdf]"]
-docs = ["mkdocs-material", "mkdocstrings[python]"]
+docs = ["mkdocs-material", "mkdocstrings[python]", "py-beacon[plot]"]
 dev = [
   "py-beacon[server]",   # the server tests exercise the real app
   "py-beacon[optimise]", # and the optimiser tests solve real problems
   "py-beacon[pdf]",      # and the report tests render real documents
+  "py-beacon[plot]",     # and the chart tests draw real figures
+  "pytest-mpl",          # image regression over every chart
   "pytest",
   "pytest-asyncio",      # the job registry is driven on an event loop
   "pytest-cov",

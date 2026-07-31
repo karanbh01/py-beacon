@@ -71,3 +71,7 @@ CLAUDE.md
 # of a commit whose tests import it.
 /testing/
 openapi.json
+
+# Generated at docs build time by scripts/build_gallery.py.
+/docs/gallery/
+/docs/gallery.md

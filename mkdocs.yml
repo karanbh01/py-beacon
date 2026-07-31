@@ -67,10 +67,12 @@ nav:
       - Backtest: concepts/backtest.md
       - Optimiser: concepts/optimiser.md
       - Risk Model: concepts/risk-model.md
+  - Gallery: gallery.md
   - Decisions:
       - Design tokens: decisions/0001-design-token-source-of-truth.md
       - Caching and data freshness: decisions/0002-caching-and-data-freshness.md
       - PDF engine: decisions/0003-pdf-engine.md
+      - Chart image regression: decisions/0004-chart-image-regression.md
   - Reference:
       - Index: reference/index.md
       - Backtest: reference/backtest.md
