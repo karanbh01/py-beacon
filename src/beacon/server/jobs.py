@@ -203,6 +203,39 @@ class JobRegistry:
             if document.get("job_id") not in self._jobs
         ]
 
+    def latest_result(self,
+                      kind: str) -> dict[str, Any] | None:
+        """The result of the most recent successful job of a kind.
+
+        Read from the store rather than from memory. Every terminal job is
+        persisted, so the store is the complete record, and it is the only one
+        of the two that survives a restart — which is the case this exists to
+        serve.
+
+        Args:
+            kind: The job kind, e.g. ``"backtest:my-index"``.
+
+        Returns:
+            dict or None: The stored result, or None when nothing of that kind
+            has succeeded.
+        """
+        if self._results is None:
+            return None
+
+        matching = [document for document in self._results.read_all()
+                    if document.get("kind") == kind
+                    and document.get("status") == SUCCEEDED
+                    and document.get("result") is not None]
+
+        if not matching:
+            return None
+
+        # Ordered by completion time: ids are UUIDs and say nothing about age.
+        newest = max(matching, key=lambda doc: str(doc.get("completed_at", "")))
+        result: dict[str, Any] = newest["result"]
+
+        return result
+
     def _persist(self,
                  job: Job) -> None:
         """Write a finished job's snapshot to disk and prune old ones."""

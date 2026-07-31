@@ -26,6 +26,7 @@ from .schemas import (
     BacktestRunResult,
     BenchmarkRef,
     IndexDocument,
+    RebalanceSnapshot,
     RelativeMetricsPayload,
     SeriesPayload,
 )
@@ -103,7 +104,8 @@ def _metrics(result: BacktestResult) -> BacktestMetrics:
 
 def assemble_result(result: BacktestResult,
                     index_result: IndexResult,
-                    benchmark: RelativeMetricsPayload | None = None) -> BacktestRunResult:
+                    benchmark: RelativeMetricsPayload | None = None,
+                    cap: float | None = None) -> BacktestRunResult:
     """Build the wire payload from a completed backtest.
 
     Args:
@@ -126,7 +128,53 @@ def assemble_result(result: BacktestResult,
         annual_returns=annual_returns(level),
         benchmark_level=SeriesPayload.from_series(_rebase(index_result.index_levels)),
         metrics=_metrics(result),
-        benchmark=benchmark)
+        benchmark=benchmark,
+        rebalances=rebalance_snapshots(index_result, cap),
+        total_costs=_total_costs(result),
+        initial_capital=result.initial_capital)
+
+
+def rebalance_snapshots(index_result: IndexResult,
+                        cap: float | None = None) -> list[RebalanceSnapshot]:
+    """Composition at each rebalance, in date order.
+
+    Carries the uncapped weights alongside the applied ones. On an uncapped
+    index the two are identical and the duplication costs a little space; on a
+    capped one the difference is the only record of what the cap did, and it
+    cannot be recovered from the applied weights afterwards.
+
+    The *cap itself* comes from the definition rather than from the cap report,
+    because the calculator only files a report on dates where the cap actually
+    bound. "A 20% cap applies and nothing reached it" and "no cap applies" are
+    different statements about a methodology, and a client asking what the
+    rules are should get the same answer on both dates.
+
+    Args:
+        index_result: The calculated index.
+        cap: The definition's maximum constituent weight, if it has one.
+    """
+    snapshots = []
+
+    for date in sorted(index_result.weight_snapshots):
+        weights = index_result.weight_snapshots[date]
+        report = index_result.cap_reports.get(date)
+
+        snapshots.append(RebalanceSnapshot(
+            date=date.strftime("%Y-%m-%d"),
+            weights=dict(weights),
+            uncapped_weights=dict(report.uncapped_weights) if report and
+            report.uncapped_weights else dict(weights),
+            capped=sorted(report.capped) if report else [],
+            cap=cap,
+            redistributed=report.redistributed if report else 0.0))
+
+    return snapshots
+
+
+def _total_costs(result: BacktestResult) -> float:
+    """Transaction costs paid across the run."""
+    return float(sum(transaction.transaction_cost
+                     for transaction in result.transactions))
 
 
 def compare_against_benchmark(nav: pd.Series,
@@ -220,7 +268,8 @@ def build_backtest_job(document: IndexDocument,
                 start, end)
 
         await report(0.9, "Assembling results.")
-        payload = assemble_result(backtest, index_result, comparison)
+        payload = assemble_result(backtest, index_result, comparison,
+                                  cap=definition.max_constituent_weight)
 
         await report(1.0, "Complete.")
 

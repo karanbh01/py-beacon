@@ -1,24 +1,84 @@
 # src/beacon/server/routers/beacon.py
 """
-Beacon View: running and reading an index's backtest.
+Beacon View: running an index's backtest, and reading the result.
 
 A backtest calculates the whole index and then simulates a tracking portfolio
 day by day, which is far too slow to hold an HTTP connection open for. The
-endpoint therefore submits a job and returns its id; the client polls
+submission endpoint therefore returns a job id; the client polls
 `GET /jobs/{id}` or listens on `/ws`.
+
+The read endpoints are the other half. They serve the panes of the view —
+overview, weights, attribution, a single name, and a comparison across
+indices — and each answers from the **most recent successful run** of that
+index rather than recalculating anything. That is why BN-91 persisted job
+results and why BN-71 extended the payload to carry composition: a client
+switching tabs should not be waiting on a recalculation, and two panes read a
+moment apart should describe the same run.
+
+Every read is a 404 until a backtest has been run, which is the honest answer:
+there is no view of an index nobody has calculated.
 """
+from typing import Annotated, Any
+
 from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError, DataNotFoundError
 from ..backtests import build_backtest_job
 from ..config import ServerConfig
 from ..jobs import JobRegistry
-from ..schemas import BacktestRequest, IndexDocument, JobStatus
+from ..schemas import (
+    AssetView,
+    AttributionView,
+    BacktestRequest,
+    CompareView,
+    IndexDocument,
+    JobStatus,
+    OverviewView,
+    WeightsView,
+)
 from ..store import DocumentStore
+from ..views import (
+    build_asset_view,
+    build_attribution,
+    build_compare,
+    build_overview,
+    build_weights,
+)
 
 require("fastapi", "The Beacon API server")
 
-from fastapi import APIRouter, Request, status  # noqa: E402
+from fastapi import APIRouter, Query, Request, status  # noqa: E402
+
+AsOfQuery = Annotated[
+    str | None,
+    Query(description="Date to report at, YYYY-MM-DD. Defaults to the latest "
+                      "rebalance.")]
+StartQuery = Annotated[str | None,
+                       Query(description="Inclusive start date, YYYY-MM-DD.")]
+EndQuery = Annotated[str | None,
+                     Query(description="Inclusive end date, YYYY-MM-DD.")]
+IdsQuery = Annotated[list[str],
+                     Query(description="Index ids to compare, two or more.")]
+
+
+def _latest_run(request: Request,
+                index_id: str) -> dict[str, Any]:
+    """The most recent successful backtest result for an index.
+
+    Raises:
+        DataNotFoundError: If the index has never been backtested successfully.
+            Distinct from an unknown index, which fails earlier when the
+            definition is loaded.
+    """
+    registry: JobRegistry = request.app.state.jobs
+    run = registry.latest_result(f"backtest:{index_id}")
+
+    if run is None:
+        raise DataNotFoundError(
+            f"a completed backtest for index '{index_id}'",
+            source="run POST /beacon/{index_id}/backtest first")
+
+    return run
 
 
 def _index_document(request: Request,
@@ -76,5 +136,68 @@ def build_beacon_router() -> APIRouter:
             build_backtest_job(document, fetcher, settings, store))
 
         return JobStatus(**job.snapshot())
+
+    # Compare is declared before the parameterised routes so that a request for
+    # /beacon/compare is not captured by /beacon/{index_id}/... — FastAPI
+    # matches in declaration order, and "compare" would otherwise read as an
+    # index id.
+    @router.get("/compare", response_model=CompareView)
+    def compare(request: Request,
+                ids: IdsQuery) -> CompareView:
+        if len(ids) < 2:
+            raise DataNotFoundError(
+                "at least two indices to compare",
+                source=f"{len(ids)} id(s) were given")
+
+        # Every definition is resolved first, so an unknown id fails as a 404
+        # naming that id rather than as a comparison that quietly covers fewer
+        # indices than were asked for.
+        for index_id in ids:
+            _index_document(request, index_id)
+
+        return build_compare({index_id: _latest_run(request, index_id)
+                              for index_id in ids})
+
+    @router.get("/{index_id}/overview", response_model=OverviewView)
+    def overview(request: Request,
+                 index_id: str) -> OverviewView:
+        document = _index_document(request, index_id)
+
+        return build_overview(index_id, document.name, _latest_run(request, index_id))
+
+    @router.get("/{index_id}/weights", response_model=WeightsView)
+    def weights(request: Request,
+                index_id: str,
+                asof: AsOfQuery = None) -> WeightsView:
+        _index_document(request, index_id)
+
+        return build_weights(index_id,
+                             _latest_run(request, index_id),
+                             asof,
+                             _data_fetcher(request))
+
+    @router.get("/{index_id}/attribution", response_model=AttributionView)
+    def attribution(request: Request,
+                    index_id: str,
+                    start: StartQuery = None,
+                    end: EndQuery = None) -> AttributionView:
+        _index_document(request, index_id)
+
+        return build_attribution(index_id,
+                                 _latest_run(request, index_id),
+                                 _data_fetcher(request),
+                                 start,
+                                 end)
+
+    @router.get("/{index_id}/assets/{identifier}", response_model=AssetView)
+    def asset(request: Request,
+              index_id: str,
+              identifier: str) -> AssetView:
+        _index_document(request, index_id)
+
+        return build_asset_view(index_id,
+                                identifier,
+                                _latest_run(request, index_id),
+                                _data_fetcher(request))
 
     return router

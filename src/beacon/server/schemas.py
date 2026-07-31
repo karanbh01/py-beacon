@@ -556,6 +556,160 @@ class BacktestRequest(BaseModel):
                     "reported separately; this adds a second comparison.")
 
 
+class RebalanceSnapshot(BaseModel):
+    """The index's composition at one rebalance.
+
+    Both weight sets are carried. `weights` is what the index applied;
+    `uncapped_weights` is what the weighting scheme produced before any cap.
+    They are equal on an uncapped index, and the difference is the only way to
+    answer what capping cost — a question that cannot be reconstructed from the
+    applied weights alone.
+    """
+    date: str = Field(description="Rebalance date, YYYY-MM-DD.")
+    weights: dict[str, float] = Field(description="Applied weights, summing to 1.")
+    uncapped_weights: dict[str, float] = Field(
+        default_factory=dict,
+        description="Weights before capping. Equal to `weights` when no cap "
+                    "was applied.")
+    capped: list[str] = Field(
+        default_factory=list,
+        description="Constituents held at the cap on this date.")
+    cap: float | None = Field(default=None,
+                              description="Maximum single weight, if one applies.")
+    redistributed: float = Field(
+        default=0.0,
+        description="Weight moved off capped names onto the rest.")
+
+
+class ConcentrationPayload(BaseModel):
+    """How concentrated a weight vector is."""
+    herfindahl: float = Field(description="Sum of squared weights.")
+    effective_assets: float = Field(
+        description="1/HHI: how many equally weighted names would be as "
+                    "concentrated. Lower than the raw count whenever weights "
+                    "are uneven.")
+    top_weights: dict[str, float] = Field(
+        description="Combined weight of the largest N, keyed by N.")
+    largest: float = Field(description="Largest single weight.")
+    constituents: int
+
+
+class DriftPayload(BaseModel):
+    """How far weights moved between two rebalances."""
+    total_absolute: float = Field(description="Sum of absolute weight changes.")
+    maximum: float = Field(description="Largest single move.")
+    worst: str = Field(description="Constituent that moved most.")
+    turnover: float = Field(
+        description="Half the total: the one-way trading needed to return to "
+                    "target, since every overweight funds an underweight.")
+    since: str = Field(description="The rebalance drifted from.")
+
+
+class OverviewView(BaseModel):
+    """Response of `GET /beacon/{index_id}/overview`."""
+    index_id: str
+    name: str
+    start: str
+    end: str
+    observations: int
+    rebalances: int
+    last_rebalance: str
+    metrics: BacktestMetrics
+    concentration: ConcentrationPayload
+    level: SeriesPayload
+
+
+class WeightsView(BaseModel):
+    """Response of `GET /beacon/{index_id}/weights`."""
+    index_id: str
+    as_of: str = Field(description="Date asked about.")
+    rebalance_date: str = Field(
+        description="Rebalance in force on that date. An index holds the "
+                    "weights set at its last rebalance until the next one, so "
+                    "this is usually earlier than `as_of`.")
+    weights: dict[str, float]
+    concentration: ConcentrationPayload
+    drift: DriftPayload | None = Field(
+        default=None,
+        description="Movement since the previous rebalance. Null at the first, "
+                    "where there is nothing to have drifted from.")
+    capped: list[str] = Field(default_factory=list)
+    cap: float | None = None
+    cap_redistributed: float = 0.0
+
+
+class ContributionPayload(BaseModel):
+    """One constituent's share of the index return."""
+    asset_id: str
+    contribution: float
+    average_weight: float
+    total_return: float
+
+
+class AttributionView(BaseModel):
+    """Response of `GET /beacon/{index_id}/attribution`.
+
+    Contributions are Carino-linked, so they sum to the compounded total return
+    rather than approximately to it. `residual` is reported regardless and
+    should sit at machine epsilon; anything larger means an assumption broke
+    upstream, which is worth surfacing rather than rounding away.
+    """
+    index_id: str
+    start: str
+    end: str
+    periods: int
+    total_return: float
+    contributions: list[ContributionPayload]
+    residual: float
+    reconciles: bool
+    cap_drag: float | None = Field(
+        default=None,
+        description="Capped return minus uncapped. Null on an uncapped index: "
+                    "reporting 0.0 would claim capping happened and made no "
+                    "difference.")
+    cost_drag: float | None = Field(
+        default=None,
+        description="Direct effect of transaction costs. Null at zero cost.")
+
+
+class AssetView(BaseModel):
+    """Response of `GET /beacon/{index_id}/assets/{identifier}`."""
+    index_id: str
+    identifier: str
+    weight_history: dict[str, float] = Field(
+        description="Rebalance date -> this name's weight. Only the rebalances "
+                    "it was actually in.")
+    rebalances_held: int
+    total_return: float
+    index_return: float
+    excess_return: float
+    tracking_error: float
+    correlation: float
+    beta: float
+    observations: int
+    price: SeriesPayload
+
+
+class CompareEntry(BaseModel):
+    """One index within a comparison, on the shared window."""
+    index_id: str
+    total_return: float
+    level: SeriesPayload = Field(
+        description="Rebased to 100 on the first shared date, so lines start "
+                    "together and the comparison is of shape, not scale.")
+
+
+class CompareView(BaseModel):
+    """Response of `GET /beacon/compare`."""
+    index_ids: list[str]
+    start: str
+    end: str
+    observations: int = Field(
+        description="Dates every index covers. Fewer than any one of them "
+                    "carries alone whenever their spans differ.")
+    entries: list[CompareEntry]
+
+
 class BacktestRunResult(BaseModel):
     """Result payload of a completed backtest job.
 
@@ -579,6 +733,21 @@ class BacktestRunResult(BaseModel):
                     "one was given. Null otherwise; `metrics.tracking_error` "
                     "still reports replication accuracy against the tracked "
                     "index either way.")
+    rebalances: list[RebalanceSnapshot] = Field(
+        default_factory=list,
+        description="Composition at each rebalance. Everything the view "
+                    "endpoints say about weights, attribution and individual "
+                    "names is derived from these, so a run is readable without "
+                    "recalculating the index. Daily weights are deliberately "
+                    "absent: they are reconstructed from these and the prices, "
+                    "and storing one per name per day would multiply the "
+                    "payload by the number of trading days to save an "
+                    "inexpensive calculation.")
+    total_costs: float = Field(
+        default=0.0,
+        description="Transaction costs paid across the run, for the cost drag.")
+    initial_capital: float = Field(
+        default=0.0, description="Capital the simulation started with.")
 
 
 class JobStatus(BaseModel):
