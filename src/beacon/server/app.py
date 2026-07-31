@@ -24,6 +24,7 @@ from .routers import (  # noqa: E402
     build_beacon_router,
     build_coverage_router,
     build_data_router,
+    build_derivatives_router,
     build_events_router,
     build_indices_router,
     build_jobs_router,
@@ -144,6 +145,7 @@ def create_app(config: ServerConfig) -> FastAPI:
                    build_jobs_router(),
                    build_optimise_router(),
                    build_risk_router(),
+                   build_derivatives_router(),
                    build_beacon_router()):
         app.include_router(router, dependencies=guard, responses=ERROR_RESPONSES)
 

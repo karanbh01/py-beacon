@@ -409,6 +409,199 @@ class IndexCollection(BaseModel):
     indices: list[IndexDocument]
 
 
+class FuturesPriceRequest(BaseModel):
+    """Body of `POST /derivatives/futures/price`.
+
+    Stateless: every input the calculation needs is here, and nothing is read
+    from or written to storage.
+    """
+    spot: float = Field(gt=0.0, description="Spot price of the underlying.")
+    risk_free_rate: float = Field(
+        default=0.0,
+        description="Continuously compounded financing rate. Ignored when "
+                    "`curve` is supplied.")
+    curve: dict[str, float] | None = Field(
+        default=None,
+        description="Zero-rate pillars as {tenor_in_years: rate}. A flat curve "
+                    "and a scalar rate give identical answers, so supplying "
+                    "one changes nothing unless the curve has shape.")
+    dividend_yield: float = Field(
+        default=0.0, description="Continuous dividend yield.")
+    borrow_cost: float = Field(
+        default=0.0, description="Continuous borrow or financing spread.")
+    dividends: list[tuple[float, float]] | None = Field(
+        default=None,
+        description="Discrete cash dividends as (years_to_ex, amount). When "
+                    "present these are used instead of the continuous yield: "
+                    "the two are different models of the same thing and "
+                    "applying both would double-count.")
+    valuation_date: str | None = Field(default=None, description="YYYY-MM-DD.")
+    expiry: str | None = Field(default=None, description="YYYY-MM-DD.")
+    time_to_expiry: float | None = Field(
+        default=None,
+        description="Years to expiry. Dates win when both are given, being the "
+                    "less ambiguous statement.")
+    contract_multiplier: float = Field(
+        default=1.0, description="Index points per contract.")
+    contracts: float = Field(default=1.0, description="Number of contracts.")
+    market_price: float | None = Field(
+        default=None,
+        description="Quoted price, for the basis and implied repo. Both are "
+                    "null without one rather than computed against the "
+                    "theoretical value, which would make them identically "
+                    "zero.")
+    grid_tenors: list[float] | None = Field(
+        default=None, description="Rows of the sensitivity grid, in years.")
+    grid_rates: list[float] | None = Field(
+        default=None, description="Columns of the sensitivity grid.")
+
+
+class CarryDecomposition(BaseModel):
+    """Carry split into the pieces a person can reason about.
+
+    Each part is the price effect of one rate acting alone. They do not sum to
+    the total exactly, because carry compounds rather than adds; the residual
+    is reported rather than spread across the parts, which would make each of
+    them slightly wrong in order to hide that the split is approximate.
+    """
+    total: float = Field(description="Fair value minus spot.")
+    financing: float
+    dividend: float = Field(description="Negative: dividends reduce the forward.")
+    borrow: float
+    residual: float = Field(
+        description="Total minus the three parts — the compounding the "
+                    "decomposition cannot attribute.")
+
+
+class FuturesPriceResponse(BaseModel):
+    """Response of `POST /derivatives/futures/price`."""
+    fair_value: float
+    time_to_expiry: float
+    financing_rate: float = Field(description="Rate used, read off the curve.")
+    carry: CarryDecomposition
+    contract_value: float = Field(
+        description="Fair value times multiplier times contracts.")
+    market_price: float | None = None
+    basis: float | None = Field(
+        default=None, description="Market minus theoretical, when quoted.")
+    implied_repo: float | None = Field(
+        default=None,
+        description="Financing rate the quoted price implies, when quoted.")
+    sensitivity: TableFrame = Field(
+        description="Fair value across a tenor x rate grid, centred on this "
+                    "contract.")
+
+
+class TrsPriceRequest(BaseModel):
+    """Body of `POST /derivatives/trs/price`."""
+    trade_id: str = Field(default="TRS", description="Identifier for the trade.")
+    underlying_id: str = Field(default="INDEX")
+    currency: str = Field(default="USD")
+    start_date: str
+    end_date: str
+    notional: float = Field(gt=0.0)
+    spread_bps: float = Field(default=0.0)
+    reference_rate: str = Field(default="SOFR", description="Name of the index.")
+    reference_rate_value: float = Field(
+        default=0.0, description="Its current fixing, as a decimal.")
+    payment_frequency: str = Field(default="QUARTERLY")
+    reset_type: str = Field(
+        default="UNFUNDED",
+        description="UNFUNDED accrues reference + spread; FUNDED accrues only "
+                    "the spread, and therefore has no rate sensitivity at all.")
+    valuation_date: str
+    last_reset_date: str | None = Field(
+        default=None, description="Defaults to the start date.")
+    spot: float = Field(gt=0.0, description="Underlying level today.")
+    initial_price: float = Field(
+        gt=0.0, description="Level at inception or last reset.")
+    dividend_yield: float = Field(default=0.0)
+    time_to_expiry: float | None = Field(
+        default=None, description="Needed for the breakeven table.")
+    futures_prices: list[float] | None = Field(
+        default=None,
+        description="Prices to compute breakeven spreads against.")
+    curve: dict[str, float] | None = Field(
+        default=None,
+        description="Zero-rate pillars for projecting future periods. The "
+                    "current period always accrues at the rate already fixed "
+                    "at its reset.")
+
+
+class TrsAccrual(BaseModel):
+    """One financing period."""
+    start: str
+    end: str
+    days: int
+    rate: float = Field(
+        description="Reference rate for the period: the fixing for the current "
+                    "one, the curve's forward for later ones.")
+    accrual_fraction: float = Field(description="ACT/360 day-count fraction.")
+    amount: float
+
+
+class TrsPriceResponse(BaseModel):
+    """Response of `POST /derivatives/trs/price`."""
+    trade_id: str
+    valuation_date: str
+    accrual_days: int
+    accrual_fraction: float = Field(description="ACT/360, from the last reset.")
+    total_return_leg: float
+    financing_leg: float
+    present_value: float = Field(
+        description="Total return leg minus accrued financing, from the "
+                    "receiver's side.")
+    dv01: float = Field(
+        description="Value change per +1bp. Negative for a receiver, who pays "
+                    "financing — the sign carries the information a magnitude "
+                    "would lose. Exactly zero on a funded swap, where only the "
+                    "spread accrues.")
+    fair_spread_bps: float | None = Field(
+        default=None,
+        description="Spread at which the trade would be worth nothing today. "
+                    "Null when no time has accrued, where no spread could "
+                    "balance it.")
+    schedule: list[TrsAccrual]
+    breakeven: list[dict[str, float]] = Field(
+        default_factory=list,
+        description="Breakeven financing spread against each supplied futures "
+                    "price — what makes a swap and a future agree.")
+
+
+class TermStructureEntry(BaseModel):
+    """One expiry in a term structure."""
+    expiry: str
+    time_to_expiry: float
+    financing_rate: float
+    theoretical: float
+
+
+class TermStructureResponse(BaseModel):
+    """Response of `GET /derivatives/{index_id}/term-structure`."""
+    index_id: str
+    as_of: str
+    spot: float
+    entries: list[TermStructureEntry]
+
+
+class RollResponse(BaseModel):
+    """Response of `GET /derivatives/{index_id}/roll`.
+
+    Both legs are priced theoretically off the same spot and curve, so this is
+    the *carry* roll rather than a market one.
+    """
+    index_id: str
+    as_of: str
+    spot: float
+    front_expiry: str
+    back_expiry: str
+    front_price: float
+    back_price: float
+    roll_cost: float = Field(description="Back minus front.")
+    annualised_roll: float = Field(
+        description="Positive in backwardation, negative in contango.")
+
+
 class RiskModelRequest(BaseModel):
     """Body of `POST /risk-models/{model_id}/estimate`."""
     identifiers: list[str] = Field(

@@ -10,6 +10,7 @@ process configuration.
 from .beacon import build_beacon_router
 from .coverage import build_coverage_router
 from .data import build_data_router
+from .derivatives import build_derivatives_router
 from .indices import build_indices_router
 from .jobs import build_events_router, build_jobs_router
 from .optimise import build_optimise_router
@@ -21,6 +22,7 @@ __all__ = [
     "build_beacon_router",
     "build_coverage_router",
     "build_data_router",
+    "build_derivatives_router",
     "build_events_router",
     "build_indices_router",
     "build_jobs_router",
