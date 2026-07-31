@@ -198,3 +198,46 @@ class TestExtrasAreDeclared:
             assert extra in declared, (
                 f"'{module_name}' maps to extra '{extra}', which pyproject.toml "
                 f"does not declare")
+
+
+class TestTheServerExtraIsSelfSufficient:
+    """`pip install "py-beacon[server]"` must give a server that starts.
+
+    The server mounts the optimiser and report routers, which import scipy and
+    reportlab at module scope, so the `server` extra has to bring those too.
+    This broke the OpenAPI export job in CI, which installed only `[server]`
+    and could not build the app.
+    """
+
+    def test_the_app_builds_with_only_the_server_stack(self):
+        """Everything outside the server's own dependency set is blocked, so a
+        new router quietly importing an unrelated extra fails here."""
+        script = BARE_ENVIRONMENT_SCRIPT.replace(
+            "for name in {modules!r}:\n    importlib.import_module(name)",
+            "from beacon.server import ServerConfig, create_app\n"
+            "app = create_app(ServerConfig(auth_token='x'))\n"
+            "assert len(app.openapi()['paths']) > 30")
+
+        completed = subprocess.run(
+            [sys.executable, "-c",
+             script.format(blocked=["yfinance", "matplotlib", "openpyxl", "plotly"],
+                           modules=[])],
+            capture_output=True, text=True, check=False)
+
+        assert completed.returncode == 0, completed.stderr
+        assert "ok" in completed.stdout
+
+    def test_the_extra_declares_what_the_server_imports(self):
+        """The declaration, not just the behaviour: an environment that happens
+        to have scipy installed would hide a missing entry."""
+        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        if not pyproject.exists():
+            pytest.skip("pyproject.toml not available (installed-only checkout)")
+
+        import tomllib
+
+        with pyproject.open("rb") as handle:
+            server = tomllib.load(handle)["project"]["optional-dependencies"]["server"]
+
+        assert "py-beacon[optimise]" in server
+        assert "py-beacon[pdf]" in server

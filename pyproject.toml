@@ -39,7 +39,13 @@ pdf = ["reportlab"]
 optimise = ["scipy"]
 plot = ["matplotlib"]
 plot-interactive = ["plotly"]         # placeholder extra; backend lands in BN-83
-server = ["fastapi", "uvicorn[standard]", "orjson", "websockets", "platformdirs"]
+# The server mounts the optimiser and report routers, which import scipy and
+# reportlab at module scope. So `pip install "py-beacon[server]"` has to bring
+# those too, or the extra promises a server that cannot start. The alternative
+# — mounting routers conditionally on what is installed — would make the API
+# surface vary by installation, and the client contract with it.
+server = ["fastapi", "uvicorn[standard]", "orjson", "websockets", "platformdirs",
+          "py-beacon[optimise]", "py-beacon[pdf]"]
 docs = ["mkdocs-material", "mkdocstrings[python]"]
 dev = [
   "py-beacon[server]",   # the server tests exercise the real app
