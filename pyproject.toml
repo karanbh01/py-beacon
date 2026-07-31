@@ -129,6 +129,11 @@ ignore = [
 # (the pricing-module isolation test) and to keep optional-dependency imports
 # out of collection.
 "tests/**" = ["PLC0415"]
+# The plotting package imports matplotlib inside functions on purpose. That
+# laziness is its entire design — `import beacon` must cost nothing extra when
+# no chart is drawn — so the rule that would forbid it is switched off here
+# rather than silenced line by line.
+"src/beacon/plot/**" = ["PLC0415"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["beacon"]

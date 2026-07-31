@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from ..exceptions import CalculationError
+from ..plot.base import PlotAccessor
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,10 @@ class AttributionResult:
         cost_drag: Portfolio return minus its gross return, when a backtest is
             supplied. Negative by construction — costs only subtract.
     """
+
+    #: Charts for this result. A descriptor that resolves on first
+    #: access, so matplotlib is imported only when something is drawn.
+    plot = PlotAccessor("AttributionPlots")
     start: str
     end: str
     periods: int

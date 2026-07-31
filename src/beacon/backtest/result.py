@@ -9,6 +9,7 @@ import pandas as pd
 
 from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult
+from ..plot.base import PlotAccessor
 from ..portfolio.base import Transaction
 from .asset_view import BacktestAssetView
 
@@ -60,6 +61,10 @@ class BacktestResult:
             itself the signal that the portfolio drifted off target for a
             reason other than price movement.
     """
+
+    #: Charts for this result. A descriptor that resolves on first
+    #: access, so matplotlib is imported only when something is drawn.
+    plot = PlotAccessor("BacktestPlots")
     portfolio_id: str
     initial_capital: float
     portfolio_nav: pd.Series

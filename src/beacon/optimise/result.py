@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from ..plot.base import PlotAccessor
 from ..risk.model import RiskModel
 from .constraints import Slack, count_holdings, one_way_turnover
 
@@ -76,6 +77,10 @@ class OptimisationResult:
             which case the answer satisfies every constraint but is not proven
             optimal.
     """
+
+    #: Charts for this result. A descriptor that resolves on first
+    #: access, so matplotlib is imported only when something is drawn.
+    plot = PlotAccessor("OptimisationPlots")
     weights: pd.Series
     target_weights: pd.Series
     binding: list[BindingConstraint]

@@ -16,6 +16,7 @@ import pandas as pd
 
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
+from ..plot.base import PlotAccessor
 from .covariance import (
     PERIODS_PER_YEAR,
     Matrix,
@@ -87,6 +88,10 @@ class RiskModel:
             it is.
         periods_per_year: The annualisation factor applied.
     """
+
+    #: Charts for this result. A descriptor that resolves on first
+    #: access, so matplotlib is imported only when something is drawn.
+    plot = PlotAccessor("RiskPlots")
     covariance: pd.DataFrame
     correlation: pd.DataFrame
     diagnostics: RiskDiagnostics

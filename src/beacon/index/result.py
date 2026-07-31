@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from ..data.fetcher import DataFetcher
+from ..plot.base import PlotAccessor
 from .asset_view import IndexAssetView
 from .capping import CapReport
 
@@ -30,6 +31,10 @@ class IndexResult:
             uncapped index, so its presence is itself the signal that
             capping occurred.
     """
+
+    #: Charts for this result. A descriptor that resolves on first
+    #: access, so matplotlib is imported only when something is drawn.
+    plot = PlotAccessor("IndexPlots")
     index_id: str
     index_levels: pd.Series
     divisor_history: pd.Series
