@@ -29,6 +29,7 @@ from .routers import (  # noqa: E402
     build_indices_router,
     build_jobs_router,
     build_optimise_router,
+    build_reports_router,
     build_risk_router,
     build_universes_router,
     build_watchlists_router,
@@ -118,6 +119,14 @@ def create_app(config: ServerConfig) -> FastAPI:
     app.state.index_store = DocumentStore("indices", root=config.storage_root)
     app.state.constraint_store = DocumentStore("constraint_sets",
                                                root=config.storage_root)
+    app.state.template_store = DocumentStore("report_templates",
+                                             root=config.storage_root)
+    # Rendered PDFs are files rather than JSON documents, so the reports router
+    # gets a directory rather than a store. DocumentStore is borrowed only to
+    # resolve and create it, so renders land beside every other collection
+    # under whichever root is configured.
+    app.state.render_directory = DocumentStore(
+        "renders", root=config.storage_root).directory
     # Completed results outlive the process: compare and report rendering both
     # need a result the request that produced it did not have to hold open.
     app.state.jobs = JobRegistry(
@@ -145,6 +154,7 @@ def create_app(config: ServerConfig) -> FastAPI:
                    build_jobs_router(),
                    build_optimise_router(),
                    build_risk_router(),
+                   build_reports_router(),
                    build_derivatives_router(),
                    build_beacon_router()):
         app.include_router(router, dependencies=guard, responses=ERROR_RESPONSES)

@@ -409,6 +409,58 @@ class IndexCollection(BaseModel):
     indices: list[IndexDocument]
 
 
+class ReportTemplateDocument(BaseModel):
+    """A stored report template, as JSON.
+
+    Blocks are kept as free-form mappings rather than a discriminated union so
+    the wire shape stays exactly what `beacon.report.blocks` reads and writes.
+    A second definition of the same thing here is a second definition to keep
+    in step, and the block model already validates its own rows on the way in.
+    """
+    template_id: str = Field(min_length=1, max_length=64,
+                             description="Stable identifier, used in the URL.")
+    name: str = Field(min_length=1, description="Display name.")
+    page: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Page setup: size, orientation, margin.")
+    blocks: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Content, drawn top to bottom. Each carries a `kind`.")
+
+
+class ReportTemplateCollection(BaseModel):
+    """Response of `GET /reports/templates`."""
+    templates: list[ReportTemplateDocument]
+    built_in: list[str] = Field(
+        default_factory=list,
+        description="Templates generated from a run rather than stored. These "
+                    "can be rendered but not edited: they are code, not "
+                    "documents.")
+
+
+class RenderRequest(BaseModel):
+    """Body of `POST /reports/render`."""
+    template_id: str = Field(
+        description="A stored template, or a built-in such as FACTSHEET-A4.")
+    index_id: str | None = Field(
+        default=None,
+        description="Required for a built-in template, which is generated from "
+                    "that index's latest completed backtest. Ignored for a "
+                    "stored template, which is rendered exactly as saved.")
+
+
+class RenderResult(BaseModel):
+    """Result payload of a completed render job."""
+    render_id: str = Field(
+        description="Fetch the PDF from GET /reports/renders/{render_id}.")
+    template_id: str
+    index_id: str | None = None
+    name: str
+    blocks: int
+    bytes: int = Field(description="Size of the rendered document.")
+    rendered_at: str
+
+
 class FuturesPriceRequest(BaseModel):
     """Body of `POST /derivatives/futures/price`.
 

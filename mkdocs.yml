@@ -70,6 +70,7 @@ nav:
   - Decisions:
       - Design tokens: decisions/0001-design-token-source-of-truth.md
       - Caching and data freshness: decisions/0002-caching-and-data-freshness.md
+      - PDF engine: decisions/0003-pdf-engine.md
   - Reference:
       - Index: reference/index.md
       - Backtest: reference/backtest.md
