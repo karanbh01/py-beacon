@@ -46,7 +46,10 @@ plot-interactive = ["plotly"]         # placeholder extra; backend lands in BN-8
 # surface vary by installation, and the client contract with it.
 server = ["fastapi", "uvicorn[standard]", "orjson", "websockets", "platformdirs",
           "py-beacon[optimise]", "py-beacon[pdf]"]
-docs = ["mkdocs-material", "mkdocstrings[python]", "py-beacon[plot]"]
+# The gallery renders the frontier and optimiser charts, so building the
+# docs needs the optimiser as well as matplotlib.
+docs = ["mkdocs-material", "mkdocstrings[python]", "py-beacon[plot]",
+        "py-beacon[optimise]"]
 dev = [
   "py-beacon[server]",   # the server tests exercise the real app
   "py-beacon[optimise]", # and the optimiser tests solve real problems
@@ -136,6 +139,13 @@ ignore = [
 # no chart is drawn — so the rule that would forbid it is switched off here
 # rather than silenced line by line.
 "src/beacon/plot/**" = ["PLC0415"]
+# The chart tests and the gallery script hold zero-argument lambdas that look
+# redundant to the linter but are not: they defer drawing until the right style
+# is active, and inlining them would render every chart when the mapping is
+# built instead of inside the test that needs it.
+"tests/test_plot.py" = ["PLC0415", "PLW0108"]
+"tests/test_plot_images.py" = ["PLC0415", "PLW0108"]
+"scripts/build_gallery.py" = ["PLW0108"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["beacon"]

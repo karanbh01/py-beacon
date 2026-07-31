@@ -752,7 +752,7 @@ class TestTruncation:
         """The names worth seeing are the extremes, in either direction."""
         from beacon.plot.accessors import _truncate
 
-        labels, values, dropped = _truncate(
+        labels, _, dropped = _truncate(
             ["big-up", "tiny", "big-down"], [0.5, 0.001, -0.6], limit=2)
 
         assert set(labels) == {"big-up", "big-down"}
