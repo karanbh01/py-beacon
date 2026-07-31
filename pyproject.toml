@@ -37,7 +37,11 @@ data = ["yfinance"]
 excel = ["openpyxl"]
 pdf = ["reportlab"]
 optimise = ["scipy"]
-plot = ["matplotlib"]
+# Pinned to a minor series: chart image regression compares rendered
+# pixels, and matplotlib changes its layout and rasterisation between
+# minor releases. An unpinned range would make the baselines expire
+# silently on the next release.
+plot = ["matplotlib>=3.10,<3.11"]
 plot-interactive = ["plotly"]         # placeholder extra; backend lands in BN-83
 # The server mounts the optimiser and report routers, which import scipy and
 # reportlab at module scope. So `pip install "py-beacon[server]"` has to bring

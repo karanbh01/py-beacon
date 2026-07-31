@@ -54,12 +54,46 @@ jobs:
       - name: Test
         run: pytest -q
 
-      # --mpl turns the chart tests from smoke tests into image comparison.
-      # Without it they still run, so a contributor without the baselines gets
-      # the charts exercised rather than failures they cannot act on; CI is
-      # where a pixel of drift has to fail.
+  charts:
+    name: chart image regression
+    # One platform, not the matrix. Rendered pixels depend on the font
+    # rasteriser and the matplotlib build, so a baseline is only meaningful
+    # inside a fixed environment — the same reason matplotlib pins freetype for
+    # its own image tests. Comparing on three operating systems would mean
+    # three sets of baselines and three ways to be almost right.
+    #
+    # The other nine cells still run these tests without --mpl, so the charts
+    # are exercised everywhere and only compared here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Install project
+        run: uv pip install --system -e ".[dev]"
+
       - name: Compare chart images
         run: pytest tests/test_plot_images.py -q --no-cov --mpl
+
+      # The rendered figures and their diffs, so a failure can be looked at
+      # rather than guessed at from an RMS number.
+      - name: Upload the comparison
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chart-image-diff
+          path: /tmp/pytest-mpl-*
+          if-no-files-found: ignore
 
   tokens:
     name: design token drift

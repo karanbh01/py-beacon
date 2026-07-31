@@ -1,0 +1,51 @@
+name: Chart baselines
+
+# Run by hand when a chart change is intended. Baselines have to be generated
+# in the environment they are compared in — the CI chart job — because rendered
+# pixels depend on the font rasteriser and the matplotlib build. Generating
+# them on a developer's machine is what makes them fail everywhere else.
+#
+# Download the artifact, drop it over tests/baseline/, and commit. The binary
+# diff in review is the point: a changed chart should be looked at.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: generate baselines
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Install project
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Report the rendering environment
+        run: |
+          python -c "import matplotlib; print('matplotlib', matplotlib.__version__)"
+          python -c "import matplotlib; print('freetype', matplotlib.ft2font.__freetype_version__)"
+
+      - name: Generate baselines
+        run: |
+          pytest tests/test_plot_images.py -q --no-cov             --mpl-generate-path=tests/baseline
+
+      - name: Upload baselines
+        uses: actions/upload-artifact@v4
+        with:
+          name: chart-baselines
+          path: tests/baseline/
+          if-no-files-found: error
