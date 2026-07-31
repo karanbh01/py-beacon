@@ -409,6 +409,191 @@ class IndexCollection(BaseModel):
     indices: list[IndexDocument]
 
 
+class ConstraintRow(BaseModel):
+    """One constraint, in the shape a client's editor holds it.
+
+    Maps 1:1 to a class in `beacon.optimise.constraints`: the row a user edits,
+    the JSON that is stored and the object the solver receives are the same
+    thing in three representations, so a rule cannot change meaning in
+    translation.
+    """
+    id: str = Field(default="", max_length=64,
+                    description="Stable row id. Carried back on any binding "
+                                "constraint so a client can highlight the row "
+                                "that bound.")
+    type: str = Field(description="Constraint class, e.g. 'PositionBounds'.")
+    params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Constructor arguments for that class, by name.")
+
+
+class ConstraintSet(BaseModel):
+    """A named list of constraints."""
+    id: str = Field(description="Stable identifier, used in the URL.",
+                    min_length=1, max_length=64)
+    name: str = Field(description="Display name.", min_length=1)
+    constraints: list[ConstraintRow] = Field(default_factory=list)
+
+
+class ConstraintSetCollection(BaseModel):
+    """Response of `GET /optimise/constraint-sets`."""
+    constraint_sets: list[ConstraintSet]
+
+
+class SavedConstraintSet(BaseModel):
+    """Response of a successful save: the set plus any warnings."""
+    constraint_set: ConstraintSet
+    findings: list[Finding] = Field(
+        default_factory=list,
+        description="Non-blocking warnings. Errors would have prevented the "
+                    "save.")
+
+
+class ConstraintTypes(BaseModel):
+    """Response of `GET /optimise/constraint-types`.
+
+    Served so a client builds its editor from the same source the solver reads,
+    rather than from a copy that drifts.
+    """
+    types: dict[str, list[str]] = Field(
+        description="Constraint type -> the parameters it accepts.")
+
+
+class OptimisationRunRequest(BaseModel):
+    """Body of `POST /optimise/runs`."""
+    index_id: str = Field(description="Index whose weights are the target.")
+    constraint_set_id: str = Field(description="Constraint set to solve under.")
+    as_of: str | None = Field(
+        default=None,
+        description="Which rebalance to target, YYYY-MM-DD. Defaults to the "
+                    "latest.")
+    start: str | None = Field(
+        default=None,
+        description="Start of the window the risk model is estimated over.")
+    end: str | None = Field(default=None, description="End of that window.")
+    risk_free_rate: float = Field(
+        default=0.0,
+        description="Used for the frontier's tangency point.")
+
+
+class WeightRow(BaseModel):
+    """One name's index, optimal and active weight."""
+    asset_id: str
+    index_weight: float
+    optimal_weight: float
+    active_weight: float = Field(
+        description="Optimal minus index. Sums to zero across the portfolio "
+                    "whenever both sides are fully invested.")
+
+
+class OptimisationRunResult(BaseModel):
+    """Result payload of a completed optimisation job."""
+    run_id: str
+    index_id: str
+    constraint_set_id: str
+    start: str
+    end: str
+    weights: list[WeightRow] = Field(
+        description="Every name, largest active position first.")
+    active_sum: float = Field(
+        description="Sum of the active weights. Zero under full investment: "
+                    "rearranging weight cannot create any.")
+    tracking_error: float
+    turnover: float = Field(description="One-way, against the index weights.")
+    holdings: int
+    binding: list[dict[str, str | None]] = Field(
+        default_factory=list,
+        description="Constraints the answer sits on, each traced back to the "
+                    "row that produced it where one can be identified. These "
+                    "are the rules that actually cost something.")
+    heuristic: bool = Field(
+        description="True when a non-convex constraint forced a restricted "
+                    "re-solve, so the answer is feasible but not proven "
+                    "optimal.")
+    converged: bool
+    iterations: int
+    objective: float
+    solver_message: str
+
+
+class FrontierPoint(BaseModel):
+    """One portfolio on the efficient frontier."""
+    expected_return: float | None = None
+    volatility: float
+    sharpe_ratio: float | None = None
+    weights: dict[str, float]
+    binding: list[str] = Field(default_factory=list)
+    heuristic: bool = False
+
+
+class FrontierView(BaseModel):
+    """Response of `GET /optimise/runs/{run_id}/frontier`."""
+    run_id: str
+    risk_free_rate: float
+    expected_returns: dict[str, float] = Field(
+        description="Annualised historical mean returns, per name. A poor "
+                    "forecast, and the honest one: it is the only return "
+                    "estimate derivable from the data the server holds. A "
+                    "caller with a real view should supply it.")
+    points: list[FrontierPoint]
+    minimum_variance: FrontierPoint
+    tangency: FrontierPoint
+    monotonic: bool = Field(
+        description="Whether risk rises with return across the grid. Always "
+                    "true for a correct solve, so a false here means a point "
+                    "did not reach optimality.")
+
+
+class FactorExposure(BaseModel):
+    """One factor loading."""
+    factor: str
+    exposure: float
+
+
+class RiskDecomposition(BaseModel):
+    """Active risk split into factor and specific parts.
+
+    The two sum to the total exactly, because the covariance is *defined* as
+    ``B F Bᵀ + D``. Pair an arbitrary covariance with arbitrary loadings and
+    there is a cross term; the identity belongs to this model and not to any
+    pairing of a matrix with some exposures.
+    """
+    total_variance: float
+    factor_variance: float
+    specific_variance: float
+    tracking_error: float
+    factor_share: float
+    residual: float = Field(
+        description="Total minus the two parts. Zero up to float noise, by "
+                    "construction.")
+    reconciles: bool
+    contributions: dict[str, float] = Field(
+        description="Each factor's share of the factor variance. May be "
+                    "negative: a factor position that hedges another genuinely "
+                    "reduces risk.")
+
+
+class ExposuresView(BaseModel):
+    """Response of `GET /optimise/runs/{run_id}/exposures`.
+
+    Factors are the ones derivable from price and share count — size, momentum,
+    volatility — plus a market intercept. Value and quality are absent rather
+    than approximated: a momentum factor built from prices is the real thing, a
+    value factor faked without book values would not be.
+    """
+    run_id: str
+    factors: list[str]
+    r_squared: float = Field(
+        description="Read against a floor of roughly k/n rather than against "
+                    "zero: fitting k factors to an n-asset cross-section "
+                    "explains about that much by construction.")
+    index_exposures: list[FactorExposure]
+    optimal_exposures: list[FactorExposure]
+    active_exposures: list[FactorExposure]
+    risk: RiskDecomposition
+
+
+
 class SavedIndex(BaseModel):
     """Response of a successful save: the document plus any warnings."""
     index: IndexDocument

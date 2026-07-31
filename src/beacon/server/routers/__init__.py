@@ -12,6 +12,7 @@ from .coverage import build_coverage_router
 from .data import build_data_router
 from .indices import build_indices_router
 from .jobs import build_events_router, build_jobs_router
+from .optimise import build_optimise_router
 from .universes import build_universes_router
 from .watchlists import build_watchlists_router
 
@@ -22,6 +23,7 @@ __all__ = [
     "build_events_router",
     "build_indices_router",
     "build_jobs_router",
+    "build_optimise_router",
     "build_universes_router",
     "build_watchlists_router",
 ]
