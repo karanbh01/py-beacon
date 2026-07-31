@@ -246,7 +246,13 @@ def build_attribution(index_id: str,
     asset_returns = prices.pct_change().reindex(weights.index)
     period_returns = (weights.shift(1) * asset_returns).sum(axis=1)
 
-    window = _window_of(weights.index, start, end)
+    # Defaults to the run's own span, not the whole price history. The index
+    # was only calculated over the window it was run for; drifting the last
+    # rebalance forward past that would attribute returns for a period the
+    # index does not cover, which reads as performance rather than as
+    # extrapolation.
+    span = _run_span(run)
+    window = _window_of(weights.index, start or span[0], end or span[1])
     weights = weights.loc[window]
     asset_returns = asset_returns.loc[window]
     period_returns = period_returns.loc[window]
@@ -272,6 +278,15 @@ def build_attribution(index_id: str,
         reconciles=result.reconciles(),
         cap_drag=result.cap_drag,
         cost_drag=result.cost_drag)
+
+
+def _run_span(run: dict[str, Any]) -> tuple[str | None, str | None]:
+    """The first and last date the run actually covers."""
+    level = SeriesPayload.model_validate(run["level"])
+    if not level.index:
+        return None, None
+
+    return str(level.index[0])[:10], str(level.index[-1])[:10]
 
 
 def _window_of(index: pd.Index,

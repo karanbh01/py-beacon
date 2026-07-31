@@ -1,0 +1,51 @@
+name: Fuzz
+
+# Nightly rather than per-commit: a property-based sweep over every endpoint
+# takes minutes and finds the kind of defect that appears from unusual input
+# rather than from a change, so running it on a schedule catches the same
+# problems without slowing every push.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  schemathesis:
+    name: schemathesis against the spec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Install project and schemathesis
+        run: |
+          uv pip install --system -e ".[dev]"
+          uv pip install --system schemathesis
+
+      # Runs against the app in-process rather than over a socket: no server to
+      # start, no port to race on, and a failure surfaces the Python traceback
+      # rather than a connection error.
+      - name: Fuzz every endpoint
+        run: |
+          python -m schemathesis run             --app scripts.fuzz_app:app             --checks all             --hypothesis-max-examples 40             --exclude-checks ignored_auth             --report junit             --report-junit-path schemathesis.xml             /openapi.json
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schemathesis-report
+          path: schemathesis.xml
+          if-no-files-found: ignore

@@ -70,3 +70,4 @@ CLAUDE.md
 # src/beacon/testing — the shipped fixture dataset — and silently kept it out
 # of a commit whose tests import it.
 /testing/
+openapi.json
