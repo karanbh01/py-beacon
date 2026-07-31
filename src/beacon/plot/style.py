@@ -101,7 +101,19 @@ def style_dict(mode: str = LIGHT) -> dict[str, Any]:
         "figure.dpi": 100,
         "savefig.facecolor": ink["canvas"],
         "savefig.edgecolor": ink["canvas"],
-        "savefig.bbox": "tight",
+        # Deliberately NOT "tight". A tight bounding box crops to the actual
+        # text extents, which depend on the platform's font rasteriser, so the
+        # saved image changes size between operating systems — and an image
+        # comparison that cannot agree on dimensions cannot compare anything.
+        # Room for the footnotes is reserved in the layout instead, below.
+        "savefig.bbox": "standard",
+
+        # Space for the title above and the footnote below, so both sit inside
+        # a canvas whose size is fixed by figsize alone.
+        "figure.subplot.top": 0.90,
+        "figure.subplot.bottom": 0.18,
+        "figure.subplot.left": 0.10,
+        "figure.subplot.right": 0.96,
 
         "axes.facecolor": ink["canvas"],
         "axes.edgecolor": ink["border"],

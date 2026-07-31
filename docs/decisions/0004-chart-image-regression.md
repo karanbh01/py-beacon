@@ -28,13 +28,21 @@ changing the series line width from 1.5pt to 1.6pt: six baselines fail.
 
 ## Why this can work at all
 
-Two earlier decisions make deterministic images possible, and without either
-one a baseline would only be valid on the machine that generated it:
+Three things make deterministic images possible, and without any one of them a
+baseline would only be valid on the machine that generated it:
 
 - `beacon.testing.dataset` builds its price paths from `+` and `*` alone, never
   `exp` or `log`, so the numbers are bit-identical across platforms (BN-95).
 - The beacon styles pin `DejaVu Sans`, which ships with matplotlib, so text
   metrics do not depend on what fonts a machine happens to have.
+- The styles set `savefig.bbox` to `standard`, **not** `tight`. A tight
+  bounding box crops to the actual text extents, which depend on the platform's
+  font rasteriser — so the saved image changes *size* between operating
+  systems, and a comparison that cannot agree on dimensions cannot compare
+  anything. Found the hard way: the first baselines failed every non-Windows
+  cell with "Image dimensions did not match". Room for titles and footnotes is
+  reserved in the subplot layout instead, which also makes the output size a
+  predictable function of `figsize` — useful for anything embedding a chart.
 
 ## Consequences
 
