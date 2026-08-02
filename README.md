@@ -69,7 +69,8 @@ Derivatives layer prices instruments off the levels an `IndexResult` produces.
   metrics (`analysis.etf`), attribution, and risk measures.
 - **`data`** — Market and reference data access. `MarketData`/`ReferenceData`
   wrap tabular sources and `DataFetcher` provides a unified query interface used
-  throughout the calculation and backtest layers.
+  throughout the calculation and backtest layers. `data.store` persists a
+  fetcher to disk so a spawned server can find one at startup.
 - **`environment`** — The `Environment` configuration object that centralises
   run-level settings.
 
@@ -124,6 +125,45 @@ formatter, so `ruff format` is deliberately not part of the hook set.
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the conventions, the issue and
 commit format, and the release process, and [CHANGELOG.md](./CHANGELOG.md) for
 what has changed.
+
+## Running the API server
+
+```bash
+pip install -e ".[server]"
+python -m beacon.server --port 0 --token dev
+```
+
+The process binds first and prints `BEACON_PORT=<n>` on stdout before serving,
+so a parent process launching it with `--port 0` can read back the port the OS
+chose. Every later stdout line is ordinary logging.
+
+### Where the server gets its data
+
+A data source is resolved at startup, in this order:
+
+1. `--data <path>` — an explicit store directory
+2. `$BEACON_DATA_PATH`
+3. the app-data store, auto-loaded if one has been written there
+4. nothing — the server starts data-less and the data endpoints report
+   `CONFIGURATION_ERROR` until a sync populates one
+
+The branch that ran is logged immediately after the port announcement, so an
+empty client is diagnosed by reading the log rather than by guessing. The first
+two branches fail loudly: asking for a store that cannot be read stops startup,
+because starting empty instead would disguise the mistake. Auto-load only
+warns, so a corrupt store cannot leave the client unable to start the server
+that would replace it.
+
+A store is a directory of gzipped CSV written by `beacon.data.store`:
+
+```python
+from pathlib import Path
+from beacon.data import store
+
+store.save(fetcher, Path("~/beacon-data").expanduser(), source="local")
+```
+
+`store.default_path()` is the app-data location branch 3 reads.
 
 ## Versioning
 

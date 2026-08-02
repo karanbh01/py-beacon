@@ -9,14 +9,34 @@ The desktop client spawns this process and needs to know where it landed. With
 uvicorn starts — and the resulting port is printed on stdout as
 ``BEACON_PORT=<n>`` and flushed. The client can read that line, then treat
 every later stdout line as ordinary logging.
+
+## Where the data comes from
+
+The command above takes no data argument, which is exactly why it used to
+start data-less. A source is now resolved at startup, in order:
+
+1. ``--data <path>`` — an explicit store directory
+2. ``$BEACON_DATA_PATH``
+3. the app-data store, auto-loaded if one is there
+4. nothing, as before
+
+The branch that ran is logged on the first line after the port announcement,
+so "why is the client empty" is answered by reading the log rather than by
+guessing. See :func:`beacon.server.config.resolve_data_source`, and
+`beacon.data.store` for the format.
 """
 import argparse
+import logging
 import socket
 import sys
+from pathlib import Path
 
 from .._optional import require
+from ..exceptions import ConfigurationError
 from .app import create_app
-from .config import TOKEN_ENV_VAR, ServerConfig
+from .config import TOKEN_ENV_VAR, ServerConfig, resolve_data_source
+
+logger = logging.getLogger(__name__)
 
 require("uvicorn", "The Beacon API server")
 
@@ -46,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token",
                         default=None,
                         help=f"bearer token; falls back to ${TOKEN_ENV_VAR}")
+    parser.add_argument("--data",
+                        type=Path,
+                        default=None,
+                        help="data-store directory to serve; falls back to "
+                             "$BEACON_DATA_PATH, then the app-data store")
 
     return parser
 
@@ -97,15 +122,22 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
+        fetcher, origin = resolve_data_source(args.data)
         config = ServerConfig.from_environment(token=args.token,
                                                host=args.host,
-                                               port=args.port)
-    except ValueError as exc:
+                                               port=args.port,
+                                               data_fetcher=fetcher)
+    except (ValueError, ConfigurationError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
     sock = bind_socket(config.host, config.port)
     announce_port(sock.getsockname()[1])
+
+    # After the announcement, so the client's handshake is never behind a log
+    # line whose length it cannot predict.
+    logging.basicConfig(level=logging.INFO)
+    logger.info("Data source: %s.", origin)
 
     app = create_app(config)
     server = uvicorn.Server(uvicorn.Config(app, log_level="info"))

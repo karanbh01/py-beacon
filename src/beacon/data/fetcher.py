@@ -95,6 +95,26 @@ class DataFetcher:
         """The action history. Empty rather than None when none was loaded."""
         return self._actions
 
+    @property
+    def market(self) -> MarketData:
+        """The market-data container itself.
+
+        Exposed for persistence (`beacon.data.store`): writing a fetcher to
+        disk means reading back everything it holds, and the summarising
+        properties above cannot reconstruct a frame. Query through
+        ``fetch_market_data`` instead — this is the whole dataset, not an
+        answer to a question.
+        """
+        return self._market
+
+    @property
+    def reference(self) -> ReferenceData | None:
+        """The reference-data container, or None if none was loaded.
+
+        Exposed for persistence, on the same terms as :attr:`market`.
+        """
+        return self._reference
+
     # -- freshness -----------------------------------------------------------
 
     def record_refresh(self,

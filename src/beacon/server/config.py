@@ -5,12 +5,17 @@ Configuration for the Beacon API server.
 The server is spawned and owned by a desktop client, so its configuration
 arrives from the command line and the environment rather than from a file.
 """
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..data import store
 from ..data.fetcher import DataFetcher
 from ..data.ingest import Downloader
+from ..exceptions import ConfigurationError
+
+logger = logging.getLogger(__name__)
 
 # Environment variable consulted when no token is passed on the command line.
 TOKEN_ENV_VAR = "BEACON_API_TOKEN"
@@ -88,3 +93,51 @@ class ServerConfig:
                    host=host,
                    port=port,
                    data_fetcher=data_fetcher)
+
+
+def resolve_data_source(explicit: Path | None = None) -> tuple[DataFetcher | None, str]:
+    """Find the data source a spawned server should serve.
+
+    In order:
+
+    1. ``--data <path>``, passed here as ``explicit``
+    2. ``$BEACON_DATA_PATH``
+    3. the app-data store, if one has been written there
+    4. nothing — the server starts data-less, as it always did
+
+    The two explicit branches fail loudly: asking for a store that cannot be
+    read is a mistake worth stopping for, and starting data-less instead would
+    turn it into a puzzle about why every endpoint returns
+    ``CONFIGURATION_ERROR``. The auto-load branch does the opposite and only
+    warns, because a corrupt app-data store must not leave the client unable to
+    start the server that would let it write a new one.
+
+    Args:
+        explicit: Path from the command line, or None.
+
+    Returns:
+        tuple: The fetcher (or None), and a sentence naming the branch that
+        ran, for the caller to log. Which branch ran is the first thing anyone
+        debugging an empty client will want to know.
+    """
+    if explicit is not None:
+        return store.load(explicit), f"--data {explicit}"
+
+    from_environment = os.environ.get(store.DATA_PATH_ENV_VAR, "").strip()
+    if from_environment:
+        path = Path(from_environment)
+
+        return store.load(path), f"${store.DATA_PATH_ENV_VAR} ({path})"
+
+    auto = store.default_path()
+    if store.exists(auto):
+        try:
+            return store.load(auto), f"the app-data store ({auto})"
+        except ConfigurationError as exc:
+            logger.warning(
+                "The app-data store at %s could not be read (%s). Starting "
+                "without a data source so a sync can replace it.", auto, exc)
+
+            return None, f"no data source: the store at {auto} is unreadable"
+
+    return None, f"no data source (no store at {auto})"
