@@ -71,6 +71,10 @@ Derivatives layer prices instruments off the levels an `IndexResult` produces.
   wrap tabular sources and `DataFetcher` provides a unified query interface used
   throughout the calculation and backtest layers. `data.store` persists a
   fetcher to disk so a spawned server can find one at startup.
+- **`synthetic`** — A generator for market-like data at demo scale: a factor
+  model with GJR-GARCH volatility and Student-t innovations, plus the reference
+  data, shares outstanding, free float and corporate actions that agree with
+  the prices it produces.
 - **`environment`** — The `Environment` configuration object that centralises
   run-level settings.
 
@@ -153,6 +157,42 @@ two branches fail loudly: asking for a store that cannot be read stops startup,
 because starting empty instead would disguise the mistake. Auto-load only
 warns, so a corrupt store cannot leave the client unable to start the server
 that would replace it.
+
+### Generating data to serve
+
+`beacon.synthetic` produces a universe at demo scale — hundreds of anonymised
+companies with years of history — and writes it straight to the location above:
+
+```bash
+python -m beacon.synthetic --assets 512 --start 2019-12-31 --seed 42
+python -m beacon.server --port 0 --token dev      # picks it up automatically
+```
+
+Prices reproduce the stylized facts of equity returns rather than being a
+random walk: volatility clustering (GJR-GARCH), fat tails (Student-t
+innovations), negative skew, and a market/sector factor structure that puts
+average pairwise correlation near 0.39 with same-sector pairs above
+cross-sector ones. Shares outstanding, free float, dividends and splits are
+generated alongside the prices and agree with them — undoing the splits and
+adding the dividends back recovers the return path exactly.
+
+Nothing resembles a real company: names are `Company A` … and every ticker
+carries a `CMP` prefix. The same seed and dates always produce the same store,
+byte for byte.
+
+It is importable too, which is what examples and integration tests use:
+
+```python
+from beacon.synthetic import SyntheticConfig, generate
+
+dataset = generate(SyntheticConfig(assets=64, seed=1))
+fetcher = dataset.fetcher()
+```
+
+This is not `beacon.testing.dataset`, which stays a tiny frozen fixture whose
+exact values the chart baselines depend on.
+
+### The store format
 
 A store is a directory of gzipped CSV written by `beacon.data.store`:
 

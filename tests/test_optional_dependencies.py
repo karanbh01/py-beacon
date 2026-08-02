@@ -94,10 +94,18 @@ CORE_MODULES = [
     "beacon.asset",
     "beacon.backtest",
     "beacon.data",
+    # Not reached through `beacon.data`, and the one module a spawned server
+    # needs before anything else works — so it has to load with nothing
+    # installed. `platformdirs` is imported inside `default_path()` for exactly
+    # this reason (BN-113).
+    "beacon.data.store",
     "beacon.derivatives",
     "beacon.fund",
     "beacon.index",
     "beacon.portfolio",
+    # The generator is pandas and numpy only (BN-114); its CLI needs
+    # `platformdirs` solely to resolve a default output path.
+    "beacon.synthetic",
     "beacon.testing",
     "beacon.tokens",
 ]
