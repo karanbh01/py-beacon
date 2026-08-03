@@ -158,6 +158,24 @@ because starting empty instead would disguise the mistake. Auto-load only
 warns, so a corrupt store cannot leave the client unable to start the server
 that would replace it.
 
+### Looking up many instruments at once
+
+`GET /data/reference` is the batch form of `/data/reference/{identifier}`:
+
+```
+/data/reference?identifiers=AAA,BBB,CCC&fields=NAME,SECTOR,adv_3m
+```
+
+Entries come back in the order the request named them, one per identifier, so
+a table renders straight down the list. An unknown identifier is an entry with
+`found: false` rather than a failed batch — one bad ticker in five hundred
+should not lose the other 499. At most 1000 identifiers per call.
+
+`fields` selects stored reference columns and may also name a derived field.
+`adv_3m` is mean daily volume over the trailing three *calendar* months,
+computed server-side from held prices; it is opt-in, because computing it means
+slicing price history for every identifier in the batch.
+
 ### Generating data to serve
 
 `beacon.synthetic` produces a universe at demo scale — hundreds of anonymised

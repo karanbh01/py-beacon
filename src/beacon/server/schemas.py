@@ -230,6 +230,34 @@ class ReferenceResponse(BaseModel):
         return cls(identifier=identifier, fields=fields)
 
 
+class ReferenceEntry(BaseModel):
+    """One identifier's row in a batch reference response."""
+    identifier: str
+    found: bool = Field(
+        description="Whether the reference dataset holds this identifier. "
+                    "False leaves `fields` empty rather than failing the "
+                    "batch, so one unknown name does not lose the other 511.")
+    fields: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Requested reference columns and derived fields. A "
+                    "column the dataset holds but this identifier has no "
+                    "value for is present and null, which is a different "
+                    "statement from the identifier being absent.")
+
+
+class BatchReferenceResponse(BaseModel):
+    """Response of `GET /data/reference`.
+
+    Entries are in the order the request named them, one per identifier, so a
+    table can render straight down the list without re-sorting against what it
+    asked for.
+    """
+    entries: list[ReferenceEntry]
+    as_of: str | None = Field(
+        default=None,
+        description="Point-in-time date applied, if one was requested.")
+
+
 class CorporateAction(BaseModel):
     """One corporate action."""
     ex_date: str = Field(description="Ex-date, ISO 8601.")

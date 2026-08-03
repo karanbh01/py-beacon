@@ -22,7 +22,13 @@ from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError, DataNotFoundError
 from ..config import ServerConfig
-from ..schemas import CorporateActionsResponse, PricesResponse, ReferenceResponse
+from ..reference import MAX_BATCH, build_entries, parse_identifiers
+from ..schemas import (
+    BatchReferenceResponse,
+    CorporateActionsResponse,
+    PricesResponse,
+    ReferenceResponse,
+)
 
 require("fastapi", "The Beacon API server")
 
@@ -51,6 +57,15 @@ AsOfQuery = Annotated[
 TypesQuery = Annotated[
     list[str] | None,
     Query(description="Restrict to these action types, e.g. DIVIDEND, SPLIT.")]
+IdentifiersQuery = Annotated[
+    list[str] | None,
+    Query(description="Identifiers to look up. Repeat the parameter or "
+                      f"comma-separate; at most {MAX_BATCH} per call.")]
+FieldsQuery = Annotated[
+    list[str] | None,
+    Query(description="Reference columns to return, plus derived fields such "
+                      "as adv_3m. All stored columns and no derived field by "
+                      "default.")]
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
@@ -129,6 +144,23 @@ def build_data_router() -> APIRouter:
                                     source="MarketData")
 
         return PricesResponse.from_frame(identifier, interval, _resample(frame, interval))
+
+    # Declared before the single-name route. Both paths are distinct so the
+    # order does not decide matching, but reading them in this order is what
+    # makes the batch form the obvious default rather than an afterthought.
+    @router.get("/reference", response_model=BatchReferenceResponse)
+    def reference_batch(request: Request,
+                        identifiers: IdentifiersQuery = None,
+                        date: AsOfQuery = None,
+                        fields: FieldsQuery = None) -> BatchReferenceResponse:
+        # No 404 when nothing matches: a batch that found none of its
+        # identifiers is a successful answer to a question about names this
+        # dataset does not carry, and the per-entry `found` flag already says
+        # so for each one.
+        names = parse_identifiers(identifiers)
+        entries = build_entries(_data_fetcher(request), names, date, fields)
+
+        return BatchReferenceResponse(entries=entries, as_of=date)
 
     @router.get("/reference/{identifier}", response_model=ReferenceResponse)
     def reference(request: Request,

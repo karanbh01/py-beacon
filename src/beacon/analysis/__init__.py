@@ -33,6 +33,7 @@ from .etf.analytics import (
     calculate_tracking_difference,
     calculate_tracking_error,
 )
+from .liquidity import average_daily_volume
 from .risk import (
     RiskMetricsCalculator,
     calculate_max_drawdown,
@@ -49,6 +50,7 @@ __all__ = [
     "ETFAnalytics",
     "RiskMetricsCalculator",
     "attribute",
+    "average_daily_volume",
     "calculate_max_drawdown",
     "calculate_premium_discount",
     "calculate_sharpe_ratio",
