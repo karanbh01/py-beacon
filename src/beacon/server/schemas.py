@@ -1417,6 +1417,38 @@ class ConstituentRow(BaseModel):
                     "`as_of`. Null when `as_of` is the rebalance date itself: "
                     "the weights were just set, so nothing has drifted and a "
                     "zero would claim a measurement rather than its absence.")
+    risk_contribution: float | None = Field(
+        default=None,
+        description="This name's share of the index's annualised volatility, "
+                    "in the same units. Populated only when `risk=true` was "
+                    "requested; null also when the risk model has no estimate "
+                    "for this constituent, which `risk.uncovered` lists.")
+
+
+class RiskPayload(BaseModel):
+    """How the index's volatility divides among its holdings.
+
+    Contributions sum to `volatility` exactly rather than approximately — the
+    decomposition is an identity, so a client can show the parts and the whole
+    without them disagreeing.
+    """
+    volatility: float = Field(
+        description="Annualised volatility of the covered holdings, at the "
+                    "weights they are actually held.")
+    covered_weight: float = Field(
+        description="Fraction of the index the figure speaks for. Below 1.0 "
+                    "when the model has no estimate for some constituent; the "
+                    "covered names keep their real weights rather than being "
+                    "renormalised, which would restate the portfolio.")
+    uncovered: list[str] = Field(
+        default_factory=list,
+        description="Constituents with no estimate, usually for want of "
+                    "history. Listed rather than only counted, so a reader "
+                    "sees which names are missing.")
+    window_start: str | None = Field(
+        default=None, description="First date of the estimation window.")
+    window_end: str | None = Field(
+        default=None, description="Last date of the estimation window.")
 
 
 class WeightsView(BaseModel):
@@ -1446,6 +1478,12 @@ class WeightsView(BaseModel):
     capped: list[str] = Field(default_factory=list)
     cap: float | None = None
     cap_redistributed: float = 0.0
+    risk: RiskPayload | None = Field(
+        default=None,
+        description="The volatility decomposition, when `risk=true` was "
+                    "requested. Null otherwise: estimating a covariance over "
+                    "every constituent is the pane's whole cost, and nobody "
+                    "should pay it without asking.")
 
 
 class ContributionPayload(BaseModel):

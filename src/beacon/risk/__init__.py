@@ -10,6 +10,7 @@ contracts against.
 Needs only numpy, so it stays part of the core rather than sitting behind an
 extra.
 """
+from .contribution import RiskContributions, risk_contributions
 from .covariance import (
     PERIODS_PER_YEAR,
     PSD_TOLERANCE,
@@ -51,6 +52,7 @@ __all__ = [
     "TARGETS",
     "ActiveRiskDecomposition",
     "FactorRiskModel",
+    "RiskContributions",
     "RiskDiagnostics",
     "RiskModel",
     "annualise",
@@ -64,6 +66,7 @@ __all__ = [
     "heuristic_intensity",
     "is_positive_semi_definite",
     "nearest_positive_semi_definite",
+    "risk_contributions",
     "sample_covariance",
     "scaled_identity_target",
     "shrink_covariance",

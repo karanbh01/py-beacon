@@ -48,12 +48,15 @@ import pandas as pd
 from ..analysis.attribution import drifted_weights
 from ..analysis.concentration import concentration, drift_from_target, top_n_weight
 from ..data.fetcher import DataFetcher
+from ..risk.contribution import RiskContributions, risk_contributions
+from ..risk.model import estimate_risk_model
 from .runs import snapshot_at, snapshots_from
 from .schemas import (
     ConcentrationPayload,
     ConstituentRow,
     DriftPayload,
     RebalanceSnapshot,
+    RiskPayload,
     WeightsView,
 )
 
@@ -62,6 +65,11 @@ logger = logging.getLogger(__name__)
 # Sizes reported by the weights pane. Both are conventional concentration
 # cutoffs and cheap to compute, so reporting both saves a round trip.
 TOP_N = (5, 10)
+
+# Below this many observations a covariance over hundreds of names is
+# noise wearing a matrix's clothes. Reporting nothing beats reporting a
+# decomposition of an estimate that means nothing.
+MINIMUM_OBSERVATIONS = 60
 
 
 def concentration_of(weights: dict[str, float]) -> ConcentrationPayload:
@@ -79,7 +87,8 @@ def concentration_of(weights: dict[str, float]) -> ConcentrationPayload:
 def build_weights(index_id: str,
                   run: dict[str, Any],
                   as_of: str | None,
-                  fetcher: DataFetcher) -> WeightsView:
+                  fetcher: DataFetcher,
+                  with_risk: bool = False) -> WeightsView:
     """Composition at a date, with per-constituent rows, drift and cap flags.
 
     Args:
@@ -87,6 +96,9 @@ def build_weights(index_id: str,
         run: The stored run, for context the snapshot does not carry.
         as_of: Date asked about; None means the latest rebalance.
         fetcher: Data source, for prices and shares outstanding.
+        with_risk: Decompose the index's volatility across its constituents.
+            Off by default because estimating a covariance over every name is
+            the pane's whole cost.
 
     Returns:
         WeightsView: The pane's whole payload.
@@ -94,18 +106,22 @@ def build_weights(index_id: str,
     snapshot = snapshot_at(snapshots_from(run), as_of)
     held = _held_weights(snapshot, as_of, fetcher)
 
+    contributions, window = (_risk_of(snapshot, run, fetcher)
+                             if with_risk else (None, (None, None)))
+
     return WeightsView(
         index_id=index_id,
         as_of=as_of or snapshot.date,
         rebalance_date=snapshot.date,
         announced_date=snapshot.announced,
         weights=snapshot.weights,
-        rows=build_rows(snapshot, held, as_of, fetcher),
+        rows=build_rows(snapshot, held, as_of, fetcher, contributions),
         concentration=concentration_of(snapshot.weights),
         drift=_drift_payload(snapshot, held),
         capped=snapshot.capped,
         cap=snapshot.cap,
-        cap_redistributed=snapshot.redistributed)
+        cap_redistributed=snapshot.redistributed,
+        risk=_risk_payload(contributions, window))
 
 
 def _held_weights(snapshot: RebalanceSnapshot,
@@ -148,10 +164,70 @@ def _drift_payload(snapshot: RebalanceSnapshot,
                         since=snapshot.date)
 
 
+def _estimation_window(run: dict[str, Any]) -> tuple[str | None, str | None]:
+    """The span the run covers, which the covariance is estimated over.
+
+    The run's own window rather than a user-chosen one: a decomposition of
+    *this* index's risk should be estimated over the period the index was
+    calculated for, and letting the two diverge would put a number on the pane
+    that describes a different history from the levels beside it.
+    """
+    level = run.get("level") or {}
+    index = level.get("index") or []
+
+    if not index:
+        return None, None
+
+    return str(index[0])[:10], str(index[-1])[:10]
+
+
+def _risk_of(snapshot: RebalanceSnapshot,
+             run: dict[str, Any],
+             fetcher: DataFetcher
+             ) -> tuple[RiskContributions | None, tuple[str | None, str | None]]:
+    """Decompose the index's volatility across the rebalance's holdings."""
+    window = _estimation_window(run)
+    prices = prices_for(fetcher, sorted(snapshot.weights), *window)
+
+    if prices.empty:
+        logger.warning("No prices over %s to %s, so no risk decomposition.",
+                       *window)
+
+        return None, window
+
+    returns = prices.pct_change().dropna(how="all")
+    if len(returns) < MINIMUM_OBSERVATIONS:
+        logger.warning(
+            "Only %d return observation(s) over the run's window, fewer than "
+            "the %d a covariance needs; no risk decomposition.",
+            len(returns), MINIMUM_OBSERVATIONS)
+
+        return None, window
+
+    model = estimate_risk_model(returns)
+
+    return risk_contributions(snapshot.weights, model.covariance), window
+
+
+def _risk_payload(contributions: RiskContributions | None,
+                  window: tuple[str | None, str | None]) -> RiskPayload | None:
+    """The risk block, or None when nothing could be estimated."""
+    if contributions is None:
+        return None
+
+    return RiskPayload(volatility=contributions.volatility,
+                       covered_weight=contributions.covered_weight,
+                       uncovered=list(contributions.uncovered),
+                       window_start=window[0],
+                       window_end=window[1])
+
+
 def build_rows(snapshot: RebalanceSnapshot,
                held: dict[str, float] | None,
                as_of: str | None,
-               fetcher: DataFetcher) -> list[ConstituentRow]:
+               fetcher: DataFetcher,
+               contributions: RiskContributions | None = None
+               ) -> list[ConstituentRow]:
     """One row per constituent, heaviest first.
 
     Args:
@@ -180,7 +256,12 @@ def build_rows(snapshot: RebalanceSnapshot,
             capped=identifier in capped,
             shares_outstanding=shares.get(identifier),
             delta_since_rebalance=(None if held is None
-                                   else held.get(identifier, 0.0) - weight))
+                                   else held.get(identifier, 0.0) - weight),
+            # Null rather than zero for an uncovered name: zero would read as
+            # "contributes no risk", which is a claim, where null says the
+            # model could not answer.
+            risk_contribution=(contributions.contribution.get(identifier)
+                               if contributions else None))
         for identifier, weight in snapshot.weights.items()]
 
     return sorted(rows, key=lambda row: row.weight, reverse=True)

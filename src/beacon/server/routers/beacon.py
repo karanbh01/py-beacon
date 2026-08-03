@@ -49,6 +49,12 @@ require("fastapi", "The Beacon API server")
 
 from fastapi import APIRouter, Query, Request, status  # noqa: E402
 
+RiskQuery = Annotated[
+    bool,
+    Query(description="Decompose the index's volatility across its "
+                      "constituents. Off by default: estimating a "
+                      "covariance over every name is the pane's whole "
+                      "cost.")]
 AsOfQuery = Annotated[
     str | None,
     Query(description="Date to report at, YYYY-MM-DD. Defaults to the latest "
@@ -168,13 +174,15 @@ def build_beacon_router() -> APIRouter:
     @router.get("/{index_id}/weights", response_model=WeightsView)
     def weights(request: Request,
                 index_id: str,
-                asof: AsOfQuery = None) -> WeightsView:
+                asof: AsOfQuery = None,
+                risk: RiskQuery = False) -> WeightsView:
         _index_document(request, index_id)
 
         return build_weights(index_id,
                              _latest_run(request, index_id),
                              asof,
-                             _data_fetcher(request))
+                             _data_fetcher(request),
+                             with_risk=risk)
 
     @router.get("/{index_id}/attribution", response_model=AttributionView)
     def attribution(request: Request,
