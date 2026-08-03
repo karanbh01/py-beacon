@@ -158,6 +158,23 @@ because starting empty instead would disguise the mistake. Auto-load only
 warns, so a corrupt store cannot leave the client unable to start the server
 that would replace it.
 
+### Which origins may call it
+
+`localhost` on any port is always allowed, so a dev build needs no
+configuration. Beyond that the defaults are `beacon://app` (the packaged
+renderer's origin) and `app://`. To set them explicitly:
+
+```bash
+python -m beacon.server --cors-origin beacon://app --cors-origin app://custom
+BEACON_CORS_ORIGINS="beacon://app,app://custom" python -m beacon.server
+```
+
+Explicit origins **replace** the defaults rather than adding to them — an
+operator narrowing what may call the server should not find extras still
+permitted. The allowed set is logged at startup, because a CORS failure
+otherwise appears only in a browser console on the far side of the process
+boundary.
+
 ### Discovering what a methodology can contain
 
 `GET /indices/rule-types` publishes the eligibility rules and weighting schemes

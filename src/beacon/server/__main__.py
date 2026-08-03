@@ -24,6 +24,14 @@ The branch that ran is logged on the first line after the port announcement,
 so "why is the client empty" is answered by reading the log rather than by
 guessing. See :func:`beacon.server.config.resolve_data_source`, and
 `beacon.data.store` for the format.
+
+## Which origins may call it
+
+``--cors-origin`` (repeatable) or ``$BEACON_CORS_ORIGINS`` set the exact
+origins allowed, replacing the defaults. localhost on any port is always
+allowed, so a dev build needs neither. The allowed set is logged at startup
+beside the data source, because a CORS failure otherwise shows up only in a
+browser console on the other side of the process boundary.
 """
 import argparse
 import logging
@@ -34,7 +42,13 @@ from pathlib import Path
 from .._optional import require
 from ..exceptions import ConfigurationError
 from .app import create_app
-from .config import TOKEN_ENV_VAR, ServerConfig, resolve_data_source
+from .config import (
+    CORS_ORIGINS_ENV_VAR,
+    TOKEN_ENV_VAR,
+    ServerConfig,
+    resolve_cors_origins,
+    resolve_data_source,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +85,14 @@ def build_parser() -> argparse.ArgumentParser:
                         default=None,
                         help="data-store directory to serve; falls back to "
                              "$BEACON_DATA_PATH, then the app-data store")
+    parser.add_argument("--cors-origin",
+                        action="append",
+                        default=None,
+                        dest="cors_origins",
+                        metavar="ORIGIN",
+                        help="exact origin to allow, repeatable. Replaces the "
+                             f"defaults; falls back to ${CORS_ORIGINS_ENV_VAR}. "
+                             "localhost is always allowed.")
 
     return parser
 
@@ -123,10 +145,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         fetcher, origin = resolve_data_source(args.data)
-        config = ServerConfig.from_environment(token=args.token,
-                                               host=args.host,
-                                               port=args.port,
-                                               data_fetcher=fetcher)
+        config = ServerConfig.from_environment(
+            token=args.token,
+            host=args.host,
+            port=args.port,
+            data_fetcher=fetcher,
+            cors_origins=resolve_cors_origins(args.cors_origins))
     except (ValueError, ConfigurationError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -138,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
     # line whose length it cannot predict.
     logging.basicConfig(level=logging.INFO)
     logger.info("Data source: %s.", origin)
+    logger.info("Allowed origins: %s (plus localhost on any port).",
+                ", ".join(config.cors_origins))
 
     app = create_app(config)
     server = uvicorn.Server(uvicorn.Config(app, log_level="info"))

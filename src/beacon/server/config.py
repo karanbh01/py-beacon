@@ -22,8 +22,20 @@ TOKEN_ENV_VAR = "BEACON_API_TOKEN"
 
 # The desktop client is served from a custom scheme; the dev build runs on an
 # arbitrary localhost port, hence the regex rather than a fixed list.
-DEFAULT_CORS_ORIGINS = ("app://",)
+#
+# `beacon://app` is the packaged renderer's actual origin. The default used to
+# be `app://` alone — a scheme with no host, which no renderer ever sends, so
+# every direct call from the packaged app failed preflight. `app://` is kept
+# beside it rather than deleted: it costs nothing, and silently removing an
+# origin from a default is how a working build stops working with no message
+# that says why. Drop it once nothing is confirmed to send it.
+PACKAGED_APP_ORIGIN = "beacon://app"
+LEGACY_APP_ORIGIN = "app://"
+DEFAULT_CORS_ORIGINS = (PACKAGED_APP_ORIGIN, LEGACY_APP_ORIGIN)
 LOCALHOST_ORIGIN_PATTERN = r"^http://localhost(:\d+)?$"
+
+# Comma-separated origins, consulted when none are passed on the command line.
+CORS_ORIGINS_ENV_VAR = "BEACON_CORS_ORIGINS"
 
 
 @dataclass(frozen=True)
@@ -68,7 +80,9 @@ class ServerConfig:
                          token: str | None = None,
                          host: str = "127.0.0.1",
                          port: int = 0,
-                         data_fetcher: DataFetcher | None = None) -> "ServerConfig":
+                         data_fetcher: DataFetcher | None = None,
+                         cors_origins: tuple[str, ...] | None = None
+                         ) -> "ServerConfig":
         """Build a config, taking the token from the environment if not given.
 
         Args:
@@ -77,6 +91,8 @@ class ServerConfig:
             host: Interface to bind.
             port: Port to bind; 0 asks the OS for a free one.
             data_fetcher: Data source to serve, or None.
+            cors_origins: Exact origins to allow. None resolves them from the
+                environment and the defaults.
 
         Returns:
             ServerConfig: The assembled configuration.
@@ -92,7 +108,39 @@ class ServerConfig:
         return cls(auth_token=resolved,
                    host=host,
                    port=port,
-                   data_fetcher=data_fetcher)
+                   data_fetcher=data_fetcher,
+                   cors_origins=(cors_origins if cors_origins is not None
+                                 else resolve_cors_origins()))
+
+
+def resolve_cors_origins(explicit: list[str] | None = None) -> tuple[str, ...]:
+    """Find the exact origins this server should allow.
+
+    In order: ``--cors-origin`` (repeatable), then ``$BEACON_CORS_ORIGINS``
+    as a comma-separated list, then the defaults.
+
+    Explicit origins **replace** the defaults rather than adding to them. An
+    operator narrowing what may call the server should not find two extra
+    origins still permitted — that is the opposite of what configuring it
+    means. The localhost pattern is applied separately by the middleware and
+    is unaffected either way.
+
+    Args:
+        explicit: Origins from the command line, or None.
+
+    Returns:
+        tuple: Origins, in the order given, with duplicates removed.
+    """
+    supplied = list(explicit or [])
+
+    if not supplied:
+        raw = os.environ.get(CORS_ORIGINS_ENV_VAR, "")
+        supplied = [part.strip() for part in raw.split(",") if part.strip()]
+
+    if not supplied:
+        return DEFAULT_CORS_ORIGINS
+
+    return tuple(dict.fromkeys(supplied))
 
 
 def resolve_data_source(explicit: Path | None = None) -> tuple[DataFetcher | None, str]:
