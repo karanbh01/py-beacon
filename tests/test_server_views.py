@@ -503,7 +503,7 @@ class TestErrorPaths:
         """A drift that cannot be measured is reported as absent, not zero."""
         from beacon.data.base import MarketData
         from beacon.data.fetcher import DataFetcher
-        from beacon.server.views import build_weights
+        from beacon.server.weights import build_weights
 
         empty = DataFetcher(MarketData.from_dataframe(pd.DataFrame(
             {"IDENTIFIER": ["OTHER"], "DATE": ["2024-01-01"], "CLOSE": [1.0]})))

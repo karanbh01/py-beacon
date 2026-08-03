@@ -40,92 +40,24 @@ from typing import Any
 import pandas as pd
 
 from ..analysis.attribution import attribute, cap_drag, cost_drag, drifted_weights
-from ..analysis.concentration import concentration, drift_from_target, top_n_weight
 from ..analysis.relative import relative_metrics
 from ..data.fetcher import DataFetcher
 from ..exceptions import DataNotFoundError
+from .runs import snapshots_from, weight_map
 from .schemas import (
     AssetView,
     AttributionView,
     BacktestMetrics,
     CompareEntry,
     CompareView,
-    ConcentrationPayload,
     ContributionPayload,
-    DriftPayload,
     OverviewView,
     RebalanceSnapshot,
     SeriesPayload,
-    WeightsView,
 )
+from .weights import concentration_of, prices_for
 
 logger = logging.getLogger(__name__)
-
-# Sizes reported by the weights pane. Both are conventional concentration
-# cutoffs and cheap to compute, so reporting both saves a round trip.
-TOP_N = (5, 10)
-
-
-def snapshots_from(run: dict[str, Any]) -> list[RebalanceSnapshot]:
-    """Read the rebalance snapshots off a stored run.
-
-    Raises:
-        DataNotFoundError: If the run carries none. A result stored before
-            BN-71 extended the payload has a level and metrics but no
-            composition, and saying so is better than serving an empty index.
-    """
-    raw = run.get("rebalances")
-    if not raw or not isinstance(raw, list):
-        raise DataNotFoundError(
-            "rebalance snapshots on this run",
-            source="the run predates composition being stored; re-run the backtest")
-
-    return [RebalanceSnapshot.model_validate(entry) for entry in raw]
-
-
-def _weight_map(snapshots: list[RebalanceSnapshot],
-                uncapped: bool = False) -> dict[pd.Timestamp, dict[str, float]]:
-    """Snapshots keyed by timestamp, as the analysis helpers expect."""
-    return {pd.Timestamp(snapshot.date):
-            (snapshot.uncapped_weights if uncapped else snapshot.weights)
-            for snapshot in snapshots}
-
-
-def _snapshot_at(snapshots: list[RebalanceSnapshot],
-                 as_of: str | None) -> RebalanceSnapshot:
-    """The rebalance in force on a date.
-
-    The latest snapshot at or before *as_of*, because an index holds the
-    weights set at its last rebalance until the next one. A date before the
-    first rebalance has no answer and says so rather than returning the first,
-    which would report weights that were not yet in force.
-    """
-    if as_of is None:
-        return snapshots[-1]
-
-    date = pd.Timestamp(as_of)
-    eligible = [snapshot for snapshot in snapshots
-                if pd.Timestamp(snapshot.date) <= date]
-
-    if not eligible:
-        raise DataNotFoundError(
-            f"a rebalance on or before {date.date()}",
-            source=f"the first rebalance is {snapshots[0].date}")
-
-    return eligible[-1]
-
-
-def _concentration_of(weights: dict[str, float]) -> ConcentrationPayload:
-    """Concentration measures for one weight vector."""
-    metrics = concentration(weights)
-
-    return ConcentrationPayload(
-        herfindahl=metrics.herfindahl_index,
-        effective_assets=metrics.effective_assets,
-        top_weights={str(size): top_n_weight(weights, size) for size in TOP_N},
-        largest=metrics.largest_weight,
-        constituents=metrics.assets)
-
 
 def build_overview(index_id: str,
                    name: str,
@@ -144,85 +76,8 @@ def build_overview(index_id: str,
         rebalances=len(snapshots),
         last_rebalance=latest.date,
         metrics=BacktestMetrics.model_validate(run["metrics"]),
-        concentration=_concentration_of(latest.weights),
+        concentration=concentration_of(latest.weights),
         level=level)
-
-
-def build_weights(index_id: str,
-                  run: dict[str, Any],
-                  as_of: str | None,
-                  fetcher: DataFetcher) -> WeightsView:
-    """Composition at a date, with concentration, drift and cap flags.
-
-    Two weight vectors are in play and the distinction is the point. The
-    *targets* are what the last rebalance set; the *held* weights are what
-    those have drifted to since, as prices moved. An equal-weighted index resets
-    to 1/n at every rebalance, so comparing one rebalance to the next would
-    report zero drift forever — the question worth answering is how far the
-    index has moved from its targets since it was last reset.
-    """
-    snapshots = snapshots_from(run)
-    snapshot = _snapshot_at(snapshots, as_of)
-
-    return WeightsView(
-        index_id=index_id,
-        as_of=as_of or snapshot.date,
-        rebalance_date=snapshot.date,
-        weights=snapshot.weights,
-        concentration=_concentration_of(snapshot.weights),
-        drift=_drift_since_rebalance(snapshot, as_of, fetcher),
-        capped=snapshot.capped,
-        cap=snapshot.cap,
-        cap_redistributed=snapshot.redistributed)
-
-
-def _drift_since_rebalance(snapshot: RebalanceSnapshot,
-                           as_of: str | None,
-                           fetcher: DataFetcher) -> DriftPayload | None:
-    """How far the held weights have moved from the rebalance's targets.
-
-    None when *as_of* is the rebalance date itself: the weights were just set,
-    so nothing has drifted, and reporting zeros would claim a measurement
-    rather than the absence of one.
-    """
-    if as_of is None or pd.Timestamp(as_of) <= pd.Timestamp(snapshot.date):
-        return None
-
-    prices = _prices_for(fetcher, sorted(snapshot.weights), snapshot.date, as_of)
-    if prices.empty:
-        return None
-
-    held = drifted_weights({pd.Timestamp(snapshot.date): snapshot.weights}, prices)
-    if held.empty:
-        return None
-
-    current = {name: float(value)
-               for name, value in held.iloc[-1].items() if pd.notna(value)}
-    metrics = drift_from_target(current, snapshot.weights)
-
-    return DriftPayload(total_absolute=metrics.total_absolute,
-                        maximum=metrics.max_absolute,
-                        worst=metrics.max_absolute_asset_id or "",
-                        turnover=metrics.turnover,
-                        since=snapshot.date)
-
-
-def _prices_for(fetcher: DataFetcher,
-                identifiers: list[str],
-                start: str | None,
-                end: str | None) -> pd.DataFrame:
-    """Close prices for a set of names over a window, names on the columns."""
-    series: dict[str, pd.Series] = {}
-
-    for identifier in identifiers:
-        frame = fetcher.fetch_market_data(identifier, start, end)
-        if not frame.empty and "CLOSE" in frame.columns:
-            series[identifier] = frame["CLOSE"]
-
-    if not series:
-        return pd.DataFrame()
-
-    return pd.DataFrame(series).sort_index()
 
 
 def build_attribution(index_id: str,
@@ -232,8 +87,8 @@ def build_attribution(index_id: str,
                       end: str | None) -> AttributionView:
     """Per-constituent contributions over a window, with the two drags."""
     snapshots = snapshots_from(run)
-    capped = _weight_map(snapshots)
-    uncapped = _weight_map(snapshots, uncapped=True)
+    capped = weight_map(snapshots)
+    uncapped = weight_map(snapshots, uncapped=True)
 
     # Prices are fetched over the whole history, not over the requested window.
     # Weights drift forward from each rebalance, so a rebalance that predates
@@ -349,7 +204,7 @@ def _constituent_prices(fetcher: DataFetcher,
     identifiers = sorted({name for snapshot in snapshots
                           for name in snapshot.weights})
 
-    prices = _prices_for(fetcher, identifiers, start, end)
+    prices = prices_for(fetcher, identifiers, start, end)
     if prices.empty:
         raise DataNotFoundError("prices for any constituent of this index",
                                 source="MarketData")
@@ -370,6 +225,16 @@ def build_asset_view(index_id: str,
         raise DataNotFoundError(f"'{identifier}' in this index",
                                 source="rebalance snapshots")
 
+    # Keyed off the applied history, so the two series always cover the same
+    # dates and a drilldown can plot them against each other without aligning
+    # anything. Falls back to the applied weight where a run predates uncapped
+    # weights being stored, since a missing raw figure means "no cap applied
+    # here" more often than it means "unknown".
+    raw_history = {
+        snapshot.date: snapshot.uncapped_weights.get(identifier,
+                                                     snapshot.weights[identifier])
+        for snapshot in snapshots if identifier in snapshot.weights}
+
     frame = fetcher.fetch_market_data(identifier)
     if frame.empty or "CLOSE" not in frame.columns:
         raise DataNotFoundError(f"prices for '{identifier}'", source="MarketData")
@@ -384,6 +249,7 @@ def build_asset_view(index_id: str,
         index_id=index_id,
         identifier=identifier,
         weight_history=history,
+        raw_weight_history=raw_history,
         rebalances_held=len(history),
         total_return=metrics.total_return,
         index_return=metrics.benchmark_return,

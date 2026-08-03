@@ -1162,6 +1162,37 @@ class OverviewView(BaseModel):
     level: SeriesPayload
 
 
+class ConstituentRow(BaseModel):
+    """One constituent's row in the weights table.
+
+    Everything a row needs is here, so the table renders from one response
+    rather than joining three. The two weights are the point: `raw_weight` is
+    what the weighting scheme produced, `weight` is what survived the cap, and
+    the difference is what capping moved.
+    """
+    identifier: str
+    weight: float = Field(description="Applied weight, after any cap.")
+    raw_weight: float = Field(
+        description="Weight before capping. Equal to `weight` on an uncapped "
+                    "index, and the only way to see what the cap cost.")
+    capped: bool = Field(
+        default=False,
+        description="Whether this name was held at the cap on this rebalance.")
+    shares_outstanding: float | None = Field(
+        default=None,
+        description="The company's shares outstanding on this date, from "
+                    "market data. Deliberately NOT the number of shares the "
+                    "index holds — that is a different figure needing a "
+                    "divisor and a notional, and naming this one `shares` "
+                    "would let the two be confused silently.")
+    delta_since_rebalance: float | None = Field(
+        default=None,
+        description="Held weight minus target weight, for this name, as of "
+                    "`as_of`. Null when `as_of` is the rebalance date itself: "
+                    "the weights were just set, so nothing has drifted and a "
+                    "zero would claim a measurement rather than its absence.")
+
+
 class WeightsView(BaseModel):
     """Response of `GET /beacon/{index_id}/weights`."""
     index_id: str
@@ -1171,6 +1202,12 @@ class WeightsView(BaseModel):
                     "weights set at its last rebalance until the next one, so "
                     "this is usually earlier than `as_of`.")
     weights: dict[str, float]
+    rows: list[ConstituentRow] = Field(
+        default_factory=list,
+        description="Per-constituent detail, heaviest first. Carries the same "
+                    "applied weights as `weights`, which is kept because "
+                    "charts and concentration maths want a mapping while a "
+                    "table wants ordered rows.")
     concentration: ConcentrationPayload
     drift: DriftPayload | None = Field(
         default=None,
@@ -1220,8 +1257,15 @@ class AssetView(BaseModel):
     index_id: str
     identifier: str
     weight_history: dict[str, float] = Field(
-        description="Rebalance date -> this name's weight. Only the rebalances "
-                    "it was actually in.")
+        description="Rebalance date -> this name's applied weight. Only the "
+                    "rebalances it was actually in.")
+    raw_weight_history: dict[str, float] = Field(
+        default_factory=dict,
+        description="The same dates -> the weight before capping. Added "
+                    "alongside `weight_history` rather than replacing it, so "
+                    "the drilldown can show what the cap did to this name over "
+                    "time without breaking a client reading only the applied "
+                    "series.")
     rebalances_held: int
     total_return: float
     index_return: float

@@ -42,8 +42,8 @@ from ..views import (
     build_attribution,
     build_compare,
     build_overview,
-    build_weights,
 )
+from ..weights import build_weights
 
 require("fastapi", "The Beacon API server")
 
