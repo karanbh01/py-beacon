@@ -18,7 +18,12 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from beacon.risk.contribution import RiskContributions, risk_contributions
+from beacon.risk.contribution import (
+    RiskContributions,
+    active_risk_contributions,
+    active_weights,
+    risk_contributions,
+)
 from beacon.server import ServerConfig, create_app
 from beacon.testing import dataset
 
@@ -290,3 +295,189 @@ class TestServedOnTheWeightsPane:
         assert plain["weights"] == with_risk["weights"]
         assert ([row["identifier"] for row in plain["rows"]]
                 == [row["identifier"] for row in with_risk["rows"]])
+
+
+class TestActiveRisk:
+    """Tracking error, decomposed across active positions."""
+
+    def test_the_identity_holds_on_active_weights(self):
+        result = active_risk_contributions({"AAA": 0.7, "BBB": 0.3},
+                                           {"AAA": 0.5, "BBB": 0.5},
+                                           COVARIANCE)
+
+        assert sum(result.contribution.values()) == pytest.approx(
+            result.volatility, abs=1e-15)
+
+    def test_the_tracking_error_is_the_hand_computed_one(self):
+        """Active weights are [0.2, -0.2], so the active variance is
+        0.04(0.04) - 2(0.04)(0.01) + 0.04(0.01) = 0.0012."""
+        result = active_risk_contributions({"AAA": 0.7, "BBB": 0.3},
+                                           {"AAA": 0.5, "BBB": 0.5},
+                                           COVARIANCE)
+
+        assert result.volatility == pytest.approx(0.0012 ** 0.5, abs=1e-12)
+
+    def test_matching_the_benchmark_is_zero_tracking_error(self):
+        weights = {"AAA": 0.5, "BBB": 0.5}
+
+        assert active_risk_contributions(weights, weights,
+                                         COVARIANCE).volatility == 0.0
+
+    def test_a_contribution_can_be_negative(self):
+        """The property that must not be hidden behind an absolute value.
+
+        A negative contribution needs the position to point *against* the
+        book's overall active exposure — it is not enough to be underweight,
+        since an underweight in a name the portfolio is also underweight
+        overall contributes positively. Here the portfolio holds 20% cash and
+        is therefore net underweight, while still being overweight BBB: that
+        overweight hedges, and genuinely reduces tracking error.
+        """
+        result = active_risk_contributions({"AAA": 0.2, "BBB": 0.6},
+                                           {"AAA": 0.5, "BBB": 0.5},
+                                           COVARIANCE)
+
+        assert result.contribution["BBB"] < 0.0
+        assert result.contribution["AAA"] > 0.0
+        assert sum(result.contribution.values()) == pytest.approx(
+            result.volatility, abs=1e-15)
+
+    def test_a_name_not_held_is_still_an_active_position(self):
+        """Usually the largest one there is. Intersecting the two universes
+        instead of taking their union would drop it silently."""
+        active = active_weights({"AAA": 1.0}, {"AAA": 0.5, "BBB": 0.5})
+
+        assert active == {"AAA": 0.5, "BBB": -0.5}
+
+    def test_a_name_held_and_not_in_the_benchmark_is_an_overweight(self):
+        active = active_weights({"AAA": 0.5, "CCC": 0.5}, {"AAA": 1.0})
+
+        assert active == {"AAA": -0.5, "CCC": 0.5}
+
+    def test_coverage_is_a_share_of_gross_active_weight(self):
+        """Active weights sum to roughly zero, so a plain sum would say
+        nothing about how much of the position is covered."""
+        result = active_risk_contributions({"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+                                           {"AAA": 0.4, "BBB": 0.4, "CCC": 0.2},
+                                           COVARIANCE)
+
+        assert result.uncovered == ("CCC",)
+        assert 0.0 < result.covered_weight <= 1.0
+
+    def test_an_empty_benchmark_is_the_portfolio_itself(self):
+        """Everything held becomes an overweight, so active risk equals total
+        risk — a degenerate case worth behaving sensibly."""
+        weights = {"AAA": 0.5, "BBB": 0.5}
+
+        active = active_risk_contributions(weights, {}, COVARIANCE)
+        total = risk_contributions(weights, COVARIANCE)
+
+        assert active.volatility == pytest.approx(total.volatility)
+
+
+class TestActiveRiskOnThePane:
+    """`?risk=true&benchmark=<id>`."""
+
+    @pytest.fixture(scope="class")
+    def client(self):
+        """Two indices over one universe, weighted differently, so they carry
+        a real active position against each other."""
+        with tempfile.TemporaryDirectory() as storage:
+            config = ServerConfig(auth_token=TOKEN,
+                                  data_fetcher=dataset.data_fetcher(),
+                                  storage_root=Path(storage))
+
+            with TestClient(create_app(config),
+                            raise_server_exceptions=False) as started:
+                for index_id, scheme in (("active", "MarketCapWeighted"),
+                                         ("bench", "EqualWeighted")):
+                    started.put(f"/indices/{index_id}", json={
+                        "id": index_id, "name": index_id, "base_date": START,
+                        "base_value": 1000.0, "currency": "USD",
+                        "rebalancing_frequency": "QUARTERLY",
+                        "description": None,
+                        "universe": {"universe_id": None,
+                                     "identifiers": list(dataset.UNIVERSE)},
+                        "pipeline": {
+                            "selection": [],
+                            "weighting": {"id": "w", "scheme": scheme,
+                                          "params": {}, "max_weight": None},
+                            "treatment": {"corporate_actions": "ADJUST_DIVISOR"},
+                        }}, headers=auth())
+                    started.post(f"/beacon/{index_id}/backtest",
+                                 json={"start": START, "end": END,
+                                       "transaction_cost_bps": 10.0},
+                                 headers=auth())
+
+                started.portal.call(started.app.state.jobs.drain)
+
+                yield started
+
+    def weights(self, client, **params):
+        response = client.get("/beacon/active/weights", params=params,
+                              headers=auth())
+
+        assert response.status_code == 200, response.text
+
+        return response.json()
+
+    def test_it_is_absent_without_a_benchmark(self, client):
+        body = self.weights(client, risk="true")
+
+        assert body["active_risk"] is None
+        assert all(row["active_risk_contribution"] is None
+                   for row in body["rows"])
+
+    def test_it_appears_with_one(self, client):
+        body = self.weights(client, risk="true", benchmark="bench")
+
+        assert body["active_risk"] is not None
+        assert body["active_risk"]["benchmark"] == "bench"
+        assert body["active_risk"]["tracking_error"] > 0.0
+
+    def test_the_contributions_sum_to_the_tracking_error(self, client):
+        """Including names the index does not hold, which is why they are
+        published separately rather than dropped."""
+        body = self.weights(client, risk="true", benchmark="bench")
+
+        from_rows = sum(row["active_risk_contribution"] for row in body["rows"]
+                        if row["active_risk_contribution"] is not None)
+        from_others = sum(body["active_risk"]["contributions_not_held"].values())
+
+        assert (from_rows + from_others) == pytest.approx(
+            body["active_risk"]["tracking_error"], abs=1e-9)
+
+    def test_active_weights_are_reported_per_row(self, client):
+        body = self.weights(client, risk="true", benchmark="bench")
+
+        assert all(row["active_weight"] is not None for row in body["rows"])
+
+    def test_the_active_weights_net_out(self, client):
+        """Both indices hold the same universe and each sums to one, so the
+        active position is self-financing."""
+        body = self.weights(client, risk="true", benchmark="bench")
+
+        assert sum(row["active_weight"]
+                   for row in body["rows"]) == pytest.approx(0.0, abs=1e-9)
+
+    def test_tracking_error_is_below_total_volatility(self, client):
+        """Cap- and equal-weighted versions of one universe move together, so
+        the difference between them is far less volatile than either."""
+        body = self.weights(client, risk="true", benchmark="bench")
+
+        assert (body["active_risk"]["tracking_error"]
+                < body["risk"]["volatility"])
+
+    def test_a_benchmark_needs_risk_to_be_requested(self, client):
+        """Asking for a comparison without the decomposition it lives in
+        should not silently do half of it."""
+        body = self.weights(client, benchmark="bench")
+
+        assert body["active_risk"] is None
+
+    def test_an_unknown_benchmark_is_a_404(self, client):
+        response = client.get("/beacon/active/weights",
+                              params={"risk": "true", "benchmark": "nope"},
+                              headers=auth())
+
+        assert response.status_code == 404

@@ -10,7 +10,12 @@ contracts against.
 Needs only numpy, so it stays part of the core rather than sitting behind an
 extra.
 """
-from .contribution import RiskContributions, risk_contributions
+from .contribution import (
+    RiskContributions,
+    active_risk_contributions,
+    active_weights,
+    risk_contributions,
+)
 from .covariance import (
     PERIODS_PER_YEAR,
     PSD_TOLERANCE,
@@ -55,6 +60,8 @@ __all__ = [
     "RiskContributions",
     "RiskDiagnostics",
     "RiskModel",
+    "active_risk_contributions",
+    "active_weights",
     "annualise",
     "average_pairwise_correlation",
     "condition_number",

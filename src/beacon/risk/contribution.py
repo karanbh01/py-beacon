@@ -44,6 +44,7 @@ for. A number that describes 94% of an index and says so is more useful than
 one that describes 100% of a portfolio nobody holds.
 """
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -56,15 +57,22 @@ logger = logging.getLogger(__name__)
 class RiskContributions:
     """How a portfolio's volatility divides among its holdings.
 
+    Used for both total and active risk: the arithmetic is identical, only the
+    weight vector differs.
+
     Attributes:
         volatility: Annualised volatility of the covered holdings, at the
-            weights they are actually held.
+            weights they are actually held. For an active decomposition this is
+            the tracking error.
         marginal: Per name, the change in volatility per unit of extra weight.
         contribution: Per name, its share of `volatility`. Sums to it exactly.
-        covered_weight: Fraction of the index the estimate speaks for. 1.0 when
-            the model covers every constituent.
-        uncovered: Constituents the covariance has no row for, so a reader can
-            see which names are missing rather than only how much weight is.
+            **Can be negative for active risk**, where an underweight that
+            hedges an overweight genuinely reduces tracking error.
+        covered_weight: Fraction the estimate speaks for. 1.0 when the model
+            covers everything. For active risk this is a share of *gross*
+            active weight, since active weights sum to roughly zero.
+        uncovered: Names the covariance has no row for, so a reader can see
+            which are missing rather than only how much weight is.
     """
     volatility: float
     marginal: dict[str, float] = field(default_factory=dict)
@@ -76,6 +84,60 @@ class RiskContributions:
     def is_complete(self) -> bool:
         """Whether the model covered the whole index."""
         return not self.uncovered
+
+
+def _decompose(weights: dict[str, float],
+               covariance: pd.DataFrame,
+               coverage: Callable[[list[str], tuple[str, ...]], float],
+               subject: str) -> RiskContributions:
+    """The shared decomposition, over whatever weight vector it is handed.
+
+    Total and active risk are the same arithmetic on different vectors: one on
+    the holdings, one on the holdings minus the benchmark. Writing it twice
+    would let the two drift, and the identity is the property most worth not
+    breaking.
+    """
+    if not weights or covariance.empty:
+        return RiskContributions(volatility=0.0)
+
+    available = [name for name in weights if name in covariance.index]
+    missing = tuple(sorted(name for name in weights if name not in covariance.index))
+
+    if missing:
+        logger.warning(
+            "The risk model covers %d of %d name(s) for the %s decomposition; "
+            "the rest are excluded.", len(available), len(weights), subject)
+
+    if not available:
+        return RiskContributions(volatility=0.0, uncovered=missing)
+
+    vector = np.array([weights[name] for name in available], dtype=float)
+    matrix = covariance.loc[available, available].to_numpy(dtype=float)
+
+    variance = float(vector @ matrix @ vector)
+    if variance <= 0.0:
+        # A degenerate covariance — every asset with zero variance, or a matrix
+        # that is not positive semi-definite. It is also the ordinary answer
+        # for active risk when the portfolio *is* the benchmark. Reporting zero
+        # contributions beats dividing by a volatility of zero.
+        logger.warning("%s variance is %.3e; no decomposition is possible.",
+                       subject.capitalize(), variance)
+
+        return RiskContributions(volatility=0.0, uncovered=missing,
+                                 covered_weight=coverage(available, missing))
+
+    volatility = float(np.sqrt(variance))
+    marginal = (matrix @ vector) / volatility
+
+    return RiskContributions(
+        volatility=volatility,
+        marginal={name: float(value)
+                  for name, value in zip(available, marginal, strict=True)},
+        contribution={name: float(weight * value)
+                      for name, weight, value
+                      in zip(available, vector, marginal, strict=True)},
+        covered_weight=coverage(available, missing),
+        uncovered=missing)
 
 
 def risk_contributions(weights: dict[str, float],
@@ -92,45 +154,62 @@ def risk_contributions(weights: dict[str, float],
         RiskContributions: The decomposition, with contributions summing to the
         reported volatility exactly.
     """
-    if not weights or covariance.empty:
-        return RiskContributions(volatility=0.0)
+    def covered(available: list[str],
+                _missing: tuple[str, ...]) -> float:
+        return float(sum(weights[name] for name in available))
 
-    available = [name for name in weights if name in covariance.index]
-    missing = tuple(sorted(name for name in weights if name not in covariance.index))
+    return _decompose(weights, covariance, covered, "portfolio")
 
-    if missing:
-        logger.warning(
-            "The risk model covers %d of %d constituent(s); %.1f%% of the "
-            "index is excluded from the decomposition.",
-            len(available), len(weights),
-            100.0 * sum(weights[name] for name in missing))
 
-    if not available:
-        return RiskContributions(volatility=0.0, uncovered=missing)
+def active_weights(weights: dict[str, float],
+                   benchmark: dict[str, float]) -> dict[str, float]:
+    """Holdings minus benchmark, over the union of both.
 
-    vector = np.array([weights[name] for name in available], dtype=float)
-    matrix = covariance.loc[available, available].to_numpy(dtype=float)
+    A name held and not in the benchmark is an overweight; one in the benchmark
+    and not held is an underweight of its full benchmark weight. Taking the
+    union rather than the intersection is what makes the second case visible —
+    an omitted constituent is usually the largest active position a portfolio
+    has, and intersecting would silently drop it.
+    """
+    names = sorted(set(weights) | set(benchmark))
 
-    variance = float(vector @ matrix @ vector)
-    if variance <= 0.0:
-        # A degenerate covariance — every asset with zero variance, or a matrix
-        # that is not positive semi-definite. Reporting zero contributions
-        # beats dividing by a volatility of zero.
-        logger.warning("Portfolio variance is %.3e; no decomposition is "
-                       "possible.", variance)
+    return {name: weights.get(name, 0.0) - benchmark.get(name, 0.0)
+            for name in names}
 
-        return RiskContributions(volatility=0.0, uncovered=missing,
-                                 covered_weight=float(vector.sum()))
 
-    volatility = float(np.sqrt(variance))
-    marginal = (matrix @ vector) / volatility
+def active_risk_contributions(weights: dict[str, float],
+                              benchmark: dict[str, float],
+                              covariance: pd.DataFrame) -> RiskContributions:
+    """Decompose tracking error across active positions.
 
-    return RiskContributions(
-        volatility=volatility,
-        marginal={name: float(value)
-                  for name, value in zip(available, marginal, strict=True)},
-        contribution={name: float(weight * value)
-                      for name, weight, value
-                      in zip(available, vector, marginal, strict=True)},
-        covered_weight=float(vector.sum()),
-        uncovered=missing)
+    The same arithmetic as :func:`risk_contributions`, on active weights
+    ``w - b`` instead of ``w``. The reported volatility is then the annualised
+    tracking error against that benchmark, and contributions sum to it exactly.
+
+    **Contributions here can be negative, and that is the point.** An active
+    weight is signed, so an underweight in something correlated with what the
+    portfolio is overweight genuinely *reduces* tracking error — it hedges.
+    Taking an absolute value would hide the position doing the most useful
+    thing in the book.
+
+    Args:
+        weights: The portfolio's holdings.
+        benchmark: What it is measured against.
+        covariance: Annualised covariance over the union of both.
+
+    Returns:
+        RiskContributions: `volatility` is the tracking error; `covered_weight`
+        is the share of *gross* active weight the model covers, since active
+        weights sum to roughly zero and a plain sum would say nothing.
+    """
+    active = active_weights(weights, benchmark)
+    gross = sum(abs(value) for value in active.values())
+
+    def covered(available: list[str],
+                _missing: tuple[str, ...]) -> float:
+        if gross <= 0.0:
+            return 0.0
+
+        return float(sum(abs(active[name]) for name in available) / gross)
+
+    return _decompose(active, covariance, covered, "active")

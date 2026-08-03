@@ -1423,6 +1423,16 @@ class ConstituentRow(BaseModel):
                     "in the same units. Populated only when `risk=true` was "
                     "requested; null also when the risk model has no estimate "
                     "for this constituent, which `risk.uncovered` lists.")
+    active_weight: float | None = Field(
+        default=None,
+        description="Weight minus the benchmark's, when a `benchmark` was "
+                    "given. Negative is an underweight.")
+    active_risk_contribution: float | None = Field(
+        default=None,
+        description="This name's share of tracking error. **Can be negative**: "
+                    "an underweight that hedges an overweight genuinely "
+                    "reduces tracking error, and hiding that behind an "
+                    "absolute value would misreport what the index is doing.")
 
 
 class RiskPayload(BaseModel):
@@ -1449,6 +1459,32 @@ class RiskPayload(BaseModel):
         default=None, description="First date of the estimation window.")
     window_end: str | None = Field(
         default=None, description="Last date of the estimation window.")
+
+
+class ActiveRiskPayload(BaseModel):
+    """How tracking error against a benchmark divides among active positions.
+
+    Contributions sum to `tracking_error` exactly, the same identity the total
+    decomposition satisfies — on active weights rather than holdings.
+    """
+    benchmark: str = Field(description="Index the comparison is against.")
+    tracking_error: float = Field(
+        description="Annualised volatility of the active position.")
+    covered_weight: float = Field(
+        description="Share of *gross* active weight the model covers. Gross "
+                    "because active weights sum to roughly zero, so a plain "
+                    "sum would say nothing about coverage.")
+    uncovered: list[str] = Field(
+        default_factory=list,
+        description="Names with no estimate, from either side.")
+    contributions_not_held: dict[str, float] = Field(
+        default_factory=dict,
+        description="Contributions from benchmark constituents the index does "
+                    "not hold. They have no row in the weights table but are "
+                    "often the largest active positions there are, so omitting "
+                    "them would hide the biggest sources of tracking error.")
+    window_start: str | None = Field(default=None)
+    window_end: str | None = Field(default=None)
 
 
 class WeightsView(BaseModel):
@@ -1484,6 +1520,10 @@ class WeightsView(BaseModel):
                     "requested. Null otherwise: estimating a covariance over "
                     "every constituent is the pane's whole cost, and nobody "
                     "should pay it without asking.")
+    active_risk: ActiveRiskPayload | None = Field(
+        default=None,
+        description="The tracking-error decomposition, when a `benchmark` "
+                    "index was named alongside `risk=true`.")
 
 
 class ContributionPayload(BaseModel):

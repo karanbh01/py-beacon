@@ -26,6 +26,7 @@ from ...exceptions import ConfigurationError, DataNotFoundError
 from ..backtests import build_backtest_job
 from ..config import ServerConfig
 from ..jobs import JobRegistry
+from ..runs import snapshot_at, snapshots_from
 from ..schemas import (
     AssetView,
     AttributionView,
@@ -49,6 +50,10 @@ require("fastapi", "The Beacon API server")
 
 from fastapi import APIRouter, Query, Request, status  # noqa: E402
 
+BenchmarkQuery = Annotated[
+    str | None,
+    Query(description="Index id to measure tracking error against. "
+                      "Requires risk=true.")]
 RiskQuery = Annotated[
     bool,
     Query(description="Decompose the index's volatility across its "
@@ -175,14 +180,27 @@ def build_beacon_router() -> APIRouter:
     def weights(request: Request,
                 index_id: str,
                 asof: AsOfQuery = None,
-                risk: RiskQuery = False) -> WeightsView:
+                risk: RiskQuery = False,
+                benchmark: BenchmarkQuery = None) -> WeightsView:
         _index_document(request, index_id)
+
+        # The benchmark's weights come from its own latest run, taken at the
+        # same date. Reading them from a run rather than re-deriving the index
+        # means the comparison is against what that benchmark actually was.
+        benchmark_weights = None
+        if benchmark and risk:
+            _index_document(request, benchmark)
+            reference = snapshot_at(
+                snapshots_from(_latest_run(request, benchmark)), asof)
+            benchmark_weights = dict(reference.weights)
 
         return build_weights(index_id,
                              _latest_run(request, index_id),
                              asof,
                              _data_fetcher(request),
-                             with_risk=risk)
+                             with_risk=risk,
+                             benchmark=benchmark_weights,
+                             benchmark_id=benchmark if benchmark_weights else None)
 
     @router.get("/{index_id}/attribution", response_model=AttributionView)
     def attribution(request: Request,

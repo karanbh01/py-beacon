@@ -48,10 +48,15 @@ import pandas as pd
 from ..analysis.attribution import drifted_weights
 from ..analysis.concentration import concentration, drift_from_target, top_n_weight
 from ..data.fetcher import DataFetcher
-from ..risk.contribution import RiskContributions, risk_contributions
+from ..risk.contribution import (
+    RiskContributions,
+    active_risk_contributions,
+    risk_contributions,
+)
 from ..risk.model import estimate_risk_model
 from .runs import snapshot_at, snapshots_from
 from .schemas import (
+    ActiveRiskPayload,
     ConcentrationPayload,
     ConstituentRow,
     DriftPayload,
@@ -88,7 +93,9 @@ def build_weights(index_id: str,
                   run: dict[str, Any],
                   as_of: str | None,
                   fetcher: DataFetcher,
-                  with_risk: bool = False) -> WeightsView:
+                  with_risk: bool = False,
+                  benchmark: dict[str, float] | None = None,
+                  benchmark_id: str | None = None) -> WeightsView:
     """Composition at a date, with per-constituent rows, drift and cap flags.
 
     Args:
@@ -99,6 +106,8 @@ def build_weights(index_id: str,
         with_risk: Decompose the index's volatility across its constituents.
             Off by default because estimating a covariance over every name is
             the pane's whole cost.
+        benchmark: Weights to measure tracking error against, if any.
+        benchmark_id: What to call it in the response.
 
     Returns:
         WeightsView: The pane's whole payload.
@@ -109,19 +118,24 @@ def build_weights(index_id: str,
     contributions, window = (_risk_of(snapshot, run, fetcher)
                              if with_risk else (None, (None, None)))
 
+    active, active_by_name = _active_risk_of(snapshot, run, fetcher, benchmark,
+                                             benchmark_id, window)
+
     return WeightsView(
         index_id=index_id,
         as_of=as_of or snapshot.date,
         rebalance_date=snapshot.date,
         announced_date=snapshot.announced,
         weights=snapshot.weights,
-        rows=build_rows(snapshot, held, as_of, fetcher, contributions),
+        rows=build_rows(snapshot, held, as_of, fetcher, contributions,
+                        active_by_name, benchmark),
         concentration=concentration_of(snapshot.weights),
         drift=_drift_payload(snapshot, held),
         capped=snapshot.capped,
         cap=snapshot.cap,
         cap_redistributed=snapshot.redistributed,
-        risk=_risk_payload(contributions, window))
+        risk=_risk_payload(contributions, window),
+        active_risk=active)
 
 
 def _held_weights(snapshot: RebalanceSnapshot,
@@ -222,11 +236,66 @@ def _risk_payload(contributions: RiskContributions | None,
                        window_end=window[1])
 
 
+def _active_risk_of(snapshot: RebalanceSnapshot,
+                    run: dict[str, Any],
+                    fetcher: DataFetcher,
+                    benchmark: dict[str, float] | None,
+                    benchmark_id: str | None,
+                    window: tuple[str | None, str | None]
+                    ) -> tuple[ActiveRiskPayload | None, dict[str, float]]:
+    """Decompose tracking error against a benchmark's weights."""
+    if not benchmark or benchmark_id is None:
+        return None, {}
+
+    span = window if window != (None, None) else _estimation_window(run)
+
+    # Estimated over the *union*: a benchmark name the index does not hold is
+    # still an active position, and a covariance covering only what is held
+    # could not price it.
+    universe = sorted(set(snapshot.weights) | set(benchmark))
+    prices = prices_for(fetcher, universe, *span)
+
+    if prices.empty:
+        logger.warning("No prices for the benchmark comparison over %s to %s.",
+                       *span)
+
+        return None, {}
+
+    returns = prices.pct_change().dropna(how="all")
+    if len(returns) < MINIMUM_OBSERVATIONS:
+        logger.warning("Too few observations (%d) for an active decomposition.",
+                       len(returns))
+
+        return None, {}
+
+    model = estimate_risk_model(returns)
+    result = active_risk_contributions(snapshot.weights, benchmark,
+                                       model.covariance)
+
+    # Benchmark names the index does not hold have no row in the table, and
+    # they are routinely the largest active positions in the book.
+    not_held = {name: value for name, value in result.contribution.items()
+                if name not in snapshot.weights}
+
+    payload = ActiveRiskPayload(
+        benchmark=benchmark_id,
+        tracking_error=result.volatility,
+        covered_weight=result.covered_weight,
+        uncovered=list(result.uncovered),
+        contributions_not_held=not_held,
+        window_start=span[0],
+        window_end=span[1])
+
+    return payload, dict(result.contribution)
+
+
 def build_rows(snapshot: RebalanceSnapshot,
                held: dict[str, float] | None,
                as_of: str | None,
                fetcher: DataFetcher,
-               contributions: RiskContributions | None = None
+               contributions: RiskContributions | None = None,
+               active_by_name: dict[str, float] | None = None,
+               benchmark: dict[str, float] | None = None
                ) -> list[ConstituentRow]:
     """One row per constituent, heaviest first.
 
@@ -261,7 +330,11 @@ def build_rows(snapshot: RebalanceSnapshot,
             # "contributes no risk", which is a claim, where null says the
             # model could not answer.
             risk_contribution=(contributions.contribution.get(identifier)
-                               if contributions else None))
+                               if contributions else None),
+            active_weight=(None if benchmark is None
+                           else weight - benchmark.get(identifier, 0.0)),
+            active_risk_contribution=(active_by_name.get(identifier)
+                                      if active_by_name else None))
         for identifier, weight in snapshot.weights.items()]
 
     return sorted(rows, key=lambda row: row.weight, reverse=True)
