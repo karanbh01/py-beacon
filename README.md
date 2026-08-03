@@ -158,6 +158,25 @@ because starting empty instead would disguise the mistake. Auto-load only
 warns, so a corrupt store cannot leave the client unable to start the server
 that would replace it.
 
+### Discovering what a methodology can contain
+
+`GET /indices/rule-types` publishes the eligibility rules and weighting schemes
+the library provides, with enough detail to render an editor: each parameter's
+name, display type, whether it is required, its default, a label, its position
+in the form, and any closed set of choices.
+
+`GET /optimise/constraint-types` serves the optimiser's constraints in the same
+shape under `specs`, so one client component can render both editors. Its
+original `types` field is unchanged.
+
+Both come from a registry the classes populate themselves
+(`beacon.catalogue`). Names, types, defaults and required-ness are read from
+the constructors, so they cannot drift from what the code accepts; only labels
+and ordering are declared, because a signature cannot carry them. A rule class
+that exists without a catalogue entry fails a completeness test — the symptom
+otherwise is silent, since the rule still works and the editor simply never
+offers it.
+
 ### Looking up many instruments at once
 
 `GET /data/reference` is the batch form of `/data/reference/{identifier}`:

@@ -11,6 +11,12 @@ import pandas as pd
 
 from ..asset.base import Asset
 from ..asset.equity import Equity
+from ..catalogue import (
+    SELECTION,
+    WEIGHTING,
+    Display,
+    register,
+)
 from ..data.fetcher import DataFetcher
 
 logger = logging.getLogger(__name__)
@@ -54,6 +60,13 @@ class EligibilityRuleBase(ABC):
 
 # --- Example Eligibility Rules ---
 
+@register(SELECTION, "Market capitalisation",
+          fields={
+              "min_market_cap": Display("Minimum market cap", order=1,
+                                        help="In the index currency. Blank for no floor."),
+              "max_market_cap": Display("Maximum market cap", order=2,
+                                        help="In the index currency. Blank for no ceiling."),
+          })
 class MarketCapRule(EligibilityRuleBase):
     """
     Eligibility rule based on market capitalization.
@@ -120,6 +133,17 @@ class MarketCapRule(EligibilityRuleBase):
             return False
 
 
+@register(SELECTION, "Liquidity",
+          fields={
+              "min_avg_daily_volume": Display("Minimum average daily volume", order=1,
+                                              help="Shares traded per day, averaged "
+                                                   "over the lookback."),
+              "min_avg_daily_value": Display("Minimum average daily value", order=2,
+                                             help="Traded value per day, in the "
+                                                  "index currency."),
+              "lookback_days": Display("Lookback", order=3,
+                                       help="Trading days the averages are taken over."),
+          })
 class LiquidityRule(EligibilityRuleBase):
     """
     Eligibility rule based on trading liquidity (e.g., average daily volume or value).
@@ -244,6 +268,12 @@ class WeightingSchemeBase(ABC):
 
 # --- Example Weighting Schemes ---
 
+@register(WEIGHTING, "Market capitalisation weighted",
+          fields={
+              "use_free_float": Display("Free-float adjusted", order=1,
+                                        help="Weight by the freely traded portion "
+                                             "rather than by full market cap."),
+          })
 class MarketCapWeighted(WeightingSchemeBase):
     """
     Market capitalization weighting scheme.
@@ -343,6 +373,7 @@ class MarketCapWeighted(WeightingSchemeBase):
         return weights
 
 
+@register(WEIGHTING, "Equal weighted")
 class EqualWeighted(WeightingSchemeBase):
     """
     Equal weighting scheme.

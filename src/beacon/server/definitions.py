@@ -11,20 +11,17 @@ Validation collects *findings* rather than raising at the first problem. A user
 editing a pipeline needs every issue at once, each addressable to the rule that
 caused it, not a single exception naming whichever one failed first.
 """
-from collections.abc import Callable
 from typing import Any
 
+from .. import catalogue
 from ..exceptions import InvalidRuleError
+
+# Imported for its import side effect: the rule and scheme classes register
+# themselves in the catalogue when their module loads, and nothing else here
+# names them any more.
+from ..index import methodology  # noqa: F401
 from ..index.capping import minimum_feasible_cap
 from ..index.constructor import IndexDefinition
-from ..index.methodology import (
-    EligibilityRuleBase,
-    EqualWeighted,
-    LiquidityRule,
-    MarketCapRule,
-    MarketCapWeighted,
-    WeightingSchemeBase,
-)
 from .schemas import Finding, IndexDocument, RuleSpec
 
 
@@ -44,17 +41,24 @@ class PipelineValidationError(InvalidRuleError):
         super().__init__(rule_description, reason)
         self.findings = [finding.model_dump() for finding in findings]
 
-# Selection rules the library actually provides, with the parameters each
-# accepts. A pipeline naming anything else is a finding, not a crash.
-SELECTION_RULES: dict[str, set[str]] = {
-    "MarketCapRule": {"min_market_cap", "max_market_cap"},
-    "LiquidityRule": {"min_avg_daily_volume", "min_avg_daily_value", "lookback_days"},
-}
+# Selection rules and weighting schemes come from the catalogue the classes
+# register themselves in (BN-117), not from a list here. There used to be four
+# tables — which rules exist, what each accepts, and two more mapping names to
+# constructors — and every one of them had to be updated by hand when a rule
+# was added. Deriving them removes the possibility of the four disagreeing.
+#
+# Functions rather than constants so the answer stays live: a constant would
+# snapshot the registry at import and silently omit anything registered after.
+def selection_rules() -> dict[str, set[str]]:
+    """Selection rule name -> the parameters it accepts."""
+    return {name: catalogue.parameter_names(catalogue.SELECTION, name)
+            for name in catalogue.registered_names(catalogue.SELECTION)}
 
-WEIGHTING_SCHEMES: dict[str, set[str]] = {
-    "EqualWeighted": set(),
-    "MarketCapWeighted": {"use_free_float"},
-}
+
+def weighting_schemes() -> dict[str, set[str]]:
+    """Weighting scheme name -> the parameters it accepts."""
+    return {name: catalogue.parameter_names(catalogue.WEIGHTING, name)
+            for name in catalogue.registered_names(catalogue.WEIGHTING)}
 
 # IndexDefinition.get_rebalance_dates() supports exactly these.
 REBALANCE_FREQUENCIES = ("MONTHLY", "QUARTERLY", "SEMI-ANNUAL", "ANNUAL")
@@ -64,15 +68,6 @@ REBALANCE_FREQUENCIES = ("MONTHLY", "QUARTERLY", "SEMI-ANNUAL", "ANNUAL")
 # switch to turn that off, so this is the only accepted value.
 TREATMENT_CORPORATE_ACTIONS = ("ADJUST_DIVISOR",)
 
-_RULE_BUILDERS: dict[str, Callable[..., EligibilityRuleBase]] = {
-    "MarketCapRule": MarketCapRule,
-    "LiquidityRule": LiquidityRule,
-}
-
-_SCHEME_BUILDERS: dict[str, Callable[..., WeightingSchemeBase]] = {
-    "EqualWeighted": EqualWeighted,
-    "MarketCapWeighted": MarketCapWeighted,
-}
 
 
 def _unknown_params(spec_params: dict[str, Any],
@@ -86,14 +81,16 @@ def _validate_selection_rule(rule: RuleSpec,
     """Check one selection rule against the library's rule set."""
     path = f"pipeline.selection[{position}]"
 
-    if rule.type not in SELECTION_RULES:
+    known = selection_rules()
+
+    if rule.type not in known:
         return [Finding(
             path=path,
             rule_id=rule.id,
             severity="error",
             code="UNKNOWN_RULE_TYPE",
             message=f"'{rule.type}' is not a known selection rule. "
-                    f"Available: {', '.join(sorted(SELECTION_RULES))}.")]
+                    f"Available: {', '.join(sorted(known))}.")]
 
     findings = [
         Finding(path=f"{path}.params.{name}",
@@ -101,7 +98,7 @@ def _validate_selection_rule(rule: RuleSpec,
                 severity="error",
                 code="UNKNOWN_PARAMETER",
                 message=f"'{rule.type}' does not accept a '{name}' parameter.")
-        for name in _unknown_params(rule.params, SELECTION_RULES[rule.type])
+        for name in _unknown_params(rule.params, known[rule.type])
     ]
 
     findings.extend(_validate_rule_semantics(rule, path))
@@ -141,14 +138,16 @@ def _validate_weighting(document: IndexDocument) -> list[Finding]:
     weighting = document.pipeline.weighting
     findings: list[Finding] = []
 
-    if weighting.scheme not in WEIGHTING_SCHEMES:
+    known = weighting_schemes()
+
+    if weighting.scheme not in known:
         findings.append(Finding(
             path="pipeline.weighting.scheme",
             rule_id=weighting.id,
             severity="error",
             code="UNKNOWN_SCHEME",
             message=f"'{weighting.scheme}' is not a known weighting scheme. "
-                    f"Available: {', '.join(sorted(WEIGHTING_SCHEMES))}."))
+                    f"Available: {', '.join(sorted(known))}."))
     else:
         findings.extend(
             Finding(path=f"pipeline.weighting.params.{name}",
@@ -157,7 +156,7 @@ def _validate_weighting(document: IndexDocument) -> list[Finding]:
                     code="UNKNOWN_PARAMETER",
                     message=f"'{weighting.scheme}' does not accept a '{name}' parameter.")
             for name in _unknown_params(weighting.params,
-                                        WEIGHTING_SCHEMES[weighting.scheme]))
+                                        known[weighting.scheme]))
 
     findings.extend(_validate_cap(document))
 
@@ -327,11 +326,12 @@ def build_index_definition(document: IndexDocument) -> IndexDefinition:
             constructor validation is the final word.
     """
     rules = [
-        _RULE_BUILDERS[rule.type](**rule.params)
+        catalogue.classes(catalogue.SELECTION)[rule.type](**rule.params)
         for rule in document.pipeline.selection
     ]
     weighting = document.pipeline.weighting
-    scheme = _SCHEME_BUILDERS[weighting.scheme](**weighting.params)
+    scheme = catalogue.classes(catalogue.WEIGHTING)[weighting.scheme](
+        **weighting.params)
 
     return IndexDefinition(index_id=document.id,
                            index_name=document.name,

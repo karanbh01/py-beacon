@@ -807,6 +807,57 @@ class SavedConstraintSet(BaseModel):
                     "save.")
 
 
+class ParameterSpec(BaseModel):
+    """One parameter of a configurable type, described well enough to render.
+
+    Names, types, defaults and whether a parameter is required are read from
+    the constructor, so they cannot drift from what the code accepts. Labels,
+    ordering and choices are declared on the class, because a signature cannot
+    carry them.
+    """
+    name: str = Field(description="Parameter name, as it must appear in `params`.")
+    type: str = Field(
+        description="Display type: number, integer, boolean, string or json. "
+                    "What control to render, not the Python annotation.")
+    required: bool = Field(
+        description="Whether the constructor rejects the call without it.")
+    default: Any = Field(
+        default=None,
+        description="Value used when omitted. Null both for 'no default' and "
+                    "for a default of None; `required` distinguishes them.")
+    label: str = Field(description="Human-readable field name.")
+    order: int = Field(description="Position in the form, ascending.")
+    choices: list[str] | None = Field(
+        default=None,
+        description="The accepted values, when this is a closed set. Null "
+                    "means any value of `type` is allowed.")
+    help: str | None = Field(default=None,
+                             description="One line of guidance for the field.")
+
+
+class TypeSpec(BaseModel):
+    """One configurable type a client can offer."""
+    name: str = Field(description="Class name, as it must appear in `type`.")
+    label: str = Field(description="Human-readable name for the type.")
+    summary: str = Field(default="",
+                         description="One line describing what it does.")
+    parameters: list[ParameterSpec] = Field(default_factory=list)
+
+
+class RuleTypes(BaseModel):
+    """Response of `GET /indices/rule-types`.
+
+    Everything a methodology editor needs to render a real form: which rules
+    and schemes exist, what each takes, and how to label and order the fields.
+    Without it `RuleSpec.type` is a free-text box and `params` a list of
+    key/value pairs, so a misspelled parameter is only discovered on submit.
+    """
+    selection: list[TypeSpec] = Field(
+        description="Eligibility rules available for the selection stage.")
+    weighting: list[TypeSpec] = Field(
+        description="Weighting schemes available for the weighting stage.")
+
+
 class ConstraintTypes(BaseModel):
     """Response of `GET /optimise/constraint-types`.
 
@@ -814,7 +865,14 @@ class ConstraintTypes(BaseModel):
     rather than from a copy that drifts.
     """
     types: dict[str, list[str]] = Field(
-        description="Constraint type -> the parameters it accepts.")
+        description="Constraint type -> the parameters it accepts. Kept for "
+                    "clients written against the original shape; `specs` "
+                    "carries the same set with everything needed to render it.")
+    specs: list[TypeSpec] = Field(
+        default_factory=list,
+        description="The same constraint types in the richer shape "
+                    "`/indices/rule-types` uses, so one client component can "
+                    "render both editors.")
 
 
 class OptimisationRunRequest(BaseModel):

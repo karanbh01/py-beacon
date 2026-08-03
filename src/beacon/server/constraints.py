@@ -23,6 +23,7 @@ failure still reaches the client with a message naming what is impossible.
 """
 import logging
 
+from .. import catalogue
 from ..optimise.constraints import (
     Cardinality,
     Constraint,
@@ -49,14 +50,16 @@ CONSTRAINT_TYPES = {
 
 # Parameters each type accepts, so an unknown key is reported against the row
 # that carries it rather than surfacing as a TypeError from a constructor.
-CONSTRAINT_PARAMS: dict[str, set[str]] = {
-    "FullInvestment": {"target"},
-    "PositionBounds": {"minimum", "maximum", "assets"},
-    "GroupBounds": {"name", "members", "minimum", "maximum"},
-    "TurnoverBudget": {"maximum", "current_weights"},
-    "Cardinality": {"maximum"},
-    "ExpectedReturnTarget": {"expected_returns", "target"},
-}
+def constraint_params() -> dict[str, set[str]]:
+    """Constraint type -> the parameters it accepts.
+
+    Read off the classes (BN-117) rather than kept here by hand. The table this
+    replaced had to be edited whenever a constraint gained a parameter, and
+    nothing failed when it was not — the validator simply rejected a parameter
+    the solver would have accepted.
+    """
+    return {name: catalogue.parameter_names(catalogue.CONSTRAINT, name)
+            for name in catalogue.registered_names(catalogue.CONSTRAINT)}
 
 ERROR = "error"
 WARNING = "warning"
@@ -104,14 +107,15 @@ def _validate_row(position: int,
             message=f"Unknown constraint type '{row.type}'. Available: "
                     f"{', '.join(sorted(CONSTRAINT_TYPES))}.")]
 
-    unexpected = sorted(set(row.params) - CONSTRAINT_PARAMS[row.type])
+    accepted = constraint_params()[row.type]
+    unexpected = sorted(set(row.params) - accepted)
     findings = [
         Finding(path=f"{path}.params.{key}",
                 rule_id=row.id,
                 severity=ERROR,
                 code="UNKNOWN_PARAMETER",
                 message=f"{row.type} does not take '{key}'. It accepts: "
-                        f"{', '.join(sorted(CONSTRAINT_PARAMS[row.type]))}.")
+                        f"{', '.join(sorted(accepted))}.")
         for key in unexpected
     ]
 
@@ -260,4 +264,5 @@ def constraint_types() -> dict[str, list[str]]:
     Served so a client can build its editor from the same source the solver
     reads, rather than from a copy that drifts.
     """
-    return {name: sorted(params) for name, params in CONSTRAINT_PARAMS.items()}
+    return {name: sorted(params)
+            for name, params in constraint_params().items()}

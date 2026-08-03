@@ -23,6 +23,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from ..catalogue import CONSTRAINT, Display, register
 from ..exceptions import CalculationError
 
 logger = logging.getLogger(__name__)
@@ -188,6 +189,9 @@ def _positions(assets: Sequence[str],
     return sorted(lookup[asset_id] for asset_id in wanted if asset_id in lookup)
 
 
+@register(CONSTRAINT, "Full investment",
+          fields={"target": Display("Total weight", order=1,
+                                    help="Normally 1.0 for a fully invested book.")})
 class FullInvestment(Constraint):
     """The weights must sum to a fixed total, normally one.
 
@@ -211,6 +215,13 @@ class FullInvestment(Constraint):
                           gradient=lambda w: np.ones(count))]
 
 
+@register(CONSTRAINT, "Position bounds",
+          fields={
+              "minimum": Display("Minimum weight", order=1),
+              "maximum": Display("Maximum weight", order=2),
+              "assets": Display("Applies to", order=3,
+                                help="Names the bounds apply to. Blank for all."),
+          })
 class PositionBounds(Constraint):
     """Lower and upper limits on individual weights.
 
@@ -317,6 +328,13 @@ def _cap_condition(position: int,
                      evaluate=evaluate)
 
 
+@register(CONSTRAINT, "Group bounds",
+          fields={
+              "name": Display("Group name", order=1),
+              "members": Display("Members", order=2),
+              "minimum": Display("Minimum combined weight", order=3),
+              "maximum": Display("Maximum combined weight", order=4),
+          })
 class GroupBounds(Constraint):
     """Limits on the combined weight of a set of names.
 
@@ -383,6 +401,12 @@ class GroupBounds(Constraint):
         ]
 
 
+@register(CONSTRAINT, "Turnover budget",
+          fields={
+              "maximum": Display("Maximum one-way turnover", order=1,
+                                 help="Half the sum of absolute weight changes."),
+              "current_weights": Display("Current holdings", order=2),
+          })
 class TurnoverBudget(Constraint):
     """A limit on how far the solution may move from the current holdings.
 
@@ -442,6 +466,11 @@ class TurnoverBudget(Constraint):
             gradient=lambda w: -np.sign(w - current) / 2.0)]
 
 
+@register(CONSTRAINT, "Expected return target",
+          fields={
+              "expected_returns": Display("Expected returns", order=1),
+              "target": Display("Target return", order=2),
+          })
 class ExpectedReturnTarget(Constraint):
     """The portfolio must be expected to return exactly this much.
 
@@ -489,6 +518,10 @@ class ExpectedReturnTarget(Constraint):
                           gradient=lambda w: returns)]
 
 
+@register(CONSTRAINT, "Cardinality",
+          fields={"maximum": Display("Maximum holdings", order=1,
+                                     help="Not convex: solved by a heuristic, "
+                                          "so the result is not provably optimal.")})
 class Cardinality(Constraint):
     """A limit on how many names may be held.
 

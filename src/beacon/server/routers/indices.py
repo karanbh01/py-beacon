@@ -7,6 +7,7 @@ needs every problem at once, each addressable to the rule that caused it, so
 the client can mark the offending row rather than showing one message for the
 whole form.
 """
+from ... import catalogue
 from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError, DataNotFoundError, InvalidRuleError
@@ -18,10 +19,12 @@ from ..schemas import (
     IndexDocument,
     PreviewRequest,
     PreviewResponse,
+    RuleTypes,
     SavedIndex,
     ValidationReport,
 )
 from ..store import DocumentStore
+from ..types import specs_for
 from .universes import load_universe
 
 require("fastapi", "The Beacon API server")
@@ -87,6 +90,18 @@ def build_indices_router() -> APIRouter:
         return IndexCollection(
             indices=[IndexDocument.model_validate(doc)
                      for doc in _store(request).read_all()])
+
+    # Declared before the "/{index_id}" routes so the literal path is not
+    # swallowed as an index id. Static segments are matched first regardless,
+    # but relying on that is a footgun the next person should not have to know
+    # about.
+    @router.get("/rule-types", response_model=RuleTypes)
+    def rule_types() -> RuleTypes:
+        # Needs no data source and no stored document: this describes what the
+        # library can do, not what this server happens to hold, so it answers
+        # on a process started with nothing configured.
+        return RuleTypes(selection=specs_for(catalogue.SELECTION),
+                         weighting=specs_for(catalogue.WEIGHTING))
 
     @router.post("/validate", response_model=ValidationReport)
     def validate(request: Request,

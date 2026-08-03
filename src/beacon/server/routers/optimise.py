@@ -19,6 +19,7 @@ rather than the first.
 import uuid
 from typing import Annotated, Any
 
+from ... import catalogue
 from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError, DataNotFoundError
@@ -48,6 +49,7 @@ from ..schemas import (
     ValidationReport,
 )
 from ..store import DocumentStore
+from ..types import specs_for
 
 require("fastapi", "The Beacon API server")
 
@@ -111,7 +113,11 @@ def build_optimise_router() -> APIRouter:
 
     @router.get("/constraint-types", response_model=ConstraintTypes)
     def types() -> ConstraintTypes:
-        return ConstraintTypes(types=constraint_types())
+        # `types` is kept as it was and `specs` added beside it: a client
+        # written against the original shape keeps working, and one that wants
+        # to render a form reads the richer field.
+        return ConstraintTypes(types=constraint_types(),
+                               specs=specs_for(catalogue.CONSTRAINT))
 
     @router.get("/constraint-sets", response_model=ConstraintSetCollection)
     def list_sets(request: Request) -> ConstraintSetCollection:
