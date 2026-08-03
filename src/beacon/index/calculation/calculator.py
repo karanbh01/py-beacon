@@ -14,6 +14,7 @@ from ...exceptions import CalculationError
 from ..capping import CapReport, apply_cap
 from ..constructor import IndexDefinition
 from ..result import IndexResult
+from ..schedule import effective_date, sessions
 from .corporate_actions import CorporateActionsMixin
 from .market_values import MarketValuesMixin
 from .selection import (
@@ -395,7 +396,26 @@ class IndexCalculator(MarketValuesMixin,
             pd_start.strftime('%Y-%m-%d'),
             pd_end.strftime('%Y-%m-%d'),
         )
-        rebalance_dates = set(rebalance_dates_list)
+        # Announced on one date, in force on another. With no lag the two
+        # coincide and this mapping is the identity, which is what keeps every
+        # index defined before BN-126 producing identical levels.
+        # The panel is built only when a lag actually applies. An index
+        # without one does no calendar work at all, which keeps this change
+        # free for every index defined before it.
+        lag = self.definition.effective_lag_sessions
+        panel = (sessions(pd_start, pd_end, self.definition.calendar)
+                 if lag > 0 else pd.DatetimeIndex([]))
+        effective_for = {announced: effective_date(announced, lag, panel)
+                         for announced in rebalance_dates_list
+                         if announced != base_date}
+
+        # Keyed by the date the composition is *applied*, since that is the day
+        # the loop has to act on. Two announcements landing on one effective
+        # date would be a schedule shorter than its own lag; the later wins,
+        # which is the one a reader would expect to be in force.
+        announced_for = {effective: announced
+                         for announced, effective in effective_for.items()}
+        rebalance_dates = set(announced_for)
         rebalance_dates.discard(base_date)
 
         # Accumulators
@@ -406,6 +426,10 @@ class IndexCalculator(MarketValuesMixin,
         # Only rebalances where the cap actually bound get an entry, so an
         # uncapped index carries an empty mapping rather than noise.
         cap_reports: dict[pd.Timestamp, CapReport] = {}
+        # Effective date -> announcement date, populated only where the two
+        # differ. An index with no lag carries an empty mapping, so its
+        # presence is itself the signal that a lag applies.
+        announcements: dict[pd.Timestamp, pd.Timestamp] = {}
 
         # Cash distributions, loaded once. A price index skips this entirely,
         # so it costs nothing and reads no action history — which is what keeps
@@ -477,13 +501,25 @@ class IndexCalculator(MarketValuesMixin,
                                                    distributions.get(date, {}),
                                                    withholding))
 
-                # Reconstitute
-                constituents_raw = self._get_universe(date)
-                constituents = self.select_constituents(constituents_raw, date)
-                weights = self.calculate_constituent_weights(constituents, date)
+                # Reconstitute as of the *announcement*: the constituent list
+                # and target weights are what was published, even though they
+                # are implemented at today's prices. Selecting on the effective
+                # date instead would let a name that qualified when the index
+                # was announced be dropped by a price move in between, which is
+                # not what a published composition means.
+                announced_on = announced_for.get(date, date)
+
+                constituents_raw = self._get_universe(announced_on)
+                constituents = self.select_constituents(constituents_raw,
+                                                        announced_on)
+                weights = self.calculate_constituent_weights(constituents,
+                                                             announced_on)
                 weights, cap_report = self.cap_weights(weights)
                 if cap_report.was_capped:
                     cap_reports[date] = cap_report
+
+                if announced_on != date:
+                    announcements[date] = announced_on
 
                 # Rebuild the holdings to the new weights, scaled to the
                 # constituents' total market value so the divisor keeps the
@@ -544,6 +580,7 @@ class IndexCalculator(MarketValuesMixin,
             constituent_snapshots=constituent_snapshots,
             weight_snapshots=weight_snapshots,
             cap_reports=cap_reports,
+            announcement_dates=announcements,
         ).with_data(self.data)
 
     def run_daily_calculation(self,

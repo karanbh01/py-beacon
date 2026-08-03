@@ -36,7 +36,8 @@ class IndexDefinition:
                  rebalance_day_rule: str = DEFAULT_DAY_RULE,
                  calendar: str | None = None,
                  return_type: str = PRICE,
-                 withholding_tax_rate: float = 0.0):
+                 withholding_tax_rate: float = 0.0,
+                 effective_lag_sessions: int = 0):
         """
         Initializes an IndexDefinition.
 
@@ -80,6 +81,10 @@ class IndexDefinition:
                                   net index. Ignored unless the return type is
                                   NET_TOTAL_RETURN, so a definition carrying a
                                   rate it does not use cannot quietly apply it.
+            effective_lag_sessions: Sessions between a composition being
+                                  announced and its weights taking effect. Zero
+                                  is same-day, which is what every index did
+                                  before BN-126.
         """
         if not index_id:
             raise ValueError("index_id cannot be empty.")
@@ -99,6 +104,10 @@ class IndexDefinition:
             raise ValueError(
                 "withholding_tax_rate must be in [0, 1); got "
                 f"{withholding_tax_rate}.")
+        if effective_lag_sessions < 0:
+            raise ValueError(
+                "effective_lag_sessions cannot be negative; got "
+                f"{effective_lag_sessions}.")
         if base_value <= 0:
             raise ValueError("base_value must be positive.")
         if not currency:
@@ -134,6 +143,7 @@ class IndexDefinition:
         self.calendar: str | None = calendar
         self.return_type: str = return_type
         self.withholding_tax_rate: float = withholding_tax_rate
+        self.effective_lag_sessions: int = effective_lag_sessions
 
         logger.info(
             f"IndexDefinition for '{self.index_name}' ({self.index_id}) created successfully.")

@@ -277,6 +277,37 @@ def _at_interval(candidates: list[pd.Timestamp],
     return kept
 
 
+def effective_date(announced: pd.Timestamp,
+                   lag_sessions: int,
+                   available: pd.DatetimeIndex) -> pd.Timestamp:
+    """The date an announced rebalance takes effect.
+
+    Args:
+        announced: When the composition was published.
+        lag_sessions: Sessions to wait. Zero means same-day, which is what
+            every index did before BN-126.
+        available: Sessions covering the announcement and the lag.
+
+    Returns:
+        The effective date. The announcement itself when the lag is zero, or
+        when the panel holds too few sessions after it — an index whose data
+        ends mid-lag should apply its last rebalance rather than drop it.
+    """
+    if lag_sessions <= 0:
+        return announced
+
+    later = available[available >= announced]
+    if len(later) <= lag_sessions:
+        logger.warning(
+            "Only %d session(s) after %s, fewer than the %d-session lag; "
+            "applying the rebalance on its announcement date.",
+            max(len(later) - 1, 0), announced.date(), lag_sessions)
+
+        return announced
+
+    return pd.Timestamp(later[lag_sessions])
+
+
 def next_rebalance(frequency: str,
                    base_date: str | pd.Timestamp,
                    as_of: str | pd.Timestamp,

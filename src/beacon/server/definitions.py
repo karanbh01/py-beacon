@@ -185,18 +185,6 @@ def _validate_schedule(document: IndexDocument) -> list[Finding]:
                     f"'{document.return_type}', so nothing is withheld. Only "
                     f"NET_TOTAL_RETURN applies it."))
 
-    if document.effective_lag_sessions > 0:
-        # A warning, not an error: the field is stored deliberately and will be
-        # honoured by BN-126. Silence would let a user believe it already is.
-        findings.append(Finding(
-            path="effective_lag_sessions",
-            rule_id=None,
-            severity="warning",
-            code="EFFECTIVE_LAG_NOT_APPLIED",
-            message="An effective-date lag is recorded but not yet applied: "
-                    "weights still take effect on the announcement date. "
-                    "Tracked as BN-126."))
-
     return findings
 
 
@@ -415,4 +403,5 @@ def build_index_definition(document: IndexDocument) -> IndexDefinition:
                            rebalance_day_rule=document.rebalance_day_rule,
                            calendar=document.calendar,
                            return_type=document.return_type,
-                           withholding_tax_rate=document.withholding_tax_rate)
+                           withholding_tax_rate=document.withholding_tax_rate,
+                           effective_lag_sessions=document.effective_lag_sessions)

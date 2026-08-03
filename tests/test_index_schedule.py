@@ -421,17 +421,18 @@ class TestScheduleValidation:
 
         assert response.json()["valid"] is True
 
-    def test_an_effective_lag_warns_that_it_is_not_yet_applied(self, client):
-        """A warning, not an error: the field is stored deliberately. Silence
-        would let a user believe the lag is in force."""
+    def test_an_effective_lag_is_accepted_without_comment(self, client):
+        """BN-121 warned that the lag was recorded but not applied. BN-126
+        applies it, so the warning is gone rather than left as a stale caution
+        about behaviour that now exists."""
         response = client.post("/indices/validate",
                                json=document(effective_lag_sessions=3),
                                headers=auth())
         body = response.json()
 
-        assert body["valid"] is True, "a lag must not block saving"
-        assert any(finding["code"] == "EFFECTIVE_LAG_NOT_APPLIED"
-                   for finding in body["findings"])
+        assert body["valid"] is True
+        assert not any(finding["code"] == "EFFECTIVE_LAG_NOT_APPLIED"
+                       for finding in body["findings"])
 
 
 class TestScheduleEndpoint:

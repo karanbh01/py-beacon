@@ -24,6 +24,14 @@ def mock_definition():
     # try to compare weights against a mock instead of taking the uncapped
     # path these tests intend.
     defn.max_constituent_weight = None
+    # Same reasoning for the fields added since. A mock is not a null, so a
+    # comparison against one raises rather than taking the default path — the
+    # cost of mocking the definition rather than building one.
+    defn.calendar = None
+    defn.rebalance_day_rule = "FIRST_BUSINESS_DAY"
+    defn.return_type = "PRICE"
+    defn.withholding_tax_rate = 0.0
+    defn.effective_lag_sessions = 0
     return defn
 
 

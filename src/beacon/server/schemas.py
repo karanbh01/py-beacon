@@ -1325,7 +1325,16 @@ class RebalanceSnapshot(BaseModel):
     answer what capping cost — a question that cannot be reconstructed from the
     applied weights alone.
     """
-    date: str = Field(description="Rebalance date, YYYY-MM-DD.")
+    date: str = Field(
+        description="Date these weights took effect, YYYY-MM-DD. Snapshots "
+                    "are keyed by the effective date because that is when the "
+                    "composition is in force.")
+    announced: str | None = Field(
+        default=None,
+        description="When this composition was published, if earlier than "
+                    "`date`. Null when the index has no effective-date lag "
+                    "and the two coincide, so its presence is itself the "
+                    "signal that a lag applies.")
     weights: dict[str, float] = Field(description="Applied weights, summing to 1.")
     uncapped_weights: dict[str, float] = Field(
         default_factory=dict,
@@ -1418,6 +1427,10 @@ class WeightsView(BaseModel):
         description="Rebalance in force on that date. An index holds the "
                     "weights set at its last rebalance until the next one, so "
                     "this is usually earlier than `as_of`.")
+    announced_date: str | None = Field(
+        default=None,
+        description="When that composition was published, if earlier than "
+                    "`rebalance_date`. Null when the index has no lag.")
     weights: dict[str, float]
     rows: list[ConstituentRow] = Field(
         default_factory=list,

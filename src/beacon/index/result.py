@@ -30,6 +30,13 @@ class IndexResult:
             rebalances where a weight cap actually bound. Empty for an
             uncapped index, so its presence is itself the signal that
             capping occurred.
+        announcement_dates: Mapping of *effective* date -> the date that
+            composition was announced. Snapshots are keyed by the effective
+            date, because that is when the weights are in force and what every
+            consumer — drift, attribution, the backtest engine — needs. The
+            announcement is carried alongside rather than instead, since a
+            client showing "rebalance of 18 Sep, effective 22 Sep" needs both.
+            Empty for an index with no lag, where the two always coincide.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -41,6 +48,8 @@ class IndexResult:
     constituent_snapshots: dict[pd.Timestamp, list[str]]
     weight_snapshots: dict[pd.Timestamp, dict[str, float]]
     cap_reports: dict[pd.Timestamp, CapReport] = field(default_factory=dict)
+    announcement_dates: dict[pd.Timestamp, pd.Timestamp] = field(
+        default_factory=dict)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False, compare=False)
 
     def capped_assets_on_date(self,

@@ -159,8 +159,11 @@ def rebalance_snapshots(index_result: IndexResult,
         weights = index_result.weight_snapshots[date]
         report = index_result.cap_reports.get(date)
 
+        announced = index_result.announcement_dates.get(date)
+
         snapshots.append(RebalanceSnapshot(
             date=date.strftime("%Y-%m-%d"),
+            announced=announced.strftime("%Y-%m-%d") if announced else None,
             weights=dict(weights),
             uncapped_weights=dict(report.uncapped_weights) if report and
             report.uncapped_weights else dict(weights),
