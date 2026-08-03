@@ -14,6 +14,12 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from ..backtest.result import BacktestResult
+from ..data.corporate_actions import (
+    PAY_DATE_COLUMN,
+    STATUS_COLUMN,
+    kind_of,
+    status_of,
+)
 from ..index.result import IndexResult
 from .serialisation import dataframe_to_payload, series_to_payload
 
@@ -259,13 +265,76 @@ class BatchReferenceResponse(BaseModel):
 
 
 class CorporateAction(BaseModel):
-    """One corporate action."""
+    """One corporate action.
+
+    `kind` is the authoritative answer to what `value` means, and the reason a
+    client needs no list of type strings. Reading `type` and inferring cash or
+    ratio from a hardcoded list works until a type the client has never seen
+    arrives, at which point it renders as whichever the list defaults to —
+    confidently, and wrongly.
+    """
     ex_date: str = Field(description="Ex-date, ISO 8601.")
-    type: str = Field(description="Action type, e.g. DIVIDEND or SPLIT.")
+    type: str = Field(
+        description="Action type, e.g. DIVIDEND or SPLIT. A closed set the "
+                    "engine validates on load, but branch on `kind` rather "
+                    "than on this: new types are added, and a client that "
+                    "matches type strings breaks silently when one is.")
+    kind: Literal["cash", "ratio", "structural"] = Field(
+        description="What `value` means. 'cash' is an amount per share and "
+                    "adds up; 'ratio' is a share-count multiplier and "
+                    "compounds; 'structural' (rights issue, spin-off, merger) "
+                    "carries no directly aggregable value and should not be "
+                    "rendered as a quantity in either column.")
     value: float = Field(
         description="Cash amount per share for cash actions; a share-count "
                     "multiplier for ratio actions. What it means depends on "
-                    "the type, so the two are never summed together.")
+                    "`kind`, so the two are never summed together.")
+    pay_date: str | None = Field(
+        default=None,
+        description="Payment date, ISO 8601, where the source knows it. Null "
+                    "means unknown — omit the field in the UI rather than "
+                    "dashing it, since a dash reads as 'there is none'.")
+    status: Literal["announced", "paid", "cancelled"] | None = Field(
+        default=None,
+        description="Lifecycle state, where the source knows it. Null means "
+                    "unknown, not 'not yet announced'.")
+
+
+def _optional(row: pd.Series,
+              column: str) -> str | None:
+    """A nullable column off an action row, as a string or None.
+
+    Absent column and absent value are both None: a history reconstructed from
+    prices carries neither a pay date nor a status, and a client should not
+    have to distinguish "this dataset has no such column" from "this action has
+    no such value" — in both cases it does not know.
+    """
+    if column not in row.index:
+        return None
+
+    value = row[column]
+    if pd.isna(value):
+        return None
+
+    if isinstance(value, pd.Timestamp):
+        return str(value.date())
+
+    return str(value)
+
+
+def _action_from(row: pd.Series) -> CorporateAction:
+    """One history row as its API shape."""
+    action_type = str(row["TYPE"])
+
+    return CorporateAction(
+        ex_date=pd.Timestamp(row["EX_DATE"]).isoformat(),
+        type=action_type,
+        # Derived here rather than stored, so it cannot disagree with the type
+        # it describes and an older store gains the field for free.
+        kind=kind_of(action_type),
+        value=float(row["VALUE"]),
+        pay_date=_optional(row, PAY_DATE_COLUMN),
+        status=status_of(_optional(row, STATUS_COLUMN)))
 
 
 class CorporateActionsResponse(BaseModel):
@@ -299,12 +368,7 @@ class CorporateActionsResponse(BaseModel):
                    trailing_dividend_yield: float | None,
                    cumulative_split_ratio: float) -> "CorporateActionsResponse":
         """Build from a corporate-action history slice."""
-        actions = [
-            CorporateAction(ex_date=pd.Timestamp(row["EX_DATE"]).isoformat(),
-                            type=str(row["TYPE"]),
-                            value=float(row["VALUE"]))
-            for _, row in frame.iterrows()
-        ]
+        actions = [_action_from(row) for _, row in frame.iterrows()]
 
         return cls(identifier=identifier,
                    actions=actions,

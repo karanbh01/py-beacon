@@ -48,6 +48,8 @@ constant with noise on it and a liquidity screen built on it would never bind.
 import numpy as np
 import pandas as pd
 
+from ..data.corporate_actions import ANNOUNCED, PAID
+
 # Ex-dividend months, and the day within the month. Quarterly, deliberately
 # off the quarter ends where index rebalances land: an action falling on a
 # rebalance date every single time would hide any bug in ordering the two.
@@ -77,6 +79,13 @@ MAX_TURNOVER = 0.012
 # How strongly an unusually large move lifts volume, and the noise around it.
 VOLUME_ACTIVITY = 0.45
 VOLUME_NOISE = 0.35
+
+# Days between an ex-date and the cash actually landing. Real dividends settle
+# a few weeks later, and the gap is what makes "announced" a state the pane can
+# show: an action whose pay date has not arrived by the end of the panel is
+# announced rather than paid. A split settles on its ex-date, so its pay date
+# is the same day.
+DIVIDEND_SETTLEMENT_DAYS = 21
 
 # Prices are stored at the precision a real feed quotes them, not at the
 # seventeen significant figures a float carries. It is more realistic and it is
@@ -207,7 +216,7 @@ def build(universe: pd.DataFrame,
     frames["VOLUME"] = _volume(universe, returns, factor, rng)
 
     market = _long_form(frames, shares, universe)
-    actions = _action_frame(split_actions, dividends, drops)
+    actions = _action_frame(split_actions, dividends, drops, dates[-1])
 
     return market, actions
 
@@ -291,8 +300,17 @@ def _long_form(frames: dict[str, pd.DataFrame],
 
 def _action_frame(splits: list[dict[str, object]],
                   dividends: pd.DataFrame,
-                  drops: pd.DataFrame) -> pd.DataFrame:
-    """Assemble the action history from the splits and the dividend amounts."""
+                  drops: pd.DataFrame,
+                  last_date: pd.Timestamp) -> pd.DataFrame:
+    """Assemble the action history from the splits and the dividend amounts.
+
+    Args:
+        splits: Split actions recorded during the review walk.
+        dividends: Per-name, per-date cash amounts.
+        drops: Which (name, date) pairs are ex-dates.
+        last_date: End of the panel, which decides whether a pay date has
+            arrived — and so whether an action reads as paid or announced.
+    """
     paying = drops > 0.0
 
     # `.dropna()` is load-bearing, not tidying: pandas 2 stopped dropping NaN in
@@ -309,5 +327,13 @@ def _action_frame(splits: list[dict[str, object]],
     frame = pd.concat([cash, pd.DataFrame(splits)], ignore_index=True)
     frame["VALUE"] = frame["VALUE"].round(PRICE_DECIMALS)
 
-    return frame[["IDENTIFIER", "EX_DATE", "TYPE", "VALUE"]].sort_values(
+    # A split is effective on its ex-date; a dividend settles weeks later.
+    settlement = pd.to_timedelta(
+        np.where(frame["TYPE"] == "DIVIDEND", DIVIDEND_SETTLEMENT_DAYS, 0), unit="D")
+    frame["PAY_DATE"] = frame["EX_DATE"] + settlement
+
+    frame["STATUS"] = np.where(frame["PAY_DATE"] <= last_date, PAID, ANNOUNCED)
+
+    return frame[["IDENTIFIER", "EX_DATE", "TYPE", "VALUE",
+                  "PAY_DATE", "STATUS"]].sort_values(
         ["IDENTIFIER", "EX_DATE"], ignore_index=True)

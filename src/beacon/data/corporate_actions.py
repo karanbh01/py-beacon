@@ -31,6 +31,7 @@ year old has rolled out and one dated today is in. Without that, a dividend
 paid on the anniversary would be counted in two consecutive years' figures.
 """
 import logging
+from typing import Literal
 
 import pandas as pd
 
@@ -58,7 +59,89 @@ STRUCTURAL_ACTIONS = frozenset({RIGHTS_ISSUE, SPIN_OFF, MERGER})
 
 ACTION_TYPES = CASH_ACTIONS | RATIO_ACTIONS | STRUCTURAL_ACTIONS
 
+# What `value` means, as one word. The engine knows this from the type; a
+# client reading the type string has to keep its own list of which strings are
+# cash and which are ratios, and a type it has never seen renders as whichever
+# it guesses. Publishing the kind is what deletes that list.
+Kind = Literal["cash", "ratio", "structural"]
+
+CASH: Kind = "cash"
+RATIO: Kind = "ratio"
+STRUCTURAL: Kind = "structural"
+KINDS = (CASH, RATIO, STRUCTURAL)
+
+# Deliberately three, not two. A rights issue, spin-off or merger carries no
+# directly aggregable value, so calling it either cash or a ratio would be a
+# lie that renders as a number. "structural" says the value is not a quantity
+# to display in either column.
+_KIND_FOR_ACTIONS = ((CASH_ACTIONS, CASH),
+                     (RATIO_ACTIONS, RATIO),
+                     (STRUCTURAL_ACTIONS, STRUCTURAL))
+
+# Where a source knows it. Nullable, and omitted rather than dashed when the
+# source does not: "we do not know the pay date" and "there is no pay date"
+# are different, and a dash says neither.
+Status = Literal["announced", "paid", "cancelled"]
+
+ANNOUNCED: Status = "announced"
+PAID: Status = "paid"
+CANCELLED: Status = "cancelled"
+STATUSES = (ANNOUNCED, PAID, CANCELLED)
+
 REQUIRED_COLUMNS = ("IDENTIFIER", "EX_DATE", "TYPE", "VALUE")
+
+# Carried through when present, absent otherwise. Not required, because a
+# history reconstructed from prices has neither.
+PAY_DATE_COLUMN = "PAY_DATE"
+STATUS_COLUMN = "STATUS"
+
+
+def kind_of(action_type: str) -> Kind:
+    """What the `value` of an action of this type means.
+
+    Args:
+        action_type: One of ACTION_TYPES.
+
+    Returns:
+        The kind. An unrecognised type is STRUCTURAL — the answer that causes a
+        client to display no quantity, which is the safe direction to be wrong
+        in. Rendering an unknown action as cash would put a number on screen
+        that means something else entirely.
+    """
+    normalised = str(action_type).upper()
+
+    for types, kind in _KIND_FOR_ACTIONS:
+        if normalised in types:
+            return kind
+
+    logger.warning("Unrecognised action type '%s'; reporting it as %s.",
+                   action_type, STRUCTURAL)
+
+    return STRUCTURAL
+
+
+def status_of(value: object) -> Status | None:
+    """Normalise a stored status, or None if it is not one this vocabulary has.
+
+    Validated rather than passed through: the status arrives from whatever
+    wrote the store, and forwarding an unrecognised string would make a client
+    branch on a value no schema documents. None says "unknown", which is what
+    an unreadable status actually means.
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+
+    normalised = str(value).strip().lower()
+
+    for status in STATUSES:
+        if normalised == status:
+            return status
+
+    logger.warning("Unrecognised action status '%s'; reporting it as unknown.",
+                   value)
+
+    return None
+
 
 # One trailing year. A DateOffset rather than a Timedelta so February the 29th
 # behaves.
@@ -111,6 +194,11 @@ class CorporateActions:
         frame["EX_DATE"] = pd.to_datetime(frame["EX_DATE"])
         frame["TYPE"] = frame["TYPE"].astype(str).str.upper()
         frame["VALUE"] = frame["VALUE"].astype(float)
+
+        # Typed like the ex-date when present, so a pay date read back from a
+        # store is a Timestamp rather than the string it was written as.
+        if PAY_DATE_COLUMN in frame.columns:
+            frame[PAY_DATE_COLUMN] = pd.to_datetime(frame[PAY_DATE_COLUMN])
 
         unknown = sorted(set(frame["TYPE"]) - ACTION_TYPES)
         if unknown:
