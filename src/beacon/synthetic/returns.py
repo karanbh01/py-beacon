@@ -118,7 +118,10 @@ def _standardised_t(rng: np.random.Generator,
                       raw * (1.0 + SKEW_ASYMMETRY),
                       raw * (1.0 - SKEW_ASYMMETRY))
 
-    return (skewed - skewed.mean(axis=0)) / skewed.std(axis=0)
+    # `np.asarray` is for mypy, not for numpy: on the numpy that CI resolves,
+    # ndarray arithmetic types as Any, and a bare return trips --strict's
+    # no-any-return. It is a no-op at runtime on an array that already is one.
+    return np.asarray((skewed - skewed.mean(axis=0)) / skewed.std(axis=0))
 
 
 def simulate_gjr(rng: np.random.Generator,
@@ -193,7 +196,7 @@ def pin_realised_variance(series: np.ndarray,
     Idiosyncratic series are deliberately left alone, so a name's realised
     volatility still varies around its target the way a real one does.
     """
-    return series * np.sqrt(target_variance / series.var(axis=0))
+    return np.asarray(series * np.sqrt(target_variance / series.var(axis=0)))
 
 
 def _draw_parameters(rng: np.random.Generator,
