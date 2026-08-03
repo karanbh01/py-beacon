@@ -102,6 +102,7 @@ stays light:
 | `excel` | openpyxl | `ReportGenerator` Excel output |
 | `optimise` | scipy | Portfolio optimisation |
 | `plot` | matplotlib | Chart accessors on result objects |
+| `calendars` | exchange_calendars | Real trading calendars for rebalance schedules |
 | `plot-interactive` | plotly | Interactive charts (planned) |
 | `server` | fastapi, uvicorn, orjson, websockets | The local API server |
 | `dev` | pytest, ruff, mypy, pre-commit, hypothesis | Contributing |
@@ -174,6 +175,23 @@ operator narrowing what may call the server should not find extras still
 permitted. The allowed set is logged at startup, because a CORS failure
 otherwise appears only in a browser console on the far side of the process
 boundary.
+
+### Rebalance schedules and trading calendars
+
+An index carries a cadence (`MONTHLY`…`ANNUAL`) and a day rule —
+`FIRST_BUSINESS_DAY`, `LAST_BUSINESS_DAY` or `THIRD_FRIDAY`. Naming a `calendar`
+(an exchange MIC such as `XNYS`) backs the arithmetic with real holidays, and a
+date landing on one rolls back to the previous session.
+
+`GET /indices/{id}/schedule` returns the next rebalance and the days until it,
+derived from the schedule and the calendar rather than stored — a stored date
+would silently expire.
+
+Both default to the previous behaviour: no calendar means Monday to Friday, and
+no day rule means the first business day of the month, so every index defined
+before these fields existed produces exactly the dates it always did. Naming a
+calendar **requires** the `calendars` extra rather than falling back, because
+two installations must not compute different indices from one definition.
 
 ### Discovering what a methodology can contain
 

@@ -22,6 +22,7 @@ from ..exceptions import InvalidRuleError
 from ..index import methodology  # noqa: F401
 from ..index.capping import minimum_feasible_cap
 from ..index.constructor import IndexDefinition
+from ..index.schedule import DAY_RULES, is_known_calendar
 from .schemas import Finding, IndexDocument, RuleSpec
 
 
@@ -129,6 +130,47 @@ def _validate_rule_semantics(rule: RuleSpec,
             severity="error",
             code="INVALID_VALUE",
             message="lookback_days must be positive."))
+
+    return findings
+
+
+def _validate_schedule(document: IndexDocument) -> list[Finding]:
+    """Check the scheduling metadata for combinations that cannot be honoured."""
+    findings: list[Finding] = []
+
+    if document.rebalance_day_rule not in DAY_RULES:
+        findings.append(Finding(
+            path="rebalance_day_rule",
+            rule_id=None,
+            severity="error",
+            code="UNKNOWN_DAY_RULE",
+            message=f"'{document.rebalance_day_rule}' is not a known day rule. "
+                    f"Available: {', '.join(sorted(DAY_RULES))}."))
+
+    if document.calendar is not None and not is_known_calendar(document.calendar):
+        # An error rather than a warning: falling back to business days would
+        # make the index compute differently from the one that was defined,
+        # with nothing on screen to say so.
+        findings.append(Finding(
+            path="calendar",
+            rule_id=None,
+            severity="error",
+            code="UNKNOWN_CALENDAR",
+            message=f"'{document.calendar}' is not a trading calendar this "
+                    f"server can use. Install the `calendars` extra, or use a "
+                    f"MIC such as XNYS or XLON."))
+
+    if document.effective_lag_sessions > 0:
+        # A warning, not an error: the field is stored deliberately and will be
+        # honoured by BN-126. Silence would let a user believe it already is.
+        findings.append(Finding(
+            path="effective_lag_sessions",
+            rule_id=None,
+            severity="warning",
+            code="EFFECTIVE_LAG_NOT_APPLIED",
+            message="An effective-date lag is recorded but not yet applied: "
+                    "weights still take effect on the announcement date. "
+                    "Tracked as BN-126."))
 
     return findings
 
@@ -302,6 +344,7 @@ def validate_document(document: IndexDocument) -> list[Finding]:
 
     findings.extend(_validate_weighting(document))
     findings.extend(_validate_treatment(document))
+    findings.extend(_validate_schedule(document))
 
     return findings
 
@@ -343,4 +386,6 @@ def build_index_definition(document: IndexDocument) -> IndexDefinition:
                            rebalancing_frequency=document.rebalancing_frequency,
                            description=document.description,
                            universe_identifiers=list(document.universe.identifiers),
-                           max_constituent_weight=weighting.max_weight)
+                           max_constituent_weight=weighting.max_weight,
+                           rebalance_day_rule=document.rebalance_day_rule,
+                           calendar=document.calendar)

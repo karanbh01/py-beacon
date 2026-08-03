@@ -16,6 +16,7 @@ from .exceptions import MissingDependencyError
 # Optional module -> the pyproject.toml extra that provides it. Every module
 # passed to require() must appear here; a missing entry is a packaging bug.
 EXTRA_FOR_MODULE = {
+    "exchange_calendars": "calendars",
     "fastapi": "server",
     "matplotlib": "plot",
     "openpyxl": "excel",

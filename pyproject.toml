@@ -33,6 +33,10 @@ dependencies = ["pandas", "numpy", "pydantic>=2"]
 # Core stays importable without any of these. Modules that need one import it
 # through beacon._optional.require(), which names the extra when it is absent.
 [project.optional-dependencies]
+# Trading calendars for schedule arithmetic (BN-121). An index that names a
+# calendar needs this; one that does not gets business days and imports
+# nothing, so the core stays pandas-and-numpy only.
+calendars = ["exchange_calendars"]
 data = ["yfinance"]
 excel = ["openpyxl"]
 pdf = ["reportlab"]
@@ -49,7 +53,7 @@ plot-interactive = ["plotly"]         # placeholder extra; backend lands in BN-8
 # — mounting routers conditionally on what is installed — would make the API
 # surface vary by installation, and the client contract with it.
 server = ["fastapi", "uvicorn[standard]", "orjson", "websockets", "platformdirs",
-          "py-beacon[optimise]", "py-beacon[pdf]"]
+          "py-beacon[optimise]", "py-beacon[pdf]", "py-beacon[calendars]"]
 # The gallery renders the frontier and optimiser charts, so building the
 # docs needs the optimiser as well as matplotlib.
 docs = ["mkdocs-material", "mkdocstrings[python]", "py-beacon[plot]",
@@ -59,6 +63,7 @@ dev = [
   "py-beacon[optimise]", # and the optimiser tests solve real problems
   "py-beacon[pdf]",      # and the report tests render real documents
   "py-beacon[plot]",     # and the chart tests draw real figures
+  "py-beacon[calendars]", # and the schedule tests use real holidays
   "pytest-mpl",          # image regression over every chart
   "pytest",
   "pytest-asyncio",      # the job registry is driven on an event loop
@@ -189,6 +194,13 @@ ignore_missing_imports = true
 # out of it, so untyped here costs very little.
 [[tool.mypy.overrides]]
 module = ["reportlab.*"]
+ignore_missing_imports = true
+
+# exchange_calendars ships no py.typed marker. One module touches it, and reads
+# back only a DatetimeIndex of sessions and a list of calendar names, both of
+# which are re-typed at the boundary.
+[[tool.mypy.overrides]]
+module = ["exchange_calendars.*"]
 ignore_missing_imports = true
 
 [tool.hatch.version]

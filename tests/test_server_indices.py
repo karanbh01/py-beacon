@@ -70,6 +70,20 @@ def findings_from(response) -> list[dict]:
     return response.json()["error"]["detail"]["findings"]
 
 
+def as_stored(document: dict) -> dict:
+    """A document as the schema defines it, defaults filled in.
+
+    Round-trips are compared against this rather than against the literal that
+    was posted. A definition that omits an optional field gets the default back,
+    which is correct behaviour and not a difference worth failing on — and
+    comparing to the literal would break on every additive field anyone ever
+    adds, as BN-121's five did.
+    """
+    from beacon.server.schemas import IndexDocument
+
+    return IndexDocument.model_validate(document).model_dump()
+
+
 class TestRoundTrip:
     """The acceptance criterion: a TECH10 definition round-trips."""
 
@@ -81,7 +95,7 @@ class TestRoundTrip:
 
         fetched = client.get("/indices/TECH10", headers=auth()).json()
 
-        assert fetched == tech10()
+        assert fetched == as_stored(tech10())
 
     def test_saved_definition_reports_no_findings(self,
                                                   client):
@@ -99,7 +113,8 @@ class TestRoundTrip:
         second = TestClient(create_app(ServerConfig(auth_token=TOKEN,
                                                     storage_root=tmp_path)))
 
-        assert second.get("/indices/TECH10", headers=auth()).json() == tech10()
+        assert (second.get("/indices/TECH10", headers=auth()).json()
+                == as_stored(tech10()))
 
     def test_listing_includes_it(self,
                                  client):

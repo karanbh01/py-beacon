@@ -7,6 +7,12 @@ import logging
 import pandas as pd
 
 from .methodology import EligibilityRuleBase, WeightingSchemeBase
+from .schedule import (
+    DAY_RULES,
+    DEFAULT_DAY_RULE,
+    next_rebalance,
+    rebalance_dates,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +31,9 @@ class IndexDefinition:
                  rebalancing_frequency: str, # e.g., 'QUARTERLY', 'MONTHLY', 'SEMI-ANNUAL', 'ANNUAL'
                  description: str | None = None,
                  universe_identifiers: list[str] | None = None,
-                 max_constituent_weight: float | None = None):
+                 max_constituent_weight: float | None = None,
+                 rebalance_day_rule: str = DEFAULT_DAY_RULE,
+                 calendar: str | None = None):
         """
         Initializes an IndexDefinition.
 
@@ -51,6 +59,16 @@ class IndexDefinition:
                                   after the weighting scheme and iterated until
                                   no constituent breaches it. None means
                                   uncapped.
+            rebalance_day_rule: Which day of a scheduled month the rebalance
+                                  falls on. Defaults to the first business day,
+                                  which is what every index defined before
+                                  BN-121 used.
+            calendar: Exchange MIC backing trading-day arithmetic, e.g.
+                                  ``"XNYS"``. None means Monday to Friday, again
+                                  the previous behaviour. Naming one requires
+                                  the `calendars` extra — an index that declares
+                                  a calendar must not quietly compute against a
+                                  different one.
         """
         if not index_id:
             raise ValueError("index_id cannot be empty.")
@@ -58,6 +76,10 @@ class IndexDefinition:
             raise ValueError("index_name cannot be empty.")
         if not base_date:
             raise ValueError("base_date cannot be empty.")
+        if rebalance_day_rule not in DAY_RULES:
+            raise ValueError(
+                f"Unsupported day rule: '{rebalance_day_rule}'. "
+                f"Supported: {', '.join(DAY_RULES)}.")
         if base_value <= 0:
             raise ValueError("base_value must be positive.")
         if not currency:
@@ -89,6 +111,8 @@ class IndexDefinition:
         self.description: str | None = description
         self.universe_identifiers: list[str] | None = universe_identifiers
         self.max_constituent_weight: float | None = max_constituent_weight
+        self.rebalance_day_rule: str = rebalance_day_rule
+        self.calendar: str | None = calendar
 
         logger.info(
             f"IndexDefinition for '{self.index_name}' ({self.index_id}) created successfully.")
@@ -98,7 +122,13 @@ class IndexDefinition:
                             end_date: str) -> list[pd.Timestamp]:
         """
         Return all rebalance dates within [start_date, end_date] based on
-        the index's rebalancing frequency. Dates are adjusted to business days.
+        the index's rebalancing frequency, day rule and calendar.
+
+        Delegates to `beacon.index.schedule`, which replaced the first-business-
+        day-of-month assumption this method used to hard-code. An index that
+        names neither a day rule nor a calendar gets exactly the dates it always
+        did — pinned by a test, because changing them would silently redate
+        every stored backtest.
 
         Args:
             start_date: Start of the range (YYYY-MM-DD), inclusive.
@@ -110,52 +140,30 @@ class IndexDefinition:
         Raises:
             ValueError: If the rebalancing frequency is unsupported.
         """
-        #todo: - This method currently supports only simple
-        #        monthly/quarterly/semi-annual/annual frequencies.
-        #      - More complex schedules (e.g. "Third Friday of March, June...")
-        #        would require a more sophisticated scheduler, potentially using
-        #        a library like `dateutil` or `pandas` offsets.
-        freq = self.rebalancing_frequency
-        freq_map = {
-            "MONTHLY": 1,
-            "QUARTERLY": 3,
-            "SEMI-ANNUAL": 6,
-            "ANNUAL": 12,
-        }
+        return rebalance_dates(self.rebalancing_frequency,
+                               start_date,
+                               end_date,
+                               self.rebalance_day_rule,
+                               self.calendar)
 
-        if freq not in freq_map:
-            raise ValueError(
-                f"Unsupported rebalancing frequency: '{freq}'. "
-                f"Supported values: {list(freq_map.keys())}"
-            )
+    def next_rebalance(self,
+                       as_of: str) -> pd.Timestamp | None:
+        """The first rebalance strictly after a date.
 
-        interval_months = freq_map[freq]
-        start = pd.Timestamp(start_date)
-        end = pd.Timestamp(end_date)
+        Anchored on the base date, like every other date this class produces,
+        so the answer names a day the index would genuinely rebalance on.
 
-        # Generate first-business-day-of-month dates covering the range
-        # BMonthBegin gives the first business day of each month
-        all_bmonth_starts = pd.date_range(
-            start=start - pd.offsets.MonthBegin(1),
-            end=end + pd.offsets.MonthEnd(1),
-            freq="BMS",  # Business Month Start
-        )
+        Args:
+            as_of: The date being asked from, YYYY-MM-DD.
 
-        # Filter to only months matching the interval from the first candidate
-        candidates = [d for d in all_bmonth_starts if start <= d <= end]
-
-        if not candidates:
-            return []
-
-        # Select dates at the specified interval starting from the first candidate
-        rebalance_dates = [candidates[0]]
-        for d in candidates[1:]:
-            months_diff = ((d.year - rebalance_dates[-1].year) * 12
-                            + (d.month - rebalance_dates[-1].month))
-            if months_diff >= interval_months:
-                rebalance_dates.append(d)
-
-        return rebalance_dates
+        Returns:
+            The date, or None if none falls within the lookahead window.
+        """
+        return next_rebalance(self.rebalancing_frequency,
+                              self.base_date,
+                              as_of,
+                              self.rebalance_day_rule,
+                              self.calendar)
 
     def __repr__(self) -> str:
         universe_size = len(self.universe_identifiers) if self.universe_identifiers else 0

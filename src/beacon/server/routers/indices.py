@@ -7,10 +7,15 @@ needs every problem at once, each addressable to the rule that caused it, so
 the client can mark the offending row rather than showing one message for the
 whole form.
 """
+from typing import Annotated
+
+import pandas as pd
+
 from ... import catalogue
 from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError, DataNotFoundError, InvalidRuleError
+from ...index.schedule import FREQUENCY_MONTHS, next_rebalance, rebalance_dates
 from ..config import ServerConfig
 from ..definitions import PipelineValidationError, has_errors, validate_document
 from ..preview import build_preview
@@ -22,6 +27,7 @@ from ..schemas import (
     PreviewResponse,
     RuleTypes,
     SavedIndex,
+    ScheduleView,
     ValidationReport,
 )
 from ..store import DocumentStore
@@ -30,9 +36,13 @@ from .universes import load_universe
 
 require("fastapi", "The Beacon API server")
 
-from fastapi import APIRouter, Request  # noqa: E402
+from fastapi import APIRouter, Query, Request  # noqa: E402
 
 COLLECTION = "indices"
+
+AsOfQuery = Annotated[
+    str | None,
+    Query(description="Date to answer from, YYYY-MM-DD. Defaults to today.")]
 
 
 def _store(request: Request) -> DocumentStore:
@@ -75,6 +85,60 @@ def _resolve_universe(request: Request,
     resolved.universe.identifiers = list(universe.identifiers)
 
     return resolved
+
+
+# How much history and how far ahead the schedule view shows. Enough for a
+# client to render "last rebalanced / next rebalance" and a short strip either
+# side, without projecting a decade of dates nobody asked for.
+SCHEDULE_HORIZON_PERIODS = 4
+
+
+def build_schedule(document: IndexDocument,
+                   as_of: str | None = None) -> ScheduleView:
+    """Derive an index's rebalance schedule around a date.
+
+    Derived rather than stored: the next rebalance is a function of the
+    schedule, the calendar and today, so storing it would leave a date that
+    silently expires.
+
+    Args:
+        document: The index definition.
+        as_of: The date to answer from; defaults to today.
+
+    Returns:
+        ScheduleView: The next rebalance, days until, and a short strip of
+        dates either side.
+    """
+    today = pd.Timestamp(as_of) if as_of else pd.Timestamp.today().normalize()
+
+    upcoming_date = next_rebalance(document.rebalancing_frequency,
+                                   document.base_date,
+                                   today,
+                                   document.rebalance_day_rule,
+                                   document.calendar)
+
+    months = FREQUENCY_MONTHS[document.rebalancing_frequency]
+    window = rebalance_dates(document.rebalancing_frequency,
+                             document.base_date,
+                             today + pd.DateOffset(
+                                 months=months * SCHEDULE_HORIZON_PERIODS),
+                             document.rebalance_day_rule,
+                             document.calendar)
+
+    return ScheduleView(
+        index_id=document.id,
+        rebalancing_frequency=document.rebalancing_frequency,
+        rebalance_day_rule=document.rebalance_day_rule,
+        calendar=document.calendar,
+        as_of=str(today.date()),
+        next_rebalance=str(upcoming_date.date()) if upcoming_date else None,
+        # Calendar days, not sessions: it renders as "in 57 days" and a reader
+        # counts those on a wall calendar.
+        days_until=((upcoming_date - today).days if upcoming_date else None),
+        recent=[str(date.date()) for date in window if date <= today][
+            -SCHEDULE_HORIZON_PERIODS:],
+        upcoming=[str(date.date()) for date in window if date > today][
+            :SCHEDULE_HORIZON_PERIODS])
 
 
 def build_indices_router() -> APIRouter:
@@ -157,6 +221,16 @@ def build_indices_router() -> APIRouter:
         return build_preview(IndexDocument.model_validate(document),
                              _data_fetcher(request),
                              as_of)
+
+    @router.get("/{index_id}/schedule", response_model=ScheduleView)
+    def schedule(request: Request,
+                 index_id: str,
+                 asof: AsOfQuery = None) -> ScheduleView:
+        stored = _store(request).read(index_id)
+        if stored is None:
+            raise DataNotFoundError(f"index '{index_id}'", source="DocumentStore")
+
+        return build_schedule(IndexDocument.model_validate(stored), asof)
 
     @router.get("/{index_id}", response_model=IndexDocument)
     def get_index(request: Request,

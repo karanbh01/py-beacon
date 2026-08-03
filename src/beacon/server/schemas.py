@@ -474,10 +474,47 @@ class IndexDocument(BaseModel):
     base_value: float = Field(description="Index level on the base date.")
     currency: str = Field(description="Index currency.", min_length=3, max_length=3)
     rebalancing_frequency: str = Field(
-        description="MONTHLY, QUARTERLY, SEMI-ANNUAL or ANNUAL.")
+        description="MONTHLY, QUARTERLY, SEMI-ANNUAL or ANNUAL. The cadence; "
+                    "`rebalance_day_rule` decides which day of the month.")
     universe: UniverseRef
     pipeline: PipelineSpec
     description: str | None = None
+
+    # --- BN-121 metadata. All defaulted, so every stored document stays valid
+    # and no migration is needed; the defaults are the behaviour indices were
+    # defined against before these fields existed.
+    return_type: Literal["PRICE"] = Field(
+        default="PRICE",
+        description="How returns are accumulated. Only PRICE is offered: the "
+                    "calculator has no dividend reinvestment, and accepting "
+                    "'TOTAL_RETURN' would label every level on screen as "
+                    "something the numbers are not. Widens when BN-125 lands.")
+    calendar: str | None = Field(
+        default=None,
+        description="Exchange MIC backing trading-day arithmetic, e.g. "
+                    "'XNYS'. Null means Monday to Friday, which is what every "
+                    "index defined before this field used. Naming one requires "
+                    "the `calendars` extra — an index that declares a calendar "
+                    "must never quietly compute against a different one.")
+    rebalance_day_rule: str = Field(
+        default="FIRST_BUSINESS_DAY",
+        description="Which day of a scheduled month the rebalance falls on: "
+                    "FIRST_BUSINESS_DAY, LAST_BUSINESS_DAY or THIRD_FRIDAY. A "
+                    "date landing on a holiday rolls back to the previous "
+                    "session.")
+    publication_time: str | None = Field(
+        default=None,
+        description="When the level is published, e.g. '18:00 America/"
+                    "New_York'. Display metadata: it says when a figure is "
+                    "released and changes no figure, so nothing in the "
+                    "calculation reads it.")
+    effective_lag_sessions: int = Field(
+        default=0,
+        ge=0,
+        description="Sessions between a rebalance being announced and its "
+                    "weights taking effect. Stored now, honoured by the "
+                    "calculator in BN-126; until then it is declared and not "
+                    "applied, and 0 is the behaviour in force.")
 
 
 class Finding(BaseModel):
@@ -1104,6 +1141,37 @@ class UniverseMembers(BaseModel):
     """Response of `GET /universes/{id}/members`."""
     universe_id: str
     identifiers: list[str]
+
+
+class ScheduleView(BaseModel):
+    """Response of `GET /indices/{index_id}/schedule`.
+
+    Derived, not stored: the next rebalance is a function of the schedule, the
+    calendar and today, and storing it would leave a date that silently expires.
+    """
+    index_id: str
+    rebalancing_frequency: str
+    rebalance_day_rule: str
+    calendar: str | None = Field(
+        default=None, description="Null means business days.")
+    as_of: str = Field(description="Date the answer was computed from.")
+    next_rebalance: str | None = Field(
+        default=None,
+        description="Next rebalance date, ISO 8601. Null when none falls "
+                    "within the lookahead — which happens only for a schedule "
+                    "this server cannot project, not for a normal index.")
+    days_until: int | None = Field(
+        default=None,
+        description="Calendar days from `as_of` to `next_rebalance`. Calendar "
+                    "days rather than sessions, because it is displayed as "
+                    "'in 57 days' and a reader counts those on a wall "
+                    "calendar.")
+    recent: list[str] = Field(
+        default_factory=list,
+        description="Rebalances already passed, most recent last.")
+    upcoming: list[str] = Field(
+        default_factory=list,
+        description="Scheduled rebalances after `as_of`, soonest first.")
 
 
 class PreviewRequest(BaseModel):
