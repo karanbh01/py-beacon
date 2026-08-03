@@ -20,6 +20,7 @@ from ..exceptions import InvalidRuleError
 # themselves in the catalogue when their module loads, and nothing else here
 # names them any more.
 from ..index import methodology  # noqa: F401
+from ..index.calculation.total_return import NET_TOTAL_RETURN
 from ..index.capping import minimum_feasible_cap
 from ..index.constructor import IndexDefinition
 from ..index.schedule import DAY_RULES, is_known_calendar
@@ -159,6 +160,30 @@ def _validate_schedule(document: IndexDocument) -> list[Finding]:
             message=f"'{document.calendar}' is not a trading calendar this "
                     f"server can use. Install the `calendars` extra, or use a "
                     f"MIC such as XNYS or XLON."))
+
+    if (document.return_type == NET_TOTAL_RETURN
+            and document.withholding_tax_rate == 0.0):
+        # A net index withholding nothing is a gross index under another name.
+        # Warned rather than blocked: zero is a legitimate rate for a domestic
+        # index, and the surprise is worth flagging without stopping a save.
+        findings.append(Finding(
+            path="withholding_tax_rate",
+            rule_id=None,
+            severity="warning",
+            code="NET_RETURN_WITHOUT_WITHHOLDING",
+            message="A net-total-return index with a zero withholding rate "
+                    "produces the same levels as a gross one."))
+
+    if (document.withholding_tax_rate > 0.0
+            and document.return_type != NET_TOTAL_RETURN):
+        findings.append(Finding(
+            path="withholding_tax_rate",
+            rule_id=None,
+            severity="warning",
+            code="WITHHOLDING_NOT_APPLIED",
+            message=f"A withholding rate is set but `return_type` is "
+                    f"'{document.return_type}', so nothing is withheld. Only "
+                    f"NET_TOTAL_RETURN applies it."))
 
     if document.effective_lag_sessions > 0:
         # A warning, not an error: the field is stored deliberately and will be
@@ -388,4 +413,6 @@ def build_index_definition(document: IndexDocument) -> IndexDefinition:
                            universe_identifiers=list(document.universe.identifiers),
                            max_constituent_weight=weighting.max_weight,
                            rebalance_day_rule=document.rebalance_day_rule,
-                           calendar=document.calendar)
+                           calendar=document.calendar,
+                           return_type=document.return_type,
+                           withholding_tax_rate=document.withholding_tax_rate)

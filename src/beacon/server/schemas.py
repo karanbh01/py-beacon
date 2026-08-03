@@ -483,12 +483,23 @@ class IndexDocument(BaseModel):
     # --- BN-121 metadata. All defaulted, so every stored document stays valid
     # and no migration is needed; the defaults are the behaviour indices were
     # defined against before these fields existed.
-    return_type: Literal["PRICE"] = Field(
+    return_type: Literal["PRICE", "TOTAL_RETURN", "NET_TOTAL_RETURN"] = Field(
         default="PRICE",
-        description="How returns are accumulated. Only PRICE is offered: the "
-                    "calculator has no dividend reinvestment, and accepting "
-                    "'TOTAL_RETURN' would label every level on screen as "
-                    "something the numbers are not. Widens when BN-125 lands.")
+        description="How returns accumulate. PRICE ignores distributions; "
+                    "TOTAL_RETURN reinvests them across the index by shrinking "
+                    "the divisor; NET_TOTAL_RETURN does the same after "
+                    "withholding tax. PRICE is the default, so an index "
+                    "defined before this existed is unchanged.")
+    withholding_tax_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        lt=1.0,
+        description="Fraction of each distribution withheld, for a net index. "
+                    "A flat index-level rate rather than a per-country table: "
+                    "a table is only as good as the country field behind it, "
+                    "and an unpopulated one produces a number that looks "
+                    "precise and is not. Ignored unless `return_type` is "
+                    "NET_TOTAL_RETURN.")
     calendar: str | None = Field(
         default=None,
         description="Exchange MIC backing trading-day arithmetic, e.g. "

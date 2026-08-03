@@ -176,6 +176,20 @@ permitted. The allowed set is logged at startup, because a CORS failure
 otherwise appears only in a browser console on the far side of the process
 boundary.
 
+### Price, total and net total return
+
+An index accumulates returns one of three ways. `PRICE` ignores distributions
+and is the default. `TOTAL_RETURN` reinvests each cash distribution across the
+index by shrinking the divisor, and `NET_TOTAL_RETURN` does the same after a
+flat `withholding_tax_rate`.
+
+Reinvestment is a divisor adjustment rather than a purchase: buying more units
+of whichever constituent paid would re-weight the index towards it and make the
+composition depend on the return type, so a price and a total-return version of
+one index would hold different things. Only actions whose `kind` is `cash`
+reinvest — a split changes the share count and the price together and
+distributes nothing.
+
 ### Rebalance schedules and trading calendars
 
 An index carries a cadence (`MONTHLY`…`ANNUAL`) and a day rule —

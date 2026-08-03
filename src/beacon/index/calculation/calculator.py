@@ -22,10 +22,12 @@ from .selection import (
     SelectionStep,
     select_with_provenance,
 )
+from .total_return import REINVESTING, TotalReturnMixin, withholding_for
 
 logger = logging.getLogger(__name__)
 
-class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
+class IndexCalculator(MarketValuesMixin,
+                      TotalReturnMixin, CorporateActionsMixin):
     """
     Stateless index calculator. Accepts an IndexDefinition and DataFetcher,
     and provides methods for constituent selection, weighting, index level
@@ -405,6 +407,14 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
         # uncapped index carries an empty mapping rather than noise.
         cap_reports: dict[pd.Timestamp, CapReport] = {}
 
+        # Cash distributions, loaded once. A price index skips this entirely,
+        # so it costs nothing and reads no action history — which is what keeps
+        # every index defined before BN-125 producing identical levels.
+        reinvesting = self.definition.return_type in REINVESTING
+        distributions = self.cash_distribution_schedule() if reinvesting else {}
+        withholding = withholding_for(self.definition.return_type,
+                                      self.definition.withholding_tax_rate)
+
         # Running state. `units` is what the index actually holds: fixed
         # between rebalances, so weights drift with relative performance
         # instead of being reset every day.
@@ -455,6 +465,18 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
                 # the divisor adjustment preserves.
                 old_aggregate = self.aggregate_value(units, date)
 
+                # The outgoing holdings are the ones that went ex today, so the
+                # reinvestment belongs to them and has to happen before the
+                # composition changes. Adjusting the divisor here composes with
+                # the continuity adjustment below: that one preserves whatever
+                # level is in force, which now includes the distribution.
+                if reinvesting:
+                    divisor = self.reinvest(
+                        divisor, old_aggregate,
+                        self.distribution_received(units,
+                                                   distributions.get(date, {}),
+                                                   withholding))
+
                 # Reconstitute
                 constituents_raw = self._get_universe(date)
                 constituents = self.select_constituents(constituents_raw, date)
@@ -492,6 +514,13 @@ class IndexCalculator(MarketValuesMixin, CorporateActionsMixin):
                     # Before base date initialisation or no constituents
                     pass
                 else:
+                    if reinvesting:
+                        divisor = self.reinvest(
+                            divisor,
+                            self.aggregate_value(units, date),
+                            self.distribution_received(
+                                units, distributions.get(date, {}), withholding))
+
                     level = self.level_from_units(
                         units=units,
                         divisor=divisor,

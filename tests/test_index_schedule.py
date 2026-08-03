@@ -367,11 +367,18 @@ class TestDocumentMetadata:
 
         assert parsed.id == "IDX"
 
-    def test_total_return_is_refused(self, client):
-        """The calculator has no dividend reinvestment, so accepting it would
-        label levels as something the numbers are not."""
+    def test_total_return_is_accepted_since_bn_125(self, client):
+        """BN-121 restricted this to PRICE because the calculator had no
+        dividend reinvestment; BN-125 gave it one, so the enum widened."""
         response = client.post("/indices",
                                json=document(return_type="TOTAL_RETURN"),
+                               headers=auth())
+
+        assert response.status_code == 200, response.text
+
+    def test_an_unknown_return_type_is_still_refused(self, client):
+        response = client.post("/indices",
+                               json=document(return_type="GROSS_OF_FEES"),
                                headers=auth())
 
         assert response.status_code == 422

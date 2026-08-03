@@ -6,6 +6,7 @@ import logging
 
 import pandas as pd
 
+from .calculation.total_return import PRICE, RETURN_TYPES
 from .methodology import EligibilityRuleBase, WeightingSchemeBase
 from .schedule import (
     DAY_RULES,
@@ -33,7 +34,9 @@ class IndexDefinition:
                  universe_identifiers: list[str] | None = None,
                  max_constituent_weight: float | None = None,
                  rebalance_day_rule: str = DEFAULT_DAY_RULE,
-                 calendar: str | None = None):
+                 calendar: str | None = None,
+                 return_type: str = PRICE,
+                 withholding_tax_rate: float = 0.0):
         """
         Initializes an IndexDefinition.
 
@@ -69,6 +72,14 @@ class IndexDefinition:
                                   the `calendars` extra — an index that declares
                                   a calendar must not quietly compute against a
                                   different one.
+            return_type: PRICE, TOTAL_RETURN or NET_TOTAL_RETURN. PRICE is the
+                                  default and the behaviour of every index
+                                  defined before BN-125; the other two reinvest
+                                  cash distributions across the index.
+            withholding_tax_rate: Fraction of each distribution withheld, for a
+                                  net index. Ignored unless the return type is
+                                  NET_TOTAL_RETURN, so a definition carrying a
+                                  rate it does not use cannot quietly apply it.
         """
         if not index_id:
             raise ValueError("index_id cannot be empty.")
@@ -80,6 +91,14 @@ class IndexDefinition:
             raise ValueError(
                 f"Unsupported day rule: '{rebalance_day_rule}'. "
                 f"Supported: {', '.join(DAY_RULES)}.")
+        if return_type not in RETURN_TYPES:
+            raise ValueError(
+                f"Unsupported return type: '{return_type}'. "
+                f"Supported: {', '.join(RETURN_TYPES)}.")
+        if not 0.0 <= withholding_tax_rate < 1.0:
+            raise ValueError(
+                "withholding_tax_rate must be in [0, 1); got "
+                f"{withholding_tax_rate}.")
         if base_value <= 0:
             raise ValueError("base_value must be positive.")
         if not currency:
@@ -113,6 +132,8 @@ class IndexDefinition:
         self.max_constituent_weight: float | None = max_constituent_weight
         self.rebalance_day_rule: str = rebalance_day_rule
         self.calendar: str | None = calendar
+        self.return_type: str = return_type
+        self.withholding_tax_rate: float = withholding_tax_rate
 
         logger.info(
             f"IndexDefinition for '{self.index_name}' ({self.index_id}) created successfully.")
