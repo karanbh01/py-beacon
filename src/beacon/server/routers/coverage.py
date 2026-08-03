@@ -18,7 +18,13 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ..._optional import require
-from ...data.fetcher import DataFetcher
+from ...data import store
+from ...data.fetcher import (
+    ACTIONS_DATASET,
+    FREQUENCY_FOR_DATASET,
+    STALE_AFTER_SECONDS,
+    DataFetcher,
+)
 from ...data.ingest import (
     Downloader,
     IngestResult,
@@ -39,6 +45,11 @@ logger = logging.getLogger(__name__)
 
 MARKET = "market"
 REFERENCE = "reference"
+ACTIONS = ACTIONS_DATASET
+
+# Syncable datasets. Corporate actions are reported by coverage but not
+# synced: nothing downloads them yet, and offering a sync that cannot run
+# would be a button that always fails.
 DATASETS = (MARKET, REFERENCE)
 
 
@@ -46,14 +57,37 @@ def _freshness(fetcher: DataFetcher,
                dataset: str) -> dict[str, Any]:
     """Age and timestamp for one dataset.
 
-    Both, not just the age: an age is only true at the instant it was read, and
-    a client holding a response for a minute needs the timestamp to work out
-    what it now has.
+    Both age and timestamp, not just the age: an age is only true at the
+    instant it was read, and a client holding a response for a minute needs the
+    timestamp to work out what it now has.
+
+    The frequency and its threshold travel with them so a client renders
+    "stale" without holding its own 24h/7d numbers. A threshold in a UI is a
+    guess at a property of the data, and it diverges from the engine the moment
+    either changes.
     """
     stamped = fetcher.last_refreshed(dataset)
+    frequency = FREQUENCY_FOR_DATASET[dataset]
 
     return {"cache_age": fetcher.age_seconds(dataset),
-            "last_refreshed": stamped.isoformat() if stamped else None}
+            "last_refreshed": stamped.isoformat() if stamped else None,
+            "frequency": frequency,
+            "stale_after_seconds": STALE_AFTER_SECONDS[frequency]}
+
+
+def _provenance(fetcher: DataFetcher,
+                dataset: str) -> dict[str, Any]:
+    """Where a dataset came from, and what it costs on disk.
+
+    The size is this dataset's file, not the whole store: three rows each
+    showing the store total would display the same number three times and make
+    any sum of them wrong. The store total is reported once, at the top.
+    """
+    path = fetcher.store_path
+
+    return {"source": fetcher.source,
+            "cache_size_bytes": (store.dataset_size_on_disk(path, dataset)
+                                 if path else None)}
 
 
 def _market_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
@@ -61,10 +95,13 @@ def _market_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
     if fetcher is None:
         return DatasetCoverage(dataset=MARKET, configured=False, identifiers=0)
 
+    common = {**_freshness(fetcher, MARKET), **_provenance(fetcher, MARKET),
+              "field_count": len(fetcher.market_columns)}
+
     identifiers = fetcher.identifiers
     if not identifiers:
         return DatasetCoverage(dataset=MARKET, configured=True, identifiers=0,
-                               **_freshness(fetcher, MARKET))
+                               **common)
 
     start, end = fetcher.date_range
 
@@ -73,7 +110,7 @@ def _market_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
                            identifiers=len(identifiers),
                            start=start.isoformat(),
                            end=end.isoformat(),
-                           **_freshness(fetcher, MARKET))
+                           **common)
 
 
 def _reference_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
@@ -85,10 +122,58 @@ def _reference_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
     if fetcher is None or fetcher.reference_identifiers is None:
         return DatasetCoverage(dataset=REFERENCE, configured=False, identifiers=0)
 
+    # The validity columns are keys, not fields: counting DATE_FROM and DATE_TO
+    # would make "three fields held" mean one real attribute.
+    columns = [name for name in (fetcher.reference_columns or [])
+               if name not in ("DATE_FROM", "DATE_TO")]
+
     return DatasetCoverage(dataset=REFERENCE,
                            configured=True,
                            identifiers=len(fetcher.reference_identifiers),
-                           **_freshness(fetcher, REFERENCE))
+                           field_count=len(columns),
+                           **_freshness(fetcher, REFERENCE),
+                           **_provenance(fetcher, REFERENCE))
+
+
+def _actions_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
+    """Describe the corporate-action history.
+
+    Reported even when empty, because "we hold no actions" is a fact the pane
+    should state rather than a dataset it should omit.
+    """
+    if fetcher is None or fetcher.corporate_actions.is_empty:
+        return DatasetCoverage(dataset=ACTIONS, configured=False, identifiers=0)
+
+    actions = fetcher.corporate_actions
+    dates = actions.data["EX_DATE"]
+    fields = [name for name in actions.data.columns
+              if name not in ("IDENTIFIER", "EX_DATE")]
+
+    return DatasetCoverage(dataset=ACTIONS,
+                           configured=True,
+                           identifiers=len(actions.identifiers),
+                           start=dates.min().isoformat(),
+                           end=dates.max().isoformat(),
+                           field_count=len(fields),
+                           **_freshness(fetcher, ACTIONS),
+                           **_provenance(fetcher, ACTIONS))
+
+
+def _identifiers_union(fetcher: DataFetcher | None) -> int:
+    """Distinct identifiers across every dataset.
+
+    Not the sum of the per-dataset counts. A name held in both market and
+    reference data would be counted twice, and "assets covered" would come out
+    above the size of the universe it is drawn from.
+    """
+    if fetcher is None:
+        return 0
+
+    names = set(fetcher.identifiers)
+    names |= set(fetcher.reference_identifiers or [])
+    names |= set(fetcher.corporate_actions.identifiers)
+
+    return len(names)
 
 
 def build_coverage_router() -> APIRouter:
@@ -104,8 +189,14 @@ def build_coverage_router() -> APIRouter:
         config: ServerConfig = request.app.state.config
         fetcher = config.data_fetcher
 
-        return CoverageResponse(datasets=[_market_coverage(fetcher),
-                                          _reference_coverage(fetcher)])
+        path = fetcher.store_path if fetcher else None
+
+        return CoverageResponse(
+            datasets=[_market_coverage(fetcher),
+                      _reference_coverage(fetcher),
+                      _actions_coverage(fetcher)],
+            identifiers_union=_identifiers_union(fetcher),
+            cache_size_bytes=store.size_on_disk(path) if path else None)
 
     # async, and it must stay that way: FastAPI runs a sync endpoint in a
     # worker thread, where there is no running event loop for the registry to

@@ -66,6 +66,15 @@ MARKET_FILE = "market.csv.gz"
 REFERENCE_FILE = "reference.csv.gz"
 ACTIONS_FILE = "corporate_actions.csv.gz"
 
+# Dataset name -> the file holding it. The names match
+# `DataFetcher.DATASETS`, so coverage can measure a dataset without
+# knowing this module's filenames.
+FILE_FOR_DATASET = {
+    "market": MARKET_FILE,
+    "reference": REFERENCE_FILE,
+    "corporate_actions": ACTIONS_FILE,
+}
+
 # Matches DocumentStore's app name, so a machine has one Beacon directory
 # rather than two that differ by a letter.
 APP_NAME = "beacon"
@@ -79,6 +88,7 @@ DATA_PATH_ENV_VAR = "BEACON_DATA_PATH"
 # of should be able to name itself rather than pick the closest lie.
 SOURCE_SYNTHETIC = "synthetic"
 SOURCE_LOCAL = "local"
+SOURCE_YFINANCE = "yfinance"
 
 # Passed to every to_csv call. Without the line terminator the same frame
 # written on two platforms differs in every row.
@@ -123,6 +133,51 @@ def default_path() -> Path:
     import platformdirs  # noqa: PLC0415
 
     return Path(platformdirs.user_data_dir(APP_NAME)) / STORE_DIRECTORY
+
+
+
+def size_on_disk(path: Path) -> int | None:
+    """Total bytes a store occupies, or None if it is not readable.
+
+    Every file in the directory, not just the ones this module writes: a store
+    a future version adds a file to should report its real size rather than a
+    figure that quietly excludes the new part.
+    """
+    if not path.is_dir():
+        return None
+
+    try:
+        return sum(entry.stat().st_size
+                   for entry in path.iterdir() if entry.is_file())
+    except OSError as exc:
+        logger.warning("Could not measure the store at %s: %s.", path, exc)
+
+        return None
+
+
+def dataset_size_on_disk(path: Path,
+                         dataset: str) -> int | None:
+    """Bytes one dataset's file occupies, or None if it is not there.
+
+    Per dataset rather than the whole store, so a coverage pane showing a size
+    against each row shows three different numbers that add up — reporting the
+    store total on every row would display the same figure three times and make
+    any sum of them wrong by a factor of three.
+    """
+    name = FILE_FOR_DATASET.get(dataset)
+    if name is None:
+        return None
+
+    target = path / name
+    if not target.is_file():
+        return None
+
+    try:
+        return target.stat().st_size
+    except OSError as exc:
+        logger.warning("Could not measure %s: %s.", target, exc)
+
+        return None
 
 
 def exists(path: Path) -> bool:
@@ -271,4 +326,11 @@ def load(path: Path) -> DataFetcher:
     logger.info("Loaded %d identifier(s) from the %s data store at %s.",
                 len(market.identifiers), manifest.source, path)
 
-    return DataFetcher(market, reference, actions)
+    fetcher = DataFetcher(market, reference, actions)
+
+    # Stamped here because this is the only place that knows: the manifest says
+    # who wrote the rows, and the path is what `/data/coverage` measures on
+    # disk. A fetcher built in-process keeps None for both, which is honest.
+    fetcher.record_origin(manifest.source, path)
+
+    return fetcher

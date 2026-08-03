@@ -1499,11 +1499,47 @@ class DatasetCoverage(BaseModel):
                     "Carried alongside the age because an age is only "
                     "meaningful at the instant it was read, and a client "
                     "holding a response for a minute needs the timestamp.")
+    frequency: str = Field(
+        default="static",
+        description="How often this dataset is expected to change: 'daily', "
+                    "'static' or 'event'. The engine's definition of what "
+                    "stale means, so a client renders staleness from this "
+                    "rather than from thresholds of its own.")
+    stale_after_seconds: float | None = Field(
+        default=None,
+        description="Age beyond which this dataset should read as stale. "
+                    "Published so the mapping from frequency to a duration "
+                    "lives in one place; null means the question does not "
+                    "apply, as for static data.")
+    source: str | None = Field(
+        default=None,
+        description="Where the data was loaded from, e.g. 'synthetic', "
+                    "'yfinance', 'local'. Null when a fetcher was assembled "
+                    "in-process and nothing recorded a provenance.")
+    field_count: int = Field(
+        default=0,
+        description="Data columns this dataset holds, excluding the "
+                    "identifier and date keys.")
+    cache_size_bytes: int | None = Field(
+        default=None,
+        description="Bytes the backing store occupies on disk. Null when the "
+                    "data did not come from a store, in which case it has no "
+                    "size to report rather than a size of zero.")
 
 
 class CoverageResponse(BaseModel):
     """Response of `GET /data/coverage`."""
     datasets: list[DatasetCoverage]
+    identifiers_union: int = Field(
+        default=0,
+        description="Distinct identifiers across every dataset. Not the sum "
+                    "of the per-dataset counts: a name present in both market "
+                    "and reference data would otherwise be counted twice, and "
+                    "'assets covered' would exceed the universe.")
+    cache_size_bytes: int | None = Field(
+        default=None,
+        description="Total bytes on disk for the whole store. Null when no "
+                    "store backs this process.")
 
 
 class ErrorDetail(BaseModel):

@@ -6,17 +6,46 @@ Accepts single identifiers or lists and passes through column names as-is.
 
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pandas as pd
 
 from .base import MarketData, ReferenceData
 from .corporate_actions import CorporateActions
 
-# The two datasets a fetcher can report freshness for. Named here so the server
+# The datasets a fetcher can report freshness for. Named here so the server
 # and the fetcher cannot drift apart on the spelling.
 MARKET_DATASET = "market"
 REFERENCE_DATASET = "reference"
-DATASETS = (MARKET_DATASET, REFERENCE_DATASET)
+ACTIONS_DATASET = "corporate_actions"
+DATASETS = (MARKET_DATASET, REFERENCE_DATASET, ACTIONS_DATASET)
+
+# How often a dataset is expected to change. This is the engine's answer to
+# what "stale" means, and it belongs here rather than in a client: a UI holding
+# its own 24h/7d thresholds is guessing at a property of the data, and guesses
+# diverge from the engine the moment either changes.
+DAILY = "daily"
+STATIC = "static"
+EVENT = "event"
+
+FREQUENCY_FOR_DATASET = {
+    MARKET_DATASET: DAILY,
+    # Names, sectors and listings change, but not on a schedule worth
+    # refreshing against. Reference data that is a month old is not stale.
+    REFERENCE_DATASET: STATIC,
+    # Driven by announcements, not by a clock. A quiet week is not staleness.
+    ACTIONS_DATASET: EVENT,
+}
+
+# Seconds after which a dataset of each frequency should be treated as stale.
+# Published alongside the frequency so a client renders "stale" without
+# encoding the mapping itself — which is the hardcoded threshold in another
+# place. None means the question does not apply.
+STALE_AFTER_SECONDS: dict[str, float | None] = {
+    DAILY: 60 * 60 * 24,
+    STATIC: None,
+    EVENT: 60 * 60 * 24 * 7,
+}
 
 # The classification column read when none is named. Sector is the one every
 # reference dataset carries and the one group constraints are usually built on.
@@ -56,7 +85,14 @@ class DataFetcher:
         self._refreshed: dict[str, datetime | None] = {
             MARKET_DATASET: now,
             REFERENCE_DATASET: now if reference_data is not None else None,
+            ACTIONS_DATASET: now if not self._actions.is_empty else None,
         }
+
+        # Where this data was loaded from, stamped by whatever built the
+        # fetcher. None for one assembled in-process: saying "local" would
+        # claim a provenance it does not have.
+        self._source: str | None = None
+        self._store_path: Path | None = None
 
     # -- properties ----------------------------------------------------------
 
@@ -106,6 +142,28 @@ class DataFetcher:
         answer to a question.
         """
         return self._market
+
+    @property
+    def source(self) -> str | None:
+        """Where this data was loaded from, or None if nothing recorded it.
+
+        Describes the *load*, not every row: a later sync merges rows from
+        somewhere else without changing where the store came from. Modelling
+        mixed provenance would need a source per row, which nothing asks for.
+        """
+        return self._source
+
+    @property
+    def store_path(self) -> Path | None:
+        """The store this was loaded from, if it came from one."""
+        return self._store_path
+
+    def record_origin(self,
+                      source: str,
+                      path: Path | None = None) -> None:
+        """Note where this fetcher's data was loaded from."""
+        self._source = source
+        self._store_path = path
 
     @property
     def reference(self) -> ReferenceData | None:

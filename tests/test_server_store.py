@@ -273,11 +273,15 @@ class TestWatchlists:
 
 class TestCoverage:
 
-    def test_reports_both_datasets(self,
+    def test_reports_every_dataset(self,
                                    client):
+        """Three since BN-119: corporate actions are reported even when the
+        fixture holds none, because "we hold no actions" is a fact the pane
+        should state rather than a row it should omit."""
         datasets = client.get("/data/coverage", headers=auth()).json()["datasets"]
 
-        assert {d["dataset"] for d in datasets} == {"market", "reference"}
+        assert {d["dataset"] for d in datasets} == {"market", "reference",
+                                                    "corporate_actions"}
 
     def test_market_coverage_reflects_the_loaded_data(self,
                                                       client):
@@ -305,11 +309,20 @@ class TestCoverage:
         loaded. It is tracked now, so a loaded dataset reports a real age.
         """
         datasets = client.get("/data/coverage", headers=auth()).json()["datasets"]
+        loaded = [d for d in datasets if d["configured"]]
 
-        for dataset in datasets:
+        assert loaded, "nothing was loaded, so this asserts nothing"
+
+        for dataset in loaded:
             assert dataset["cache_age"] is not None
             assert dataset["cache_age"] >= 0.0
             assert dataset["last_refreshed"] is not None
+
+        # An absent dataset reports null, which is a different statement from
+        # "loaded and never refreshed" and must not be collapsed into it.
+        for dataset in datasets:
+            if not dataset["configured"]:
+                assert dataset["cache_age"] is None
 
     def test_cache_age_is_null_when_a_dataset_is_absent(self,
                                                         tmp_path):
