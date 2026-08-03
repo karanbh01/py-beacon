@@ -1107,11 +1107,27 @@ class UniverseMembers(BaseModel):
 
 
 class PreviewRequest(BaseModel):
-    """Body of `POST /indices/{id}/preview`."""
+    """Body of `POST /indices/{id}/preview`, which previews the *saved* index."""
     as_of: str | None = Field(
         default=None,
         description="Date to evaluate the pipeline at, YYYY-MM-DD. Defaults "
                     "to the index's base date.")
+
+
+class PreviewDocumentRequest(BaseModel):
+    """Body of `POST /indices/preview`, which previews a document as supplied.
+
+    The route for a draft. The by-id route reads what is stored, so while an
+    editor holds unsaved changes its figures describe the old definition — with
+    nothing on screen to say they are stale. This one previews exactly what was
+    sent, so editing a rule updates the resolved figures without saving.
+    """
+    document: IndexDocument = Field(
+        description="The definition to derive, saved or not.")
+    as_of: str | None = Field(
+        default=None,
+        description="Date to evaluate the pipeline at, YYYY-MM-DD. Defaults "
+                    "to the document's base date.")
 
 
 class PreviewStep(BaseModel):

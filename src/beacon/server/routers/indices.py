@@ -17,6 +17,7 @@ from ..preview import build_preview
 from ..schemas import (
     IndexCollection,
     IndexDocument,
+    PreviewDocumentRequest,
     PreviewRequest,
     PreviewResponse,
     RuleTypes,
@@ -113,10 +114,40 @@ def build_indices_router() -> APIRouter:
 
         return ValidationReport(valid=not has_errors(findings), findings=findings)
 
+    @router.post("/preview",
+                 response_model=PreviewResponse,
+                 responses={422: {"model": ValidationReport}})
+    def preview_document(request: Request,
+                         body: PreviewDocumentRequest) -> PreviewResponse:
+        # The draft route. Its by-id sibling below reads what is *stored*, so
+        # an editor holding unsaved changes shows figures for the old
+        # definition with nothing to say they are stale.
+        #
+        # Universe resolution matters more here than there. A stored document
+        # was resolved on save and carries its identifiers; a draft has not
+        # been, so a definition referencing a universe by id would preview as
+        # an empty index without this.
+        resolved = _resolve_universe(request, body.document)
+
+        # Validated first, unlike the by-id route, which can trust that
+        # anything in the store passed on the way in. A draft naming a rule
+        # that does not exist should come back as findings the editor can point
+        # at, not as a 500 from the derivation.
+        findings = validate_document(resolved)
+        if has_errors(findings):
+            raise PipelineValidationError(f"index definition '{resolved.id}'",
+                                          "the rule pipeline has errors",
+                                          findings)
+
+        return build_preview(resolved, _data_fetcher(request), body.as_of)
+
     @router.post("/{index_id}/preview", response_model=PreviewResponse)
     def preview(request: Request,
                 index_id: str,
                 body: PreviewRequest | None = None) -> PreviewResponse:
+        # Kept alongside the body route: a saved-index view has an id and no
+        # document in hand, and making it send one back would mean fetching the
+        # definition purely to post it again.
         document = _store(request).read(index_id)
         if document is None:
             raise DataNotFoundError(f"index '{index_id}'", source="DocumentStore")
