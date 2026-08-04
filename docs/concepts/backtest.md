@@ -21,8 +21,13 @@ and, for each day:
 
 Rebalance dates come from the weight schedule's own keys — when driven by an
 `IndexResult`, that means `IndexResult.weight_snapshots`, which in turn come
-from `IndexDefinition.get_rebalance_dates()`. The engine only trades on
-schedule dates that also fall on a simulated business day.
+from `IndexDefinition.get_rebalance_dates()` and so honour the day rule and
+calendar described under [scheduling](methodology.md#scheduling). The engine
+only trades on schedule dates that also fall on a simulated business day.
+
+Snapshots are keyed by the date weights take **effect**, so an index with an
+announcement lag trades on effective dates without the engine needing to know
+that lags exist.
 
 ## Trade generation and costs
 
@@ -34,9 +39,13 @@ objects:
 - **Buys** — any target asset that is new or underweight is topped up, using
   cash freed by the sells.
 
-Each trade's cost is `notional * (transaction_cost_bps / 10_000)`. A buy is
-only executed if the portfolio has sufficient cash after costs; otherwise it
-is skipped with a warning.
+Each trade's cost is `notional * (transaction_cost_bps / 10_000)`.
+
+A buy the portfolio cannot fully afford is **partially filled** rather than
+dropped. Skipping it entirely was the original behaviour and it was wrong: a
+purchase short by a rounding error would leave the cash unspent and the
+position empty, so a portfolio drifted from its target for want of a few
+pence. The engine now buys what the cash covers and logs what it could not.
 
 ## Modifiers
 

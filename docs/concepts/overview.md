@@ -12,11 +12,14 @@ of that separation:
 - **[Backtest](backtest.md)** — how `BacktestEngine` simulates a tracking
   portfolio against a target weight schedule, and why its NAV is not the
   same number as the index level.
-- **[Optimiser](optimiser.md)** — *not yet implemented.* Where a
-  weight-optimisation layer will sit once it exists.
-- **[Risk Model](risk-model.md)** — what risk analytics exist today (scalar
-  metrics) versus what a portfolio-level risk model would add
-  (covariance, shrinkage, factor decomposition) — *not yet implemented.*
+- **[Optimiser](optimiser.md)** — deriving weights numerically rather than
+  by a closed-form rule: objectives, constraints, and reading which of them
+  actually bit.
+- **[Risk Model](risk-model.md)** — how assets move *together*: covariance
+  estimation, shrinkage and why it is on by default, and factor models.
+- **[Attribution](attribution.md)** — where the return came from and where
+  the risk came from, and why in both cases the parts must add to the whole
+  exactly.
 
 These map onto the three-layer pipeline described on the [Home](../index.md)
 page:
