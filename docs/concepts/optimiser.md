@@ -1,36 +1,105 @@
 # Optimiser
 
-!!! warning "Not yet implemented"
-    There is no optimiser anywhere in `src/beacon` today. This page
-    describes the concept and where it is expected to sit in the pipeline,
-    not a working feature. It will be delivered by **BN-72**
-    ([GitHub issue #88](https://github.com/karanbh01/py-beacon/issues/88)).
+Where `EqualWeighted` and `MarketCapWeighted` are closed-form rules, the
+optimiser derives weights **numerically**: it finds the portfolio that best
+meets an objective subject to constraints you state.
 
-## What it will be responsible for
+Lives in `beacon.optimise`, behind the `optimise` extra (scipy).
 
-The `optimise` extra already exists in `pyproject.toml` (it installs
-`scipy`), reserving the dependency for this component ahead of its
-implementation. Conceptually, an optimiser sits alongside the
-[Methodology](methodology.md) layer's Weighting step: where `EqualWeighted`
-and `MarketCapWeighted` are closed-form rules, an optimiser would derive
-weights numerically — for example, minimising tracking error to a benchmark
-subject to constraints such as position limits, sector exposure caps, or a
-turnover budget.
+```bash
+pip install "py-beacon[optimise]"
+```
 
-## How it will fit the existing pipeline
+## The shape of a problem
 
-Nothing about the surrounding pipeline is expected to change shape:
+Three things: what you are trying to achieve, what you are not allowed to do,
+and a risk model saying how the assets move together.
 
-- It would most likely implement the same `WeightingSchemeBase` contract
-  (`calculate_weights(constituents, current_date, market_data_provider,
-  context=None) -> dict[Asset, float]`) that `EqualWeighted` and
-  `MarketCapWeighted` implement today, so `IndexCalculator` could drive it
-  exactly as it drives any other weighting scheme.
-- Its output would still flow into `IndexCalculator.run()` -> `IndexResult`
-  -> `BacktestEngine.run()` -> `BacktestResult`, unchanged.
-- It would depend on `scipy` behind `beacon._optional.require("scipy",
-  ...)`, matching how every other optional dependency in Beacon is guarded
-  (see `EXTRA_FOR_MODULE` in `src/beacon/_optional.py`).
+```python
+from beacon.optimise import (
+    FullInvestment, GroupBounds, PositionBounds, minimise_tracking_error,
+)
+from beacon.risk import estimate_risk_model
 
-No API for this exists yet, so there is nothing to import or call — check
-back once BN-72 lands.
+risk = estimate_risk_model(returns)
+
+result = minimise_tracking_error(
+    target_weights,
+    [FullInvestment(),
+     PositionBounds(0.0, 0.25),
+     GroupBounds("Technology", technology_names, maximum=0.30)],
+    risk)
+
+result.weights          # the solution
+result.binding          # which constraints actually bit
+result.diagnostics      # what the solver did, and whether to trust it
+```
+
+## The objectives
+
+| Function | Finds |
+| --- | --- |
+| `minimise_tracking_error` | The portfolio closest to a target, in risk terms |
+| `minimum_variance_portfolio` | The lowest-volatility feasible portfolio |
+| `maximum_return_portfolio` | The highest expected return the constraints allow |
+| `efficient_frontier` | A set of portfolios tracing the risk/return trade-off |
+
+## The constraints
+
+Each is a class you construct and pass in a list, so a constraint set is data
+rather than a list of arguments to remember.
+
+| Constraint | Limits |
+| --- | --- |
+| `FullInvestment` | Weights sum to a total, normally one |
+| `PositionBounds` | Individual weights, optionally for named assets only |
+| `GroupBounds` | The combined weight of a set — a sector, a country, a bucket |
+| `TurnoverBudget` | How far the solution may move from current holdings |
+| `ExpectedReturnTarget` | Pins the expected return, which is what traces a frontier |
+| `Cardinality` | How many names may be held |
+
+`Cardinality` is the odd one out and says so: counting holdings is not convex,
+so it is solved by a heuristic and the answer is not provably optimal. Every
+other constraint keeps the problem convex, which is what makes a solution
+trustworthy rather than merely returned.
+
+`GET /optimise/constraint-types` publishes all of this — every constraint with
+its parameters, types, defaults and labels — so an editor renders from the same
+source the solver reads rather than from a copy that drifts.
+
+## Reading the result
+
+**`binding` is the part most worth looking at.** A constraint that bit changed
+your answer; one that did not was never relevant. An optimiser returning only
+weights leaves you unable to tell whether the position limit shaped the
+portfolio or merely watched it.
+
+**`diagnostics` is the solver's account of itself** — whether it converged, how
+many iterations, the final objective. A run that did not converge is returned
+rather than raised, because a near-miss is often informative where a bare
+exception is not; but it is labelled, so nothing silently passes for a
+solution.
+
+## Feasibility
+
+A constraint set can rule out every portfolio, and that is worth catching
+before the solver rather than during it. A cap of 5% across ten names
+distributes at most 50%, so it cannot coexist with full investment — that is
+arithmetic, not a solver outcome, and the server reports it as a validation
+finding while a user is still editing.
+
+One case is worth knowing about because it looks like a bug: a cap of exactly
+`1/n` makes the feasible set a single point. Different scipy builds report that
+differently, so Beacon answers it directly rather than solving — the answer is
+determined, and asking a solver to discover it invites a status code that
+varies by machine.
+
+## Where it sits
+
+Alongside the [methodology](methodology.md) layer's weighting step, consuming a
+[risk model](risk-model.md), producing weights that flow onward exactly as any
+other scheme's do — into `IndexCalculator`, then `BacktestEngine`.
+
+`OptimisationResult` carries a `.plot` accessor: `exposures()` for active
+weights against the target, `frontier()` for the efficient frontier with its
+named points and the capital market line. See the [gallery](../gallery.md).

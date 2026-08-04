@@ -67,6 +67,7 @@ nav:
       - Backtest: concepts/backtest.md
       - Optimiser: concepts/optimiser.md
       - Risk Model: concepts/risk-model.md
+      - Attribution: concepts/attribution.md
   - Serving data: serving-data.md
   - Gallery: gallery.md
   - Decisions:

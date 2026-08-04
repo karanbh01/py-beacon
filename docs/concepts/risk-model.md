@@ -1,45 +1,80 @@
 # Risk model
 
-!!! warning "Not yet implemented"
-    `beacon.analysis.risk` today holds only scalar, single-series metrics.
-    There is no covariance estimation, no shrinkage, and no factor model —
-    the portfolio-level risk model described below does not exist yet. It
-    will be delivered by **BN-73**
-    ([GitHub issue #89](https://github.com/karanbh01/py-beacon/issues/89)).
+`beacon.analysis.risk` answers questions about **one** series — this
+portfolio's volatility, this index's drawdown. `beacon.risk` answers questions
+about how assets move **together**, which is a different thing and the input an
+optimiser needs.
 
-## What exists today
+Needs only numpy, so it is part of the core rather than behind an extra.
 
-`src/beacon/analysis/risk.py` provides three scalar functions (also exposed
-as methods on the thin `RiskMetricsCalculator` wrapper class):
+```python
+from beacon.risk import estimate_risk_model
 
-- `calculate_volatility(price_series, window=252)` — annualised standard
-  deviation of returns derived from a single price series.
-- `calculate_sharpe_ratio(returns, risk_free_rate, periods_per_year=252)` —
-  annualised Sharpe ratio for a single return series.
-- `calculate_max_drawdown(price_series)` — maximum peak-to-trough drawdown
-  of a single price series.
+model = estimate_risk_model(returns)     # dates on the index, assets on the columns
 
-Each of these operates on **one** series at a time — a single asset, a
-single portfolio's NAV, or a single index's level history. They say nothing
-about how multiple assets move *together*, which is what a risk model
-proper is for.
+model.covariance      # annualised, asset-indexed
+model.correlation     # derived from it, unit diagonal
+model.volatilities()  # the square root of the diagonal
+model.diagnostics     # how it was produced, and how well conditioned
+```
 
-## What a risk model would add
+## Why shrinkage
 
-A portfolio-level risk model would sit alongside the [Methodology](
-methodology.md) and [Optimiser](optimiser.md) layers, providing the
-cross-sectional inputs neither currently has:
+A sample covariance estimated from a short history is noisy, and the noise is
+worst exactly where it matters: the smallest eigenvalues, which an optimiser
+inverts. The result is a portfolio that looks brilliant on the estimate and
+falls apart out of sample.
 
-- **Covariance estimation** across the universe's constituents — the input
-  a mean-variance optimiser needs and that a single-series metric cannot
-  provide.
-- **Shrinkage estimators** (e.g. Ledoit-Wolf) to stabilise a sample
-  covariance matrix estimated from a short or noisy return history.
-- **Factor models** decomposing portfolio risk into systematic factor
-  exposures plus idiosyncratic risk, rather than treating every asset pair
-  independently.
+Shrinkage pulls the sample toward a structured target — a constant-correlation
+matrix, or a scaled identity — trading a little bias for a lot of variance.
+`estimate_risk_model` shrinks by default and picks an intensity from the
+panel's shape if you do not name one.
 
-Once built, this would most plausibly consume the same `DataFetcher`-sourced
-price histories that `IndexCalculator` and `BacktestEngine` already use, and
-would be a natural input to the optimiser described on the previous page —
-but none of this exists yet, so there is no API to document.
+```python
+estimate_risk_model(returns, intensity=0.0)   # raw sample, if you want it
+estimate_risk_model(returns, target=SCALED_IDENTITY)
+```
+
+The optimal Ledoit-Wolf intensity is **not** implemented; the heuristic is a
+shape-based rule, and it says so rather than implying otherwise.
+
+## Diagnostics, and why they are reported rather than fixed
+
+`RiskDiagnostics` carries the condition number, whether the matrix is positive
+semi-definite, and how it was estimated. A badly conditioned matrix is not
+repaired silently:
+
+```python
+estimate_risk_model(returns, repair=True)   # eigenvalue clipping, opt-in
+```
+
+Repair is off by default because shrinkage should make it unnecessary, and
+because clipping shifts the variances — quietly changing an estimate to make it
+usable is how a number nobody chose ends up in a portfolio.
+
+## Factor models
+
+`fit_factor_model` decomposes risk as `Σ = BFBᵀ + D` — common factor exposures
+plus asset-specific residual — rather than treating every asset pair
+independently. `ActiveRiskDecomposition` then splits a tracking error into the
+part explained by factor bets and the part that is idiosyncratic.
+
+Factor contributions **can be negative**, and are reported that way: a factor
+position that hedges another genuinely reduces risk, and an absolute value
+would misreport what the portfolio is doing.
+
+## Risk contribution
+
+Which holdings actually drive the risk — a different question from which are
+largest. See [attribution](attribution.md#risk-contribution), where the
+decomposition and its exactness are covered alongside return attribution.
+
+## Where it sits
+
+Between the data and the [optimiser](optimiser.md): it consumes the same
+`DataFetcher`-sourced returns everything else uses, and produces the covariance
+a mean-variance problem is stated against.
+
+`RiskModel` carries a `.plot` accessor: `correlation()` draws the matrix on the
+`beacon_corr` scale, which is mode-independent by design so two screenshots of
+one matrix cannot disagree. See the [gallery](../gallery.md).
