@@ -226,6 +226,31 @@ that exists without a catalogue entry fails a completeness test — the symptom
 otherwise is silent, since the rule still works and the editor simply never
 offers it.
 
+### Finding out which instruments exist
+
+`GET /data/identifiers` answers "which identifiers do you have, and which match
+what the user is typing" — search when given `q`, enumeration when not.
+
+```
+/data/identifiers?q=cmpa&limit=20
+/data/identifiers?datasets=market          # everything with prices
+```
+
+Each row carries `datasets`, which is what lets a client offer a
+reference-only name in a reference view and mark it unavailable for prices,
+rather than suggesting something the engine cannot then serve. `total` is the
+match count before the limit, so a UI can say "showing 20 of 340".
+
+Ranking is decided server-side and is part of the contract — exact identifier,
+identifier prefix, name prefix, identifier substring, name substring,
+alphabetical within each — because once `limit` is applied a client cannot
+re-rank what it was not sent.
+
+Served from an index built once and cached against a fingerprint of the
+datasets' refresh times, so a sync invalidates it and nothing else does. A
+server with no data returns `200` with an empty list rather than an error:
+"nothing matches" and "this engine is misconfigured" are different statements.
+
 ### Looking up many instruments at once
 
 `GET /data/reference` is the batch form of `/data/reference/{identifier}`:

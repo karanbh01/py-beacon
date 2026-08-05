@@ -20,19 +20,27 @@ import pandas as pd
 
 from ..._optional import require
 from ...data.fetcher import DataFetcher
+from ...data.identifiers import (
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
+    IdentifierIndex,
+    fingerprint,
+)
 from ...exceptions import ConfigurationError, DataNotFoundError
 from ..config import ServerConfig
-from ..reference import MAX_BATCH, build_entries, parse_identifiers
+from ..reference import MAX_BATCH, build_entries, parse_identifiers, parse_list
 from ..schemas import (
     BatchReferenceResponse,
     CorporateActionsResponse,
+    IdentifierMatch,
+    IdentifierSearchResponse,
     PricesResponse,
     ReferenceResponse,
 )
 
 require("fastapi", "The Beacon API server")
 
-from fastapi import APIRouter, Query, Request  # noqa: E402
+from fastapi import APIRouter, Query, Request, Response  # noqa: E402
 
 # Resolutions this router can honestly serve. The stored data is the native
 # frequency; the other two are derived by taking each period's last
@@ -57,6 +65,21 @@ AsOfQuery = Annotated[
 TypesQuery = Annotated[
     list[str] | None,
     Query(description="Restrict to these action types, e.g. DIVIDEND, SPLIT.")]
+QueryQuery = Annotated[
+    str | None,
+    Query(alias="q",
+          description="Fragment to match against identifier and name. Absent "
+                      "or empty enumerates instead of searching.")]
+LimitQuery = Annotated[
+    int,
+    Query(ge=1, le=MAX_LIMIT,
+          description=f"Maximum rows, at most {MAX_LIMIT}.")]
+OffsetQuery = Annotated[
+    int, Query(ge=0, description="Rows to skip, for walking an enumeration.")]
+DatasetsQuery = Annotated[
+    list[str] | None,
+    Query(description="Only return identifiers covered by all of these, e.g. "
+                      "'market'. Comma-separated or repeated.")]
 IdentifiersQuery = Annotated[
     list[str] | None,
     Query(description="Identifiers to look up. Repeat the parameter or "
@@ -114,6 +137,38 @@ def _resample(frame: pd.DataFrame,
     return frame.resample(RESAMPLE_RULES[interval]).last().dropna(how="all")
 
 
+def _identifier_index(request: Request,
+                      fetcher: DataFetcher | None) -> IdentifierIndex:
+    """The identifier index for this process, rebuilt only when data changes.
+
+    Cached on app state rather than rebuilt per request: this endpoint is
+    called on every keystroke, and pulling names out of pandas each time would
+    be doing the expensive part repeatedly for an answer that only moves when a
+    sync moves it.
+
+    The cache key is the index's own version, which is a fingerprint of the
+    fetcher's refresh timestamps. A sync changes those, the fingerprint stops
+    matching, and the next request rebuilds — so a client's suggestions refresh
+    with the freshness event it already listens for, and no new invalidation
+    mechanism is needed.
+    """
+    if fetcher is None:
+        return IdentifierIndex.empty()
+
+    cached: IdentifierIndex | None = getattr(request.app.state,
+                                             "identifier_index", None)
+    current = fingerprint(fetcher)
+
+    if cached is not None and cached.version == current:
+        return cached
+
+    index = IdentifierIndex.build(fetcher)
+    request.app.state.identifier_index = index
+
+    return index
+
+
+
 def build_data_router() -> APIRouter:
     """Build the /data router.
 
@@ -121,6 +176,41 @@ def build_data_router() -> APIRouter:
         APIRouter: Router carrying the prices and reference endpoints.
     """
     router = APIRouter(prefix="/data", tags=["data"])
+
+    @router.get("/identifiers", response_model=IdentifierSearchResponse)
+    def identifiers(request: Request,
+                    response: Response,
+                    q: QueryQuery = None,
+                    limit: LimitQuery = DEFAULT_LIMIT,
+                    offset: OffsetQuery = 0,
+                    datasets: DatasetsQuery = None) -> IdentifierSearchResponse:
+        # Deliberately does NOT go through `_data_fetcher`, which raises when
+        # no source is configured. "Nothing matches" and "this engine is
+        # misconfigured" render as very different things in a client, and an
+        # empty suggestion list must not look like a broken install — so a
+        # data-less server answers 200 with an empty list.
+        config: ServerConfig = request.app.state.config
+        index = _identifier_index(request, config.data_fetcher)
+
+        found = index.search(query=q,
+                             limit=limit,
+                             offset=offset,
+                             datasets=tuple(parse_list(datasets)))
+
+        # The version moves only when a dataset syncs, so a client can cache an
+        # enumeration and revalidate against this rather than refetching it.
+        response.headers["ETag"] = f'"{index.version}"'
+
+        return IdentifierSearchResponse(
+            identifiers=[IdentifierMatch(identifier=entry.identifier,
+                                         name=entry.name,
+                                         datasets=list(entry.datasets),
+                                         exchange=entry.exchange,
+                                         currency=entry.currency)
+                         for entry in found.entries],
+            total=found.total,
+            truncated=found.truncated,
+            version=index.version)
 
     @router.get("/prices/{identifier}", response_model=PricesResponse)
     def prices(request: Request,

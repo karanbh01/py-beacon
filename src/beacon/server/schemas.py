@@ -236,6 +236,53 @@ class ReferenceResponse(BaseModel):
         return cls(identifier=identifier, fields=fields)
 
 
+class IdentifierMatch(BaseModel):
+    """One identifier a search or enumeration returned."""
+    identifier: str = Field(description="The symbol itself.")
+    name: str | None = Field(
+        default=None,
+        description="Display name, or null when reference data carries none. "
+                    "A row without a name is still a useful suggestion, so it "
+                    "is returned rather than dropped.")
+    datasets: list[str] = Field(
+        default_factory=list,
+        description="Which datasets actually cover this identifier: 'market', "
+                    "'reference', 'corporate_actions'. This is what lets a "
+                    "client offer a reference-only name in a reference view "
+                    "and mark it unavailable for prices, rather than "
+                    "suggesting something the engine cannot then serve.")
+    exchange: str | None = Field(
+        default=None, description="Listing venue, when reference data has one.")
+    currency: str | None = Field(
+        default=None, description="Denomination, when reference data has one.")
+
+
+class IdentifierSearchResponse(BaseModel):
+    """Response of `GET /data/identifiers`.
+
+    Search when `q` is given, enumeration when it is not.
+
+    Ranking is decided server-side and is part of the contract: exact
+    identifier, identifier prefix, name prefix, identifier substring, name
+    substring, alphabetical within each. Once `limit` is applied a client
+    cannot re-rank what it was not sent.
+    """
+    identifiers: list[IdentifierMatch] = Field(default_factory=list)
+    total: int = Field(
+        default=0,
+        description="Matches *before* `limit`, so a client can say "
+                    "'showing 20 of 340'.")
+    truncated: bool = Field(
+        default=False,
+        description="Whether the limit hid anything. Derivable from `total`, "
+                    "but explicit beats arithmetic at a call site.")
+    version: str = Field(
+        default="",
+        description="Fingerprint of the data this was built from, also served "
+                    "as the ETag. Changes only when a dataset syncs, so a "
+                    "client can cache an enumeration and revalidate cheaply.")
+
+
 class ReferenceEntry(BaseModel):
     """One identifier's row in a batch reference response."""
     identifier: str
