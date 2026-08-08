@@ -89,7 +89,7 @@ jobs:
       # rather than guessed at from an RMS number.
       - name: Upload the comparison
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chart-image-diff
           path: /tmp/pytest-mpl-*
@@ -139,7 +139,7 @@ jobs:
         run: python scripts/export_openapi.py openapi.json
 
       - name: Upload the specification
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openapi
           path: openapi.json
@@ -210,7 +210,7 @@ jobs:
           /tmp/smoke/bin/python -c "from beacon import tokens; print(f'{len(tokens.token_names())} tokens load from the installed wheel')"
 
       - name: Upload distributions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: distributions
           path: dist/
