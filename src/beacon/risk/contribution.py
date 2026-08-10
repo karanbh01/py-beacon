@@ -44,7 +44,7 @@ for. A number that describes 94% of an index and says so is more useful than
 one that describes 100% of a portfolio nobody holds.
 """
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -84,6 +84,21 @@ class RiskContributions:
     def is_complete(self) -> bool:
         """Whether the model covered the whole index."""
         return not self.uncovered
+
+
+def as_weights(weights: Mapping[str, float] | pd.Series) -> dict[str, float]:
+    """Normalise a weight vector to a plain mapping.
+
+    `OptimisationResult.weights` is a Series and an index snapshot is a dict,
+    and chaining one into the other is the obvious next thing a caller does.
+    Without this, passing a Series raises "the truth value of a Series is
+    ambiguous" from a falsiness check deep inside — an error that says nothing
+    about what was actually wrong.
+    """
+    # `.items()` covers both: a Series yields (label, value) exactly as a
+    # Mapping does, so no branch is needed — only the coercion, which is what
+    # makes a numpy scalar from a Series behave like the float it represents.
+    return {str(name): float(value) for name, value in weights.items()}
 
 
 def _decompose(weights: dict[str, float],
@@ -140,7 +155,7 @@ def _decompose(weights: dict[str, float],
         uncovered=missing)
 
 
-def risk_contributions(weights: dict[str, float],
+def risk_contributions(weights: Mapping[str, float] | pd.Series,
                        covariance: pd.DataFrame) -> RiskContributions:
     """Decompose portfolio volatility across its holdings.
 
@@ -154,15 +169,17 @@ def risk_contributions(weights: dict[str, float],
         RiskContributions: The decomposition, with contributions summing to the
         reported volatility exactly.
     """
+    holdings = as_weights(weights)
+
     def covered(available: list[str],
                 _missing: tuple[str, ...]) -> float:
-        return float(sum(weights[name] for name in available))
+        return float(sum(holdings[name] for name in available))
 
-    return _decompose(weights, covariance, covered, "portfolio")
+    return _decompose(holdings, covariance, covered, "portfolio")
 
 
-def active_weights(weights: dict[str, float],
-                   benchmark: dict[str, float]) -> dict[str, float]:
+def active_weights(weights: Mapping[str, float] | pd.Series,
+                   benchmark: Mapping[str, float] | pd.Series) -> dict[str, float]:
     """Holdings minus benchmark, over the union of both.
 
     A name held and not in the benchmark is an overweight; one in the benchmark
@@ -171,14 +188,16 @@ def active_weights(weights: dict[str, float],
     an omitted constituent is usually the largest active position a portfolio
     has, and intersecting would silently drop it.
     """
-    names = sorted(set(weights) | set(benchmark))
+    held = as_weights(weights)
+    reference = as_weights(benchmark)
+    names = sorted(set(held) | set(reference))
 
-    return {name: weights.get(name, 0.0) - benchmark.get(name, 0.0)
+    return {name: held.get(name, 0.0) - reference.get(name, 0.0)
             for name in names}
 
 
-def active_risk_contributions(weights: dict[str, float],
-                              benchmark: dict[str, float],
+def active_risk_contributions(weights: Mapping[str, float] | pd.Series,
+                              benchmark: Mapping[str, float] | pd.Series,
                               covariance: pd.DataFrame) -> RiskContributions:
     """Decompose tracking error across active positions.
 

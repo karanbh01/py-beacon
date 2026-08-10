@@ -155,6 +155,12 @@ ignore = [
 "tests/test_plot.py" = ["PLC0415", "PLW0108"]
 "tests/test_plot_images.py" = ["PLC0415", "PLW0108"]
 "scripts/build_gallery.py" = ["PLW0108"]
+# The examples import matplotlib inside a function on purpose: charting is
+# an optional extra, and an example that cannot run without it would defeat
+# the point of shipping runnable documentation. They also import their own
+# shared helpers by plain name, since they run as scripts rather than as a
+# package.
+"examples/**" = ["PLC0415", "INP001", "T201"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["beacon"]
