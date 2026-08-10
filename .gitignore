@@ -75,3 +75,6 @@ openapi.json
 # Generated at docs build time by scripts/build_gallery.py.
 /docs/gallery/
 /docs/gallery.md
+
+# Charts written by examples/02_backtest_analysis.py, regenerated on each run.
+examples/output/
