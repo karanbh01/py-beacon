@@ -29,6 +29,7 @@ import pytest
 from beacon.data import store
 from beacon.data.corporate_actions import CASH_ACTIONS, RATIO_ACTIONS
 from beacon.synthetic import SyntheticConfig, generate, write
+from beacon.synthetic import returns as returns_module
 from beacon.synthetic import universe as universe_module
 from beacon.synthetic.__main__ import build_parser, default_window, main, resolve_window
 from beacon.synthetic.prices import PRICE_DECIMALS, SPLIT_THRESHOLD
@@ -151,6 +152,55 @@ class TestNaming:
 
             assert sector in universe_module.SECTORS
             assert segment in universe_module.SEGMENTS
+
+
+class TestBlockedGeneration:
+    """Names are simulated in blocks to bound peak memory.
+
+    The whole design rests on one property: the block size is a memory knob
+    and nothing else. If it could shift the data, then tuning it for a big
+    machine would quietly produce a different market from the same seed, and
+    every "reproducible from the seed" claim elsewhere would be false.
+    """
+
+    @staticmethod
+    def panel(block_size):
+        rng = np.random.default_rng(11)
+        names = universe_module.build(60, rng)
+
+        return returns_module.simulate(names,
+                                       pd.bdate_range("2021-01-04", "2022-12-30"),
+                                       rng, 0.03, 0.06, block_size=block_size)
+
+    @pytest.mark.parametrize("block_size", [1, 7, 60, 250])
+    def test_the_block_size_cannot_change_the_data(self, block_size):
+        """Bit-identical, not merely close. Every draw belonging to a name
+        comes from that name's own spawned generator, and the GARCH recursion
+        is elementwise across names, so a block is arithmetically the same as
+        the slice of the whole it replaces."""
+        unblocked = self.panel(10_000)
+        blocked = self.panel(block_size)
+
+        pd.testing.assert_frame_equal(blocked, unblocked)
+
+    def test_a_block_larger_than_the_universe_is_one_block(self):
+        """The degenerate end, which is what the old unblocked path was."""
+        assert self.panel(10_000).equals(self.panel(60))
+
+    def test_the_factors_are_shared_across_blocks(self):
+        """A block drawing its own market factor would leave the universe
+        correlated only *within* blocks, which is the failure mode blocking
+        invites and which per-block correlation would hide."""
+        one_block = self.panel(10_000)
+        many_blocks = self.panel(7)
+
+        correlations = many_blocks.corr().to_numpy()
+        off_diagonal = correlations[~np.eye(len(correlations), dtype=bool)]
+
+        assert off_diagonal.mean() > 0.2, (
+            f"average pairwise correlation is {off_diagonal.mean():.3f}; "
+            f"blocks are not sharing the factors")
+        assert np.allclose(correlations, one_block.corr().to_numpy())
 
 
 class TestUniverse:

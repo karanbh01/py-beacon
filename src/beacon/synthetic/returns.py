@@ -55,12 +55,34 @@ and log-normal volume, which is most of what makes this data worth generating.
 Reproducibility is tested per-platform; the statistical acceptance checks are
 tolerance-based and hold anywhere.
 """
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 
 from .regimes import CRISES, Regime, market_multipliers
 
 TRADING_DAYS = 252
+
+# How many names are simulated at a time.
+#
+# The unblocked version held roughly ten full ``(days x names)`` arrays alive
+# at once -- innovations, the variance and shock paths, the lifted shares, the
+# market component -- and so peaked at about seven times the size of the panel
+# it returned. Blocking bounds that at the block rather than the universe, and
+# the returned panel becomes the floor rather than a tenth of the total.
+#
+# There is no speed/memory trade-off to balance here, which was not the
+# expectation. Blocking narrows the arrays the GARCH recursion vectorises
+# over, so it looked like it should cost time; measured over 1,600 names and
+# ten years it *saves* it, presumably on cache locality:
+#
+#     block   100    250    500   1000   5000 (unblocked)
+#     time   0.75s  0.63s  0.66s  0.80s  0.89s
+#
+# So this is chosen on memory alone. The intermediates run about 145 KB per
+# name per decade, putting a 250-name block near 36 MB.
+BLOCK_SIZE = 250
 
 # Annualised volatility of the market factor itself. Loadings are scaled
 # against this, so a name's `b` is its CAPM beta rather than an arbitrary
@@ -100,9 +122,29 @@ MAX_DEGREES_OF_FREEDOM = 6.0
 BURN_IN = 260
 
 
+@dataclass(frozen=True)
+class _Shared:
+    """Everything a block needs that does not depend on which names it holds.
+
+    All of it is per-date rather than per-name, so it costs a few kilobytes
+    and is computed once for the whole universe. It has to be: the factors are
+    what make names co-move, and a block that drew its own would produce a
+    universe correlated only within blocks.
+    """
+    market: np.ndarray
+    sector_factors: np.ndarray
+    sector_names: list[str]
+    market_variance: float
+    scale: np.ndarray
+    extra_drift: np.ndarray
+    lift: np.ndarray
+    risk_free_rate: float
+    equity_premium: float
+
+
 def _standardised_t(rng: np.random.Generator,
-                    degrees: np.ndarray,
-                    shape: tuple[int, int]) -> np.ndarray:
+                    degrees: np.ndarray | float,
+                    shape: tuple[int, ...]) -> np.ndarray:
     """Negatively skewed Student-t draws, rescaled to unit variance.
 
     A raw t has variance ``nu/(nu-2)``, so feeding it into a GARCH recursion
@@ -126,23 +168,28 @@ def _standardised_t(rng: np.random.Generator,
     return np.asarray((skewed - skewed.mean(axis=0)) / skewed.std(axis=0))
 
 
-def simulate_gjr(rng: np.random.Generator,
-                 steps: int,
+def simulate_gjr(steps: int,
                  target_variance: np.ndarray,
                  persistence: np.ndarray,
-                 degrees: np.ndarray) -> np.ndarray:
-    """Simulate GJR-GARCH(1,1) series with Student-t innovations.
+                 innovations: np.ndarray) -> np.ndarray:
+    """Run the GJR-GARCH(1,1) recursion over pre-drawn innovations.
 
     Vectorised across series and looped over time, which is the only way round:
     each day's variance depends on the day before, but every series can take
     its step together.
 
+    The innovations are an argument rather than drawn here, and that is what
+    makes block generation possible. Every series in the recursion is
+    independent of every other — the arithmetic is elementwise throughout — so
+    running it over a slice of the universe gives bit-identical results to
+    running it over all of it, provided each series sees the same innovations.
+
     Args:
-        rng: Seeded generator.
         steps: Days to return, after burn-in.
         target_variance: Unconditional daily variance per series.
         persistence: ``alpha + lam/2 + beta`` per series, strictly below 1.
-        degrees: Student-t degrees of freedom per series.
+        innovations: Shape ``(steps + BURN_IN, len(target_variance))``,
+            standardised to unit variance.
 
     Returns:
         np.ndarray: Shape ``(steps, len(target_variance))``, mean zero, with
@@ -158,8 +205,6 @@ def simulate_gjr(rng: np.random.Generator,
     # From E[sigma2] = omega / (1 - persistence), which is what makes the
     # target a target rather than a hope.
     omega = target_variance * (1.0 - persistence)
-
-    innovations = _standardised_t(rng, degrees, (total, count))
 
     variance = np.empty((total, count))
     shocks = np.empty((total, count))
@@ -211,12 +256,59 @@ def _draw_parameters(rng: np.random.Generator,
     return persistence, degrees
 
 
+def _shared_factor(rng: np.random.Generator,
+                   steps: int,
+                   target_variance: np.ndarray) -> np.ndarray:
+    """A factor every name loads on, pinned to its realised variance.
+
+    Drawn whole rather than in blocks: these are one column per *sector* at
+    most, so they cost nothing to hold, and every block has to see the same
+    ones or the correlation structure would differ across the universe.
+    """
+    persistence, degrees = _draw_parameters(rng, len(target_variance))
+    innovations = _standardised_t(rng, degrees,
+                                  (steps + BURN_IN, len(target_variance)))
+
+    return pin_realised_variance(
+        simulate_gjr(steps, target_variance, persistence, innovations),
+        target_variance)
+
+
+def _idiosyncratic(children: list[np.random.Generator],
+                   target_variance: np.ndarray,
+                   steps: int) -> np.ndarray:
+    """The per-name GARCH series for one block of names.
+
+    Every draw belonging to a name comes from that name's **own** generator —
+    its persistence, its degrees of freedom and its innovations. That is what
+    makes the block size an honest memory knob: name *i* gets the same path
+    whichever block it lands in, and whatever the block size, so tuning it for
+    memory cannot silently produce a different market.
+
+    Drawing a column at a time costs nothing measurable. At 2,000 names over
+    ten years, per-name draws plus the spawn plus stacking ran 0.24s against
+    0.20s for a single bulk draw.
+    """
+    persistence = np.array([child.uniform(MIN_PERSISTENCE, MAX_PERSISTENCE)
+                            for child in children])
+    degrees = np.array([child.uniform(MIN_DEGREES_OF_FREEDOM,
+                                      MAX_DEGREES_OF_FREEDOM)
+                        for child in children])
+
+    innovations = np.stack(
+        [_standardised_t(child, degree, (steps + BURN_IN,))
+         for child, degree in zip(children, degrees, strict=True)], axis=1)
+
+    return simulate_gjr(steps, target_variance, persistence, innovations)
+
+
 def simulate(universe: pd.DataFrame,
              dates: pd.DatetimeIndex,
              rng: np.random.Generator,
              risk_free_rate: float,
              equity_premium: float,
-             regimes: tuple[Regime, ...] = CRISES) -> pd.DataFrame:
+             regimes: tuple[Regime, ...] = CRISES,
+             block_size: int = BLOCK_SIZE) -> pd.DataFrame:
     """Simulate the total-return panel.
 
     Args:
@@ -228,6 +320,9 @@ def simulate(universe: pd.DataFrame,
         equity_premium: Annualised excess return on a beta-one name.
         regimes: Dated crisis episodes to overlay. Empty for a stationary
             market, which is what every panel produced before regimes existed.
+        block_size: How many names to simulate at a time. Affects peak memory
+            and nothing else — the panel is identical at any block size, and a
+            test holds that.
 
     Returns:
         pd.DataFrame: Date-indexed daily total returns, one column per name.
@@ -235,41 +330,12 @@ def simulate(universe: pd.DataFrame,
     steps = len(dates)
     count = len(universe)
 
-    sectors = universe["SECTOR"].to_numpy()
-    sector_names = sorted(set(sectors))
-    sector_index = np.array([sector_names.index(sector) for sector in sectors])
-
-    daily_variance = (universe["volatility"].to_numpy() ** 2) / TRADING_DAYS
+    sector_names = sorted(set(universe["SECTOR"].to_numpy()))
     market_variance = (MARKET_VOLATILITY ** 2) / TRADING_DAYS
 
-    market_target = np.array([market_variance])
-    market = pin_realised_variance(
-        simulate_gjr(rng, steps, market_target, *_draw_parameters(rng, 1)),
-        market_target)
-
-    sector_variance = np.full(len(sector_names), market_variance)
-    sector_factors = pin_realised_variance(
-        simulate_gjr(rng, steps, sector_variance,
-                     *_draw_parameters(rng, len(sector_names))),
-        sector_variance)
-
-    # Loadings from the variance budget: b^2 * market_variance is the share of
-    # this name's variance the market is meant to explain, so b follows.
-    market_beta = np.sqrt(universe["market_share"].to_numpy() * daily_variance
-                          / market_variance)
-    sector_beta = np.sqrt(universe["sector_share"].to_numpy() * daily_variance
-                          / market_variance)
-
-    idiosyncratic_variance = daily_variance * (
-        1.0 - universe["market_share"].to_numpy()
-        - universe["sector_share"].to_numpy())
-    idiosyncratic = simulate_gjr(rng, steps, idiosyncratic_variance,
-                                 *_draw_parameters(rng, count))
-
-    # CAPM, so a high-beta name earns more in expectation and the cross-section
-    # of long-run returns is not flat.
-    drift = (risk_free_rate + market_beta * equity_premium
-             + universe["alpha"].to_numpy()) / TRADING_DAYS
+    market = _shared_factor(rng, steps, np.array([market_variance]))
+    sector_factors = _shared_factor(
+        rng, steps, np.full(len(sector_names), market_variance))
 
     # --- Regime overlay --------------------------------------------------
     #
@@ -288,29 +354,84 @@ def simulate(universe: pd.DataFrame,
     scale, extra_drift, lift = market_multipliers(pd.DatetimeIndex(dates),
                                                   regimes)
 
-    market_share = universe["market_share"].to_numpy()
+    shared = _Shared(market=market,
+                     sector_factors=sector_factors,
+                     sector_names=sector_names,
+                     market_variance=market_variance,
+                     scale=scale,
+                     extra_drift=extra_drift,
+                     lift=lift,
+                     risk_free_rate=risk_free_rate,
+                     equity_premium=equity_premium)
+
+    # One generator per name, so a name's path is a function of the seed and
+    # its own position -- never of how the work happened to be divided up.
+    children = rng.spawn(count)
+
+    returns = np.empty((steps, count))
+
+    for start in range(0, count, max(block_size, 1)):
+        stop = min(start + max(block_size, 1), count)
+
+        returns[:, start:stop] = _block(universe.iloc[start:stop],
+                                        children[start:stop],
+                                        shared,
+                                        steps)
+
+    return pd.DataFrame(returns,
+                        index=pd.DatetimeIndex(dates, name="DATE"),
+                        columns=universe.index)
+
+
+def _block(names: pd.DataFrame,
+           children: list[np.random.Generator],
+           shared: "_Shared",
+           steps: int) -> np.ndarray:
+    """Simulate the returns of one block of names.
+
+    Holds ``(steps x len(names))`` intermediates rather than
+    ``(steps x universe)`` ones, which is the whole point: the unblocked
+    version kept about ten full-universe arrays alive at once and peaked at
+    seven times the size of the panel it returned.
+    """
+    daily_variance = (names["volatility"].to_numpy() ** 2) / TRADING_DAYS
+    market_share = names["market_share"].to_numpy()
+    sector_share = names["sector_share"].to_numpy()
+
+    sector_index = np.array([shared.sector_names.index(sector)
+                             for sector in names["SECTOR"].to_numpy()])
+
+    # Loadings from the variance budget: b^2 * market_variance is the share of
+    # this name's variance the market is meant to explain, so b follows.
+    market_beta = np.sqrt(market_share * daily_variance / shared.market_variance)
+    sector_beta = np.sqrt(sector_share * daily_variance / shared.market_variance)
+
+    idiosyncratic = _idiosyncratic(
+        children, daily_variance * (1.0 - market_share - sector_share), steps)
+
+    # CAPM, so a high-beta name earns more in expectation and the cross-section
+    # of long-run returns is not flat.
+    drift = (shared.risk_free_rate + market_beta * shared.equity_premium
+             + names["alpha"].to_numpy()) / TRADING_DAYS
 
     # Per date and name: the market's share of variance, lifted toward one.
     lifted = (market_share[None, :]
-              + lift[:, None] * (1.0 - market_share[None, :]))
+              + shared.lift[:, None] * (1.0 - market_share[None, :]))
 
     # What is left over, as a fraction of what the sector and idiosyncratic
     # terms had before. At lift 0 this is exactly 1 and nothing changes.
     remaining = np.sqrt((1.0 - lifted) / (1.0 - market_share[None, :]))
 
-    stressed_market = market * scale[:, None]
+    stressed_market = shared.market * shared.scale[:, None]
 
     # sqrt(share x variance / market_variance) is the beta that realises that
     # share, factored so the per-name part is computed once.
-    per_name = np.sqrt(daily_variance / market_variance)
+    per_name = np.sqrt(daily_variance / shared.market_variance)
     market_component = stressed_market * np.sqrt(lifted) * per_name[None, :]
 
-    returns = (drift
-               + extra_drift[:, None]
-               + market_component
-               + remaining * (sector_beta * sector_factors[:, sector_index]
-                              + idiosyncratic))
-
-    return pd.DataFrame(returns,
-                        index=pd.DatetimeIndex(dates, name="DATE"),
-                        columns=universe.index)
+    return np.asarray(
+        drift
+        + shared.extra_drift[:, None]
+        + market_component
+        + remaining * (sector_beta * shared.sector_factors[:, sector_index]
+                       + idiosyncratic))
