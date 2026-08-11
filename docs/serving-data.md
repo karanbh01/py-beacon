@@ -6,7 +6,7 @@ whoever is on the other side of the process boundary.
 ## The short version
 
 ```bash
-python -m beacon.synthetic --assets 512 --seed 42   # writes a store, ~8s
+python -m beacon.synthetic --seed 42   # 5,000 names, 10 years, ~15s
 python -m beacon.server --port 0 --token dev        # finds it by itself
 ```
 
@@ -48,8 +48,8 @@ and then there would be two implementations to keep agreeing.
    buffered stdout would deadlock the handshake. Every later stdout line is
    ordinary logging.
 
-3. **The server loads the store into memory, once.** About a second for 512
-   names over five years. The files are not read again.
+3. **The server loads the store into memory, once.** The files are not read
+   again.
 
 4. **The client makes ordinary requests.**
 
@@ -104,10 +104,32 @@ prices.
 
 | Flag | Default |
 | --- | --- |
-| `--assets` | 512, matching the universe pane |
-| `--start` / `--end` | The five years ending **today** |
+| `--assets` | 5,000 |
+| `--start` / `--end` | The ten years ending **today** |
 | `--seed` | 42 |
 | `--out` | The app-data store the server auto-loads |
+| `--extended-universe` | Off; widens the universe to 10,000 names |
+| `--long-history` | Off; reaches back past every crisis the generator models |
+
+Both expansion flags widen a default rather than overruling a value you named:
+an explicit `--assets` beats `--extended-universe`, and an explicit `--start`
+beats `--long-history`.
+
+`--long-history` is anchored to the crisis dates rather than to a round number
+of years, because those dates are fixed while a rolling window moves — "25
+years back from today" already clipped the start of the dot-com unwind, and by
+2030 would have missed it entirely.
+
+Measured peak memory and wall clock, which matter at these sizes:
+
+| Run | Rows | Peak | Time |
+| --- | --- | --- | --- |
+| default (5,000 × 10y) | 13.0M | 1.9 GB | 15s |
+| `--extended-universe` | 26.1M | 3.8 GB | 29s |
+| `--long-history` | 32.6M | 4.8 GB | 42s |
+| both | ~69M | ~10 GB | ~85s |
+
+The CLI prints its own estimate before it starts and warns above 4 GB.
 
 The dates default to today deliberately: data ending eighteen months ago reads
 as stale in every freshness indicator, which is a true statement about the data

@@ -271,13 +271,17 @@ slicing price history for every identifier in the batch.
 
 ### Generating data to serve
 
-`beacon.synthetic` produces a universe at demo scale — hundreds of anonymised
+`beacon.synthetic` produces a universe at demo scale — thousands of anonymised
 companies with years of history — and writes it straight to the location above:
 
 ```bash
-python -m beacon.synthetic --assets 512 --start 2019-12-31 --seed 42
-python -m beacon.server --port 0 --token dev      # picks it up automatically
+python -m beacon.synthetic --seed 42               # 5,000 names, 10 years, ~15s
+python -m beacon.server --port 0 --token dev       # picks it up automatically
 ```
+
+`--extended-universe` doubles the universe to 10,000 names and
+`--long-history` reaches back past every crisis the generator models. See
+[docs/serving-data.md](docs/serving-data.md) for what each costs.
 
 Prices reproduce the stylized facts of equity returns rather than being a
 random walk: volatility clustering (GJR-GARCH), fat tails (Student-t

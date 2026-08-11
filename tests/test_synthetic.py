@@ -32,7 +32,17 @@ from beacon.synthetic import SyntheticConfig, generate, write
 from beacon.synthetic import prices as prices_module
 from beacon.synthetic import returns as returns_module
 from beacon.synthetic import universe as universe_module
-from beacon.synthetic.__main__ import build_parser, default_window, main, resolve_window
+from beacon.synthetic.__main__ import (
+    DEFAULT_ASSETS,
+    DEFAULT_YEARS,
+    EXTENDED_ASSETS,
+    build_parser,
+    default_window,
+    long_history_start,
+    main,
+    resolve_assets,
+    resolve_window,
+)
 from beacon.synthetic.prices import PRICE_DECIMALS, SPLIT_THRESHOLD
 
 TOKEN = "test-token-value"
@@ -603,13 +613,13 @@ class TestCommandLine:
         assert args.seed == 42
         assert args.out == Path("/tmp/store")
 
-    def test_the_default_window_is_five_years_ending_today(self):
+    def test_the_default_window_is_ten_years_ending_today(self):
         start, end = default_window(pd.Timestamp("2026-08-03").date())
 
-        assert (start, end) == ("2021-08-03", "2026-08-03")
+        assert (start, end) == ("2016-08-03", "2026-08-03")
 
     def test_an_explicit_end_backs_the_start_off_it(self):
-        assert resolve_window(None, "2020-01-01")[0] == "2015-01-01"
+        assert resolve_window(None, "2020-01-01")[0] == "2010-01-01"
 
     def test_an_explicit_start_is_kept(self):
         assert resolve_window("2010-01-01", "2020-01-01") == ("2010-01-01",
@@ -632,6 +642,74 @@ class TestCommandLine:
 
         assert code == 2
         assert "error:" in capsys.readouterr().err
+
+
+
+class TestExpansionFlags:
+    """`--extended-universe` and `--long-history`.
+
+    Both widen a default rather than setting a value, so the property that
+    matters is what happens when the caller *also* names the thing the flag
+    would have decided. A flag that silently overrode an explicit `--assets`
+    or `--start` would be the more surprising design, and it is the one that
+    is easy to write by accident.
+    """
+
+    def test_the_default_is_the_clients_dataset(self):
+        assert resolve_assets(None, extended_universe=False) == DEFAULT_ASSETS
+        assert DEFAULT_YEARS == 10
+
+    def test_the_extended_universe_widens_the_universe(self):
+        assert resolve_assets(None, extended_universe=True) == EXTENDED_ASSETS
+
+    def test_an_explicit_asset_count_beats_the_flag(self):
+        assert resolve_assets(300, extended_universe=True) == 300
+
+    def test_long_history_reaches_back_further(self):
+        start, end = resolve_window(None, "2025-12-31", long_history=True)
+
+        assert start == long_history_start()
+        assert pd.Timestamp(end) - pd.Timestamp(start) > pd.Timedelta(days=365 * 24)
+
+    def test_an_explicit_start_beats_the_flag(self):
+        start, _end = resolve_window("2020-01-01", "2025-12-31",
+                                     long_history=True)
+
+        assert start == "2020-01-01"
+
+    def test_long_history_covers_the_crises_it_advertises(self):
+        """The flag's help text promises the dot-com unwind and the financial
+        crisis. Both have to be inside the window it actually produces."""
+        from beacon.synthetic.regimes import CRISES
+
+        start, end = resolve_window(None, "2025-12-31", long_history=True)
+        covered = [regime.name for regime in CRISES
+                   if pd.Timestamp(regime.start) >= pd.Timestamp(start)
+                   and pd.Timestamp(regime.end) <= pd.Timestamp(end)]
+
+        assert "dot-com unwind" in covered
+        assert "global financial crisis" in covered
+
+    def test_the_default_window_does_not_reach_the_crises(self):
+        """Which is why the flag exists. A ten-year window ending today holds
+        covid and 2022 and nothing older, so a client that needs to show a
+        real crisis has to ask for one."""
+        from beacon.synthetic.regimes import CRISES
+
+        start, _end = default_window(pd.Timestamp("2025-12-31").date())
+        reachable = [regime.name for regime in CRISES
+                     if pd.Timestamp(regime.start) >= pd.Timestamp(start)]
+
+        assert "global financial crisis" not in reachable
+        assert pd.Timestamp(long_history_start()) < pd.Timestamp(start)
+
+    def test_both_flags_compose(self):
+        args = build_parser().parse_args(["--extended-universe",
+                                          "--long-history"])
+
+        assert resolve_assets(args.assets, args.extended_universe) == EXTENDED_ASSETS
+        assert resolve_window(args.start, "2025-12-31",
+                              args.long_history)[0] == long_history_start()
 
 
 class TestNotTheFixture:
