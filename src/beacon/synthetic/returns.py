@@ -58,6 +58,8 @@ tolerance-based and hold anywhere.
 import numpy as np
 import pandas as pd
 
+from .regimes import CRISES, Regime, market_multipliers
+
 TRADING_DAYS = 252
 
 # Annualised volatility of the market factor itself. Loadings are scaled
@@ -213,7 +215,8 @@ def simulate(universe: pd.DataFrame,
              dates: pd.DatetimeIndex,
              rng: np.random.Generator,
              risk_free_rate: float,
-             equity_premium: float) -> pd.DataFrame:
+             equity_premium: float,
+             regimes: tuple[Regime, ...] = CRISES) -> pd.DataFrame:
     """Simulate the total-return panel.
 
     Args:
@@ -223,6 +226,8 @@ def simulate(universe: pd.DataFrame,
         rng: Seeded generator.
         risk_free_rate: Annualised, the base of the CAPM expectation.
         equity_premium: Annualised excess return on a beta-one name.
+        regimes: Dated crisis episodes to overlay. Empty for a stationary
+            market, which is what every panel produced before regimes existed.
 
     Returns:
         pd.DataFrame: Date-indexed daily total returns, one column per name.
@@ -266,10 +271,45 @@ def simulate(universe: pd.DataFrame,
     drift = (risk_free_rate + market_beta * equity_premium
              + universe["alpha"].to_numpy()) / TRADING_DAYS
 
+    # --- Regime overlay --------------------------------------------------
+    #
+    # Two separate effects, and conflating them is the trap. The volatility
+    # multiplier scales the market factor, so a crisis reaches a name through
+    # its own beta and a high-beta name suffers more. The correlation lift
+    # *redistributes* variance from the idiosyncratic and sector terms into the
+    # market term, leaving the total alone.
+    #
+    # Redistribution, not addition. The first attempt kept each name's full
+    # market exposure and added more on top, which inflated total variance
+    # instead of moving it: realised volatility in the 2008 window came out at
+    # 109% against a real figure nearer 40%, and the whole 25-year path
+    # annualised at -5%. Diversification must fail *without* the market itself
+    # becoming impossible.
+    scale, extra_drift, lift = market_multipliers(pd.DatetimeIndex(dates),
+                                                  regimes)
+
+    market_share = universe["market_share"].to_numpy()
+
+    # Per date and name: the market's share of variance, lifted toward one.
+    lifted = (market_share[None, :]
+              + lift[:, None] * (1.0 - market_share[None, :]))
+
+    # What is left over, as a fraction of what the sector and idiosyncratic
+    # terms had before. At lift 0 this is exactly 1 and nothing changes.
+    remaining = np.sqrt((1.0 - lifted) / (1.0 - market_share[None, :]))
+
+    stressed_market = market * scale[:, None]
+
+    # sqrt(share x variance / market_variance) is the beta that realises that
+    # share, factored so the per-name part is computed once.
+    per_name = np.sqrt(daily_variance / market_variance)
+    market_component = stressed_market * np.sqrt(lifted) * per_name[None, :]
+
     returns = (drift
-               + market_beta * market
-               + sector_beta * sector_factors[:, sector_index]
-               + idiosyncratic)
+               + extra_drift[:, None]
+               + market_component
+               + remaining * (sector_beta * sector_factors[:, sector_index]
+                              + idiosyncratic))
 
     return pd.DataFrame(returns,
                         index=pd.DatetimeIndex(dates, name="DATE"),
