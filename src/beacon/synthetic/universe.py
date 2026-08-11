@@ -78,8 +78,29 @@ MAX_PRICE = 480.0
 # Market capitalisation is drawn from a Pareto tail so a few names dominate and
 # the rest form a long tail — without it, cap weighting and cap rules would
 # behave like equal weighting and never bind.
+#
+# The shape is calibrated to realised index concentration, not to the pure
+# Zipf law firm sizes follow. At the 1.1 this started with, the largest name
+# averaged 19% of a 300-name index and reached 79% on one demo seed -- an
+# index that is really one stock. The exponent governs the *maximum* of the
+# draw, and at alpha near one that maximum is effectively unbounded, so this
+# was a property of the design rather than an unlucky seed.
+#
+# No single exponent fits the real market at both ends: the very top is
+# *flatter* than a Pareto (index rules, antitrust and mean reversion all bite
+# hardest on the largest company) while the body is heavier. 1.4 is the best
+# joint fit, over 300 names and 60 seeds:
+#
+#     statistic          generated    S&P 500
+#     largest name            9.4%    ~7% (2024), ~4% (2015)
+#     top ten                30.4%    ~35% (2024), ~20% (2015)
+#     top decile             46.2%    ~58% (2024), ~45% (2015)
+#
+# Slightly too concentrated at the very top, slightly too flat below it. The
+# tail stays heavy enough that a 10% cap binds regularly, which is what the
+# generator needs it for.
 MIN_MARKET_CAP = 5.0e8
-PARETO_SHAPE = 1.1
+PARETO_SHAPE = 1.4
 
 # Free float. Most of a large-cap universe is fully floated; a minority is
 # founder- or state-controlled, and those are what make a float adjustment

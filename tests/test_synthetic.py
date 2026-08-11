@@ -174,8 +174,32 @@ class TestUniverse:
         caps = panel.universe["market_cap"].sort_values(ascending=False)
         share = caps.iloc[:len(caps) // 10].sum() / caps.sum()
 
-        assert share > 0.35, f"top decile holds only {share:.1%} of the cap"
+        assert share > 0.30, f"top decile holds only {share:.1%} of the cap"
         assert caps.max() / caps.median() > 15
+
+    @pytest.mark.parametrize("seed", [1, 4, 7, 11, 19])
+    def test_concentration_resembles_a_real_index(self, seed):
+        """The tail must be heavy, and also *not too* heavy.
+
+        The one-sided floor above cannot catch the failure this replaced: at
+        the original 1.1 exponent the largest name averaged 19% of a 300-name
+        index and reached 79% on one demo seed, which passes every
+        "concentrated enough" check while being an index that is really one
+        stock. A band catches both ends, and several seeds catch what one
+        cannot -- the maximum of a heavy-tailed draw varies enormously.
+
+        The bounds bracket the real S&P 500 across the last decade rather than
+        being fitted to what the generator happens to produce: its largest
+        name ran ~4% in 2015 and ~7% in 2024, its top decile ~45% and ~58%.
+        """
+        drawn = universe_module.build(300, np.random.default_rng(seed))
+        weights = (drawn["market_cap"] / drawn["market_cap"].sum()
+                   ).sort_values(ascending=False)
+
+        assert 0.02 < weights.iloc[0] < 0.20, (
+            f"largest name is {weights.iloc[0]:.1%} of the index")
+        assert 0.30 < weights.iloc[:30].sum() < 0.70, (
+            f"top decile holds {weights.iloc[:30].sum():.1%}")
 
     def test_free_float_is_a_fraction(self, panel):
         floats = panel.universe["free_float"]
