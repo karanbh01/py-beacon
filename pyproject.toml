@@ -74,6 +74,9 @@ dev = [
   "pre-commit",
   "hypothesis",
   "httpx",               # required by fastapi's TestClient
+  "nbformat",            # the examples are notebooks (BN-129)
+  "nbclient",            # and are executed through a real kernel
+  "ipykernel",           # which nbclient needs to start
 ]
 
 [project.urls]
