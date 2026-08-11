@@ -33,6 +33,8 @@ somebody reviewing a layout is reviewing it against realistic numbers.
 import numpy as np
 import pandas as pd
 
+from . import regions
+
 # The eleven GICS sectors. A public taxonomy, unlike the company names.
 SECTORS = (
     "Communication Services", "Consumer Discretionary", "Consumer Staples",
@@ -63,8 +65,21 @@ VOLATILITY_BETA = (2.0, 3.0)
 # these land close to what they imply: same-sector pairs near 0.55, cross-sector
 # near 0.42, averaging ~0.39 once the eleven sectors are counted — comfortably
 # inside the 0.3-0.5 the issue asks for, and stable across seeds to ±0.02.
-MARKET_SHARE = 0.40
+# The region share is taken out of the *market* share rather than added on
+# top, so the average pairwise correlation stays where it was while the
+# structure underneath it gets richer. Adding 0.08 of shared variance to a
+# universe already at 0.40 would push the average to 0.44 and quietly
+# invalidate every correlation figure documented here.
+#
+# Expected average pairwise correlation is
+#     market + sector x P(same sector) + region x P(same region)
+# With eleven sectors assigned round-robin, P(same sector) is 0.09. The region
+# weights are concentrated, so P(same region) is the sum of their squares,
+# about 0.40 -- dominated by the United States at 0.60. That gives
+# 0.34 + 0.16x0.09 + 0.08x0.40 = 0.39, against 0.41 before regions existed.
+MARKET_SHARE = 0.34
 SECTOR_SHARE = 0.16
+REGION_SHARE = 0.08
 SHARE_JITTER = 0.06
 
 # Per-name alpha, annualised: noise around the CAPM expectation, not skill.
@@ -86,21 +101,35 @@ MAX_PRICE = 480.0
 # draw, and at alpha near one that maximum is effectively unbounded, so this
 # was a property of the design rather than an unlucky seed.
 #
-# No single exponent fits the real market at both ends: the very top is
-# *flatter* than a Pareto (index rules, antitrust and mean reversion all bite
-# hardest on the largest company) while the body is heavier. 1.4 is the best
-# joint fit, over 300 names and 60 seeds:
+# Drawn as **order statistics** rather than independently: the k-th largest
+# company gets a cap proportional to ``k ** (-1 / shape)``, which is Zipf's
+# law for firm sizes, and the ranks are then shuffled across names.
 #
-#     statistic          generated    S&P 500
-#     largest name            9.4%    ~7% (2024), ~4% (2015)
-#     top ten                30.4%    ~35% (2024), ~20% (2015)
-#     top decile             46.2%    ~58% (2024), ~45% (2015)
+# Independent draws were the second thing to get wrong here. Fixing the
+# exponent fixed the *average* concentration and left the tail unbounded, so
+# roughly one seed in ten still produced an index its largest name owned:
+# across 200 seeds at 300 names the top weight averaged a plausible 11% and
+# reached 88%. Truncating the draw barely helped, because the failure is not a
+# single enormous draw -- it is every *other* draw coming out small, which no
+# ceiling on the maximum prevents.
 #
-# Slightly too concentrated at the very top, slightly too flat below it. The
-# tail stays heavy enough that a 10% cap binds regularly, which is what the
-# generator needs it for.
+# Order statistics fix it at the source: the *shape* of the distribution is
+# imposed and only the noise around it is random. Across 200 seeds at 300
+# names, with the jitter below:
+#
+#     statistic          generated              S&P 500
+#     largest name       6.6% (worst 12.1%)     ~7% (2024), ~4% (2015)
+#     top decile        43.2% (worst 48.1%)     ~58% (2024), ~45% (2015)
+#
+# The tail stays heavy enough that a 10% cap binds regularly, which is what
+# the generator needs it for.
 MIN_MARKET_CAP = 5.0e8
 PARETO_SHAPE = 1.4
+
+# Lognormal noise on the Zipf profile. Without it every generated universe has
+# an identical concentration curve, which is its own kind of unrealistic; at
+# 0.25 the ranks shuffle around a bit without the profile losing its shape.
+CAP_JITTER = 0.25
 
 # Free float. Most of a large-cap universe is fully floated; a minority is
 # founder- or state-controlled, and those are what make a float adjustment
@@ -156,7 +185,9 @@ def build(count: int,
         count: How many names.
         rng: Seeded generator; every draw here comes from it, so the universe
             is a function of the seed alone.
-        currency: Reporting currency for every name.
+        currency: Retained for callers that pass it. Ignored since BN-128:
+            a name's currency comes from its listing region, and a universe
+            forced into one currency is the case the FX paths never exercise.
 
     Returns:
         pd.DataFrame: One row per name, indexed by identifier, carrying both
@@ -175,27 +206,44 @@ def build(count: int,
         MARKET_SHARE + rng.normal(0.0, SHARE_JITTER, size=count), 0.10, 0.60)
     sector_share = np.clip(
         SECTOR_SHARE + rng.normal(0.0, SHARE_JITTER, size=count), 0.02, 0.35)
+    region_share = np.clip(
+        REGION_SHARE + rng.normal(0.0, SHARE_JITTER / 2.0, size=count),
+        0.01, 0.20)
 
     prices = MIN_PRICE + (MAX_PRICE - MIN_PRICE) * rng.beta(1.6, 3.0, size=count)
 
-    # Pareto by inverse transform: a few names orders of magnitude above the
-    # floor, most near it.
-    market_cap = MIN_MARKET_CAP * (1.0 - rng.uniform(size=count)) ** (-1.0 / PARETO_SHAPE)
+    # Zipf on the ranks: the largest name is `count ** (1 / shape)` times the
+    # smallest, with lognormal noise so the curve is not identical every run.
+    # Shuffled afterwards because rank would otherwise track position, and
+    # position decides sector -- which would make every universe's biggest
+    # company a Communication Services name.
+    ranks = np.arange(1, count + 1)
+    market_cap = (MIN_MARKET_CAP
+                  * (count / ranks) ** (1.0 / PARETO_SHAPE)
+                  * np.exp(rng.normal(0.0, CAP_JITTER, size=count)))
+    rng.shuffle(market_cap)
 
     yields = MAX_DIVIDEND_YIELD * rng.beta(2.0, 4.0, size=count)
     yields[rng.uniform(size=count) < NON_PAYER_FRACTION] = 0.0
 
+    listings = regions.frame(regions.assign(count, rng))
+
     frame = pd.DataFrame({
         "NAME": [company_name(ticker) for ticker in tickers],
         "SECTOR": [SECTORS[position % len(SECTORS)] for position in positions],
-        "EXCHANGE": rng.choice(EXCHANGES, size=count),
-        "CURRENCY": currency,
+        "REGION": listings["REGION"].to_numpy(),
+        "EXCHANGE": listings["EXCHANGE"].to_numpy(),
+        "CURRENCY": listings["CURRENCY"].to_numpy(),
         "volatility": volatility,
         "market_share": market_share,
         "sector_share": sector_share,
+        "region_share": region_share,
         "alpha": rng.normal(0.0, ALPHA_SPREAD, size=count),
         "initial_price": prices,
-        "market_cap": market_cap,
+        # Drawn on a USD scale and converted, so the *size* distribution is
+        # global while the quoted price stays local. Without this a name's
+        # rank in the universe would depend on its exchange rate.
+        "market_cap": market_cap / listings["fx_to_base"].to_numpy(),
         "free_float": MIN_FREE_FLOAT + (1.0 - MIN_FREE_FLOAT) * rng.beta(
             *FREE_FLOAT_BETA, size=count),
         "dividend_yield": yields,
@@ -238,6 +286,7 @@ def reference_frame(universe: pd.DataFrame,
         "NAME": universe["NAME"].to_numpy(),
         "SECTOR": universe["SECTOR"].to_numpy(),
         "SUB_INDUSTRY": universe["SUB_INDUSTRY"].to_numpy(),
+        "REGION": universe["REGION"].to_numpy(),
         "EXCHANGE": universe["EXCHANGE"].to_numpy(),
         "CURRENCY": universe["CURRENCY"].to_numpy(),
     })

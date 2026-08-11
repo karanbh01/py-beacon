@@ -30,6 +30,7 @@ from beacon.data import store
 from beacon.data.corporate_actions import CASH_ACTIONS, RATIO_ACTIONS
 from beacon.synthetic import SyntheticConfig, generate, write
 from beacon.synthetic import prices as prices_module
+from beacon.synthetic import regions as regions_module
 from beacon.synthetic import returns as returns_module
 from beacon.synthetic import universe as universe_module
 from beacon.synthetic.__main__ import (
@@ -70,6 +71,17 @@ REAL_TICKERS = frozenset({
     "PEP", "ABBV", "COST", "MRK", "BAC", "CRM", "AMD", "NFLX", "INTC", "IBM",
     "T", "F", "GM", "GE", "DIS", "SPY", "QQQ", "VOO", "A", "C", "M", "X",
 })
+
+
+def equities(panel):
+    """The equity rows of a panel's market data.
+
+    Since BN-128 the market data also carries a row set per FX pair, because
+    that is how `fetch_fx_rates` finds them. A currency pair has no open,
+    no volume and no shares outstanding, so every assertion about those
+    columns is an assertion about equities and has to say so.
+    """
+    return panel.market.data.loc[list(panel.universe.index)]
 
 
 @pytest.fixture(scope="module")
@@ -281,10 +293,24 @@ class TestUniverse:
         The bounds bracket the real S&P 500 across the last decade rather than
         being fitted to what the generator happens to produce: its largest
         name ran ~4% in 2015 and ~7% in 2024, its top decile ~45% and ~58%.
+
+        These are tight because the caps are order statistics rather than
+        independent draws, so the *shape* is imposed and only the noise around
+        it varies. Under independent draws the same bounds were unmeetable:
+        across 200 seeds the top weight reached 88%, and a band wide enough to
+        admit that would have admitted anything.
         """
         drawn = universe_module.build(300, np.random.default_rng(seed))
-        weights = (drawn["market_cap"] / drawn["market_cap"].sum()
-                   ).sort_values(ascending=False)
+
+        # Converted to the base currency first. Since BN-128 `market_cap` is
+        # quoted in each name's own currency, so summing the raw column adds
+        # yen to pounds and reports a universe dominated by whichever currency
+        # has the smallest unit.
+        rates = {region.currency: 1.0 / region.rate
+                 for region in regions_module.REGIONS}
+        base = drawn["market_cap"] * drawn["CURRENCY"].map(rates)
+
+        weights = (base / base.sum()).sort_values(ascending=False)
 
         assert 0.02 < weights.iloc[0] < 0.20, (
             f"largest name is {weights.iloc[0]:.1%} of the index")
@@ -369,7 +395,7 @@ class TestMarketData:
     """The panel a client reads."""
 
     def test_open_high_low_close_are_coherent(self, panel):
-        frame = panel.market.data
+        frame = equities(panel)
         highest = frame[["OPEN", "CLOSE"]].max(axis=1)
         lowest = frame[["OPEN", "CLOSE"]].min(axis=1)
 
@@ -378,13 +404,13 @@ class TestMarketData:
         assert (frame["HIGH"] >= frame["LOW"]).all()
 
     def test_prices_are_positive(self, panel):
-        frame = panel.market.data
+        frame = equities(panel)
 
         for column in ("OPEN", "HIGH", "LOW", "CLOSE"):
             assert (frame[column] > 0).all(), column
 
     def test_volume_is_non_negative_and_whole(self, panel):
-        volume = panel.market.data["VOLUME"]
+        volume = equities(panel)["VOLUME"]
 
         assert (volume >= 0).all()
         assert (volume == volume.round()).all()
@@ -535,8 +561,20 @@ class TestCoherence:
             f"largest discrepancy {difference:.2e}, floor {floor:.2e}")
 
     def test_the_datasets_cover_the_same_names(self, panel):
-        assert set(panel.market.identifiers) == set(panel.reference.identifiers)
-        assert set(panel.actions.identifiers) <= set(panel.market.identifiers)
+        """Every company appears in all three, and the market data also holds
+        the FX pairs -- which are market data and nothing else.
+
+        A currency pair has no name, no sector and no listing, so giving it a
+        reference record would mean inventing all three and would put it in
+        front of every client that groups the universe by sector."""
+        market = set(panel.market.identifiers)
+        reference = set(panel.reference.identifiers)
+
+        assert reference == set(panel.universe.index)
+        assert reference < market
+        assert market - reference == {pair for pair, _rate, _vol
+                                      in regions_module.pairs()}
+        assert set(panel.actions.identifiers) <= market
 
     def test_the_panel_spans_the_requested_window(self):
         dataset = generate(SyntheticConfig(assets=8, start="2021-01-04",
@@ -633,8 +671,13 @@ class TestCommandLine:
         assert code == 0
         assert "Wrote 12 identifiers" in capsys.readouterr().out
 
+        # The store also carries one identifier per FX pair, which the message
+        # above deliberately does not count: it reports the universe somebody
+        # asked for, not the row sets needed to price it.
         fetcher = store.load(tmp_path / "store")
-        assert len(fetcher.identifiers) == 12
+        expected = 12 + len(regions_module.pairs())
+
+        assert len(fetcher.identifiers) == expected
 
     def test_a_bad_window_exits_two(self, tmp_path, capsys):
         code = main(["--start", "2024-01-01", "--end", "2023-01-01",
@@ -770,7 +813,10 @@ class TestServedByTheServer:
 
             datasets = {entry["dataset"]: entry
                         for entry in coverage.json()["datasets"]}
-            assert datasets["market"]["identifiers"] == 16
+            # The sixteen companies plus one row set per FX pair, which the
+            # server serves like any other identifier.
+            assert datasets["market"]["identifiers"] == 16 + len(
+                regions_module.pairs())
             assert datasets["reference"]["configured"] is True
         finally:
             process.terminate()
@@ -792,3 +838,148 @@ def _get_when_ready(port: int,
             time.sleep(0.1)
 
     raise AssertionError(f"server never answered on port {port}")
+
+
+class TestRegionsAndCurrencies:
+    """BN-128: a global universe, and the FX paths it makes reachable.
+
+    The point of this layer is not variety for its own sake. Every market
+    value the calculator computes goes through `fetch_fx_rates`, and against a
+    single-currency universe that call runs, multiplies by 1.0, and could be
+    wrong in any way at all without a test noticing.
+    """
+
+    def test_every_region_is_populated_at_a_realistic_size(self):
+        drawn = universe_module.build(500, np.random.default_rng(2))
+
+        assert set(drawn["REGION"]) == {region.name
+                                        for region in regions_module.REGIONS}
+
+    def test_a_small_universe_still_leaves_the_base_currency_dominant(self):
+        """Quota allocation rather than an independent draw. At a 2% weight an
+        independent draw leaves Australia out of most small universes, and a
+        small universe is what a test and a notebook use."""
+        drawn = universe_module.build(50, np.random.default_rng(9))
+        counts = drawn["CURRENCY"].value_counts(normalize=True)
+
+        assert counts["USD"] > 0.5
+        assert len(counts) > 1, "a single-currency universe exercises no FX"
+
+    def test_the_name_split_tracks_the_target_weights(self):
+        drawn = universe_module.build(2_000, np.random.default_rng(4))
+        share = drawn["REGION"].value_counts(normalize=True)
+
+        for region in regions_module.REGIONS:
+            assert abs(share[region.name] - region.weight) < 0.01
+
+    def test_prices_are_local_and_caps_are_global(self):
+        """The size ranking must not be an artefact of the exchange rate.
+
+        Yen prices and dollar prices are drawn from the same band, so a yen
+        name's cap has to be converted or the biggest companies in the
+        universe would simply be the ones quoted in the smallest unit.
+        """
+        drawn = universe_module.build(1_000, np.random.default_rng(6))
+        rates = {region.currency: 1.0 / region.rate
+                 for region in regions_module.REGIONS}
+
+        in_base = drawn["market_cap"] * drawn["CURRENCY"].map(rates)
+        largest = drawn.loc[in_base.nlargest(50).index, "CURRENCY"]
+
+        # The fifty biggest companies are not all from one currency, which is
+        # exactly what an unconverted cap would produce.
+        assert largest.nunique() > 1
+        assert largest.value_counts(normalize=True).iloc[0] < 0.9
+
+    def test_every_currency_has_a_pair_the_fetcher_can_find(self):
+        dataset = generate(SyntheticConfig(assets=60, start="2021-01-04",
+                                           end="2021-12-31", seed=5))
+        fetcher = dataset.fetcher()
+
+        for currency in dataset.universe["CURRENCY"].unique():
+            if currency == regions_module.BASE_CURRENCY:
+                continue
+
+            rates = fetcher.fetch_fx_rates(currency,
+                                           regions_module.BASE_CURRENCY)
+
+            assert not rates.empty, f"no rate for {currency}"
+            assert (rates > 0).all()
+
+    def test_rates_are_far_less_volatile_than_equities(self):
+        """A currency that moved like a stock would make every unhedged
+        exposure look like the dominant risk in a global book."""
+        dataset = generate(SyntheticConfig(assets=40, start="2013-01-02",
+                                           end="2018-12-31", seed=8))
+
+        rates = dataset.fetcher().fetch_fx_rates("EUR", "USD")
+        realised = rates.pct_change().std() * np.sqrt(252)
+
+        assert 0.04 < realised < 0.13, f"EURUSD realised {realised:.1%}"
+        assert realised < (dataset.returns.std() * np.sqrt(252)).min()
+
+    def test_the_pegged_currency_stays_pegged(self):
+        """The Hong Kong dollar is not floating, and a generator that treated
+        it as though it were would offer a hedge nobody can put on."""
+        dataset = generate(SyntheticConfig(assets=40, start="2007-01-02",
+                                           end="2010-12-31", seed=8))
+        fetcher = dataset.fetcher()
+
+        pegged = fetcher.fetch_fx_rates("HKD", "USD")
+        floating = fetcher.fetch_fx_rates("AUD", "USD")
+
+        peg_volatility = pegged.pct_change().std() * np.sqrt(252)
+
+        assert peg_volatility < 0.01
+        assert peg_volatility < floating.pct_change().std() * np.sqrt(252) / 5
+
+        # And it holds through the crisis, which is when a peg is tested.
+        assert abs(pegged.iloc[-1] / pegged.iloc[0] - 1) < 0.05
+
+    def test_the_dollar_gains_through_a_crisis(self):
+        """Flight to quality. Without it a hedged-versus-unhedged comparison
+        over 2008 shows nothing, which is the one window where it should."""
+        dataset = generate(SyntheticConfig(assets=40, start="2006-01-02",
+                                           end="2009-12-31", seed=8))
+        fetcher = dataset.fetcher()
+
+        moves = []
+        for currency in ("EUR", "GBP", "AUD", "CAD"):
+            rates = fetcher.fetch_fx_rates(currency, "USD",
+                                           "2008-06-02", "2008-12-31")
+            moves.append(float(rates.iloc[-1] / rates.iloc[0] - 1))
+
+        assert np.mean(moves) < 0.0, (
+            f"currencies averaged {np.mean(moves):+.1%} against USD through "
+            f"the second half of 2008")
+
+    def test_an_index_over_the_global_universe_converts_its_currencies(self):
+        """The end-to-end reason this layer exists."""
+        from beacon.index.calculation import IndexCalculator
+        from beacon.index.constructor import IndexDefinition
+        from beacon.index.methodology import MarketCapWeighted
+
+        config = SyntheticConfig(assets=80, start="2021-01-04",
+                                 end="2022-12-30", seed=7)
+        dataset = generate(config)
+
+        definition = IndexDefinition(
+            index_id="GLOBAL", index_name="Global", base_date=config.start,
+            base_value=1000.0, currency=regions_module.BASE_CURRENCY,
+            eligibility_rules=[],
+            weighting_scheme=MarketCapWeighted(use_free_float=True),
+            rebalancing_frequency="QUARTERLY",
+            universe_identifiers=list(dataset.universe.index),
+            max_constituent_weight=0.10)
+
+        result = IndexCalculator(definition, dataset.fetcher()).run(
+            start_date=config.start, end_date=config.end)
+
+        latest = result.weight_snapshots[max(result.weight_snapshots)]
+        weights = pd.Series(latest)
+        currencies = dataset.universe.loc[weights.index, "CURRENCY"]
+
+        assert result.index_levels.notna().all()
+        assert (result.index_levels > 0).all()
+        assert currencies.nunique() > 1, "not a multi-currency index"
+        assert weights.sum() == pytest.approx(1.0)

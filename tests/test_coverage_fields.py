@@ -143,14 +143,17 @@ class TestFieldCount:
 
     def test_market_counts_its_columns(self, coverage):
         """OHLCV, shares outstanding and free float."""
-        assert dataset_of(coverage, MARKET_DATASET)["field_count"] == 7
+        # Eight since BN-128: the seven equity columns plus RATE, which the
+        # FX pairs carry and equity rows leave empty.
+        assert dataset_of(coverage, MARKET_DATASET)["field_count"] == 8
 
     def test_reference_excludes_the_validity_keys(self, coverage):
         """DATE_FROM and DATE_TO are keys, not fields. Counting them would make
         "three fields held" mean one real attribute."""
         entry = dataset_of(coverage, REFERENCE_DATASET)
 
-        assert entry["field_count"] == 5
+        # Six since BN-128, REGION having joined the reference fields.
+        assert entry["field_count"] == 6
 
     def test_actions_exclude_the_identity_keys(self, coverage):
         """TYPE, VALUE, PAY_DATE, STATUS — not IDENTIFIER and EX_DATE."""
@@ -209,7 +212,12 @@ class TestIdentifiersUnion:
         assert payload_total > assets
 
     def test_it_counts_each_name_once(self, coverage):
-        assert coverage["identifiers_union"] == 25
+        # The twenty-five companies plus one identifier per FX pair: a
+        # currency pair is market data, and appears in the union like
+        # anything else the store holds.
+        from beacon.synthetic import regions
+
+        assert coverage["identifiers_union"] == 25 + len(regions.pairs())
 
     def test_a_name_in_only_one_dataset_still_counts(self):
         """The union is over all datasets, so a priced name with no reference

@@ -15,6 +15,7 @@ the ways this goes wrong quietly:
 import pandas as pd
 import pytest
 
+from beacon.asset.base import Asset
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.corporate_actions import CorporateActions
 from beacon.data.fetcher import DataFetcher
@@ -273,6 +274,36 @@ class TestMechanics:
 
     def test_no_distribution_is_nothing(self):
         assert TotalReturnMixin.distribution_received({"a": 1.0}, {}) == 0.0
+
+    def test_a_foreign_dividend_is_converted_before_it_is_reinvested(self):
+        """The bug the global universe exposed, pinned.
+
+        A dividend is quoted in the paying company's currency; the aggregate
+        it is reinvested into is in the index's. Summing the two without
+        converting counted a five-yen dividend as five dollars, and a
+        twelve-name index came out yielding 37% a year. Against a
+        single-currency universe every rate is 1.0, so nothing could catch it.
+        """
+        units = {Asset(name="JPY Co", currency="JPY", asset_id="JPYCO",
+                       asset_type="EQUITY"): 100.0}
+        per_share = {"JPYCO": 5.0}
+
+        unconverted = TotalReturnMixin.distribution_received(units, per_share)
+        converted = TotalReturnMixin.distribution_received(
+            units, per_share, rates={"JPYCO": 1.0 / 157.0})
+
+        assert unconverted == pytest.approx(500.0)
+        assert converted == pytest.approx(500.0 / 157.0)
+        assert converted < unconverted / 100
+
+    def test_a_name_already_in_index_currency_needs_no_rate(self):
+        """A missing entry means "no conversion needed", not "unknown". Every
+        domestic name would otherwise need a redundant 1.0 in the mapping."""
+        units = {Asset(name="USD Co", currency="USD", asset_id="USDCO",
+                       asset_type="EQUITY"): 10.0}
+
+        assert TotalReturnMixin.distribution_received(
+            units, {"USDCO": 2.0}, rates={}) == pytest.approx(20.0)
 
 
 class TestDefinitionValidation:

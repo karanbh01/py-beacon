@@ -33,7 +33,7 @@ from ..data import store
 from ..data.base import MarketData, ReferenceData
 from ..data.corporate_actions import CorporateActions
 from ..data.fetcher import DataFetcher
-from . import prices, returns, universe
+from . import fx, prices, returns, universe
 
 logger = logging.getLogger(__name__)
 
@@ -137,11 +137,19 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
 
     market_frame, action_frame = prices.build(names, panel, rng)
 
+    # FX pairs live in the market data as identifiers of their own, which is
+    # how `fetch_fx_rates` finds them. Concatenated rather than merged: an
+    # exchange rate has no volume, no shares outstanding and no free float,
+    # and inventing zeros for those would make an FX row answer questions it
+    # has no answer to.
+    rates = fx.build(dates, rng)
+
     logger.info("Generated %d identifier(s) over %d business days (seed %d).",
                 settings.assets, len(dates), settings.seed)
 
     return SyntheticDataset(
-        market=MarketData.from_dataframe(market_frame),
+        market=MarketData.from_dataframe(
+            pd.concat([market_frame, rates], ignore_index=True)),
         reference=ReferenceData.from_dataframe(
             universe.reference_frame(names, settings.start)),
         actions=CorporateActions.from_dataframe(action_frame),

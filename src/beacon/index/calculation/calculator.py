@@ -495,11 +495,14 @@ class IndexCalculator(MarketValuesMixin,
                 # the continuity adjustment below: that one preserves whatever
                 # level is in force, which now includes the distribution.
                 if reinvesting:
+                    paid = distributions.get(date, {})
                     divisor = self.reinvest(
                         divisor, old_aggregate,
-                        self.distribution_received(units,
-                                                   distributions.get(date, {}),
-                                                   withholding))
+                        self.distribution_received(
+                            units, paid, withholding,
+                            self.distribution_rates(
+                                paid, units, date,
+                                self.definition.currency)))
 
                 # Reconstitute as of the *announcement*: the constituent list
                 # and target weights are what was published, even though they
@@ -551,11 +554,15 @@ class IndexCalculator(MarketValuesMixin,
                     pass
                 else:
                     if reinvesting:
+                        paid = distributions.get(date, {})
                         divisor = self.reinvest(
                             divisor,
                             self.aggregate_value(units, date),
                             self.distribution_received(
-                                units, distributions.get(date, {}), withholding))
+                                units, paid, withholding,
+                                self.distribution_rates(
+                                paid, units, date,
+                                self.definition.currency)))
 
                     level = self.level_from_units(
                         units=units,

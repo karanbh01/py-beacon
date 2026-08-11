@@ -14,7 +14,8 @@ is here because leaving it out breaks a view somebody has to look at.
 
 For name *i* on day *t*:
 
-    r[i,t] = mu[i] + b[i]·f_market[t] + g[i]·f_sector(i)[t] + e[i,t]
+    r[i,t] = mu[i] + b[i]·f_market[t] + g[i]·f_sector(i)[t]
+                   + h[i]·f_region(i)[t] + e[i,t]
 
 Three independent sources, each a GJR-GARCH(1,1) process with standardised
 Student-t innovations:
@@ -24,12 +25,15 @@ Student-t innovations:
   *more in a crisis*, which is when correlation matters.
 * **Sector factors** — one per GICS sector, so two banks resemble each other
   more than a bank resembles a utility.
+* **Region factors** — one per listing venue, so two names listed in Tokyo
+  move together for reasons that have nothing to do with their industry.
 * **Idiosyncratic noise** — per name.
 
 Loadings are set from a variance budget rather than drawn directly, so a name's
 total volatility is a target that is hit rather than an outcome to be
-discovered. With the market at ~35% of variance and the sector at ~15%,
-same-sector pairs correlate near 0.50 and cross-sector pairs near 0.35.
+discovered. With the market at ~34% of variance, the sector at ~16% and the
+region at ~8%, same-sector pairs correlate near 0.50 and cross-sector pairs
+near 0.35, and the average across the universe lands near 0.39.
 
 ## Why GJR rather than plain GARCH
 
@@ -134,6 +138,8 @@ class _Shared:
     market: np.ndarray
     sector_factors: np.ndarray
     sector_names: list[str]
+    region_factors: np.ndarray
+    region_names: list[str]
     market_variance: float
     scale: np.ndarray
     extra_drift: np.ndarray
@@ -142,7 +148,7 @@ class _Shared:
     equity_premium: float
 
 
-def _standardised_t(rng: np.random.Generator,
+def standardised_t(rng: np.random.Generator,
                     degrees: np.ndarray | float,
                     shape: tuple[int, ...]) -> np.ndarray:
     """Negatively skewed Student-t draws, rescaled to unit variance.
@@ -266,7 +272,7 @@ def _shared_factor(rng: np.random.Generator,
     ones or the correlation structure would differ across the universe.
     """
     persistence, degrees = _draw_parameters(rng, len(target_variance))
-    innovations = _standardised_t(rng, degrees,
+    innovations = standardised_t(rng, degrees,
                                   (steps + BURN_IN, len(target_variance)))
 
     return pin_realised_variance(
@@ -296,7 +302,7 @@ def _idiosyncratic(children: list[np.random.Generator],
                         for child in children])
 
     innovations = np.stack(
-        [_standardised_t(child, degree, (steps + BURN_IN,))
+        [standardised_t(child, degree, (steps + BURN_IN,))
          for child, degree in zip(children, degrees, strict=True)], axis=1)
 
     return simulate_gjr(steps, target_variance, persistence, innovations)
@@ -331,11 +337,19 @@ def simulate(universe: pd.DataFrame,
     count = len(universe)
 
     sector_names = sorted(set(universe["SECTOR"].to_numpy()))
+    region_names = sorted(set(universe["REGION"].to_numpy()))
     market_variance = (MARKET_VOLATILITY ** 2) / TRADING_DAYS
 
     market = _shared_factor(rng, steps, np.array([market_variance]))
     sector_factors = _shared_factor(
         rng, steps, np.full(len(sector_names), market_variance))
+
+    # A third shared factor, on the same footing as the sector one. Two names
+    # listed in Tokyo move together for reasons that have nothing to do with
+    # being in the same industry, and without this a "global" index is eleven
+    # sectors of names that happen to be labelled with different countries.
+    region_factors = _shared_factor(
+        rng, steps, np.full(len(region_names), market_variance))
 
     # --- Regime overlay --------------------------------------------------
     #
@@ -357,6 +371,8 @@ def simulate(universe: pd.DataFrame,
     shared = _Shared(market=market,
                      sector_factors=sector_factors,
                      sector_names=sector_names,
+                     region_factors=region_factors,
+                     region_names=region_names,
                      market_variance=market_variance,
                      scale=scale,
                      extra_drift=extra_drift,
@@ -397,17 +413,23 @@ def _block(names: pd.DataFrame,
     daily_variance = (names["volatility"].to_numpy() ** 2) / TRADING_DAYS
     market_share = names["market_share"].to_numpy()
     sector_share = names["sector_share"].to_numpy()
+    region_share = names["region_share"].to_numpy()
 
     sector_index = np.array([shared.sector_names.index(sector)
                              for sector in names["SECTOR"].to_numpy()])
+    region_index = np.array([shared.region_names.index(region)
+                             for region in names["REGION"].to_numpy()])
 
     # Loadings from the variance budget: b^2 * market_variance is the share of
     # this name's variance the market is meant to explain, so b follows.
     market_beta = np.sqrt(market_share * daily_variance / shared.market_variance)
     sector_beta = np.sqrt(sector_share * daily_variance / shared.market_variance)
+    region_beta = np.sqrt(region_share * daily_variance / shared.market_variance)
 
     idiosyncratic = _idiosyncratic(
-        children, daily_variance * (1.0 - market_share - sector_share), steps)
+        children,
+        daily_variance * (1.0 - market_share - sector_share - region_share),
+        steps)
 
     # CAPM, so a high-beta name earns more in expectation and the cross-section
     # of long-run returns is not flat.
@@ -434,4 +456,5 @@ def _block(names: pd.DataFrame,
         + shared.extra_drift[:, None]
         + market_component
         + remaining * (sector_beta * shared.sector_factors[:, sector_index]
+                       + region_beta * shared.region_factors[:, region_index]
                        + idiosyncratic))

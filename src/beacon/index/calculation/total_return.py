@@ -126,13 +126,18 @@ class TotalReturnMixin:
     @staticmethod
     def distribution_received(units: dict[Asset, float],
                               per_share: dict[str, float],
-                              withholding: float = 0.0) -> float:
-        """Cash the index's holdings receive on one date.
+                              withholding: float = 0.0,
+                              rates: dict[str, float] | None = None) -> float:
+        """Cash the index's holdings receive on one date, in index currency.
 
         Args:
             units: What the index holds, asset to unit count.
-            per_share: Cash per share by identifier, for this date.
+            per_share: Cash per share by identifier, for this date, quoted in
+                the paying company's own currency.
             withholding: Fraction withheld; 0.0 for a gross index.
+            rates: Identifier to FX rate into the index currency. A missing
+                entry converts at 1.0, which is correct for a name that
+                already reports in the index currency.
 
         Returns:
             float: Total cash, net of withholding. Zero when nothing paid.
@@ -140,10 +145,62 @@ class TotalReturnMixin:
         if not per_share:
             return 0.0
 
+        rates = rates or {}
+
         gross = sum(count * per_share.get(asset.asset_id, 0.0)
+                    * rates.get(asset.asset_id, 1.0)
                     for asset, count in units.items())
 
         return float(gross * (1.0 - withholding))
+
+    def distribution_rates(self,
+                           per_share: dict[str, float],
+                           units: dict[Asset, float],
+                           date: pd.Timestamp,
+                           index_currency: str) -> dict[str, float]:
+        """FX rates into the index currency, for the names paying on a date.
+
+        Dividends are quoted in the paying company's currency while the
+        aggregate they are reinvested into is in the index's, so the two
+        cannot be divided until one is converted. Against a single-currency
+        universe the omission is invisible -- every rate is 1.0 -- which is
+        how it survived until the generator grew regions: a yen dividend was
+        being counted as though it were dollars, and a twelve-name index came
+        out with a 37% annual yield.
+
+        Only the names that actually paid are looked up, so a quiet day costs
+        nothing.
+
+        The index currency is a parameter rather than read off
+        ``self.definition``: `constructor` imports this module for its return
+        types, so a mixin that reached back for the definition would close an
+        import cycle. The caller has it already.
+        """
+        index_currency = index_currency.upper()
+        held = {asset.asset_id: asset for asset in units}
+
+        rates: dict[str, float] = {}
+        date_str = date.strftime("%Y-%m-%d")
+
+        for identifier in per_share:
+            asset = held.get(identifier)
+
+            if asset is None or asset.currency.upper() == index_currency:
+                continue
+
+            series = self.data.fetch_fx_rates(asset.currency, index_currency,
+                                              date_str, date_str)
+
+            if series.empty:
+                logger.warning(
+                    "No %s/%s rate on %s; treating the distribution from %s "
+                    "as already in index currency.",
+                    asset.currency, index_currency, date_str, identifier)
+                continue
+
+            rates[identifier] = float(series.iloc[0])
+
+        return rates
 
     @staticmethod
     def reinvest(divisor: float,
