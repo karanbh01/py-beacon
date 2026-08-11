@@ -93,6 +93,23 @@ DIVIDEND_SETTLEMENT_DAYS = 21
 # rounding is monotonic: if HIGH >= CLOSE then round(HIGH) >= round(CLOSE).
 PRICE_DECIMALS = 4
 
+# Single precision, on the panel that dominates memory. At 800 names over ten
+# years the market data holds 119 MB as float64 and 64 MB as float32, and the
+# whole point of the larger universes is to fit on an ordinary machine.
+#
+# The precision this costs is real but bounded. float32 carries about 7.2
+# decimal digits, and the widest thing stored here is a price near the 480 top
+# of the range quoted to four decimals -- 480.1234, which needs 7. So the
+# rounding above is preserved to roughly a tenth of a tick rather than exactly,
+# and `test_prices_reconstruct_from_returns` compares against a tolerance
+# derived from the tick size for that reason.
+#
+# SHARES_OUTSTANDING is the one to watch: it runs to 1e9 and above, where a
+# float32 ulp is over 64. That is harmless for a market value (a relative error
+# of 1e-7) and would not be for a share count anybody had to reconcile, which
+# this is not -- it is generated.
+STORAGE_DTYPE = "float32"
+
 
 def dividend_dates(dates: pd.DatetimeIndex) -> pd.DatetimeIndex:
     """The ex-dividend dates inside a panel's date range.
@@ -294,6 +311,9 @@ def _long_form(frames: dict[str, pd.DataFrame],
     # `fetch_free_float_factor` reads it from.
     market["FREE_FLOAT"] = market["IDENTIFIER"].map(
         universe["free_float"].round(PRICE_DECIMALS))
+
+    market = market.astype({name: STORAGE_DTYPE for name in market.columns
+                            if name not in ("DATE", "IDENTIFIER")})
 
     return market.sort_values(["IDENTIFIER", "DATE"], ignore_index=True)
 
