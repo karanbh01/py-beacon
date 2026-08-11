@@ -29,6 +29,7 @@ import pytest
 from beacon.data import store
 from beacon.data.corporate_actions import CASH_ACTIONS, RATIO_ACTIONS
 from beacon.synthetic import SyntheticConfig, generate, write
+from beacon.synthetic import prices as prices_module
 from beacon.synthetic import returns as returns_module
 from beacon.synthetic import universe as universe_module
 from beacon.synthetic.__main__ import build_parser, default_window, main, resolve_window
@@ -186,6 +187,35 @@ class TestBlockedGeneration:
     def test_a_block_larger_than_the_universe_is_one_block(self):
         """The degenerate end, which is what the old unblocked path was."""
         assert self.panel(10_000).equals(self.panel(60))
+
+    @pytest.mark.parametrize("block_size", [1, 7, 60])
+    def test_prices_do_not_depend_on_the_block_size_either(self, block_size):
+        """The same property, for the stage that actually dominates memory.
+
+        Compared after sorting: blocks are concatenated in universe order and
+        each is internally sorted by identifier, so the row order of the raw
+        frame differs from the unblocked one. `MarketData` sorts on
+        construction, so nothing downstream sees the difference -- but the
+        *content* has to be identical, and that is what this asserts.
+        """
+        def build(size):
+            rng = np.random.default_rng(5)
+            names = universe_module.build(60, rng)
+            dates = pd.bdate_range("2021-01-04", "2022-12-30")
+            panel = returns_module.simulate(names, dates, rng, 0.03, 0.06)
+
+            market, actions = prices_module.build(names, panel, rng,
+                                                  block_size=size)
+
+            return (market.sort_values(["IDENTIFIER", "DATE"], ignore_index=True),
+                    actions.sort_values(["IDENTIFIER", "EX_DATE", "TYPE"],
+                                        ignore_index=True))
+
+        market, actions = build(block_size)
+        expected_market, expected_actions = build(10_000)
+
+        pd.testing.assert_frame_equal(market, expected_market)
+        pd.testing.assert_frame_equal(actions, expected_actions)
 
     def test_the_factors_are_shared_across_blocks(self):
         """A block drawing its own market factor would leave the universe

@@ -49,6 +49,7 @@ import numpy as np
 import pandas as pd
 
 from ..data.corporate_actions import ANNOUNCED, PAID
+from .returns import BLOCK_SIZE
 
 # Ex-dividend months, and the day within the month. Quarterly, deliberately
 # off the quarter ends where index rebalances land: an action falling on a
@@ -193,18 +194,51 @@ def _dividend_fractions(universe: pd.DataFrame,
 
 def build(universe: pd.DataFrame,
           returns: pd.DataFrame,
-          rng: np.random.Generator) -> tuple[pd.DataFrame, pd.DataFrame]:
+          rng: np.random.Generator,
+          block_size: int = BLOCK_SIZE) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the market-data panel and the corporate-action history.
+
+    Names are processed in blocks. This is where the memory actually goes:
+    thirteen full ``(days x names)`` panels are alive between the return input
+    and the long-form output -- the dividend drops, the multiplicative path,
+    the split factor, the pre-drop price, the dividend amounts, the close, the
+    share count, and five OHLCV frames. Blocking bounds all of them at the
+    block, leaving the output frame as the floor.
+
+    Nothing here couples one name to another: dividend dates come from the
+    calendar, and a split is triggered by that name's own quoted price. So a
+    block is the same computation on fewer columns, not an approximation.
 
     Args:
         universe: Output of `universe.build`.
         returns: Date-indexed total returns, one column per name.
         rng: Seeded generator.
+        block_size: How many names to process at a time. Affects peak memory
+            and nothing else.
 
     Returns:
         tuple: Long-form market data with IDENTIFIER/DATE and OHLCV plus
         SHARES_OUTSTANDING and FREE_FLOAT, and a long-form action history.
     """
+    # One generator per name, for the same reason as in `returns`: a name's
+    # gaps, ranges and volume must not depend on how the work was divided.
+    children = rng.spawn(len(universe))
+    step = max(block_size, 1)
+
+    blocks = [_build_block(universe.iloc[start:start + step],
+                           returns.iloc[:, start:start + step],
+                           children[start:start + step])
+              for start in range(0, len(universe), step)]
+
+    return (pd.concat([market for market, _ in blocks], ignore_index=True),
+            pd.concat([actions for _, actions in blocks], ignore_index=True))
+
+
+def _build_block(universe: pd.DataFrame,
+                 returns: pd.DataFrame,
+                 children: list[np.random.Generator],
+                 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Everything `build` does, for one block of names."""
     dates = pd.DatetimeIndex(returns.index)
 
     drops = _dividend_fractions(universe, dates)
@@ -228,9 +262,9 @@ def build(universe: pd.DataFrame,
     close = pre_split / factor
     shares = factor * universe["shares_outstanding"].to_numpy()
 
-    frames = _bars(universe, returns, pre_split, factor, rng)
+    frames = _bars(universe, returns, pre_split, factor, children)
     frames["CLOSE"] = close
-    frames["VOLUME"] = _volume(universe, returns, factor, rng)
+    frames["VOLUME"] = _volume(universe, returns, factor, children)
 
     market = _long_form(frames, shares, universe)
     actions = _action_frame(split_actions, dividends, drops, dates[-1])
@@ -242,19 +276,28 @@ def _bars(universe: pd.DataFrame,
           returns: pd.DataFrame,
           pre_split: pd.DataFrame,
           factor: pd.DataFrame,
-          rng: np.random.Generator) -> dict[str, pd.DataFrame]:
-    """Open, high and low, split-adjusted alongside the close."""
-    shape = returns.shape
+          children: list[np.random.Generator]) -> dict[str, pd.DataFrame]:
+    """Open, high and low, split-adjusted alongside the close.
+
+    Each name's three draws come from its own generator, in the same order
+    whichever block it is in, so the bars are a function of the seed and the
+    name rather than of the block size.
+    """
+    steps = len(returns)
     daily_volatility = universe["volatility"].to_numpy() / np.sqrt(252.0)
 
     previous = pre_split.shift(1)
     previous.iloc[0] = universe["initial_price"].to_numpy()
 
-    gap = rng.normal(0.0, GAP_SCALE * daily_volatility, size=shape)
+    def per_name(scale: np.ndarray) -> np.ndarray:
+        return np.stack([child.normal(0.0, scale[position], size=steps)
+                         for position, child in enumerate(children)], axis=1)
+
+    gap = per_name(GAP_SCALE * daily_volatility)
     open_ = previous * (1.0 + gap)
 
-    upper = np.abs(rng.normal(0.0, RANGE_SCALE * daily_volatility, size=shape))
-    lower = np.abs(rng.normal(0.0, RANGE_SCALE * daily_volatility, size=shape))
+    upper = np.abs(per_name(RANGE_SCALE * daily_volatility))
+    lower = np.abs(per_name(RANGE_SCALE * daily_volatility))
 
     # Pushed out from the extremes rather than drawn independently, so the
     # ordering holds by construction and never needs repairing.
@@ -269,16 +312,17 @@ def _bars(universe: pd.DataFrame,
 def _volume(universe: pd.DataFrame,
             returns: pd.DataFrame,
             factor: pd.DataFrame,
-            rng: np.random.Generator) -> pd.DataFrame:
+            children: list[np.random.Generator]) -> pd.DataFrame:
     """Log-normal volume, lifted on days with a large move."""
-    count = len(universe)
-    turnover = rng.uniform(MIN_TURNOVER, MAX_TURNOVER, size=count)
+    turnover = np.array([child.uniform(MIN_TURNOVER, MAX_TURNOVER)
+                         for child in children])
     base = universe["shares_outstanding"].to_numpy() * turnover
 
     daily_volatility = universe["volatility"].to_numpy() / np.sqrt(252.0)
     standardised = (returns.abs() / daily_volatility).to_numpy()
 
-    noise = rng.normal(0.0, VOLUME_NOISE, size=returns.shape)
+    noise = np.stack([child.normal(0.0, VOLUME_NOISE, size=len(returns))
+                      for child in children], axis=1)
 
     # Centred on the mean absolute standardised move so the activity term
     # shifts volume around its base rather than scaling it up wholesale.
