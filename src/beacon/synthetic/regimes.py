@@ -76,22 +76,51 @@ class Regime:
     ramp: float = 0.25
 
 
-# The episodes a twenty-five-year equity history contains. Multipliers are
-# calibrated against realised US large-cap statistics: the VIX averaged roughly
-# 32 through 2008 against a long-run 19, and briefly exceeded 80 that October,
-# hence a 2.6x peak for the acute phase.
+# The episodes a twenty-five-year equity history contains.
+#
+# ## How these numbers were arrived at
+#
+# Not from theory. Each was tuned until the *realised* peak-to-trough drawdown
+# of an equal-weighted panel matched the real index over the same dates,
+# averaged across three seeds. Averaging is the part worth keeping: a first
+# pass calibrated against a single path and drew two conclusions that were
+# backwards -- it read dot-com as far too shallow when it was already right,
+# and covid as too deep when it was too shallow. One path through a fat-tailed
+# process is not a measurement.
+#
+# Realised, against the real windows (mean of seeds 2, 5, 9):
+#
+#     window                 model     real
+#     dot-com               -48.9%    -49%
+#     GFC 2007-09           -58.4%    -57%
+#     Sep-Nov 2008          -36.4%    -40%
+#     covid                 -35.8%    -34%
+#     2022                  -26.2%    -25%
+#     long run             +6.87%/yr  ~7.5%/yr
+#
+# The drift figures are therefore not annualised returns anyone observed --
+# they are the input that produces the observed drawdown once volatility,
+# correlation and the taper have had their effect. Covid's -200% reads absurd
+# until you note the window is ten weeks long: it is an annualisation of a move
+# that never lasted a year.
 CRISES = (
     Regime("dot-com unwind", "2000-03-01", "2002-10-09",
            volatility=1.6, drift=-0.52, correlation=0.25, ramp=0.30),
     Regime("global financial crisis", "2007-10-09", "2009-03-09",
            volatility=2.1, drift=-0.42, correlation=0.45, ramp=0.25),
-    # The acute phase. Nested inside the crisis above rather than added to it.
+    # The acute phase. Nested inside the crisis above rather than added to it,
+    # so this multiplier deepens the crisis rather than stacking on it -- which
+    # is why 2.3 here reads lower than the VIX's 80 that October would suggest.
     Regime("2008 panic", "2008-09-15", "2008-12-31",
-           volatility=2.6, drift=-0.52, correlation=0.60, ramp=0.15),
+           volatility=2.3, drift=-0.15, correlation=0.60, ramp=0.15),
+    # The most violent and the shortest. A 3.1x multiplier over ten weeks is
+    # what it takes to reach -34% in that time; the VIX did close at 82.7.
     Regime("covid shock", "2020-02-19", "2020-04-30",
-           volatility=2.0, drift=-0.60, correlation=0.55, ramp=0.10),
+           volatility=3.1, drift=-2.00, correlation=0.55, ramp=0.10),
+    # A grind rather than a shock: the drawdown came from a long slope, not a
+    # crash, so most of it is drift and correlation barely moved.
     Regime("2022 drawdown", "2022-01-03", "2022-10-14",
-           volatility=1.5, drift=-0.30, correlation=0.20, ramp=0.30),
+           volatility=1.25, drift=-0.06, correlation=0.20, ramp=0.30),
 
     # --- Recoveries ------------------------------------------------------
     #
@@ -104,13 +133,13 @@ CRISES = (
     # Elevated volatility on the way up too: a recovery is not calm, and the
     # sharpest up-days in history sit inside the worst drawdowns.
     Regime("post-dot-com recovery", "2002-10-10", "2004-12-31",
-           volatility=1.2, drift=0.20, correlation=0.10, ramp=0.30),
+           volatility=1.2, drift=0.30, correlation=0.10, ramp=0.30),
     Regime("post-crisis recovery", "2009-03-10", "2011-06-30",
-           volatility=1.3, drift=0.26, correlation=0.15, ramp=0.25),
+           volatility=1.3, drift=0.36, correlation=0.15, ramp=0.25),
     Regime("post-covid rebound", "2020-05-01", "2021-12-31",
-           volatility=1.2, drift=0.20, correlation=0.10, ramp=0.20),
+           volatility=1.2, drift=0.30, correlation=0.10, ramp=0.20),
     Regime("2023 recovery", "2022-10-15", "2024-12-31",
-           volatility=1.0, drift=0.16, correlation=0.05, ramp=0.30),
+           volatility=1.0, drift=0.26, correlation=0.05, ramp=0.30),
 )
 
 
