@@ -16,6 +16,7 @@ from ..constructor import IndexDefinition
 from ..result import IndexResult
 from ..schedule import effective_date, sessions
 from .corporate_actions import CorporateActionsMixin
+from .deletions import DeletionMixin
 from .market_values import MarketValuesMixin
 from .selection import (
     UNIVERSE_POSITION,
@@ -27,7 +28,7 @@ from .total_return import REINVESTING, TotalReturnMixin, withholding_for
 
 logger = logging.getLogger(__name__)
 
-class IndexCalculator(MarketValuesMixin,
+class IndexCalculator(MarketValuesMixin, DeletionMixin,
                       TotalReturnMixin, CorporateActionsMixin):
     """
     Stateless index calculator. Accepts an IndexDefinition and DataFetcher,
@@ -436,6 +437,12 @@ class IndexCalculator(MarketValuesMixin,
         # every index defined before BN-125 producing identical levels.
         reinvesting = self.definition.return_type in REINVESTING
         distributions = self.cash_distribution_schedule() if reinvesting else {}
+
+        # When each name stops being listed, resolved once. An index over a
+        # universe where nothing is ever delisted gets an empty mapping and
+        # pays for one `if` per day.
+        delistings = self.delisting_schedule()
+        previous_date = base_date
         withholding = withholding_for(self.definition.return_type,
                                       self.definition.withholding_tax_rate)
 
@@ -553,6 +560,19 @@ class IndexCalculator(MarketValuesMixin,
                     # Before base date initialisation or no constituents
                     pass
                 else:
+                    # Before anything else: a holding that stopped being
+                    # listed cannot be valued, and leaving it in would report
+                    # its whole weight as a loss on the day it went.
+                    units, divisor, deleted = self.apply_deletions(
+                        units, divisor, date, delistings, previous_date)
+
+                    if deleted:
+                        constituents = [asset for asset in constituents
+                                        if asset.asset_id not in set(deleted)]
+                        weights = {asset: weight
+                                   for asset, weight in weights.items()
+                                   if asset.asset_id not in set(deleted)}
+
                     if reinvesting:
                         paid = distributions.get(date, {})
                         divisor = self.reinvest(
@@ -573,6 +593,10 @@ class IndexCalculator(MarketValuesMixin,
 
             index_levels[date] = level
             divisor_values[date] = divisor
+
+            # Deletions are valued on the last day the leaver still had a
+            # price, so the loop has to remember which day that was.
+            previous_date = date
 
         logger.info(
             f"run() completed for '{self.definition.index_name}': "

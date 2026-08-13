@@ -33,7 +33,7 @@ from ..data import store
 from ..data.base import MarketData, ReferenceData
 from ..data.corporate_actions import CorporateActions
 from ..data.fetcher import DataFetcher
-from . import fx, prices, returns, universe
+from . import fx, listings, prices, returns, universe
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,11 @@ class SyntheticConfig:
         risk_free_rate: Annualised, the base of the CAPM drift.
         equity_premium: Annualised excess return on a beta-one name.
         currency: Reporting currency for every name.
+        delisting_rate: Annualised hazard of a name leaving the universe.
+            Zero gives the constant, survivorship-biased universe every
+            dataset had before BN-130.
+        listing_rate: Annualised hazard of a name having joined partway
+            through rather than at the start.
     """
     assets: int = DEFAULT_ASSETS
     start: str = DEFAULT_START
@@ -76,6 +81,8 @@ class SyntheticConfig:
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE
     equity_premium: float = DEFAULT_EQUITY_PREMIUM
     currency: str = universe.DEFAULT_CURRENCY
+    delisting_rate: float = listings.ANNUAL_DELISTING_RATE
+    listing_rate: float = listings.ANNUAL_LISTING_RATE
 
     def __post_init__(self) -> None:
         if self.assets < 1:
@@ -129,7 +136,10 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
     rng = np.random.default_rng(settings.seed)
 
     dates = pd.bdate_range(settings.start, settings.end)
-    names = universe.build(settings.assets, rng, currency=settings.currency)
+    names = universe.build(settings.assets, rng, dates=dates,
+                           currency=settings.currency,
+                           delisting_rate=settings.delisting_rate,
+                           listing_rate=settings.listing_rate)
 
     panel = returns.simulate(names, dates, rng,
                              risk_free_rate=settings.risk_free_rate,

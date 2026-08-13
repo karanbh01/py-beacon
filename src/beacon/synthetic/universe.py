@@ -33,7 +33,7 @@ somebody reviewing a layout is reviewing it against realistic numbers.
 import numpy as np
 import pandas as pd
 
-from . import regions
+from . import listings, regions
 
 # The eleven GICS sectors. A public taxonomy, unlike the company names.
 SECTORS = (
@@ -178,13 +178,19 @@ def company_name(identifier: str) -> str:
 
 def build(count: int,
           rng: np.random.Generator,
-          currency: str = DEFAULT_CURRENCY) -> pd.DataFrame:
+          dates: pd.DatetimeIndex | None = None,
+          currency: str = DEFAULT_CURRENCY,
+          delisting_rate: float = listings.ANNUAL_DELISTING_RATE,
+          listing_rate: float = listings.ANNUAL_LISTING_RATE) -> pd.DataFrame:
     """Draw the static universe.
 
     Args:
         count: How many names.
         rng: Seeded generator; every draw here comes from it, so the universe
             is a function of the seed alone.
+        dates: The panel's business days. When given, each name draws a listed
+            life over them; when omitted every name is listed for the whole
+            panel, which is what callers that only want the static fields get.
         currency: Retained for callers that pass it. Ignored since BN-128:
             a name's currency comes from its listing region, and a universe
             forced into one currency is the case the FX paths never exercise.
@@ -226,14 +232,14 @@ def build(count: int,
     yields = MAX_DIVIDEND_YIELD * rng.beta(2.0, 4.0, size=count)
     yields[rng.uniform(size=count) < NON_PAYER_FRACTION] = 0.0
 
-    listings = regions.frame(regions.assign(count, rng))
+    venues = regions.frame(regions.assign(count, rng))
 
     frame = pd.DataFrame({
         "NAME": [company_name(ticker) for ticker in tickers],
         "SECTOR": [SECTORS[position % len(SECTORS)] for position in positions],
-        "REGION": listings["REGION"].to_numpy(),
-        "EXCHANGE": listings["EXCHANGE"].to_numpy(),
-        "CURRENCY": listings["CURRENCY"].to_numpy(),
+        "REGION": venues["REGION"].to_numpy(),
+        "EXCHANGE": venues["EXCHANGE"].to_numpy(),
+        "CURRENCY": venues["CURRENCY"].to_numpy(),
         "volatility": volatility,
         "market_share": market_share,
         "sector_share": sector_share,
@@ -243,7 +249,7 @@ def build(count: int,
         # Drawn on a USD scale and converted, so the *size* distribution is
         # global while the quoted price stays local. Without this a name's
         # rank in the universe would depend on its exchange rate.
-        "market_cap": market_cap / listings["fx_to_base"].to_numpy(),
+        "market_cap": market_cap / venues["fx_to_base"].to_numpy(),
         "free_float": MIN_FREE_FLOAT + (1.0 - MIN_FREE_FLOAT) * rng.beta(
             *FREE_FLOAT_BETA, size=count),
         "dividend_yield": yields,
@@ -263,6 +269,14 @@ def build(count: int,
     frame["shares_outstanding"] = np.round(frame["market_cap"]
                                            / frame["initial_price"])
 
+    if dates is not None and len(dates) > 0:
+        lives = listings.draw(count, dates, rng,
+                              delisting_rate=delisting_rate,
+                              listing_rate=listing_rate,
+                              alpha=frame["alpha"].to_numpy())
+        frame["listed_from"] = lives["listed_from"].to_numpy()
+        frame["listed_to"] = lives["listed_to"].to_numpy()
+
     return frame
 
 
@@ -272,17 +286,27 @@ def reference_frame(universe: pd.DataFrame,
 
     Args:
         universe: Output of :func:`build`.
-        valid_from: DATE_FROM stamped on every record. A generated universe has
-            no history of reclassification, so every record is valid from the
-            start of the panel rather than pretending to a change it never had.
+        valid_from: DATE_FROM for names listed since the panel began. A
+            generated universe has no history of reclassification, so a name
+            that was there at the start gets one record valid from the start
+            rather than pretending to a change it never had.
 
     Returns:
-        pd.DataFrame: One row per name.
+        pd.DataFrame: One row per name, carrying the listed life. `DATE_TO` is
+        NaT for a name still listed at the end of the panel, which is what
+        `ReferenceData.get` reads as "still valid" — so point-in-time
+        resolution drops a delisted name automatically.
     """
+    listed_from = (universe["listed_from"] if "listed_from" in universe
+                   else pd.Series(pd.Timestamp(valid_from),
+                                  index=universe.index))
+    listed_to = (universe["listed_to"] if "listed_to" in universe
+                 else pd.Series(pd.NaT, index=universe.index))
+
     return pd.DataFrame({
         "IDENTIFIER": universe.index,
-        "DATE_FROM": valid_from,
-        "DATE_TO": pd.NaT,
+        "DATE_FROM": listed_from.to_numpy(),
+        "DATE_TO": listed_to.to_numpy(),
         "NAME": universe["NAME"].to_numpy(),
         "SECTOR": universe["SECTOR"].to_numpy(),
         "SUB_INDUSTRY": universe["SUB_INDUSTRY"].to_numpy(),

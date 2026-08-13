@@ -197,7 +197,16 @@ class TestBatchShape:
 
         assert [entry["identifier"] for entry in body["entries"]] == names
         assert all(entry["found"] for entry in body["entries"])
-        assert all(entry["fields"]["adv_3m"] > 0 for entry in body["entries"])
+
+        # Present for every name, and positive for the ones that were trading
+        # in the window. Since BN-130 a universe contains names that delisted
+        # partway through, and those have no volume left to average -- so the
+        # field is null for them rather than missing.
+        volumes = [entry["fields"]["adv_3m"] for entry in body["entries"]]
+
+        assert all("adv_3m" in entry["fields"] for entry in body["entries"])
+        assert all(value is None or value > 0 for value in volumes)
+        assert sum(value is not None for value in volumes) > len(names) // 2
 
 
 class TestFields:
@@ -320,17 +329,25 @@ class TestAverageDailyVolume:
 
         assert average_daily_volume(frame, pd.Timestamp("2025-09-30")).empty
 
-    def test_a_name_with_no_volume_in_the_window_omits_the_field(self):
-        """Rather than reporting zero, which is a claim that it traded and
-        nobody bought — and a liquidity screen would exclude it for the wrong
-        reason."""
+    def test_a_name_with_no_volume_in_the_window_reports_null(self):
+        """Null rather than zero, and present rather than absent.
+
+        Zero would be a claim that it traded and nobody bought, and a
+        liquidity screen would exclude it for the wrong reason. Omitting the
+        key -- which this asserted until BN-130 -- was no better: the entry
+        reported `found: true` and then silently lacked a field the caller had
+        named, so a client had to defend with a membership test instead of a
+        null check. Delistings made that case ordinary rather than exotic.
+        """
         client = TestClient(create_app(ServerConfig(
             auth_token=TOKEN, data_fetcher=build_fetcher())))
 
         body = fetch(client, identifiers="AAA", fields="adv_3m",
                      date="2020-01-01")
+        fields = body["entries"][0]["fields"]
 
-        assert "adv_3m" not in body["entries"][0]["fields"]
+        assert "adv_3m" in fields
+        assert fields["adv_3m"] is None
 
     def test_it_is_computed_without_a_dataset_wide_scan(self, client):
         """The endpoint exists so the client stops fanning out; fanning out

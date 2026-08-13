@@ -450,16 +450,38 @@ class TestCorporateActions:
         assert types <= CASH_ACTIONS | RATIO_ACTIONS
 
     def test_dividends_are_quarterly_for_payers(self, panel):
+        """Four a year, counted over the part of the panel a name was listed.
+
+        Since BN-130 a payer can delist part-way through, and the action
+        history stops with its prices -- so a name that left after two years
+        of a ten-year panel has eight dividends, not forty. Counting against
+        the whole panel would report that as a defect when it is the point.
+        """
         actions = panel.actions.data.reset_index(drop=True)
         dividends = actions[actions["TYPE"] == "DIVIDEND"]
-        payers = panel.universe.index[panel.universe["dividend_yield"] > 0]
+        universe = panel.universe
+        payers = universe.index[universe["dividend_yield"] > 0]
 
-        assert set(dividends["IDENTIFIER"]) == set(payers)
+        # A subset, not an equality: a payer that delisted before its first
+        # ex-date never paid anything, and demanding a dividend from it would
+        # be demanding one the company was not around for.
+        paid = set(dividends["IDENTIFIER"])
 
-        years = panel.returns.index.year.nunique()
+        assert paid <= set(payers)
+        assert len(paid) > len(payers) * 0.8, (
+            f"only {len(paid)} of {len(payers)} payers paid anything")
+
         per_payer = dividends.groupby("IDENTIFIER").size()
+        last = panel.returns.index[-1]
 
-        assert per_payer.between(4 * (years - 2), 4 * years).all()
+        for identifier, count in per_payer.items():
+            listed_to = universe.loc[identifier, "listed_to"]
+            listed_from = universe.loc[identifier, "listed_from"]
+            end = last if pd.isna(listed_to) else listed_to
+            years = max((end - listed_from).days / 365.25, 0.0)
+
+            assert 4 * (years - 2) <= count <= 4 * (years + 1), (
+                f"{identifier} paid {count} dividends over {years:.1f} years")
 
     def test_non_payers_pay_nothing(self, panel):
         actions = panel.actions.data.reset_index(drop=True)

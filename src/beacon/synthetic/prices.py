@@ -45,11 +45,15 @@ small-cap, and pushed up on days when the move was large — the well-documented
 volume/volatility relationship. Without the second part, ADV would be a
 constant with noise on it and a liquidity screen built on it would never bind.
 """
+import logging
+
 import numpy as np
 import pandas as pd
 
 from ..data.corporate_actions import ANNOUNCED, PAID
 from .returns import BLOCK_SIZE
+
+logger = logging.getLogger(__name__)
 
 # Ex-dividend months, and the day within the month. Quarterly, deliberately
 # off the quarter ends where index rebalances land: an action falling on a
@@ -267,9 +271,32 @@ def _build_block(universe: pd.DataFrame,
     frames["VOLUME"] = _volume(universe, returns, factor, children)
 
     market = _long_form(frames, shares, universe)
-    actions = _action_frame(split_actions, dividends, drops, dates[-1])
+    actions = _listed_actions(
+        _action_frame(split_actions, dividends, drops, dates[-1]), universe)
 
     return market, actions
+
+
+def _listed_actions(actions: pd.DataFrame,
+                    universe: pd.DataFrame) -> pd.DataFrame:
+    """Drop actions dated outside the paying name's listed life.
+
+    The two datasets have to agree. `_listed_only` stops the price rows at a
+    delisting, and an action history that kept announcing splits and dividends
+    afterwards would describe a company that is no longer there -- a split on
+    a date with no price to split, which is exactly what the coherence tests
+    caught.
+    """
+    if "listed_from" not in universe or actions.empty:
+        return actions
+
+    listed_from = actions["IDENTIFIER"].map(universe["listed_from"])
+    listed_to = actions["IDENTIFIER"].map(universe["listed_to"])
+
+    inside = actions["EX_DATE"] >= listed_from
+    inside &= listed_to.isna() | (actions["EX_DATE"] <= listed_to)
+
+    return actions.loc[inside].reset_index(drop=True)
 
 
 def _bars(universe: pd.DataFrame,
@@ -359,7 +386,65 @@ def _long_form(frames: dict[str, pd.DataFrame],
     market = market.astype({name: STORAGE_DTYPE for name in market.columns
                             if name not in ("DATE", "IDENTIFIER")})
 
+    market = _listed_only(market, universe)
+
     return market.sort_values(["IDENTIFIER", "DATE"], ignore_index=True)
+
+
+def _actions_while_listed(actions: pd.DataFrame,
+                          universe: pd.DataFrame) -> pd.DataFrame:
+    """Drop actions dated outside the paying company's listed life.
+
+    A delisted company does not split, and one that has not floated yet does
+    not pay a dividend. Leaving these in produced an action history that
+    referred to dates the market data deliberately has no rows for -- so
+    "the share count moves on a split" became unanswerable for exactly the
+    names that had left, which is how the coherence tests found it.
+    """
+    if "listed_from" not in universe or actions.empty:
+        return actions
+
+    listed_from = actions["IDENTIFIER"].map(universe["listed_from"])
+    listed_to = actions["IDENTIFIER"].map(universe["listed_to"])
+
+    inside = actions["EX_DATE"] >= listed_from
+    inside &= listed_to.isna() | (actions["EX_DATE"] <= listed_to)
+
+    dropped = int((~inside).sum())
+    if dropped:
+        logger.info("Removed %s action(s) dated outside a listed life.",
+                    f"{dropped:,}")
+
+    return actions.loc[inside].reset_index(drop=True)
+
+
+def _listed_only(market: pd.DataFrame,
+                 universe: pd.DataFrame) -> pd.DataFrame:
+    """Drop the rows outside each name's listed life.
+
+    Rows are *removed* rather than left as NaN. A price of NaN and no price at
+    all are different claims -- the first says the market was open and the
+    quote is missing, which is a data-quality problem somebody should chase;
+    the second says the company was not listed, which is a fact. Every
+    consumer that asks "is there a price on this date" gets the honest answer,
+    and `fetch_market_data` returns an empty frame rather than a row of nulls.
+    """
+    if "listed_from" not in universe:
+        return market
+
+    listed_from = market["IDENTIFIER"].map(universe["listed_from"])
+    listed_to = market["IDENTIFIER"].map(universe["listed_to"])
+
+    inside = market["DATE"] >= listed_from
+    inside &= listed_to.isna() | (market["DATE"] <= listed_to)
+
+    dropped = int((~inside).sum())
+    if dropped:
+        logger.info("Removed %s row(s) outside the listed life of %d name(s).",
+                    f"{dropped:,}", int((~inside).groupby(
+                        market["IDENTIFIER"]).any().sum()))
+
+    return market.loc[inside]
 
 
 def _action_frame(splits: list[dict[str, object]],

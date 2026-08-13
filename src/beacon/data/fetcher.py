@@ -165,6 +165,41 @@ class DataFetcher:
         self._source = source
         self._store_path = path
 
+    def delisting_dates(self) -> dict[str, pd.Timestamp]:
+        """The last date each identifier is listed, for those whose life ends.
+
+        Resolved in one pass rather than per identifier per day: an index over
+        five thousand names and ten years would otherwise make twelve million
+        point-in-time lookups to find a few hundred delistings.
+
+        A name is treated as still listed if *any* of its records is
+        open-ended, which is checked before taking the maximum -- `max` over a
+        column containing NaT would silently ignore the open record and retire
+        a name that never left.
+
+        Returns:
+            dict: identifier -> last listed date. Names that never leave are
+            absent, so an empty mapping means a constant universe and callers
+            can skip the work entirely.
+        """
+        if self._reference is None:
+            return {}
+
+        frame = self._reference.data.reset_index()
+
+        if not {"IDENTIFIER", "DATE_TO"} <= set(frame.columns):
+            return {}
+
+        ends: dict[str, pd.Timestamp] = {}
+
+        for identifier, values in frame.groupby("IDENTIFIER")["DATE_TO"]:
+            if values.isna().any():
+                continue
+
+            ends[str(identifier)] = pd.Timestamp(values.max())
+
+        return ends
+
     @property
     def reference(self) -> ReferenceData | None:
         """The reference-data container, or None if none was loaded.

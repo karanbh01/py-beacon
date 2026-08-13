@@ -84,6 +84,7 @@ class BacktestEngine:
                  target_index_result: IndexResult | None = None,
                  target_weights: dict[pd.Timestamp, dict[str, float]] | None = None,
                  price_column: str = "CLOSE",
+                 currency: str = "USD",
                  transaction_cost_bps: float = 0.0,
                  modifiers: list['BacktestModifier'] | None = None):
         if target_index_result is not None and target_weights is not None:
@@ -101,6 +102,12 @@ class BacktestEngine:
         self.data_provider: DataFetcher = data_provider
         self.target_index_result: IndexResult | None = target_index_result
         self.price_column: str = price_column
+        self.currency: str = currency.upper()
+
+        # Listing currency per identifier, resolved lazily and once. Prices
+        # are quoted where the company lists; a portfolio has one currency.
+        self._currencies: dict[str, str] = {}
+        self._rates: dict[tuple[str, str], pd.Series] = {}
 
         self.transaction_cost_bps: float = transaction_cost_bps
         self.modifiers: list[BacktestModifier] = modifiers or []
@@ -122,17 +129,102 @@ class BacktestEngine:
     def _fetch_price(self,
                      asset_id: str,
                      date: pd.Timestamp) -> float | None:
-        """Fetch a single closing price for *asset_id* on *date*."""
+        """One closing price for *asset_id* on *date*, in the book's currency.
+
+        The conversion is the point. Prices are stored as the company is
+        quoted -- yen in Tokyo, sterling in London -- while a portfolio has a
+        single currency, and `IndexCalculator` has always converted its market
+        values before comparing them. Returning the raw close here made the
+        engine value a 300 yen share as 300 dollars: every non-domestic weight
+        was wrong by its exchange rate, and against the single-currency
+        universe that existed until BN-128 the error was invisible because
+        every rate was 1.0.
+        """
         date_str = date.strftime("%Y-%m-%d")
         try:
             df = self.data_provider.fetch_market_data(asset_id, date_str, date_str)
-            if not df.empty and self.price_column in df.columns:
-                val = df[self.price_column].iloc[0]
-                if pd.notna(val):
-                    return float(val)
+            if df.empty or self.price_column not in df.columns:
+                return None
+
+            val = df[self.price_column].iloc[0]
+            if not pd.notna(val):
+                return None
+
+            return float(val) * self._rate_for(asset_id, date)
         except Exception as e:
             logger.error(f"Error fetching price for {asset_id} on {date_str}: {e}")
         return None
+
+    def _rate_for(self,
+                  asset_id: str,
+                  date: pd.Timestamp) -> float:
+        """FX from an asset's listing currency into the book's, on *date*.
+
+        The whole series is fetched once per **pair** and then indexed by
+        date, which is what makes a per-day rate affordable: seven lookups for
+        a global universe rather than one per holding per day.
+
+        Using a single fixed rate instead would be worse than it sounds. A
+        constant scale factor cancels out of the weight arithmetic entirely --
+        the engine sizes a position by value, so `quantity x price x rate` is
+        the target value whatever the rate is -- and the conversion would look
+        correct while changing nothing. It is the *drift* in the rate that a
+        foreign holding actually experiences, and that only appears if the
+        rate moves.
+        """
+        currency = self._currency_of(asset_id)
+
+        if currency is None or currency == self.currency:
+            return 1.0
+
+        pair = (currency, self.currency)
+
+        if pair not in self._rates:
+            series = self.data_provider.fetch_fx_rates(currency, self.currency)
+
+            if series.empty:
+                logger.warning("No %s/%s rate; %s is valued unconverted.",
+                               currency, self.currency, asset_id)
+
+            self._rates[pair] = series.sort_index()
+
+        series = self._rates[pair]
+
+        if series.empty:
+            return 1.0
+
+        # As of the date, carried forward: a holiday in one market is not a
+        # reason to stop converting a position held in another.
+        position = series.index.searchsorted(date, side="right") - 1
+
+        if position < 0:
+            return float(series.iloc[0])
+
+        return float(series.iloc[position])
+
+    def _currency_of(self,
+                     asset_id: str) -> str | None:
+        """The currency an identifier is quoted in, from reference data."""
+        if asset_id in self._currencies:
+            return self._currencies[asset_id]
+
+        resolved: str | None = None
+
+        try:
+            frame = self.data_provider.fetch_reference_data(asset_id)
+
+            if not frame.empty and "CURRENCY" in frame.columns:
+                value = frame["CURRENCY"].iloc[0]
+
+                if pd.notna(value):
+                    resolved = str(value).upper()
+        except Exception as error:
+            logger.error("Could not resolve the currency of %s: %s",
+                         asset_id, error)
+
+        self._currencies[asset_id] = resolved or self.currency
+
+        return self._currencies[asset_id]
 
     def _update_portfolio_prices(self,
                                  portfolio: Portfolio,
@@ -144,6 +236,77 @@ class BacktestEngine:
             if price is not None:
                 prices[asset_id] = price
         portfolio.update_prices(prices)
+
+    def _delisting_dates(self) -> dict[str, pd.Timestamp]:
+        """When each holding stops being listed, or an empty mapping.
+
+        Defensive about what comes back because the provider is an interface,
+        not a class: a fetcher assembled by hand or stood in for by a double
+        need not implement this, and a backtest over a universe where nothing
+        is ever delisted should not require it to.
+        """
+        getter = getattr(self.data_provider, "delisting_dates", None)
+
+        if getter is None:
+            return {}
+
+        try:
+            dates = getter()
+        except Exception as error:
+            logger.warning("Could not resolve delistings: %s", error)
+
+            return {}
+
+        return dates if isinstance(dates, dict) else {}
+
+    def _dispose_delisted(self,
+                          portfolio: Portfolio,
+                          date: pd.Timestamp,
+                          delistings: dict[str, pd.Timestamp]) -> None:
+        """Settle any holding whose listing has ended, into cash.
+
+        Without this the position is held forever. `_fetch_price` returns None
+        once the rows stop, so `_update_portfolio_prices` leaves the holding
+        marked at its last close and `_sell_instruction` returns None rather
+        than a trade -- the NAV keeps carrying a company that no longer
+        exists, and its weight is never released to anything that does.
+
+        Settled at the last price the portfolio saw, and **without** a
+        transaction cost. That is the modelling decision, and it is
+        deliberate: an acquisition pays cash to the holder and a failure pays
+        nothing, but neither is a trade crossed in a market that is by then
+        closed. Charging brokerage on it would invent a fee nobody was
+        billed.
+
+        Args:
+            portfolio: Mutated in place.
+            date: Today.
+            delistings: identifier -> last listed date.
+        """
+        if not delistings:
+            return
+
+        for asset_id in list(portfolio.holdings):
+            last_listed = delistings.get(asset_id)
+
+            if last_listed is None or date <= last_listed:
+                continue
+
+            holding = portfolio.holdings[asset_id]
+            price = holding.current_price
+
+            if price is None or price <= 0 or holding.quantity <= 0:
+                logger.warning(
+                    "[%s] %s delisted with no usable last price; the holding "
+                    "is dropped and its value written off.", date, asset_id)
+                portfolio.holdings.pop(asset_id, None)
+                continue
+
+            portfolio.execute_sell(asset_id, holding.quantity, price,
+                                   cost=0.0, date=date)
+
+            logger.info("[%s] Settled %.4f of %s at %.4f after delisting.",
+                        date, holding.quantity, asset_id, price)
 
     def _get_target_weights_for_date(self,
                                      date: pd.Timestamp) -> dict[str, float] | None:
@@ -401,9 +564,17 @@ class BacktestEngine:
         weight_records = []
         unfilled: list[UnfilledOrder] = []
 
+        delistings = self._delisting_dates()
+
         for idx, date in enumerate(trading_days):
             # 1. Update prices for existing holdings
             self._update_portfolio_prices(portfolio, date)
+
+            # 1b. Settle anything that stopped being listed. This has to
+            # happen before the rebalance, because a delisted holding cannot
+            # be sold by the ordinary path -- that path needs a price, and
+            # there is not one.
+            self._dispose_delisted(portfolio, date, delistings)
 
             # 2. Check for rebalance
             target_w = self._get_target_weights_for_date(date)

@@ -85,6 +85,13 @@ class TotalReturnMixin:
     # Provided by the IndexCalculator that mixes this in.
     data: DataFetcher
 
+    def rate_on(self,
+                from_currency: str,
+                to_currency: str,
+                date: pd.Timestamp) -> float | None:
+        """Provided by MarketValuesMixin; declared so this one type-checks."""
+        raise NotImplementedError
+
     def cash_distribution_schedule(self) -> dict[pd.Timestamp, dict[str, float]]:
         """Every cash distribution the data source holds, by date and name.
 
@@ -188,17 +195,16 @@ class TotalReturnMixin:
             if asset is None or asset.currency.upper() == index_currency:
                 continue
 
-            series = self.data.fetch_fx_rates(asset.currency, index_currency,
-                                              date_str, date_str)
+            rate = self.rate_on(asset.currency, index_currency, date)
 
-            if series.empty:
+            if rate is None:
                 logger.warning(
                     "No %s/%s rate on %s; treating the distribution from %s "
                     "as already in index currency.",
                     asset.currency, index_currency, date_str, identifier)
                 continue
 
-            rates[identifier] = float(series.iloc[0])
+            rates[identifier] = rate
 
         return rates
 

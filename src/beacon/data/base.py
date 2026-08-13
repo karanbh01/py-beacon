@@ -62,8 +62,31 @@ class MarketData:
 
     @property
     def identifiers(self) -> list[str]:
-        """Unique identifiers present in the dataset."""
-        return list(self._df.index.get_level_values("IDENTIFIER").unique())
+        """Unique identifiers present in the dataset.
+
+        Cached, because this is not the cheap property it reads as. It scans
+        the whole MultiIndex, and `fetch_fx_rates` consults it on every call
+        to decide whether a pair exists -- which the calculator makes once per
+        foreign holding per day. Against a single-currency universe that never
+        fired; against a global one it turned an O(rows) scan into an inner
+        loop, and an index over eighty names took longer than the entire rest
+        of the test suite.
+
+        Keyed on the frame's identity rather than a flag, so replacing `_df`
+        invalidates it automatically instead of relying on every future
+        mutation remembering to.
+        """
+        cached: tuple[object, list[str]] | None = getattr(
+            self, "_identifier_cache", None)
+
+        if cached is not None and cached[0] is self._df:
+            return cached[1]
+
+        values = [str(value) for value
+                  in self._df.index.get_level_values("IDENTIFIER").unique()]
+        self._identifier_cache = (self._df, values)
+
+        return values
 
     @property
     def columns(self) -> list[str]:
@@ -173,8 +196,17 @@ class ReferenceData:
 
     @property
     def identifiers(self) -> list[str]:
-        """Unique identifiers present in the dataset."""
-        return list(self._df.index.unique())
+        """Unique identifiers present in the dataset. Cached, as above."""
+        cached: tuple[object, list[str]] | None = getattr(
+            self, "_identifier_cache", None)
+
+        if cached is not None and cached[0] is self._df:
+            return cached[1]
+
+        values = [str(value) for value in self._df.index.unique()]
+        self._identifier_cache = (self._df, values)
+
+        return values
 
     @property
     def columns(self) -> list[str]:

@@ -164,9 +164,20 @@ def _derived_fields(fetcher: DataFetcher,
 
     volumes = average_daily_volume(market, end)
 
-    return {identifier: {ADV_3M: float(value)}
-            for identifier, value in volumes.items()
-            if pd.notna(value)}
+    # Present for every identifier asked about, `null` where it cannot be
+    # computed. Dropping the key instead produced an entry that reported
+    # `found: true` and then silently lacked a field the caller had
+    # explicitly requested -- which a client has to defend against with a
+    # membership test rather than a null check.
+    #
+    # It became reachable with BN-130: a name delisted before the window has
+    # no volume in it, so there is nothing to average. That is an answer, not
+    # an absence of one.
+    computed = {identifier: (float(value) if pd.notna(value) else None)
+                for identifier, value in volumes.items()}
+
+    return {identifier: {ADV_3M: computed.get(identifier)}
+            for identifier in identifiers}
 
 
 def build_entries(fetcher: DataFetcher,
