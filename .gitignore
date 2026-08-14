@@ -82,3 +82,9 @@ examples/output/
 # Jupyter checkpoints. The notebooks themselves are committed without outputs;
 # a test enforces it.
 .ipynb_checkpoints/
+
+# Written by scripts/fuzz_store.py for the nightly fuzz run, and by the server
+# it starts. Both are regenerated on every run.
+.fuzzstore/
+fuzz-server.log
+.fuzzserver.log

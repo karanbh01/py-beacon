@@ -33,19 +33,49 @@ jobs:
       - name: Install project and schemathesis
         run: |
           uv pip install --system -e ".[dev]"
-          uv pip install --system schemathesis
+          uv pip install --system "schemathesis>=4,<5"
 
-      # Runs against the app in-process rather than over a socket: no server to
-      # start, no port to race on, and a failure surfaces the Python traceback
-      # rather than a connection error.
+      # A real store, so endpoints that need data have some. The canonical
+      # frozen fixture rather than the generator: five names is plenty to
+      # exercise a handler, and it keeps the step to a second.
+      - name: Write a store to fuzz against
+        run: python scripts/fuzz_store.py .fuzzstore
+
+      # Over a socket rather than in-process. schemathesis v4 removed the
+      # `--app` loader entirely, so the in-process design the previous version
+      # of this workflow described is no longer on offer -- and that version
+      # never ran, because it invoked `python -m schemathesis`, which does not
+      # exist on any release.
+      #
+      # The cost of going over a socket is that a failure arrives as a status
+      # code rather than a Python traceback. The JUnit report carries the
+      # request that caused it, and the server's own log is uploaded beside
+      # it, which covers the same ground.
+      - name: Start the server
+        run: |
+          python -m beacon.server \
+            --host 127.0.0.1 --port 8765 \
+            --token fuzz-token --data .fuzzstore > fuzz-server.log 2>&1 &
+
+      # `--wait-for-schema` does the readiness wait, so there is no sleep to
+      # tune and no race to lose on a slow runner.
       - name: Fuzz every endpoint
         run: |
-          python -m schemathesis run             --app scripts.fuzz_app:app             --checks all             --hypothesis-max-examples 40             --exclude-checks ignored_auth             --report junit             --report-junit-path schemathesis.xml             /openapi.json
+          schemathesis run http://127.0.0.1:8765/openapi.json \
+            --url http://127.0.0.1:8765 \
+            --header "Authorization: Bearer fuzz-token" \
+            --checks all \
+            --exclude-checks ignored_auth \
+            --max-examples 40 \
+            --wait-for-schema 30 \
+            --report junit \
+            --report-junit-path schemathesis.xml
 
-      - name: Upload the report
+      - name: Upload the report and the server log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: schemathesis-report
-          path: schemathesis.xml
-          if-no-files-found: ignore
+          path: |
+            schemathesis.xml
+            fuzz-server.log

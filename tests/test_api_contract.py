@@ -460,19 +460,47 @@ class TestSpecExport:
         assert destination.exists()
 
 
-class TestFuzzApp:
-    """The application the nightly schemathesis run loads."""
+class TestFuzzStore:
+    """The store the nightly schemathesis run serves.
 
-    def test_it_builds_with_data_and_a_temporary_root(self):
+    It used to be an *application*, loaded in-process by `schemathesis run
+    --app`. That option was removed in schemathesis v4, so the server is now
+    started for real and fuzzed over a socket -- which needs a store on disk
+    rather than a fetcher in memory.
+    """
+
+    @staticmethod
+    def _script():
         import importlib.util
 
-        path = Path(__file__).resolve().parent.parent / "scripts" / "fuzz_app.py"
-        loader = importlib.util.spec_from_file_location("fuzz_app", path)
+        path = Path(__file__).resolve().parent.parent / "scripts" / "fuzz_store.py"
+        loader = importlib.util.spec_from_file_location("fuzz_store", path)
+
         assert loader is not None and loader.loader is not None
 
         module = importlib.util.module_from_spec(loader)
         loader.loader.exec_module(module)
 
-        assert module.app.state.config.data_fetcher is not None
-        assert module.app.state.config.storage_root is not None
-        assert len(module.app.openapi()["paths"]) > 30
+        return module
+
+    def test_it_writes_a_store_the_server_can_load(self,
+                                                  tmp_path):
+        """End to end, because the workflow's next step is the server reading
+        exactly this directory."""
+        from beacon.data import store
+
+        destination = tmp_path / "fuzzstore"
+
+        assert self._script().main([str(destination)]) == 0
+
+        fetcher = store.load(destination)
+
+        assert len(fetcher.identifiers) > 0
+        assert fetcher.reference is not None
+
+    def test_it_refuses_to_run_without_a_destination(self,
+                                                     capsys):
+        """Exits rather than guessing, so a workflow that lost its argument
+        fails at the step that wrote it rather than at the one that reads it."""
+        assert self._script().main([]) == 2
+        assert "usage" in capsys.readouterr().err
