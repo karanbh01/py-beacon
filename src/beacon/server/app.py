@@ -40,9 +40,19 @@ from .store import DocumentStore  # noqa: E402
 
 # Applied to every route, so the envelope shows up in the generated OpenAPI
 # rather than only at runtime.
+#
+# 400 and 405 were added in BN-131 because the server already returned them
+# and the document did not say so. An undocumented status is worse than an
+# undocumented field: a client generated from this spec has no branch for it
+# at all, and the first time it sees one is in production.
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": ErrorEnvelope,
+          "description": "The request could not be read at all — a body that "
+                         "is not decodable, or headers that contradict it."},
     401: {"model": ErrorEnvelope, "description": "Missing or invalid bearer token."},
     404: {"model": ErrorEnvelope, "description": "Requested data does not exist."},
+    405: {"model": ErrorEnvelope,
+          "description": "The path exists but does not accept this method."},
     422: {"model": ErrorEnvelope, "description": "Request or rule failed validation."},
     500: {"model": ErrorEnvelope, "description": "Library error during processing."},
     501: {"model": ErrorEnvelope, "description": "Endpoint exists but is not implemented."},

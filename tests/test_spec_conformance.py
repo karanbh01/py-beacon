@@ -239,6 +239,67 @@ class TestAMalformedBlockIsRefusedOnSave:
         assert response.status_code == 200
 
 
+class TestAnUnreadableBodyIsRefused:
+    """Found while chasing the undocumented 400, not by the fuzzer.
+
+    schemathesis always sends a correct `Content-Type`, so it never tried
+    these -- a reminder that a fuzzer explores the space its generator knows
+    about, and a wrong header is one of the commonest things a real client
+    does.
+    """
+
+    @pytest.mark.parametrize("headers,body", [
+        ({"Content-Type": "text/plain"}, b"x"),
+        ({}, b"{}"),
+        ({"Content-Type": "application/json"}, b"{not json"),
+    ])
+    def test_it_answers_422_rather_than_500(self,
+                                            client,
+                                            headers,
+                                            body):
+        response = client.post("/indices/validate",
+                               headers={**HEADERS, **headers}, content=body)
+
+        assert response.status_code == 422
+
+    def test_the_response_body_survives_serialisation(self,
+                                                      client):
+        """The failure was a `TypeError` while encoding the error, so a status
+        code alone would not have caught it: pydantic puts the raw request
+        **bytes** into the error's `input`, and `JSONResponse` cannot encode
+        them."""
+        import json
+
+        response = client.post("/indices/validate",
+                               headers={**HEADERS, "Content-Type": "text/plain"},
+                               content=b"plain text body")
+
+        json.dumps(response.json())
+
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+class TestEveryStatusItReturnsIsDocumented:
+    """A client generated from the spec has no branch for a status the spec
+    does not mention, and meets it first in production."""
+
+    @pytest.mark.parametrize("status", [400, 401, 404, 405, 422, 500, 501, 503])
+    def test_the_error_statuses_are_declared(self,
+                                             client,
+                                             status):
+        spec = client.get("/openapi.json").json()
+        documented = spec["paths"]["/indices/validate"]["post"]["responses"]
+
+        assert str(status) in documented
+
+    def test_a_wrong_method_answers_405(self,
+                                        client):
+        response = client.patch("/indices/validate", headers=HEADERS, json={})
+
+        assert response.status_code == 405
+        assert response.json()["error"]["code"] == "METHOD_NOT_ALLOWED"
+
+
 class TestValidationErrorsSerialise:
     """The bug that hid the block check: the handler for validation errors
     could not serialise its own output."""

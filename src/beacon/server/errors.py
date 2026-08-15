@@ -123,35 +123,46 @@ def _beacon_detail(exc: BeaconError) -> dict[str, Any] | None:
     return fields or None
 
 
-def _serialisable(errors: Sequence[Any]) -> list[dict[str, Any]]:
-    """Strip anything from pydantic's error list that will not serialise.
+def _plain(value: Any) -> Any:
+    """Coerce a value into something `JSONResponse` can encode.
 
-    A validator that raises `ValueError` -- the documented way to reject a
-    value in pydantic v2 -- has the exception object itself placed in the
-    error's ``ctx``. Passing that to `JSONResponse` raises `TypeError: Object
-    of type ValueError is not JSON serializable`, and because it happens
-    *inside the handler for validation errors*, the client gets a 500 for
-    what was a correctly detected 422.
-
-    That made every custom field validator a latent 500. It went unnoticed
-    because none of the schemas had one until BN-131 added the block-kind
-    check, and it is the reason this converts rather than trusting the
-    structure: the next validator should not have to know.
+    Recursive and total, rather than a list of the fields known to misbehave.
+    That distinction is the whole lesson of this function: the first version
+    sanitised only `ctx`, because `ctx` was where the offending object had
+    been found. A request whose body is not JSON puts the raw **bytes** in
+    `input` instead, and the same `TypeError` came straight back from a
+    different field -- so a wrong `Content-Type` header answered 500.
     """
-    cleaned: list[dict[str, Any]] = []
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
 
-    for error in errors:
-        entry = dict(error)
-        context = entry.get("ctx")
+    if isinstance(value, dict):
+        return {str(key): _plain(item) for key, item in value.items()}
 
-        if isinstance(context, dict):
-            entry["ctx"] = {key: str(value) for key, value in context.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
 
-        # `url` is a documentation link pydantic adds; the rest is already
-        # strings, ints and tuples, all of which JSONResponse handles.
-        cleaned.append(entry)
+    if isinstance(value, bytes):
+        # Decoded rather than repr'd: a client that sent text with the wrong
+        # content type should be able to read its own body back.
+        return value.decode("utf-8", errors="replace")
 
-    return cleaned
+    return str(value)
+
+
+def _serialisable(errors: Sequence[Any]) -> list[dict[str, Any]]:
+    """Make pydantic's error list safe to put in a JSON response.
+
+    Pydantic v2 embeds live Python objects in its errors -- the raised
+    `ValueError` in `ctx`, the raw request body in `input` -- and
+    `JSONResponse` raises `TypeError` on both. Because that happens *inside
+    the handler for validation errors*, the client receives a 500 for what was
+    a correctly detected 422.
+
+    That made every custom field validator a latent 500, and every request
+    with a body that is not JSON one as well.
+    """
+    return [_plain(dict(error)) for error in errors]
 
 
 def register_exception_handlers(app: "FastAPI") -> None:
