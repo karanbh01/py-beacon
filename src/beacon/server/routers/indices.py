@@ -20,6 +20,7 @@ from ..config import ServerConfig
 from ..definitions import PipelineValidationError, has_errors, validate_document
 from ..preview import build_preview
 from ..schemas import (
+    Identifier,
     IndexCollection,
     IndexDocument,
     PreviewDocumentRequest,
@@ -207,7 +208,7 @@ def build_indices_router() -> APIRouter:
 
     @router.post("/{index_id}/preview", response_model=PreviewResponse)
     def preview(request: Request,
-                index_id: str,
+                index_id: Identifier,
                 body: PreviewRequest | None = None) -> PreviewResponse:
         # Kept alongside the body route: a saved-index view has an id and no
         # document in hand, and making it send one back would mean fetching the
@@ -224,7 +225,7 @@ def build_indices_router() -> APIRouter:
 
     @router.get("/{index_id}/schedule", response_model=ScheduleView)
     def schedule(request: Request,
-                 index_id: str,
+                 index_id: Identifier,
                  asof: AsOfQuery = None) -> ScheduleView:
         stored = _store(request).read(index_id)
         if stored is None:
@@ -234,7 +235,7 @@ def build_indices_router() -> APIRouter:
 
     @router.get("/{index_id}", response_model=IndexDocument)
     def get_index(request: Request,
-                  index_id: str) -> IndexDocument:
+                  index_id: Identifier) -> IndexDocument:
         document = _store(request).read(index_id)
         if document is None:
             raise DataNotFoundError(f"index '{index_id}'", source="DocumentStore")
@@ -248,7 +249,7 @@ def build_indices_router() -> APIRouter:
 
     @router.put("/{index_id}", response_model=SavedIndex)
     def put_index(request: Request,
-                  index_id: str,
+                  index_id: Identifier,
                   body: IndexDocument) -> SavedIndex:
         # The URL owns the id. A body disagreeing with it is a mistake worth
         # reporting rather than silently resolving in either direction.
@@ -260,7 +261,7 @@ def build_indices_router() -> APIRouter:
         return _save(request, index_id, body)
 
     def _save(request: Request,
-              index_id: str,
+              index_id: Identifier,
               body: IndexDocument) -> SavedIndex:
         resolved = _resolve_universe(request, body)
         findings = validate_document(resolved)

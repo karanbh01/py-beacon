@@ -35,6 +35,40 @@ class InvalidRuleError(BeaconError):
         self.rule_description = rule_description
         self.reason = reason
 
+class InvalidIdentifierError(BeaconError, ValueError):
+    """Raised when a caller supplies an identifier that cannot be used.
+
+    Subclasses `ValueError` as well as `BeaconError`, on the same principle as
+    `MissingDependencyError` above: a caller already writing
+    ``except ValueError`` around a store operation keeps working, because a
+    rejected identifier *is* a value error. The API still answers 422 rather
+    than the generic argument handler, because `BeaconError` precedes
+    `ValueError` in the MRO and the handler lookup walks it in order.
+
+    Distinct from `DataNotFoundError`, which means the identifier was fine and
+    nothing was stored under it. This means the identifier itself is
+    unusable — empty, or containing path separators — so there is nothing to
+    look for.
+
+    The distinction matters because it decides the status code. A document id
+    arrives from a URL path parameter, so rejecting one is a statement about
+    the *request*, and answering 500 would tell a client the server had
+    broken when in fact it had correctly refused bad input. That is exactly
+    what happened until BN-131: the path-traversal guard below worked, said so
+    clearly, and returned it as an internal error.
+    """
+    def __init__(self,
+                 identifier: str,
+                 reason: str):
+        # Truncated rather than echoed whole. The value came from a URL and
+        # may be long or hostile, and a client needs enough to recognise which
+        # id it sent rather than the entire string returned to it.
+        shown = identifier if len(identifier) <= 40 else f"{identifier[:40]}..."
+
+        super().__init__(f"Invalid identifier '{shown}': {reason}")
+        self.identifier = shown
+        self.reason = reason
+
 class ConfigurationError(BeaconError):
     """Raised for errors related to package or module configuration."""
     def __init__(self,

@@ -25,6 +25,7 @@ from ..derivatives import (
 from ..schemas import (
     FuturesPriceRequest,
     FuturesPriceResponse,
+    Identifier,
     RollResponse,
     TermStructureResponse,
     TrsPriceRequest,
@@ -81,7 +82,7 @@ def build_derivatives_router() -> APIRouter:
 
     @router.get("/{index_id}/term-structure", response_model=TermStructureResponse)
     def term_structure(request: Request,
-                       index_id: str,
+                       index_id: Identifier,
                        expiries: ExpiriesQuery,
                        as_of: AsOfQuery = None,
                        risk_free_rate: RateQuery = 0.0,
@@ -92,7 +93,7 @@ def build_derivatives_router() -> APIRouter:
 
     @router.get("/{index_id}/roll", response_model=RollResponse)
     def roll(request: Request,
-             index_id: str,
+             index_id: Identifier,
              front_expiry: ExpiryQuery,
              back_expiry: ExpiryQuery,
              as_of: AsOfQuery = None,

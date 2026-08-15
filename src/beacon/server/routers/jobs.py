@@ -18,7 +18,7 @@ import hmac
 from ..._optional import require
 from ...exceptions import DataNotFoundError
 from ..jobs import JobRegistry
-from ..schemas import JobCollection, JobStatus
+from ..schemas import Identifier, JobCollection, JobStatus
 
 require("fastapi", "The Beacon API server")
 
@@ -72,7 +72,7 @@ def build_jobs_router() -> APIRouter:
 
     @router.get("/jobs/{job_id}", response_model=JobStatus)
     def get_job(request: Request,
-                job_id: str) -> JobStatus:
+                job_id: Identifier) -> JobStatus:
         snapshot = _registry(request).snapshot(job_id)
         if snapshot is None:
             raise DataNotFoundError(f"job '{job_id}'", source="JobRegistry")
@@ -81,7 +81,7 @@ def build_jobs_router() -> APIRouter:
 
     @router.delete("/jobs/{job_id}", response_model=JobStatus)
     def cancel_job(request: Request,
-                   job_id: str) -> JobStatus:
+                   job_id: Identifier) -> JobStatus:
         registry = _registry(request)
         job = registry.get(job_id)
         if job is None:

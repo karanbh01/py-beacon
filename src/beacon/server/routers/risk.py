@@ -19,6 +19,7 @@ from ...exceptions import ConfigurationError, DataNotFoundError
 from ..jobs import JobRegistry
 from ..risk import build_estimation_job
 from ..schemas import (
+    Identifier,
     JobStatus,
     RiskModelCollection,
     RiskModelRequest,
@@ -79,7 +80,7 @@ def _universe(request: Request,
 
 
 def _model(request: Request,
-           model_id: str) -> dict[str, Any]:
+           model_id: Identifier) -> dict[str, Any]:
     """A stored risk model, or a mapped error."""
     registry: JobRegistry = request.app.state.jobs
     result = registry.latest_result(f"{KIND}:{model_id}")
@@ -120,7 +121,7 @@ def build_risk_router() -> APIRouter:
 
     @router.get("/{model_id}", response_model=RiskModelView)
     def get_model(request: Request,
-                  model_id: str) -> RiskModelView:
+                  model_id: Identifier) -> RiskModelView:
         return RiskModelView.model_validate(_model(request, model_id))
 
     # async, and it must stay that way: FastAPI runs a sync endpoint in a
@@ -130,7 +131,7 @@ def build_risk_router() -> APIRouter:
                  response_model=JobStatus,
                  status_code=status.HTTP_202_ACCEPTED)
     async def estimate(request: Request,
-                       model_id: str,
+                       model_id: Identifier,
                        body: RiskModelRequest | None = None) -> JobStatus:
         # The universe and the data source are resolved before the job is
         # submitted, so a bad request fails immediately rather than becoming a

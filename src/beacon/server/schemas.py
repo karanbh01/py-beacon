@@ -11,7 +11,7 @@ reshape a response.
 from typing import Annotated, Any, Literal
 
 import pandas as pd
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, field_validator
 
 from ..backtest.result import BacktestResult
 from ..data.corporate_actions import (
@@ -21,12 +21,59 @@ from ..data.corporate_actions import (
     status_of,
 )
 from ..index.result import IndexResult
+from ..report.blocks import BLOCK_TYPES
 from .serialisation import dataframe_to_payload, series_to_payload
 
 # A rate or proportion expressed as a fraction: 0.0523 is 5.23%. Kept as a
 # bare float rather than an object because it is arithmetic, not a quantity
 # with a unit — clients format it for display.
 Pct = Annotated[float, Field(description="Fraction, not percent: 0.0523 means 5.23%.")]
+
+# A calendar date, constrained in the schema rather than left to the library.
+#
+# These were plain `str` until BN-131, which meant an empty string satisfied
+# the model, reached a constructor several layers down, and came back as an
+# unlabelled 500 -- the server appearing to break on input it should simply
+# have refused. Declaring the shape here rejects it at the edge with a 422 and
+# a field path, and puts the constraint in the OpenAPI document, so a client
+# can see what a date is instead of discovering it.
+#
+# The pattern is the *shape*, which is what belongs in the OpenAPI document —
+# a client can read `^\d{4}-\d{2}-\d{2}$` and know what to send. It cannot
+# express whether a date exists, so `0000-00-00` and `2024-02-31` satisfy it
+# and then fail in the parser. The validator below closes that, because a
+# request that cannot be parsed is still the client's error and answering 500
+# would be a lie about whose fault it was.
+# What a stored document's identifier may contain.
+#
+# The server already refused anything else -- a document id becomes a
+# filename, so `..` or a separator would let a request reach outside its
+# collection directory. What was missing is that the *spec* said an id was
+# any string at all, so a client had no way to know the rule existed until it
+# broke one, and the fuzzer read every rejection as the server being wrong.
+#
+# Letters, digits, dash and underscore. No dots, which excludes `..` without
+# a lookahead the generators handle badly, and nothing in this codebase has
+# ever used one in an identifier.
+IDENTIFIER_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
+
+ISO_DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
+def _real_date(value: str) -> str:
+    """Reject a well-shaped string that is not a date anyone could observe."""
+    try:
+        pd.Timestamp(value)
+    except (ValueError, TypeError) as error:
+        raise ValueError(f"{value!r} is not a real calendar date") from error
+
+    return value
+
+
+IsoDate = Annotated[str, Field(pattern=ISO_DATE_PATTERN,
+                               description="Calendar date, YYYY-MM-DD."),
+                    AfterValidator(_real_date)]
+Identifier = Annotated[str, Field(pattern=IDENTIFIER_PATTERN,
+                                  description="Letters, digits, dash and "
+                                              "underscore; up to 64.")]
 
 
 class Money(BaseModel):
@@ -336,7 +383,7 @@ class CorporateAction(BaseModel):
         description="Cash amount per share for cash actions; a share-count "
                     "multiplier for ratio actions. What it means depends on "
                     "`kind`, so the two are never summed together.")
-    pay_date: str | None = Field(
+    pay_date: IsoDate | None = Field(
         default=None,
         description="Payment date, ISO 8601, where the source knows it. Null "
                     "means unknown — omit the field in the UI rather than "
@@ -612,7 +659,31 @@ class ReportTemplateDocument(BaseModel):
         description="Page setup: size, orientation, margin.")
     blocks: list[dict[str, Any]] = Field(
         default_factory=list,
-        description="Content, drawn top to bottom. Each carries a `kind`.")
+        description="Content, drawn top to bottom. Each carries a `kind`, "
+                    f"one of: {', '.join(sorted(BLOCK_TYPES))}.")
+
+    @field_validator("blocks")
+    @classmethod
+    def _kinds_are_known(cls,
+                         blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Check the one field that decides how a block is built.
+
+        Only `kind`, deliberately. The docstring above explains why blocks
+        stay free-form, and that reasoning holds: restating every block's
+        contents here would be a second definition to keep in step. But
+        `kind` is what dispatches, and an unknown one used to travel all the
+        way to `block_from_dict` and come back as a 500 -- the server
+        reporting itself as broken because a client sent `{}`.
+        """
+        for position, block in enumerate(blocks):
+            kind = block.get("kind")
+
+            if kind not in BLOCK_TYPES:
+                raise ValueError(
+                    f"block {position} has kind {kind!r}; expected one of "
+                    f"{', '.join(sorted(BLOCK_TYPES))}")
+
+        return blocks
 
 
 class ReportTemplateCollection(BaseModel):
@@ -674,7 +745,7 @@ class FuturesPriceRequest(BaseModel):
                     "present these are used instead of the continuous yield: "
                     "the two are different models of the same thing and "
                     "applying both would double-count.")
-    valuation_date: str | None = Field(default=None, description="YYYY-MM-DD.")
+    valuation_date: IsoDate | None = Field(default=None, description="YYYY-MM-DD.")
     expiry: str | None = Field(default=None, description="YYYY-MM-DD.")
     time_to_expiry: float | None = Field(
         default=None,
@@ -736,8 +807,8 @@ class TrsPriceRequest(BaseModel):
     trade_id: str = Field(default="TRS", description="Identifier for the trade.")
     underlying_id: str = Field(default="INDEX")
     currency: str = Field(default="USD")
-    start_date: str
-    end_date: str
+    start_date: IsoDate
+    end_date: IsoDate
     notional: float = Field(gt=0.0)
     spread_bps: float = Field(default=0.0)
     reference_rate: str = Field(default="SOFR", description="Name of the index.")
@@ -748,8 +819,8 @@ class TrsPriceRequest(BaseModel):
         default="UNFUNDED",
         description="UNFUNDED accrues reference + spread; FUNDED accrues only "
                     "the spread, and therefore has no rate sensitivity at all.")
-    valuation_date: str
-    last_reset_date: str | None = Field(
+    valuation_date: IsoDate
+    last_reset_date: IsoDate | None = Field(
         default=None, description="Defaults to the start date.")
     spot: float = Field(gt=0.0, description="Underlying level today.")
     initial_price: float = Field(
@@ -782,7 +853,7 @@ class TrsAccrual(BaseModel):
 class TrsPriceResponse(BaseModel):
     """Response of `POST /derivatives/trs/price`."""
     trade_id: str
-    valuation_date: str
+    valuation_date: IsoDate
     accrual_days: int
     accrual_fraction: float = Field(description="ACT/360, from the last reset.")
     total_return_leg: float
@@ -1542,7 +1613,7 @@ class WeightsView(BaseModel):
         description="Rebalance in force on that date. An index holds the "
                     "weights set at its last rebalance until the next one, so "
                     "this is usually earlier than `as_of`.")
-    announced_date: str | None = Field(
+    announced_date: IsoDate | None = Field(
         default=None,
         description="When that composition was published, if earlier than "
                     "`rebalance_date`. Null when the index has no lag.")

@@ -129,15 +129,22 @@ class TestTemplateCrud:
     def test_a_malformed_block_is_refused_at_save(self,
                                                   client):
         """Refused when it is written, not when it is rendered — by which point
-        whoever wrote it has moved on."""
+        whoever wrote it has moved on.
+
+        **422 since BN-131, not 500.** This test asserted the 500 and so
+        recorded the defect as the intended behaviour: a client that sent an
+        unknown block kind was told the server had failed, when the server had
+        in fact read the request correctly and found it wrong. The refusal was
+        always right; only the status was not.
+        """
         broken = template_document("broken")
         broken["blocks"] = [{"kind": "hologram"}]
 
         response = client.put("/reports/templates/broken", json=broken,
                               headers=auth())
 
-        assert response.status_code == 500
-        assert "unknown block kind" in response.json()["error"]["message"]
+        assert response.status_code == 422
+        assert "hologram" in str(response.json())
 
     def test_templates_appear_in_the_listing(self,
                                              client):

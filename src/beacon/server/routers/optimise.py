@@ -43,6 +43,7 @@ from ..schemas import (
     ConstraintTypes,
     ExposuresView,
     FrontierView,
+    Identifier,
     JobStatus,
     OptimisationRunRequest,
     SavedConstraintSet,
@@ -78,7 +79,7 @@ def _data_fetcher(request: Request) -> DataFetcher:
 
 
 def _constraint_set(request: Request,
-                    set_id: str) -> ConstraintSet:
+                    set_id: Identifier) -> ConstraintSet:
     """Load a stored constraint set, or fail with a mapped error."""
     document = _store(request).read(set_id)
     if document is None:
@@ -89,7 +90,7 @@ def _constraint_set(request: Request,
 
 
 def _run(request: Request,
-         run_id: str) -> dict[str, Any]:
+         run_id: Identifier) -> dict[str, Any]:
     """Load a completed optimisation result by its run id."""
     registry: JobRegistry = request.app.state.jobs
     result = registry.latest_result(f"optimise:{run_id}")
@@ -133,14 +134,14 @@ def build_optimise_router() -> APIRouter:
 
     @router.get("/constraint-sets/{set_id}", response_model=ConstraintSet)
     def get_set(request: Request,
-                set_id: str) -> ConstraintSet:
+                set_id: Identifier) -> ConstraintSet:
         return _constraint_set(request, set_id)
 
     @router.put("/constraint-sets/{set_id}",
                 response_model=SavedConstraintSet,
                 responses={422: {"model": ValidationReport}})
     def put_set(request: Request,
-                set_id: str,
+                set_id: Identifier,
                 body: ConstraintSet) -> SavedConstraintSet:
         # The path wins over the body, so a document cannot be saved under one
         # id while claiming another.
@@ -157,7 +158,7 @@ def build_optimise_router() -> APIRouter:
     @router.delete("/constraint-sets/{set_id}",
                    status_code=status.HTTP_204_NO_CONTENT)
     def delete_set(request: Request,
-                   set_id: str) -> None:
+                   set_id: Identifier) -> None:
         if not _store(request).exists(set_id):
             raise DataNotFoundError(f"constraint set '{set_id}'",
                                     source="DocumentStore")
@@ -202,7 +203,7 @@ def build_optimise_router() -> APIRouter:
 
     @router.get("/runs/{run_id}/frontier", response_model=FrontierView)
     def frontier(request: Request,
-                 run_id: str,
+                 run_id: Identifier,
                  risk_free_rate: RiskFreeQuery = 0.0) -> FrontierView:
         run = _run(request, run_id)
         constraint_set = _constraint_set(request, run["constraint_set_id"])
@@ -214,7 +215,7 @@ def build_optimise_router() -> APIRouter:
 
     @router.get("/runs/{run_id}/exposures", response_model=ExposuresView)
     def exposures(request: Request,
-                  run_id: str) -> ExposuresView:
+                  run_id: Identifier) -> ExposuresView:
         return build_exposures(_run(request, run_id), _data_fetcher(request))
 
     return router

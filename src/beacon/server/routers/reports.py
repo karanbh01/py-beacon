@@ -29,6 +29,7 @@ from ..reports import (
     render_path,
 )
 from ..schemas import (
+    Identifier,
     JobStatus,
     RenderRequest,
     ReportTemplateCollection,
@@ -57,7 +58,7 @@ def _render_directory(request: Request) -> Path:
 
 
 def _stored_template(request: Request,
-                     template_id: str) -> ReportTemplate:
+                     template_id: Identifier) -> ReportTemplate:
     """Load a stored template, or fail with a mapped error."""
     document = _store(request).read(template_id)
     if document is None:
@@ -115,14 +116,14 @@ def build_reports_router() -> APIRouter:
 
     @router.get("/templates/{template_id}", response_model=ReportTemplateDocument)
     def get_template(request: Request,
-                     template_id: str) -> ReportTemplateDocument:
+                     template_id: Identifier) -> ReportTemplateDocument:
         template = _stored_template(request, template_id)
 
         return ReportTemplateDocument.model_validate(template.to_dict())
 
     @router.put("/templates/{template_id}", response_model=ReportTemplateDocument)
     def put_template(request: Request,
-                     template_id: str,
+                     template_id: Identifier,
                      body: ReportTemplateDocument) -> ReportTemplateDocument:
         # The path wins over the body, so a document cannot be saved under one
         # id while claiming another.
@@ -139,7 +140,7 @@ def build_reports_router() -> APIRouter:
     @router.delete("/templates/{template_id}",
                    status_code=status.HTTP_204_NO_CONTENT)
     def delete_template(request: Request,
-                        template_id: str) -> None:
+                        template_id: Identifier) -> None:
         if not _store(request).exists(template_id):
             raise DataNotFoundError(f"report template '{template_id}'",
                                     source="DocumentStore")
@@ -170,7 +171,7 @@ def build_reports_router() -> APIRouter:
 
     @router.get("/renders/{render_id}")
     def download(request: Request,
-                 render_id: str) -> FileResponse:
+                 render_id: Identifier) -> FileResponse:
         path = render_path(_render_directory(request), render_id)
         if not path.exists():
             raise DataNotFoundError(

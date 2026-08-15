@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .._optional import require
-from ..exceptions import ConfigurationError
+from ..exceptions import ConfigurationError, InvalidIdentifierError
 
 require("platformdirs", "Document storage for the Beacon API server")
 
@@ -63,15 +63,20 @@ class DocumentStore:
         A document id reaches this from a URL path parameter, so an id
         containing a separator or ``..`` could otherwise write outside the
         collection directory.
+
+        Both refusals raise `InvalidIdentifierError`, which maps to 422. They
+        used to raise `ValueError` and `ConfigurationError` respectively, and
+        both surfaced as 500s -- the guard did its job and then reported
+        itself as a server fault. That single function accounted for most of
+        the 5xx the first working fuzz run found.
         """
         if not document_id:
-            raise ValueError("document id cannot be empty.")
+            raise InvalidIdentifierError(
+                document_id, "it must not be empty.")
 
         if os.sep in document_id or "/" in document_id or ".." in document_id:
-            raise ConfigurationError(
-                "document_id",
-                f"'{document_id}' is not a valid document id: it must not "
-                "contain path separators.")
+            raise InvalidIdentifierError(
+                document_id, "it must not contain path separators.")
 
         return self.directory / f"{document_id}.json"
 

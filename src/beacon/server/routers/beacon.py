@@ -32,6 +32,7 @@ from ..schemas import (
     AttributionView,
     BacktestRequest,
     CompareView,
+    Identifier,
     IndexDocument,
     JobStatus,
     OverviewView,
@@ -73,7 +74,7 @@ IdsQuery = Annotated[list[str],
 
 
 def _latest_run(request: Request,
-                index_id: str) -> dict[str, Any]:
+                index_id: Identifier) -> dict[str, Any]:
     """The most recent successful backtest result for an index.
 
     Raises:
@@ -93,7 +94,7 @@ def _latest_run(request: Request,
 
 
 def _index_document(request: Request,
-                    index_id: str) -> IndexDocument:
+                    index_id: Identifier) -> IndexDocument:
     """Load a stored index definition, or fail with a mapped error."""
     store: DocumentStore = request.app.state.index_store
     document = store.read(index_id)
@@ -130,7 +131,7 @@ def build_beacon_router() -> APIRouter:
                  response_model=JobStatus,
                  status_code=status.HTTP_202_ACCEPTED)
     async def submit_backtest(request: Request,
-                              index_id: str,
+                              index_id: Identifier,
                               body: BacktestRequest | None = None) -> JobStatus:
         # The definition and the data source are resolved here, before the job
         # is submitted, so an unknown index or an unconfigured server fails
@@ -171,14 +172,14 @@ def build_beacon_router() -> APIRouter:
 
     @router.get("/{index_id}/overview", response_model=OverviewView)
     def overview(request: Request,
-                 index_id: str) -> OverviewView:
+                 index_id: Identifier) -> OverviewView:
         document = _index_document(request, index_id)
 
         return build_overview(index_id, document.name, _latest_run(request, index_id))
 
     @router.get("/{index_id}/weights", response_model=WeightsView)
     def weights(request: Request,
-                index_id: str,
+                index_id: Identifier,
                 asof: AsOfQuery = None,
                 risk: RiskQuery = False,
                 benchmark: BenchmarkQuery = None) -> WeightsView:
@@ -204,7 +205,7 @@ def build_beacon_router() -> APIRouter:
 
     @router.get("/{index_id}/attribution", response_model=AttributionView)
     def attribution(request: Request,
-                    index_id: str,
+                    index_id: Identifier,
                     start: StartQuery = None,
                     end: EndQuery = None) -> AttributionView:
         _index_document(request, index_id)
@@ -217,7 +218,7 @@ def build_beacon_router() -> APIRouter:
 
     @router.get("/{index_id}/assets/{identifier}", response_model=AssetView)
     def asset(request: Request,
-              index_id: str,
+              index_id: Identifier,
               identifier: str) -> AssetView:
         _index_document(request, index_id)
 

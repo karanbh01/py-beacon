@@ -7,7 +7,7 @@ rather than to application state.
 """
 from ..._optional import require
 from ...exceptions import DataNotFoundError
-from ..schemas import Watchlist, WatchlistCollection, WatchlistUpsert
+from ..schemas import Identifier, Watchlist, WatchlistCollection, WatchlistUpsert
 from ..store import DocumentStore
 
 require("fastapi", "The Beacon API server")
@@ -44,7 +44,7 @@ def build_watchlists_router() -> APIRouter:
 
     @router.get("/{watchlist_id}", response_model=Watchlist)
     def get_watchlist(request: Request,
-                      watchlist_id: str) -> Watchlist:
+                      watchlist_id: Identifier) -> Watchlist:
         document = _store(request).read(watchlist_id)
         if document is None:
             raise DataNotFoundError(f"watchlist '{watchlist_id}'", source="DocumentStore")
@@ -55,7 +55,7 @@ def build_watchlists_router() -> APIRouter:
 
     @router.put("/{watchlist_id}", response_model=Watchlist)
     def put_watchlist(request: Request,
-                      watchlist_id: str,
+                      watchlist_id: Identifier,
                       body: WatchlistUpsert) -> Watchlist:
         # Upsert rather than separate create/update: the client owns the id,
         # so there is no server-assigned identity to protect.
@@ -68,7 +68,7 @@ def build_watchlists_router() -> APIRouter:
 
     @router.delete("/{watchlist_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_watchlist(request: Request,
-                         watchlist_id: str) -> Response:
+                         watchlist_id: Identifier) -> Response:
         if not _store(request).delete(watchlist_id):
             raise DataNotFoundError(f"watchlist '{watchlist_id}'", source="DocumentStore")
 

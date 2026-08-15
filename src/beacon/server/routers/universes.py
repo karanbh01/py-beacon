@@ -15,7 +15,7 @@ from typing import Any
 
 from ..._optional import require
 from ...exceptions import DataNotFoundError
-from ..schemas import Universe, UniverseCollection, UniverseMembers, UniverseUpsert
+from ..schemas import Identifier, Universe, UniverseCollection, UniverseMembers, UniverseUpsert
 from ..store import DocumentStore
 
 require("fastapi", "The Beacon API server")
@@ -40,7 +40,7 @@ def _to_universe(document: dict[str, Any]) -> Universe:
 
 
 def load_universe(request: Request,
-                  universe_id: str) -> Universe:
+                  universe_id: Identifier) -> Universe:
     """Read a universe or raise the mapped not-found error.
 
     Shared with the indices router, which resolves a universe reference when
@@ -79,12 +79,12 @@ def build_universes_router() -> APIRouter:
 
     @router.get("/{universe_id}", response_model=Universe)
     def get_universe(request: Request,
-                     universe_id: str) -> Universe:
+                     universe_id: Identifier) -> Universe:
         return load_universe(request, universe_id)
 
     @router.get("/{universe_id}/members", response_model=UniverseMembers)
     def get_members(request: Request,
-                    universe_id: str) -> UniverseMembers:
+                    universe_id: Identifier) -> UniverseMembers:
         universe = load_universe(request, universe_id)
 
         return UniverseMembers(universe_id=universe.id,
@@ -92,7 +92,7 @@ def build_universes_router() -> APIRouter:
 
     @router.put("/{universe_id}", response_model=Universe)
     def put_universe(request: Request,
-                     universe_id: str,
+                     universe_id: Identifier,
                      body: UniverseUpsert) -> Universe:
         universe = Universe(id=universe_id,
                             name=body.name,
@@ -103,7 +103,7 @@ def build_universes_router() -> APIRouter:
 
     @router.delete("/{universe_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_universe(request: Request,
-                        universe_id: str) -> Response:
+                        universe_id: Identifier) -> Response:
         if not _store(request).delete(universe_id):
             raise DataNotFoundError(f"universe '{universe_id}'", source="DocumentStore")
 
