@@ -30,12 +30,14 @@ from ...exceptions import ConfigurationError, DataNotFoundError
 from ..config import ServerConfig
 from ..reference import MAX_BATCH, build_entries, parse_identifiers, parse_list
 from ..schemas import (
+    SOURCE_USER,
     BatchReferenceResponse,
     CorporateActionsResponse,
     IdentifierMatch,
     IdentifierSearchResponse,
     PricesResponse,
     ReferenceResponse,
+    UniverseMembership,
 )
 
 require("fastapi", "The Beacon API server")
@@ -169,6 +171,38 @@ def _identifier_index(request: Request,
 
 
 
+def _memberships(request: Request,
+                 identifier: str) -> list[UniverseMembership]:
+    """Which universes contain an instrument.
+
+    Answered by scanning the stored universes rather than by an index, which
+    is the right shape at this size: a workspace holds a handful of documents,
+    and an index would be a second structure to keep in step with them for no
+    measurable gain. If universes ever number in the thousands this becomes a
+    reverse map built once per request instead.
+
+    Returns an empty list when the store is absent, so an endpoint that could
+    always answer this question keeps working on a server configured without
+    document storage.
+    """
+    store = getattr(request.app.state, "universe_store", None)
+
+    if store is None:
+        return []
+
+    memberships = [
+        UniverseMembership(id=document["id"],
+                           name=document.get("name", document["id"]),
+                           source=document.get("source", SOURCE_USER))
+        for document in store.read_all()
+        if identifier in document.get("identifiers", ())
+    ]
+
+    # Sorted so the order does not depend on how the filesystem listed the
+    # documents, which would make the response unstable between calls.
+    return sorted(memberships, key=lambda membership: membership.id)
+
+
 def build_data_router() -> APIRouter:
     """Build the /data router.
 
@@ -256,16 +290,22 @@ def build_data_router() -> APIRouter:
     def reference(request: Request,
                   identifier: str,
                   date: AsOfQuery = None) -> ReferenceResponse:
-        # GICS, profile and universe memberships are in this endpoint's brief
-        # but not in the data model, so nothing here invents them. Whatever
-        # columns the loaded reference data carries are returned as-is.
+        # GICS and profile remain in this endpoint's brief and out of the
+        # data model, so nothing here invents them: whatever columns the
+        # loaded reference data carries are returned as-is.
+        #
+        # Universe memberships *are* answerable now. They were not when this
+        # endpoint was written -- no universe could be created through the
+        # API and none was seeded, so the answer was always "none" and saying
+        # so would have been noise. BN-132 changed that.
         frame = _data_fetcher(request).fetch_reference_data(identifier, date)
 
         if frame.empty:
             raise DataNotFoundError(f"reference data for '{identifier}'",
                                     source="ReferenceData")
 
-        return ReferenceResponse.from_row(identifier, frame.iloc[0])
+        return ReferenceResponse.from_row(identifier, frame.iloc[0],
+                                          _memberships(request, identifier))
 
     @router.get("/corporate-actions/{identifier}",
                 response_model=CorporateActionsResponse)

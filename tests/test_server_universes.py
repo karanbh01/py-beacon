@@ -366,3 +366,78 @@ class TestTheSurface:
         universe = spec["components"]["schemas"]["Universe"]["properties"]
 
         assert "source" in universe
+
+
+class TestMembershipsOnTheReferenceEndpoint:
+    """BN-65's last open task: "where is this instrument used?"
+
+    The endpoint's comment used to say memberships were in its brief and not
+    in the data model. That was true when it was written -- no universe could
+    be created through the API and none was seeded, so the answer was always
+    "none" and returning it would have been noise. BN-132 changed the facts,
+    not the brief.
+    """
+
+    def test_it_reports_the_seeded_universe(self,
+                                            client,
+                                            known):
+        response = client.get(f"/data/reference/{known[0]}", headers=HEADERS)
+        universes = response.json()["universes"]
+
+        assert [u["id"] for u in universes] == [GLOBAL_ID]
+        assert universes[0]["source"] == "seeded"
+
+    def test_it_reports_one_somebody_created(self,
+                                             client,
+                                             known):
+        client.post("/universes", headers=HEADERS,
+                    json={"name": "My Two", "identifiers": known[:2]})
+
+        response = client.get(f"/data/reference/{known[0]}", headers=HEADERS)
+
+        assert [u["id"] for u in response.json()["universes"]] == [GLOBAL_ID,
+                                                                   "my-two"]
+
+    def test_an_instrument_outside_a_universe_does_not_list_it(self,
+                                                               client,
+                                                               known):
+        """Guards the test above: reporting every universe for every
+        instrument would pass it and be useless."""
+        client.post("/universes", headers=HEADERS,
+                    json={"name": "Just One", "identifiers": [known[0]]})
+
+        response = client.get(f"/data/reference/{known[-1]}", headers=HEADERS)
+
+        assert "just-one" not in [u["id"] for u in response.json()["universes"]]
+
+    def test_the_order_is_stable(self,
+                                 client,
+                                 known):
+        """Sorted by id, so the response does not depend on how the
+        filesystem happened to list the documents."""
+        for name in ("Zulu", "Alpha", "Mike"):
+            client.post("/universes", headers=HEADERS,
+                        json={"name": name, "identifiers": known[:1]})
+
+        universes = client.get(f"/data/reference/{known[0]}",
+                               headers=HEADERS).json()["universes"]
+        ids = [u["id"] for u in universes]
+
+        assert ids == sorted(ids)
+
+    def test_the_reference_fields_are_untouched(self,
+                                               client,
+                                               known):
+        """Memberships are added beside the existing payload, not instead of
+        it -- a client reading NAME must keep working."""
+        fields = client.get(f"/data/reference/{known[0]}",
+                            headers=HEADERS).json()["fields"]
+
+        assert "NAME" in fields
+
+    def test_it_is_published_in_the_spec(self,
+                                         client):
+        spec = client.get("/openapi.json").json()
+        response = spec["components"]["schemas"]["ReferenceResponse"]
+
+        assert "universes" in response["properties"]

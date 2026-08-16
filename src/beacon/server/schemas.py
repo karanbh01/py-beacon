@@ -260,6 +260,15 @@ class PricesResponse(BaseModel):
                    prices=TableFrame.from_dataframe(frame))
 
 
+class UniverseMembership(BaseModel):
+    """One universe an instrument belongs to."""
+    id: str = Field(description="Universe identifier, as used in the URL.")
+    name: str = Field(description="Display name.")
+    source: str = Field(
+        description="'seeded' for one the server wrote from the dataset, "
+                    "'user' for one somebody made.")
+
+
 class ReferenceResponse(BaseModel):
     """Response of `GET /data/reference/{identifier}`.
 
@@ -271,16 +280,24 @@ class ReferenceResponse(BaseModel):
     fields: dict[str, Any] = Field(
         description="Reference columns for this identifier, e.g. NAME, "
                     "CURRENCY, EXCHANGE. Timestamps are ISO 8601 strings.")
+    universes: list[UniverseMembership] = Field(
+        default_factory=list,
+        description="Universes containing this instrument, so a client can "
+                    "answer 'where is this used?' without reading every "
+                    "universe and searching it.")
 
     @classmethod
     def from_row(cls,
                  identifier: str,
-                 row: pd.Series) -> "ReferenceResponse":
+                 row: pd.Series,
+                 universes: list[UniverseMembership] | None = None
+                 ) -> "ReferenceResponse":
         """Build from a single reference-data row."""
         payload = series_to_payload(row)
         fields = dict(zip(payload["index"], payload["data"], strict=True))
 
-        return cls(identifier=identifier, fields=fields)
+        return cls(identifier=identifier, fields=fields,
+                   universes=universes or [])
 
 
 class IdentifierMatch(BaseModel):
