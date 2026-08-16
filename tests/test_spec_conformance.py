@@ -300,6 +300,109 @@ class TestEveryStatusItReturnsIsDocumented:
         assert response.json()["error"]["code"] == "METHOD_NOT_ALLOWED"
 
 
+class TestReservedIdentifiers:
+    """A path segment that names an endpoint cannot also name a document."""
+
+    def test_reserved_identifiers_match_the_routes(self,
+                                                   client):
+        """Derived from the running app rather than trusted.
+
+        A hand-kept list is a list that drifts: the next endpoint added beside
+        a path parameter would reintroduce the collision silently. This walks
+        the real routes, finds every literal segment that sits where a path
+        parameter also sits, and checks the constant covers it.
+        """
+        from beacon.server.store import RESERVED_IDENTIFIERS
+
+        paths = client.get("/openapi.json").json()["paths"]
+
+        # Prefixes that have a `{...}` child, and the literal children of the
+        # same prefix. A literal at that position is exactly the ambiguity.
+        parameterised: set[str] = set()
+        literals: dict[str, set[str]] = {}
+
+        for path in paths:
+            head, _, tail = path.rpartition("/")
+
+            if tail.startswith("{"):
+                parameterised.add(head)
+            elif tail and not tail.startswith("{"):
+                literals.setdefault(head, set()).add(tail)
+
+        colliding = {segment
+                     for prefix in parameterised
+                     for segment in literals.get(prefix, set())}
+
+        assert colliding <= RESERVED_IDENTIFIERS, (
+            f"these path literals collide with a document id and are not "
+            f"reserved: {sorted(colliding - RESERVED_IDENTIFIERS)}")
+
+    @pytest.mark.parametrize("reserved", ["preview", "validate", "rule-types"])
+    def test_a_reserved_name_cannot_be_saved(self,
+                                             client,
+                                             reserved):
+        """`PUT /optimise/constraint-sets/validate` returned 200 before this,
+        having stored a constraint set whose id was literally `validate`."""
+        response = client.put(f"/data/watchlists/{reserved}", headers=HEADERS,
+                              json={"name": "x", "identifiers": ["AAA"]})
+
+        assert response.status_code == 422
+
+    def test_the_message_says_why(self,
+                                  client):
+        """"Invalid identifier" without a reason sends somebody to the source
+        to find out which names are special."""
+        response = client.put("/data/watchlists/preview", headers=HEADERS,
+                              json={"name": "x", "identifiers": ["AAA"]})
+
+        assert "reserved" in str(response.json()).lower()
+
+    def test_ordinary_names_are_unaffected(self,
+                                           client):
+        """The reservation is three words, not a new naming policy."""
+        for identifier in ("previews", "validated", "my-index", "rule_types"):
+            response = client.put(f"/data/watchlists/{identifier}",
+                                  headers=HEADERS,
+                                  json={"name": "x", "identifiers": ["AAA"]})
+
+            assert response.status_code in (200, 201), identifier
+
+
+class TestTheFrequencyStaysAStringOnPurpose:
+    """Declaring the four cadences would silence a fuzz finding and cost the
+    thing the finding was protecting.
+
+    `POST /indices` with an unknown cadence is refused *with a coded finding*
+    -- `UNSUPPORTED_FREQUENCY`, in `error.detail.findings` -- which beacon-ui
+    renders against the field. A `Literal` moves the refusal into pydantic,
+    which answers with a generic validation error and no code.
+
+    So schemathesis's "API rejected schema-compliant request" stands here by
+    design. This test records that, so the next person to notice the loose
+    type finds the reason rather than the opportunity.
+    """
+
+    def test_the_library_still_owns_the_valid_set(self):
+        """The four cadences live in `beacon.index.schedule`, and
+        `definitions.py` checks against them. The refusal itself is covered by
+        `test_server_indices.py::test_unsupported_frequency_is_reported`,
+        which has the fixtures to build a document that gets that far -- this
+        only pins where the list lives."""
+        from beacon.index.schedule import FREQUENCIES
+
+        assert set(FREQUENCIES) == {"MONTHLY", "QUARTERLY",
+                                    "SEMI-ANNUAL", "ANNUAL"}
+
+    def test_the_field_is_not_an_enum_in_the_spec(self,
+                                                  client):
+        """Guards the decision itself: making it an enum would pass every
+        other test in this file while quietly dropping the code above."""
+        spec = client.get("/openapi.json").json()
+        field = spec["components"]["schemas"]["IndexDocument"]["properties"]
+
+        assert "enum" not in field["rebalancing_frequency"]
+
+
 class TestValidationErrorsSerialise:
     """The bug that hid the block check: the handler for validation errors
     could not serialise its own output."""

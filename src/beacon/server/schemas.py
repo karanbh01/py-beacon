@@ -567,6 +567,16 @@ class IndexDocument(BaseModel):
     base_date: str = Field(description="Base date, YYYY-MM-DD.")
     base_value: float = Field(description="Index level on the base date.")
     currency: str = Field(description="Index currency.", min_length=3, max_length=3)
+    # Deliberately `str` rather than a Literal of the four cadences, even
+    # though that would put them in the OpenAPI document and stop the fuzz run
+    # reporting a rejection here.
+    #
+    # `definitions.py` already refuses an unknown one, and refuses it *better*:
+    # the response carries a coded finding, `UNSUPPORTED_FREQUENCY`, that
+    # beacon-ui shows against the field while somebody is editing. Declaring
+    # the enum moves the rejection to pydantic, which answers with a generic
+    # validation blob and loses the code. Tightening the schema here would
+    # make the spec more precise and the product worse.
     rebalancing_frequency: str = Field(
         description="MONTHLY, QUARTERLY, SEMI-ANNUAL or ANNUAL. The cadence; "
                     "`rebalance_day_rule` decides which day of the month.")

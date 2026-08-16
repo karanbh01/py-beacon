@@ -19,6 +19,28 @@ from typing import Any
 from .._optional import require
 from ..exceptions import ConfigurationError, InvalidIdentifierError
 
+# Path segments that name an *endpoint*, and so cannot also name a document.
+#
+# `POST /indices/preview` previews a definition; `PUT /indices/{index_id}`
+# saves one. Those are different routes that overlap on exactly one value, so
+# `PUT /indices/preview` used to fall through to the second and store a
+# document called "preview" -- and `PUT /optimise/constraint-sets/validate`
+# returned 200 having done just that.
+#
+# The document stayed addressable afterwards, so the harm was small, but the
+# URL space was ambiguous: whether `/indices/preview` means an action or a
+# document depended on the verb. Reserving the handful of literals costs a few
+# names nobody wants and makes the answer the same for every method.
+#
+# `test_reserved_identifiers_match_the_routes` derives this from the running
+# app, so a new endpoint added beside a path parameter cannot silently
+# reintroduce the collision.
+RESERVED_IDENTIFIERS = frozenset({
+    "preview",
+    "validate",
+    "rule-types",
+})
+
 require("platformdirs", "Document storage for the Beacon API server")
 
 import platformdirs  # noqa: E402
@@ -77,6 +99,12 @@ class DocumentStore:
         if os.sep in document_id or "/" in document_id or ".." in document_id:
             raise InvalidIdentifierError(
                 document_id, "it must not contain path separators.")
+
+        if document_id in RESERVED_IDENTIFIERS:
+            raise InvalidIdentifierError(
+                document_id,
+                f"it is reserved: {', '.join(sorted(RESERVED_IDENTIFIERS))} "
+                f"name endpoints rather than documents.")
 
         return self.directory / f"{document_id}.json"
 
