@@ -404,6 +404,10 @@ class TestEnvelopeExhaustiveness:
         "PipelineValidationError":
             "subclasses InvalidRuleError to inherit its 422 / INVALID_RULE "
             "mapping, and adds structured findings to the envelope detail",
+        "UniverseValidationError":
+            "the same arrangement as PipelineValidationError, for a universe "
+            "whose members are not in the loaded data: 422 / INVALID_RULE "
+            "from the parent, with a finding naming each missing identifier",
     }
 
     def test_every_subclass_is_mapped_or_deliberately_inherited(self):

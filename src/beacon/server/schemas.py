@@ -1258,17 +1258,45 @@ class SavedIndex(BaseModel):
         description="Non-blocking warnings. Errors would have prevented the save.")
 
 
+# How a universe came to exist. A client renders a seeded one read-only, so
+# this has to be on the document rather than inferred from its id.
+SOURCE_USER = "user"
+SOURCE_SEEDED = "seeded"
+
+
 class Universe(BaseModel):
     """A named set of instrument identifiers."""
     id: str = Field(description="Stable identifier.", min_length=1, max_length=64)
     name: str = Field(description="Display name.", min_length=1)
     identifiers: list[str] = Field(default_factory=list)
+    description: str | None = Field(
+        default=None, description="Optional free text.")
+    source: str = Field(
+        default=SOURCE_USER,
+        description=f"'{SOURCE_USER}' for one somebody created, "
+                    f"'{SOURCE_SEEDED}' for one the generator wrote. A seeded "
+                    f"universe cannot be edited or deleted.")
 
 
 class UniverseUpsert(BaseModel):
     """Body of `PUT /universes/{id}`."""
     name: str = Field(description="Display name.", min_length=1)
     identifiers: list[str] = Field(default_factory=list)
+    description: str | None = Field(default=None)
+
+
+class UniverseCreate(BaseModel):
+    """Body of `POST /universes`.
+
+    No id: the server derives one from the name, so a client cannot create two
+    universes whose ids differ only in punctuation and expect them to be
+    distinct documents.
+    """
+    name: str = Field(description="Display name.", min_length=1, max_length=64)
+    identifiers: list[str] = Field(
+        description="Members. Must be non-empty, and every one must exist in "
+                    "the loaded reference data.")
+    description: str | None = Field(default=None)
 
 
 class UniverseCollection(BaseModel):

@@ -6,6 +6,7 @@ The server is a local process owned by a desktop client: it binds loopback,
 authenticates every route with a bearer token the client generated, and holds
 no state of its own beyond the data source it was handed.
 """
+import logging
 from typing import Any
 
 from .. import __version__
@@ -34,6 +35,10 @@ from .routers import (  # noqa: E402
     build_universes_router,
     build_watchlists_router,
 )
+from .routers.universes import (  # noqa: E402
+    GLOBAL_ID,
+    seed_global_universe,
+)
 from .schemas import DataSourceStatus, ErrorEnvelope, HealthResponse  # noqa: E402
 from .security import verify_bearer_token  # noqa: E402
 from .store import DocumentStore  # noqa: E402
@@ -45,6 +50,8 @@ from .store import DocumentStore  # noqa: E402
 # and the document did not say so. An undocumented status is worse than an
 # undocumented field: a client generated from this spec has no branch for it
 # at all, and the first time it sees one is in production.
+logger = logging.getLogger(__name__)
+
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {"model": ErrorEnvelope,
           "description": "The request could not be read at all — a body that "
@@ -127,6 +134,18 @@ def create_app(config: ServerConfig) -> FastAPI:
     app.state.watchlist_store = DocumentStore("watchlists", root=config.storage_root)
     app.state.universe_store = DocumentStore("universes", root=config.storage_root)
     app.state.index_store = DocumentStore("indices", root=config.storage_root)
+
+    # A dataset with no universe document is a dataset the editor cannot
+    # select from, so one covering everything is written as soon as data is
+    # loaded. Marked seeded, and therefore read-only -- it derives from the
+    # data, so an edit would be discarded the next time the data changed.
+    if config.data_fetcher is not None:
+        seeded = seed_global_universe(app.state.universe_store,
+                                      config.data_fetcher)
+
+        if seeded:
+            logger.info("Seeded the %s universe from the loaded dataset.",
+                        GLOBAL_ID)
     app.state.constraint_store = DocumentStore("constraint_sets",
                                                root=config.storage_root)
     app.state.template_store = DocumentStore("report_templates",
