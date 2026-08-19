@@ -42,14 +42,39 @@ logger = logging.getLogger(__name__)
 # Derived field name -> what it means. Not stored on any dataset; computed here
 # from market data the server already holds.
 ADV_3M = "adv_3m"
+MARKET_CAP = "market_cap"
+FREE_FLOAT_MARKET_CAP = "free_float_market_cap"
+
+# The currency every derived money amount is reported in.
+#
+# A market capitalisation is money, and since BN-128 the members of one
+# universe are quoted in seven currencies. Returning raw local values would
+# make the column unsortable and every comparison silently wrong -- a yen cap
+# ranks above a dollar one on magnitude alone -- so they are converted, and
+# `market_cap_currency` states what they were converted into rather than
+# leaving a client to assume.
+DERIVED_CURRENCY = "USD"
+DERIVED_CURRENCY_FIELD = "market_cap_currency"
+
 DERIVED_FIELDS = {
     ADV_3M: f"Mean daily VOLUME over the trailing {TRAILING_MONTHS} calendar months.",
+    MARKET_CAP: f"Price x shares outstanding, in {DERIVED_CURRENCY}.",
+    FREE_FLOAT_MARKET_CAP: f"Market cap x free float, in {DERIVED_CURRENCY}.",
 }
+
+# The derived fields that are money, and so carry the currency alongside.
+MONEY_FIELDS = (MARKET_CAP, FREE_FLOAT_MARKET_CAP)
 
 # The most identifiers one request may name. Above the 512-member universe pane
 # with room to spare, and low enough that a malformed client cannot ask the
 # server to assemble an unbounded response. A caller needing more paginates.
 MAX_BATCH = 1000
+
+# How far back to look for the last price and share count. Long enough to
+# cross a delisting or a quiet stretch, short enough that a name absent from
+# the whole window is reported as having no cap rather than one from years
+# ago.
+LOOKBACK_DAYS = 30
 
 
 def parse_list(raw: list[str] | None) -> list[str]:
@@ -144,15 +169,137 @@ def _clean(row: pd.Series) -> dict[str, Any]:
     return fields
 
 
+def _rate_into_base(fetcher: DataFetcher,
+                    currency: str,
+                    as_of: pd.Timestamp,
+                    cache: dict[str, float]) -> float:
+    """FX from an instrument's currency into the reporting one.
+
+    Cached per currency for the batch: a five-hundred-name request spans a
+    handful of currencies, and looking one up per name would be five hundred
+    slices to answer seven questions.
+    """
+    if currency == DERIVED_CURRENCY:
+        return 1.0
+
+    if currency not in cache:
+        series = fetcher.fetch_fx_rates(currency, DERIVED_CURRENCY,
+                                        end_date=as_of.strftime("%Y-%m-%d"))
+        cache[currency] = float(series.iloc[-1]) if not series.empty else 1.0
+
+        if series.empty:
+            logger.warning(
+                "No %s/%s rate on or before %s; market caps quoted in %s are "
+                "reported unconverted.",
+                currency, DERIVED_CURRENCY, as_of.date(), currency)
+
+    return cache[currency]
+
+
+def _market_caps(fetcher: DataFetcher,
+                 identifiers: list[str],
+                 requested: set[str],
+                 end: pd.Timestamp) -> dict[str, dict[str, Any]]:
+    """Market capitalisation per name, converted into the reporting currency.
+
+    A point-in-time cap is a price times a share count, both of which move, so
+    this is a market-data join rather than a stored attribute -- which is why
+    it is derived and has to be asked for by name.
+
+    Free float is applied as a multiplier rather than fetched separately: it
+    lives in the same row, and reading it twice would double the work to
+    produce a number that is the first one scaled.
+    """
+    wanted = requested & set(MONEY_FIELDS)
+
+    if not wanted:
+        return {}
+
+    columns = ["CLOSE", "SHARES_OUTSTANDING", "FREE_FLOAT"]
+    start = (end - pd.DateOffset(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+
+    frame = fetcher.fetch_market_data(identifiers, start,
+                                      end.strftime("%Y-%m-%d"), columns)
+
+    computed: dict[str, dict[str, Any]] = {}
+    rates: dict[str, float] = {}
+
+    for identifier in identifiers:
+        entry: dict[str, Any] = dict.fromkeys(wanted)
+        entry[DERIVED_CURRENCY_FIELD] = DERIVED_CURRENCY
+
+        rows = _rows_for(frame, identifier)
+
+        if rows is not None and not rows.empty:
+            # The last observation on or before the date, so a name that
+            # stopped trading before it is valued at its final print rather
+            # than reported as missing -- and one that never traded is.
+            latest = rows.iloc[-1]
+            price = latest.get("CLOSE")
+            shares = latest.get("SHARES_OUTSTANDING")
+
+            if pd.notna(price) and pd.notna(shares):
+                currency = _currency_of(fetcher, identifier, end)
+                rate = _rate_into_base(fetcher, currency, end, rates)
+                capitalisation = float(price) * float(shares) * rate
+
+                if MARKET_CAP in wanted:
+                    entry[MARKET_CAP] = capitalisation
+
+                if FREE_FLOAT_MARKET_CAP in wanted:
+                    free_float = latest.get("FREE_FLOAT")
+                    entry[FREE_FLOAT_MARKET_CAP] = (
+                        capitalisation * float(free_float)
+                        if pd.notna(free_float) else capitalisation)
+
+        computed[identifier] = entry
+
+    return computed
+
+
+def _rows_for(frame: pd.DataFrame,
+              identifier: str) -> pd.DataFrame | None:
+    """One instrument's rows out of a multi-identifier frame."""
+    if frame.empty:
+        return None
+
+    if isinstance(frame.index, pd.MultiIndex):
+        if identifier not in frame.index.get_level_values("IDENTIFIER"):
+            return None
+
+        return frame.xs(identifier, level="IDENTIFIER")
+
+    return frame
+
+
+def _currency_of(fetcher: DataFetcher,
+                 identifier: str,
+                 as_of: pd.Timestamp) -> str:
+    """The currency an instrument is quoted in, from reference data."""
+    reference = fetcher.fetch_reference_data(identifier,
+                                             as_of.strftime("%Y-%m-%d"))
+
+    if reference.empty or "CURRENCY" not in reference.columns:
+        return DERIVED_CURRENCY
+
+    value = reference["CURRENCY"].iloc[0]
+
+    return str(value).upper() if pd.notna(value) else DERIVED_CURRENCY
+
+
 def _derived_fields(fetcher: DataFetcher,
                     identifiers: list[str],
                     requested: set[str],
                     as_of: str | None) -> dict[str, dict[str, Any]]:
     """Compute the requested derived fields for the batch."""
-    if ADV_3M not in requested:
+    if not requested & set(DERIVED_FIELDS):
         return {}
 
     end = pd.Timestamp(as_of) if as_of else fetcher.date_range[1]
+    caps = _market_caps(fetcher, identifiers, requested, end)
+
+    if ADV_3M not in requested:
+        return caps
 
     # One slice for the whole batch rather than one per identifier: the point
     # of this endpoint is that the client stops fanning out, and fanning out
@@ -176,7 +323,8 @@ def _derived_fields(fetcher: DataFetcher,
     computed = {identifier: (float(value) if pd.notna(value) else None)
                 for identifier, value in volumes.items()}
 
-    return {identifier: {ADV_3M: computed.get(identifier)}
+    return {identifier: {ADV_3M: computed.get(identifier),
+                         **caps.get(identifier, {})}
             for identifier in identifiers}
 
 

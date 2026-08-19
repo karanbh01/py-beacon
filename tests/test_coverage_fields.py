@@ -147,13 +147,25 @@ class TestFieldCount:
         # FX pairs carry and equity rows leave empty.
         assert dataset_of(coverage, MARKET_DATASET)["field_count"] == 8
 
-    def test_reference_excludes_the_validity_keys(self, coverage):
+    def test_reference_excludes_the_validity_keys(self, coverage, stored):
         """DATE_FROM and DATE_TO are keys, not fields. Counting them would make
-        "three fields held" mean one real attribute."""
-        entry = dataset_of(coverage, REFERENCE_DATASET)
+        "three fields held" mean one real attribute.
 
-        # Six since BN-128, REGION having joined the reference fields.
-        assert entry["field_count"] == 6
+        Derived from the loaded columns rather than pinned to a number. The
+        claim is *which* columns are excluded, and a literal count restated
+        that as trivia -- it needed an edit for REGION in BN-128 and again for
+        the country columns in BN-133, neither of which had anything to do
+        with what this is checking.
+        """
+        _client, path = stored
+
+        entry = dataset_of(coverage, REFERENCE_DATASET)
+        loaded = store.load(path).reference
+        columns = set(loaded.data.reset_index().columns)
+        keys = {"IDENTIFIER", "DATE_FROM", "DATE_TO"}
+
+        assert entry["field_count"] == len(columns - keys)
+        assert keys & columns, "the fixture carries no validity keys to exclude"
 
     def test_actions_exclude_the_identity_keys(self, coverage):
         """TYPE, VALUE, PAY_DATE, STATUS — not IDENTIFIER and EX_DATE."""

@@ -56,6 +56,9 @@ class Region:
         name: What the reference data reports as REGION.
         currency: ISO code every name listed here is quoted in.
         exchange: MIC the names carry.
+        country: ISO 3166-1 alpha-2 of the listing venue. Distinct from
+            `name`: "Europe" is a region and DE is a country, and a filter
+            asking "listed in Germany" cannot be answered by the first.
         weight: Share of the universe, roughly MSCI ACWI.
         rate: Units of `currency` per one US dollar at the start of the panel.
             Quoted this way round -- rather than as the market convention,
@@ -66,6 +69,7 @@ class Region:
     name: str
     currency: str
     exchange: str
+    country: str
     weight: float
     rate: float
     volatility: float
@@ -77,14 +81,46 @@ class Region:
 # defends, and a generator that gave it 9% like everything else would produce
 # a "diversified" currency exposure that does not exist.
 REGIONS = (
-    Region("United States", "USD", "XNAS", 0.60, 1.00, 0.000),
-    Region("Europe", "EUR", "XETR", 0.13, 0.95, 0.075),
-    Region("Asia Pacific", "HKD", "XHKG", 0.12, 7.78, 0.004),
-    Region("Japan", "JPY", "XTKS", 0.06, 157.0, 0.095),
-    Region("United Kingdom", "GBP", "XLON", 0.04, 0.80, 0.085),
-    Region("Canada", "CAD", "XTSE", 0.03, 1.44, 0.065),
-    Region("Australia", "AUD", "XASX", 0.02, 1.61, 0.105),
+    Region("United States", "USD", "XNAS", "US", 0.60, 1.00, 0.000),
+    Region("Europe", "EUR", "XETR", "DE", 0.13, 0.95, 0.075),
+    Region("Asia Pacific", "HKD", "XHKG", "HK", 0.12, 7.78, 0.004),
+    Region("Japan", "JPY", "XTKS", "JP", 0.06, 157.0, 0.095),
+    Region("United Kingdom", "GBP", "XLON", "GB", 0.04, 0.80, 0.085),
+    Region("Canada", "CAD", "XTSE", "CA", 0.03, 1.44, 0.065),
+    Region("Australia", "AUD", "XASX", "AU", 0.02, 1.61, 0.105),
 )
+
+# Where a company is incorporated, when that is not where it lists.
+#
+# Domicile and listing genuinely diverge, and the divergence is not noise: a
+# company incorporated in Ireland and listed in New York is not a US company
+# for tax, and a screen that treats it as one is wrong in a way nobody sees
+# until somebody reconciles a withholding number. Modelling only the listing
+# country would make that distinction untestable.
+#
+# The destinations are the real ones, and they cluster by listing venue rather
+# than being drawn at random: US listings redomicile to Ireland and Bermuda,
+# Hong Kong listings are overwhelmingly Cayman and mainland China, London has
+# its Jersey and Guernsey structures. A uniform draw would produce Japanese
+# companies incorporated in Jersey, which is not a thing.
+FOREIGN_DOMICILES = {
+    "US": ("IE", "BM", "KY", "NL"),
+    "HK": ("KY", "CN", "BM"),
+    "GB": ("JE", "GG", "IE"),
+    "DE": ("NL", "LU", "IE"),
+    "JP": (),
+    "CA": ("US",),
+    "AU": (),
+}
+
+# What share of names are incorporated somewhere other than where they list.
+#
+# Roughly a fifth of large US listings are foreign-domiciled, and the figure is
+# far higher in Hong Kong, where Cayman incorporation is the norm rather than
+# the exception. One rate across the universe understates Hong Kong and
+# overstates Japan, and is close enough that the distinction is exercisable
+# without claiming a precision the generator has not earned.
+FOREIGN_DOMICILE_RATE = 0.18
 
 
 def assign(count: int,
@@ -135,6 +171,39 @@ def pairs() -> list[tuple[str, float, float]]:
             for region in REGIONS if region.currency != BASE_CURRENCY]
 
 
+def domiciles(assigned: np.ndarray,
+              rng: np.random.Generator) -> list[str]:
+    """Where each name is incorporated.
+
+    Usually the listing country. A minority are incorporated elsewhere, drawn
+    from the destinations that listing venue actually uses.
+
+    Args:
+        assigned: One region index per name.
+        rng: Seeded generator.
+
+    Returns:
+        list: ISO 3166-1 alpha-2 per name.
+    """
+    chosen = [REGIONS[index] for index in assigned]
+    draws = rng.uniform(size=len(chosen))
+
+    resolved = []
+    for position, region in enumerate(chosen):
+        options = FOREIGN_DOMICILES.get(region.country, ())
+
+        if options and draws[position] < FOREIGN_DOMICILE_RATE:
+            # A second draw off the same generator would consume entropy per
+            # name whether or not it is used; indexing the first keeps the
+            # draw count a function of the universe size alone.
+            offset = int(draws[position] / FOREIGN_DOMICILE_RATE * len(options))
+            resolved.append(options[min(offset, len(options) - 1)])
+        else:
+            resolved.append(region.country)
+
+    return resolved
+
+
 def frame(assigned: np.ndarray) -> pd.DataFrame:
     """Region, currency and exchange per name, given the assignment."""
     chosen = [REGIONS[index] for index in assigned]
@@ -143,5 +212,6 @@ def frame(assigned: np.ndarray) -> pd.DataFrame:
         "REGION": [region.name for region in chosen],
         "CURRENCY": [region.currency for region in chosen],
         "EXCHANGE": [region.exchange for region in chosen],
+        "COUNTRY_LISTING": [region.country for region in chosen],
         "fx_to_base": [1.0 / region.rate for region in chosen],
     })

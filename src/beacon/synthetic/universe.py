@@ -232,7 +232,8 @@ def build(count: int,
     yields = MAX_DIVIDEND_YIELD * rng.beta(2.0, 4.0, size=count)
     yields[rng.uniform(size=count) < NON_PAYER_FRACTION] = 0.0
 
-    venues = regions.frame(regions.assign(count, rng))
+    assigned = regions.assign(count, rng)
+    venues = regions.frame(assigned)
 
     frame = pd.DataFrame({
         "NAME": [company_name(ticker) for ticker in tickers],
@@ -240,6 +241,12 @@ def build(count: int,
         "REGION": venues["REGION"].to_numpy(),
         "EXCHANGE": venues["EXCHANGE"].to_numpy(),
         "CURRENCY": venues["CURRENCY"].to_numpy(),
+        # Listing and domicile are separate columns because they are separate
+        # questions. "Listed in Germany" and "incorporated in Ireland" are
+        # both real screens, and a single COUNTRY would silently answer one
+        # of them while appearing to answer both.
+        "COUNTRY_LISTING": venues["COUNTRY_LISTING"].to_numpy(),
+        "COUNTRY_DOMICILE": regions.domiciles(assigned, rng),
         "volatility": volatility,
         "market_share": market_share,
         "sector_share": sector_share,
@@ -313,4 +320,6 @@ def reference_frame(universe: pd.DataFrame,
         "REGION": universe["REGION"].to_numpy(),
         "EXCHANGE": universe["EXCHANGE"].to_numpy(),
         "CURRENCY": universe["CURRENCY"].to_numpy(),
+        "COUNTRY_LISTING": universe["COUNTRY_LISTING"].to_numpy(),
+        "COUNTRY_DOMICILE": universe["COUNTRY_DOMICILE"].to_numpy(),
     })
