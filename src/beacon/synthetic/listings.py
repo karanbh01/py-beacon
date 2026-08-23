@@ -46,11 +46,30 @@ logger = logging.getLogger(__name__)
 
 TRADING_DAYS = 252
 
-# Annualised, and roughly the turnover of a large-cap index. Both are hazard
-# rates rather than shares of the universe: over a ten-year panel a 3% hazard
-# retires about a quarter of the names.
-ANNUAL_DELISTING_RATE = 0.030
-ANNUAL_LISTING_RATE = 0.030
+# Annualised hazards rather than shares of the universe: over a ten-year panel
+# a 1.5% hazard retires about one name in seven.
+#
+# Tuned to the *live* count rather than to realised index turnover, which is
+# the trade this makes and worth stating plainly. Real large-cap turnover runs
+# nearer 3%, and at that rate a 5,000-name panel holds only 3,650-3,880 live
+# at any instant -- the union is the number a client sees in the universe
+# pane, and the live subset is what an index can actually select, so the pane
+# promised a third more than it could deliver.
+#
+# Measured over ten years, at the 5,000-name default:
+#
+#     delist/list   live at start .. end      share of the union
+#     3.0%          3,646 .. 3,880            73%
+#     1.5%          4,274 .. 4,348            85%
+#     1.0%          4,513 .. 4,531            90%
+#
+# 1.5% keeps 4,000-5,000 names investable throughout while still retiring
+# enough of the universe for survivorship to be demonstrable -- about one in
+# seven over the decade, against one in four before. The bias that measures
+# (worklog: +0.42%/yr at 3%) is correspondingly smaller, which is the honest
+# cost of the change rather than a free win.
+ANNUAL_DELISTING_RATE = 0.015
+ANNUAL_LISTING_RATE = 0.015
 
 # How much a full-intensity crisis multiplies the delisting hazard. Company
 # failures in 2008-09 ran several times their normal rate, and the whole
