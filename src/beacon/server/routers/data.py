@@ -26,13 +26,26 @@ from ...data.identifiers import (
     IdentifierIndex,
     fingerprint,
 )
-from ...exceptions import ConfigurationError, DataNotFoundError
+from ...exceptions import (
+    ConfigurationError,
+    DataNotFoundError,
+    InvalidRuleError,
+)
 from ..config import ServerConfig
 from ..reference import MAX_BATCH, build_entries, parse_identifiers, parse_list
 from ..schemas import (
     SOURCE_USER,
     BatchReferenceResponse,
     CorporateActionsResponse,
+    FeatureBatchEntry,
+    FeatureBatchResponse,
+    FeatureCatalogue,
+    FeatureImport,
+    FeatureImportResult,
+    FeatureResponse,
+    FeatureTypeCoverage,
+    FeatureValue,
+    Finding,
     IdentifierMatch,
     IdentifierSearchResponse,
     PricesResponse,
@@ -42,7 +55,7 @@ from ..schemas import (
 
 require("fastapi", "The Beacon API server")
 
-from fastapi import APIRouter, Query, Request, Response  # noqa: E402
+from fastapi import APIRouter, Query, Request, Response, status  # noqa: E402
 
 # Resolutions this router can honestly serve. The stored data is the native
 # frequency; the other two are derived by taking each period's last
@@ -169,6 +182,54 @@ def _identifier_index(request: Request,
 
     return index
 
+
+
+# How many unknown identifiers an import names before it stops listing them.
+MAX_REPORTED_UNKNOWN = 20
+
+TypeQuery = Annotated[str | None, Query(
+    description="Restrict to one feature dataset. Omitted searches every "
+                "one, which picks arbitrarily between two carrying the same "
+                "field name.")]
+
+
+def _standing_date(fetcher: DataFetcher,
+                   date: str | None) -> str:
+    """The date a feature read is resolved at.
+
+    Defaults to the end of the loaded market data rather than to today: a
+    store loaded from a file has a last date, and answering "what do we know
+    now" against a calendar the data does not reach would report everything
+    as stale.
+    """
+    if date is not None:
+        return str(date)
+
+    return str(fetcher.date_range[1].strftime("%Y-%m-%d"))
+
+
+class FeatureImportError(InvalidRuleError):
+    """An invalid import, carrying every finding.
+
+    The same arrangement `PipelineValidationError` and
+    `UniverseValidationError` use: `InvalidRuleError` already maps to 422 with
+    the INVALID_RULE code, and the error envelope reads `findings` off the
+    exception to build its structured detail.
+    """
+    def __init__(self,
+                 findings: list[Finding]):
+        super().__init__("feature import", "some rows are not valid")
+        self.findings = [finding.model_dump() for finding in findings]
+
+
+def _feature_findings(findings: list[Finding]) -> FeatureImportError:
+    """A rejection carrying findings, in the shape the editor renders.
+
+    The same argument the universe member validation made: telling somebody a
+    thousand-row upload is wrong without saying which row is not an error
+    message.
+    """
+    return FeatureImportError(findings)
 
 
 def _memberships(request: Request,
@@ -334,5 +395,110 @@ def build_data_router() -> APIRouter:
                 identifier, as_of),
             cumulative_split_ratio=fetcher.corporate_actions.cumulative_ratio(
                 identifier, start, end))
+
+
+    # Declared before the by-identifier route below. FastAPI matches in
+    # declaration order, and "catalogue" is a valid identifier as far as the
+    # path is concerned -- so the literal has to come first or a request for
+    # the catalogue would be read as a request for an instrument named
+    # "catalogue" and answer 404.
+    @router.get("/features/catalogue", response_model=FeatureCatalogue)
+    def feature_catalogue(request: Request) -> FeatureCatalogue:
+        features = _data_fetcher(request).features
+
+        return FeatureCatalogue(
+            types=[FeatureTypeCoverage(**entry)
+                   for entry in features.type_coverage()],
+            fields=features.fields())
+
+    @router.get("/features", response_model=FeatureBatchResponse)
+    def features_batch(request: Request,
+                       identifiers: IdentifiersQuery = None,
+                       date: AsOfQuery = None,
+                       fields: FieldsQuery = None,
+                       type: TypeQuery = None) -> FeatureBatchResponse:
+        fetcher = _data_fetcher(request)
+        names = parse_list(identifiers)
+
+        if not names:
+            raise DataNotFoundError("identifiers", source="none were named")
+
+        if len(names) > MAX_BATCH:
+            raise DataNotFoundError(
+                f"{len(names)} identifiers",
+                source=f"at most {MAX_BATCH} may be named in one request")
+
+        wanted = parse_list(fields) or None
+        standing = _standing_date(fetcher, date)
+
+        return FeatureBatchResponse(
+            as_of=standing,
+            entries=[FeatureBatchEntry(
+                identifier=identifier,
+                features=[FeatureValue(**row) for row in
+                          fetcher.features.rows_for(identifier, standing,
+                                                    type, wanted)])
+                     for identifier in names])
+
+    @router.get("/features/{identifier}", response_model=FeatureResponse)
+    def features_for(request: Request,
+                     identifier: str,
+                     date: AsOfQuery = None,
+                     fields: FieldsQuery = None,
+                     type: TypeQuery = None) -> FeatureResponse:
+        fetcher = _data_fetcher(request)
+        standing = _standing_date(fetcher, date)
+        wanted = parse_list(fields) or None
+
+        return FeatureResponse(
+            identifier=identifier,
+            as_of=standing,
+            features=[FeatureValue(**row) for row in
+                      fetcher.features.rows_for(identifier, standing, type,
+                                                wanted)])
+
+    @router.post("/features", response_model=FeatureImportResult,
+                 status_code=status.HTTP_201_CREATED)
+    def import_features(request: Request,
+                        body: FeatureImport) -> FeatureImportResult:
+        fetcher = _data_fetcher(request)
+
+        if not body.rows:
+            raise _feature_findings([Finding(
+                path="rows", severity="error", code="EMPTY_IMPORT",
+                message="An import must carry at least one row.")])
+
+        known = set(fetcher.identifiers) | set(fetcher.reference_identifiers or [])
+        unknown = sorted({row.identifier for row in body.rows
+                          if row.identifier not in known})
+
+        if unknown:
+            shown = unknown[:MAX_REPORTED_UNKNOWN]
+            findings = [
+                Finding(path="rows", severity="error",
+                        code="UNKNOWN_IDENTIFIER",
+                        message=f"'{name}' is not in the loaded data.")
+                for name in shown]
+
+            if len(unknown) > len(shown):
+                findings.append(Finding(
+                    path="rows", severity="error", code="UNKNOWN_IDENTIFIER",
+                    message=f"{len(unknown) - len(shown)} further identifier(s) "
+                            f"are also not in the loaded data."))
+
+            raise _feature_findings(findings)
+
+        frame = pd.DataFrame([
+            {"IDENTIFIER": row.identifier, "DATE": row.date,
+             "TYPE": row.type, "FIELD": row.field, "VALUE": row.value,
+             "DETAIL": row.detail}
+            for row in body.rows])
+
+        fetcher.replace_features(fetcher.features.merged_with(frame))
+
+        return FeatureImportResult(
+            accepted=len(body.rows),
+            types=sorted({row.type for row in body.rows}),
+            identifiers=len({row.identifier for row in body.rows}))
 
     return router

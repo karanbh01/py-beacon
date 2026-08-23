@@ -260,6 +260,88 @@ class PricesResponse(BaseModel):
                    prices=TableFrame.from_dataframe(frame))
 
 
+class FeatureValue(BaseModel):
+    """One field and what it was worth."""
+    field: str
+    value: float | None = Field(
+        description="Null when nothing was knowable on the date: no coverage, "
+                    "nothing published yet, or nothing recent enough.")
+    type: str | None = Field(
+        default=None, description="Which dataset it came from.")
+    detail: str | None = Field(
+        default=None, description="Free-form context the dataset carried.")
+    date: str | None = Field(
+        default=None, description="When the value became knowable — the "
+                                  "announcement date, not the period it "
+                                  "describes.")
+
+
+class FeatureResponse(BaseModel):
+    """Response of `GET /data/features/{identifier}`."""
+    identifier: str
+    as_of: str = Field(description="The date these were resolved at.")
+    features: list[FeatureValue]
+
+
+class FeatureBatchEntry(BaseModel):
+    """One instrument in a batch feature response."""
+    identifier: str
+    features: list[FeatureValue]
+
+
+class FeatureBatchResponse(BaseModel):
+    """Response of `GET /data/features`."""
+    as_of: str
+    entries: list[FeatureBatchEntry]
+
+
+class FeatureTypeCoverage(BaseModel):
+    """One feature dataset, and how much of it is present."""
+    type: str
+    fields: list[str]
+    identifiers: int = Field(description="Instruments this dataset covers.")
+    rows: int
+
+
+class FeatureCatalogue(BaseModel):
+    """Response of `GET /data/features/catalogue`.
+
+    What a client populates its controls from. Derived from the loaded data
+    rather than a fixed vocabulary, so a dataset somebody loads tomorrow
+    becomes a filter without a code change.
+    """
+    types: list[FeatureTypeCoverage]
+    fields: list[str] = Field(
+        description="Every field across every dataset. Names collide where "
+                    "two datasets carry the same one, which is why the "
+                    "per-type lists above exist.")
+
+
+class FeatureRow(BaseModel):
+    """One row of an import."""
+    identifier: str = Field(min_length=1)
+    date: IsoDate
+    type: str = Field(min_length=1)
+    field: str = Field(min_length=1)
+    value: float
+    detail: str | None = None
+
+
+class FeatureImport(BaseModel):
+    """Body of `POST /data/features`."""
+    rows: list[FeatureRow] = Field(
+        description="Field-value rows. Merged into whatever is already "
+                    "loaded; a row matching an existing identifier, date, "
+                    "type and field replaces it.")
+
+
+class FeatureImportResult(BaseModel):
+    """What an import did."""
+    accepted: int
+    types: list[str] = Field(description="Datasets the import touched.")
+    identifiers: int
+
+
 class UniverseMembership(BaseModel):
     """One universe an instrument belongs to."""
     id: str = Field(description="Universe identifier, as used in the URL.")

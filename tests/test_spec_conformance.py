@@ -311,6 +311,16 @@ class TestReservedIdentifiers:
         a path parameter would reintroduce the collision silently. This walks
         the real routes, finds every literal segment that sits where a path
         parameter also sits, and checks the constant covers it.
+
+        Scoped to **document** routes, which is what the reservation governs.
+        Those key on a stored document id (`{index_id}`, `{universe_id}`) that
+        a user chooses, so a literal sharing the space is a genuine ambiguity.
+        A data route keys on an *instrument* identifier (`{identifier}`) that
+        comes from the loaded market data -- BN-137 added
+        `/data/features/catalogue` beside `/data/features/{identifier}`, and
+        reserving "catalogue" there would stop somebody naming a universe
+        after it for no reason, while doing nothing about a ticker, which the
+        document store never holds anyway.
         """
         from beacon.server.store import RESERVED_IDENTIFIERS
 
@@ -325,7 +335,9 @@ class TestReservedIdentifiers:
             head, _, tail = path.rpartition("/")
 
             if tail.startswith("{"):
-                parameterised.add(head)
+                # Document routes only: `{index_id}`, not `{identifier}`.
+                if tail.endswith("_id}"):
+                    parameterised.add(head)
             elif tail and not tail.startswith("{"):
                 literals.setdefault(head, set()).add(tail)
 

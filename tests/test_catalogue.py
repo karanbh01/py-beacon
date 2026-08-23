@@ -195,8 +195,18 @@ class TestRegistry:
     """Lookup, and what registration does not change."""
 
     def test_registered_names_cover_the_library(self):
+        """Literal, deliberately.
+
+        Registration is a side effect that never changes behaviour — a rule
+        works identically registered or not — so forgetting it shows up
+        nowhere except here. Deriving this list from the module would make the
+        test agree with whatever the code happens to do, which is the one
+        thing it must not do.
+
+        FeatureRule joined in BN-136.
+        """
         assert catalogue.registered_names(catalogue.SELECTION) == {
-            "MarketCapRule", "LiquidityRule"}
+            "MarketCapRule", "LiquidityRule", "FeatureRule"}
         assert catalogue.registered_names(catalogue.WEIGHTING) == {
             "EqualWeighted", "MarketCapWeighted"}
 
@@ -310,7 +320,7 @@ class TestRuleTypesEndpoint:
         body = client.get("/indices/rule-types", headers=auth()).json()
 
         assert {entry["name"] for entry in body["selection"]} == {
-            "MarketCapRule", "LiquidityRule"}
+            "MarketCapRule", "LiquidityRule", "FeatureRule"}
         assert {entry["name"] for entry in body["weighting"]} == {
             "EqualWeighted", "MarketCapWeighted"}
 

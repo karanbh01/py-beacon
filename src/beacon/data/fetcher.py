@@ -190,6 +190,19 @@ class DataFetcher:
                              for field in fields}
                 for identifier in identifiers}
 
+    def replace_features(self,
+                         features: FeatureData) -> None:
+        """Swap the feature table, stamping the refresh.
+
+        The only mutating method on a fetcher, and it exists because an import
+        has to land somewhere the next request can see. It replaces rather
+        than edits: `merged_with` builds the new table, so a read in flight
+        keeps the frame it started with instead of watching rows appear under
+        it.
+        """
+        self._features = features
+        self._refreshed[FEATURES_DATASET] = datetime.now(UTC)
+
     def feature_types(self) -> list[str]:
         """Datasets the loaded features carry, for discovery."""
         return self._features.types

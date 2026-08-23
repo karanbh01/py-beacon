@@ -300,6 +300,86 @@ class FeatureData:
         """The most recent date anywhere in the table."""
         return pd.Timestamp(self._df.index.get_level_values("DATE").max())
 
+    def merged_with(self,
+                    frame: pd.DataFrame) -> "FeatureData":
+        """A new table with `frame` added.
+
+        Merge rather than replace, because a feature table is append-only by
+        nature: a restatement is a new row (see above), and a second upload of
+        a different `TYPE` should not discard the first. A row matching an
+        existing identifier, date, type and field replaces it, which is what
+        re-uploading a corrected file means.
+
+        Returns a new instance rather than mutating: the loaded data is shared
+        by every request in flight, and editing it underneath them would make
+        a read depend on when it happened to run.
+        """
+        existing = self._df.reset_index()
+
+        if existing.empty:
+            return FeatureData.from_dataframe(frame)
+
+        return FeatureData.from_dataframe(
+            pd.concat([existing, frame], ignore_index=True))
+
+    def rows_for(self,
+                 identifier: str,
+                 date: pd.Timestamp | str | None = None,
+                 feature_type: str | None = None,
+                 fields: list[str] | None = None) -> list[dict[str, Any]]:
+        """Every field in force for one instrument, resolved point-in-time.
+
+        One row per field, carrying the value and the date it became knowable
+        -- so a client can show *when* a number is from, which for a
+        fundamental is most of what makes it interpretable.
+        """
+        wanted = fields if fields is not None else self.fields(feature_type)
+
+        resolved: list[dict[str, Any]] = []
+        for field in wanted:
+            history = self.history(identifier, field, date, feature_type)
+
+            if history.empty:
+                resolved.append({"field": field, "value": None,
+                                 "type": feature_type, "detail": None,
+                                 "date": None})
+                continue
+
+            latest = history.index.get_level_values("DATE").max()
+            row = history[history.index.get_level_values("DATE") == latest].iloc[-1]
+            value = row["VALUE"]
+
+            entry: dict[str, Any] = {
+                "field": field,
+                "value": None if pd.isna(value) else float(value),
+                "type": str(row["TYPE"]),
+                "detail": None if pd.isna(row[DETAIL_COLUMN])
+                          else str(row[DETAIL_COLUMN]),
+                "date": latest.strftime("%Y-%m-%d"),
+            }
+            resolved.append(entry)
+
+        return resolved
+
+    def type_coverage(self) -> list[dict[str, Any]]:
+        """Per-dataset coverage, for the catalogue."""
+        if self._df.empty:
+            return []
+
+        summary = []
+        for name in self.types:
+            subset = self._df[self._df["TYPE"] == name]
+            names = subset.index.get_level_values("IDENTIFIER").unique()
+
+            summary.append({
+                "type": name,
+                "fields": sorted({str(v) for v in subset["FIELD"].unique()}),
+                "identifiers": len(names),
+                "rows": len(subset),
+            })
+
+        return summary
+
     def coverage(self) -> dict[str, Any]:
         """How much of each dataset is present, for `/data/coverage`."""
         if self._df.empty:
