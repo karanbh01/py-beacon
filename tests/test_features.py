@@ -238,3 +238,169 @@ class TestCoverage:
                               source.corporate_actions, table)
 
         assert "AAA" in fetcher.features.identifiers
+
+
+class TestPointInTimeReads:
+    """BN-135: the accessor, and the look-ahead guard.
+
+    `DATE` holding the announcement date (BN-134) only matters because of what
+    happens here. These tests stand on a series of dates around a publication
+    and assert what is visible from each.
+    """
+
+    @staticmethod
+    def published(*records) -> FeatureData:
+        """A table with a publication history."""
+        return FeatureData.from_dataframe(rows(*records))
+
+    def test_a_value_is_invisible_before_it_was_published(self):
+        """The whole point. A backtest standing on 1 April must not see Q1
+        revenue that nobody knew until 15 May, however completely the quarter
+        it describes had ended."""
+        table = self.published({"DATE": "2024-05-15", "VALUE": 1000.0,
+                                "DETAIL": "FY24Q1"})
+
+        assert table.value_as_of("AAA", "revenue", "2024-04-01") is None
+
+    def test_it_is_invisible_the_day_before(self):
+        """Off-by-one on a date boundary is the classic way this goes wrong,
+        so the boundary is tested rather than assumed."""
+        table = self.published({"DATE": "2024-05-15", "VALUE": 1000.0})
+
+        assert table.value_as_of("AAA", "revenue", "2024-05-14") is None
+
+    def test_it_is_visible_on_the_day(self):
+        table = self.published({"DATE": "2024-05-15", "VALUE": 1000.0})
+
+        assert table.value_as_of("AAA", "revenue", "2024-05-15") == 1000.0
+
+    def test_it_stays_in_force_until_the_next_one(self):
+        """Not the row *for* the date — the latest thing knowable on it.
+        Fundamentals are quarterly and a backtest runs daily, so a query on an
+        ordinary Tuesday has to resolve to the last published figure."""
+        table = self.published({"DATE": "2024-05-15", "VALUE": 1000.0})
+
+        assert table.value_as_of("AAA", "revenue", "2024-07-01") == 1000.0
+
+    def test_a_restatement_takes_over_only_from_its_own_date(self):
+        """Standing in June, the May figure is still what was believed. The
+        August restatement had not happened, and a backtest that saw it would
+        be trading on information from the future."""
+        table = self.published({"DATE": "2024-05-15", "VALUE": 1000.0},
+                               {"DATE": "2024-08-15", "VALUE": 1050.0})
+
+        assert table.value_as_of("AAA", "revenue", "2024-06-01") == 1000.0
+        assert table.value_as_of("AAA", "revenue", "2024-08-15") == 1050.0
+
+    def test_the_history_is_recoverable(self):
+        """A restatement is kept rather than overwritten, so "what did we
+        believe, and when" is answerable."""
+        table = self.published({"DATE": "2024-05-15", "VALUE": 1000.0},
+                               {"DATE": "2024-08-15", "VALUE": 1050.0})
+
+        assert len(table.history("AAA", "revenue")) == 2
+        assert len(table.history("AAA", "revenue", "2024-06-01")) == 1
+
+
+class TestStaleness:
+    """Never looking too far back."""
+
+    def test_a_very_old_value_is_not_reported_as_current(self):
+        """Serving a six-year-old fundamental as current is worse than
+        serving nothing: nothing is visibly a gap, and a stale number is a
+        plausible answer that makes every screen built on it wrong."""
+        table = FeatureData.from_dataframe(rows({"DATE": "2018-05-15",
+                                                 "VALUE": 1000.0}))
+
+        assert table.value_as_of("AAA", "revenue", "2025-01-01") is None
+
+    def test_the_bound_can_be_lifted(self):
+        """A caller wanting no bound takes responsibility for it."""
+        table = FeatureData.from_dataframe(rows({"DATE": "2018-05-15",
+                                                 "VALUE": 1000.0}))
+
+        assert table.value_as_of("AAA", "revenue", "2025-01-01",
+                                 max_age_days=None) == 1000.0
+
+    def test_a_recent_value_is_unaffected(self):
+        """Guards the tests above: a bound that rejected everything would
+        pass them."""
+        table = FeatureData.from_dataframe(rows({"DATE": "2024-05-15",
+                                                 "VALUE": 1000.0}))
+
+        assert table.value_as_of("AAA", "revenue", "2024-06-01") == 1000.0
+
+
+class TestMissingCoverageIsAnOrdinaryAnswer:
+    """Most datasets cover most names most of the time, and not all of them
+    all of it."""
+
+    def test_an_unknown_instrument_is_none_not_an_error(self):
+        table = FeatureData.from_dataframe(rows({}))
+
+        assert table.value_as_of("NOSUCH", "revenue", "2024-06-01") is None
+
+    def test_an_unknown_field_is_none_not_an_error(self):
+        table = FeatureData.from_dataframe(rows({}))
+
+        assert table.value_as_of("AAA", "nosuch", "2024-06-01") is None
+
+    def test_an_empty_table_answers_rather_than_raising(self):
+        assert FeatureData.empty().value_as_of("AAA", "revenue",
+                                               "2024-06-01") is None
+
+
+class TestTypeDisambiguates:
+    """Two datasets carrying the same field name."""
+
+    def test_a_type_selects_between_them(self):
+        table = FeatureData.from_dataframe(
+            rows({"TYPE": "fundamentals", "VALUE": 1000.0},
+                 {"TYPE": "derived", "VALUE": 9999.0}))
+
+        assert table.value_as_of("AAA", "revenue", "2024-06-01",
+                                 feature_type="fundamentals") == 1000.0
+        assert table.value_as_of("AAA", "revenue", "2024-06-01",
+                                 feature_type="derived") == 9999.0
+
+
+class TestTheFetcherSurface:
+    """What callers outside this module use."""
+
+    @staticmethod
+    def fetcher(*records) -> DataFetcher:
+        source = dataset.data_fetcher()
+
+        return DataFetcher(source.market, source.reference,
+                           source.corporate_actions,
+                           FeatureData.from_dataframe(rows(*records)))
+
+    def test_one_value(self):
+        fetcher = self.fetcher({"DATE": "2024-05-15", "VALUE": 1000.0})
+
+        assert fetcher.fetch_feature("AAA", "revenue", "2024-06-01") == 1000.0
+
+    def test_the_batch_form_answers_every_pair(self):
+        """Present-and-null rather than absent, the contract BN-131 set: a
+        caller reads a value rather than testing for a key."""
+        fetcher = self.fetcher({"IDENTIFIER": "AAA", "VALUE": 1000.0})
+
+        answer = fetcher.fetch_features(["AAA", "NOSUCH"],
+                                        ["revenue", "missing"], "2024-06-01")
+
+        assert answer["AAA"]["revenue"] == 1000.0
+        assert answer["AAA"]["missing"] is None
+        assert answer["NOSUCH"]["revenue"] is None
+
+    def test_discovery_lists_what_is_loaded(self):
+        """So a client populates a control without hard-coding a vocabulary."""
+        fetcher = self.fetcher({"TYPE": "fundamentals", "FIELD": "revenue"},
+                               {"TYPE": "alternative", "FIELD": "card_spend"})
+
+        assert fetcher.feature_types() == ["alternative", "fundamentals"]
+        assert fetcher.feature_fields("alternative") == ["card_spend"]
+
+    def test_a_fetcher_without_features_answers_none(self):
+        """A server holding no features still responds to the question."""
+        assert dataset.data_fetcher().fetch_feature(
+            "AAA", "revenue", "2024-06-01") is None

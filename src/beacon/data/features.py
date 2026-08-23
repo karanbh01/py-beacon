@@ -75,6 +75,19 @@ DETAIL_COLUMN = "DETAIL"
 
 COLUMNS = (*REQUIRED_COLUMNS, DETAIL_COLUMN)
 
+# How old a value may be before it stops counting as current.
+#
+# A staleness bound is not optional, and the reason is asymmetric. Serving a
+# six-year-old fundamental as though it were current is worse than serving
+# nothing: nothing is visibly a gap, and a stale number is a plausible answer
+# that quietly makes every screen built on it wrong.
+#
+# Two years, because it is generous enough that a genuinely annual series
+# survives one missed publication and tight enough that a name whose coverage
+# stopped is reported as having stopped. Callers wanting a different bound
+# pass one; callers wanting none pass None and take responsibility for it.
+MAX_AGE_DAYS = 730
+
 
 class FeatureData:
     """Per-instrument datapoints, keyed by identifier and as-of date.
@@ -200,6 +213,92 @@ class FeatureData:
             frame = frame[frame["TYPE"] == feature_type]
 
         return sorted({str(value) for value in frame["FIELD"].unique()})
+
+    def value_as_of(self,
+                    identifier: str,
+                    field: str,
+                    date: pd.Timestamp | str | None = None,
+                    feature_type: str | None = None,
+                    max_age_days: int | None = MAX_AGE_DAYS) -> float | None:
+        """The value in force on a date, or None.
+
+        The most recent row whose own `DATE` is on or before `date` — not the
+        row *for* that date. Fundamentals are quarterly and a backtest runs
+        daily, so "the latest thing knowable on this date" is the only
+        question worth asking.
+
+        **It never looks forward.** A value published on 2024-05-15 is
+        invisible to a query standing on 2024-04-01, however recently the
+        period it describes ended. That is the whole reason `DATE` holds the
+        announcement date, and this is where it pays off or fails to.
+
+        Args:
+            identifier: The instrument.
+            field: The datapoint.
+            date: Stand here. None uses the latest date in the table, which is
+                the right default for "what do we know now" and the wrong one
+                for a backtest — which always passes its own.
+            feature_type: Restrict to one dataset. None searches every type,
+                which will pick arbitrarily between two carrying the same
+                field name, so a caller that has both should say which.
+            max_age_days: How stale is too stale. None disables the check.
+
+        Returns:
+            float | None: The value, or None when nothing is knowable — no
+            coverage, nothing published yet, or nothing recent enough.
+        """
+        rows = self.history(identifier, field, date, feature_type)
+
+        if rows.empty:
+            return None
+
+        latest = rows.index.get_level_values("DATE").max()
+
+        if max_age_days is not None:
+            standing = (self._latest_date() if date is None
+                        else pd.Timestamp(date))
+
+            if (standing - latest).days > max_age_days:
+                return None
+
+        value = rows.loc[rows.index.get_level_values("DATE") == latest,
+                         "VALUE"].iloc[-1]
+
+        return None if pd.isna(value) else float(value)
+
+    def history(self,
+                identifier: str,
+                field: str,
+                date: pd.Timestamp | str | None = None,
+                feature_type: str | None = None) -> pd.DataFrame:
+        """Every row for one instrument and field, up to a date.
+
+        Exposed because a restatement is kept rather than overwritten (see the
+        module docstring), so "what did we believe, and when" is a question
+        this table can answer and a caller may need to.
+        """
+        if self._df.empty:
+            return self._df
+
+        try:
+            rows = self._df.xs(identifier, level="IDENTIFIER", drop_level=False)
+        except KeyError:
+            return self._df.iloc[0:0]
+
+        rows = rows[rows["FIELD"] == field]
+
+        if feature_type is not None:
+            rows = rows[rows["TYPE"] == feature_type]
+
+        if date is not None:
+            standing = pd.Timestamp(date)
+            rows = rows[rows.index.get_level_values("DATE") <= standing]
+
+        return rows
+
+    def _latest_date(self) -> pd.Timestamp:
+        """The most recent date anywhere in the table."""
+        return pd.Timestamp(self._df.index.get_level_values("DATE").max())
 
     def coverage(self) -> dict[str, Any]:
         """How much of each dataset is present, for `/data/coverage`."""

@@ -12,7 +12,7 @@ import pandas as pd
 
 from .base import MarketData, ReferenceData
 from .corporate_actions import CorporateActions
-from .features import FeatureData
+from .features import MAX_AGE_DAYS, FeatureData
 
 # The datasets a fetcher can report freshness for. Named here so the server
 # and the fetcher cannot drift apart on the spelling.
@@ -145,6 +145,59 @@ class DataFetcher:
     def corporate_actions(self) -> CorporateActions:
         """The action history. Empty rather than None when none was loaded."""
         return self._actions
+
+    def fetch_feature(self,
+                      identifier: str,
+                      field: str,
+                      date: str | pd.Timestamp | None = None,
+                      feature_type: str | None = None,
+                      max_age_days: int | None = MAX_AGE_DAYS) -> float | None:
+        """One feature value, as it was knowable on a date.
+
+        The point-in-time read. A value published after `date` is invisible,
+        which is what keeps a backtest from screening on numbers nobody had.
+
+        Returns:
+            float | None: The value, or None when nothing is knowable. An
+            instrument with no coverage is an ordinary answer, not an error —
+            most datasets cover most names most of the time and not all of
+            them all of it.
+        """
+        return self._features.value_as_of(identifier, field, date,
+                                          feature_type, max_age_days)
+
+    def fetch_features(self,
+                       identifiers: list[str],
+                       fields: list[str],
+                       date: str | pd.Timestamp | None = None,
+                       feature_type: str | None = None,
+                       max_age_days: int | None = MAX_AGE_DAYS
+                       ) -> dict[str, dict[str, float | None]]:
+        """Several features for several instruments, on one date.
+
+        The batch form, on the same argument the reference batch endpoint
+        made: a client that has to fan out per name will, and moving the
+        fan-out inside the server only relocates the cost.
+
+        Returns:
+            dict: identifier -> field -> value. Every requested pair is
+            present, null where nothing is knowable, so a caller reads a value
+            rather than testing for a key.
+        """
+        return {identifier: {field: self.fetch_feature(identifier, field,
+                                                       date, feature_type,
+                                                       max_age_days)
+                             for field in fields}
+                for identifier in identifiers}
+
+    def feature_types(self) -> list[str]:
+        """Datasets the loaded features carry, for discovery."""
+        return self._features.types
+
+    def feature_fields(self,
+                       feature_type: str | None = None) -> list[str]:
+        """Fields the loaded features carry, optionally within one dataset."""
+        return self._features.fields(feature_type)
 
     @property
     def features(self) -> FeatureData:
