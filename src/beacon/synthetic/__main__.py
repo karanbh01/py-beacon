@@ -12,7 +12,7 @@ have a populated client.
 
 `SyntheticConfig` defaults to a fixed window and a small universe, so
 `generate()` returns the same data on any day, in a couple of seconds, and a
-test can depend on it. This CLI defaults to **5,000 names over the ten years
+test can depend on it. This CLI defaults to **6,000 names over the ten years
 ending today**, because its output is the dataset an application is
 demonstrated on: 512 names is visibly a toy in a universe pane built for
 thousands, and a dataset that stopped eighteen months ago shows up as stale in
@@ -58,7 +58,15 @@ logger = logging.getLogger(__name__)
 # `generate()` is a couple of seconds inside a test; this produces the store a
 # populated application is demonstrated on, and 512 names over five years is
 # visibly a toy in a universe pane built for thousands.
-DEFAULT_ASSETS = 5_000
+#
+# 6,000 rather than 5,000 because roughly 27% of a panel is outside its listed
+# life at any instant, at the 3% hazards `listings.py` uses. The union is the
+# number the universe pane shows; the live subset is what an index can
+# actually select, and at 5,000 that subset was 3,650-3,880 -- the pane
+# promising a third more than it could deliver. 6,000 puts 4,375-4,656 names
+# investable throughout without touching the turnover, which stays at the
+# realistic figure rather than being tuned to flatter the count.
+DEFAULT_ASSETS = 6_000
 DEFAULT_YEARS = 10
 
 # What the two expansion flags open up. Both are a different order of
@@ -82,9 +90,15 @@ LONG_HISTORY_RUN_IN_YEARS = 1
 # Peak memory, per million rows of market data. Measured after the blocking
 # work in BN-128, and remarkably linear across the range that matters:
 #
-#     5,000 x 10y    13.0M rows   1.91 GB    15s
+#     6,000 x 10y    11.8M rows   2.51 GB    19s   (the default)
 #    10,000 x 10y    26.1M rows   3.82 GB    29s
 #     5,000 x 25y    32.6M rows   4.77 GB    42s
+#
+# The default carries fewer rows than the 5,000-name panel it replaced (13.0M)
+# despite holding a thousand more names: since BN-130 a delisted instrument
+# has its rows removed rather than nulled, so a panel with turnover is smaller
+# than the grid its universe size implies. The two expansion figures predate
+# that and are upper bounds.
 #
 # Both flags together is roughly 69M rows and 10 GB, which is why the estimate
 # below exists: that combination will exhaust a 16 GB machine, and finding out

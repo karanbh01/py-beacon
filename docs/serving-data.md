@@ -6,7 +6,7 @@ whoever is on the other side of the process boundary.
 ## The short version
 
 ```bash
-python -m beacon.synthetic --seed 42   # 5,000 names, 10 years, ~15s
+python -m beacon.synthetic --seed 42   # 6,000 names, 10 years, ~18s
 python -m beacon.server --port 0 --token dev        # finds it by itself
 ```
 
@@ -104,7 +104,7 @@ prices.
 
 | Flag | Default |
 | --- | --- |
-| `--assets` | 5,000 |
+| `--assets` | 6,000 |
 | `--start` / `--end` | The ten years ending **today** |
 | `--seed` | 42 |
 | `--out` | The app-data store the server auto-loads |
@@ -124,10 +124,16 @@ Measured peak memory and wall clock, which matter at these sizes:
 
 | Run | Rows | Peak | Time |
 | --- | --- | --- | --- |
-| default (5,000 × 10y) | 13.0M | 1.9 GB | 15s |
+| default (6,000 × 10y) | 11.8M | 2.5 GB | 19s |
 | `--extended-universe` | 26.1M | 3.8 GB | 29s |
 | `--long-history` | 32.6M | 4.8 GB | 42s |
 | both | ~69M | ~10 GB | ~85s |
+
+The default holds **fewer** rows than the 5,000-name panel that preceded it
+(13.0M), despite carrying a thousand more names. Delisted instruments have
+their rows removed rather than carried as nulls, so a panel with turnover in
+it is smaller than the full grid its universe size implies. The three
+expansion figures below predate that change and are therefore upper bounds.
 
 The CLI prints its own estimate before it starts and warns above 4 GB.
 

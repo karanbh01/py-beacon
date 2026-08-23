@@ -275,7 +275,7 @@ slicing price history for every identifier in the batch.
 companies with years of history — and writes it straight to the location above:
 
 ```bash
-python -m beacon.synthetic --seed 42               # 5,000 names, 10 years, ~15s
+python -m beacon.synthetic --seed 42               # 6,000 names, 10 years, ~19s
 python -m beacon.server --port 0 --token dev       # picks it up automatically
 ```
 
