@@ -53,6 +53,7 @@ from .._optional import require
 from ..exceptions import ConfigurationError
 from .base import MarketData, ReferenceData
 from .corporate_actions import CorporateActions
+from .features import FeatureData
 from .fetcher import DataFetcher
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ MANIFEST_NAME = "manifest.json"
 MARKET_FILE = "market.csv.gz"
 REFERENCE_FILE = "reference.csv.gz"
 ACTIONS_FILE = "corporate_actions.csv.gz"
+FEATURES_FILE = "features.csv.gz"
 
 # Dataset name -> the file holding it. The names match
 # `DataFetcher.DATASETS`, so coverage can measure a dataset without
@@ -73,6 +75,7 @@ FILE_FOR_DATASET = {
     "market": MARKET_FILE,
     "reference": REFERENCE_FILE,
     "corporate_actions": ACTIONS_FILE,
+    "features": FEATURES_FILE,
 }
 
 # Matches DocumentStore's app name, so a machine has one Beacon directory
@@ -157,12 +160,21 @@ def size_on_disk(path: Path) -> int | None:
 
 def dataset_size_on_disk(path: Path,
                          dataset: str) -> int | None:
-    """Bytes one dataset's file occupies, or None if it is not there.
+    """Bytes one dataset's file occupies.
 
     Per dataset rather than the whole store, so a coverage pane showing a size
-    against each row shows three different numbers that add up — reporting the
-    store total on every row would display the same figure three times and make
-    any sum of them wrong by a factor of three.
+    against each row shows numbers that add up — reporting the store total on
+    every row would display the same figure once per dataset and make any sum
+    of them wrong by that factor.
+
+    Returns:
+        int | None: The size, or None when the store does not hold that
+        dataset — "there is no file" rather than "the file is empty".
+
+        Callers that sum these have to treat None as zero themselves. That is
+        deliberate and `test_an_unmeasurable_path_is_none` pins it: a caller
+        adding up sizes should have to notice that a dataset is absent, rather
+        than have the absence quietly contribute a zero it never checked.
     """
     name = FILE_FOR_DATASET.get(dataset)
     if name is None:
@@ -281,6 +293,11 @@ def save(fetcher: DataFetcher,
         datasets.append("corporate_actions")
         _write_frame(_flatten(actions.data), path / ACTIONS_FILE)
 
+    features = fetcher.features
+    if not features.is_empty:
+        datasets.append("features")
+        _write_frame(_flatten(features.data), path / FEATURES_FILE)
+
     manifest = {"schema_version": STORE_SCHEMA_VERSION,
                 "source": source,
                 "datasets": datasets}
@@ -323,10 +340,14 @@ def load(path: Path) -> DataFetcher:
     if (path / ACTIONS_FILE).is_file():
         actions = CorporateActions.from_dataframe(_read_frame(path / ACTIONS_FILE))
 
+    features = None
+    if (path / FEATURES_FILE).is_file():
+        features = FeatureData.from_dataframe(_read_frame(path / FEATURES_FILE))
+
     logger.info("Loaded %d identifier(s) from the %s data store at %s.",
                 len(market.identifiers), manifest.source, path)
 
-    fetcher = DataFetcher(market, reference, actions)
+    fetcher = DataFetcher(market, reference, actions, features)
 
     # Stamped here because this is the only place that knows: the manifest says
     # who wrote the rows, and the path is what `/data/coverage` measures on

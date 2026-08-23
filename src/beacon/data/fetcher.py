@@ -12,13 +12,16 @@ import pandas as pd
 
 from .base import MarketData, ReferenceData
 from .corporate_actions import CorporateActions
+from .features import FeatureData
 
 # The datasets a fetcher can report freshness for. Named here so the server
 # and the fetcher cannot drift apart on the spelling.
 MARKET_DATASET = "market"
 REFERENCE_DATASET = "reference"
 ACTIONS_DATASET = "corporate_actions"
-DATASETS = (MARKET_DATASET, REFERENCE_DATASET, ACTIONS_DATASET)
+FEATURES_DATASET = "features"
+DATASETS = (MARKET_DATASET, REFERENCE_DATASET, ACTIONS_DATASET,
+            FEATURES_DATASET)
 
 # How often a dataset is expected to change. This is the engine's answer to
 # what "stale" means, and it belongs here rather than in a client: a UI holding
@@ -35,6 +38,11 @@ FREQUENCY_FOR_DATASET = {
     REFERENCE_DATASET: STATIC,
     # Driven by announcements, not by a clock. A quiet week is not staleness.
     ACTIONS_DATASET: EVENT,
+    # Also event-driven, and for the same reason the table exists: a
+    # fundamental arrives when it is published, not on a cadence. A feature
+    # table untouched for two months between reporting seasons is current,
+    # not stale.
+    FEATURES_DATASET: EVENT,
 }
 
 # Seconds after which a dataset of each frequency should be treated as stale.
@@ -70,11 +78,17 @@ class DataFetcher:
     def __init__(self,
                  market_data: MarketData,
                  reference_data: ReferenceData | None = None,
-                 corporate_actions: CorporateActions | None = None):
+                 corporate_actions: CorporateActions | None = None,
+                 features: FeatureData | None = None):
         self._market = market_data
         self._reference = reference_data
         self._actions = (corporate_actions if corporate_actions is not None
                          else CorporateActions.empty())
+        # Empty rather than None, on the same terms as the actions above: a
+        # dataset without features is still a dataset, and callers should be
+        # able to ask it what it holds without checking for None first.
+        self._features = (features if features is not None
+                          else FeatureData.empty())
 
         # Loading is a refresh. Stamping construction rather than leaving this
         # empty is what makes an age meaningful from the first request: a
@@ -86,6 +100,7 @@ class DataFetcher:
             MARKET_DATASET: now,
             REFERENCE_DATASET: now if reference_data is not None else None,
             ACTIONS_DATASET: now if not self._actions.is_empty else None,
+            FEATURES_DATASET: now if not self._features.is_empty else None,
         }
 
         # Where this data was loaded from, stamped by whatever built the
@@ -130,6 +145,16 @@ class DataFetcher:
     def corporate_actions(self) -> CorporateActions:
         """The action history. Empty rather than None when none was loaded."""
         return self._actions
+
+    @property
+    def features(self) -> FeatureData:
+        """The feature table. Empty rather than None when none was loaded.
+
+        Exposed for persistence and for discovery, on the same terms as
+        `market`. Point-in-time reads go through `fetch_features` (BN-135),
+        not through this.
+        """
+        return self._features
 
     @property
     def market(self) -> MarketData:

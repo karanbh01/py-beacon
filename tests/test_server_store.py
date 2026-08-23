@@ -275,13 +275,23 @@ class TestCoverage:
 
     def test_reports_every_dataset(self,
                                    client):
-        """Three since BN-119: corporate actions are reported even when the
-        fixture holds none, because "we hold no actions" is a fact the pane
-        should state rather than a row it should omit."""
+        """Every dataset the engine knows about, whether or not it is loaded.
+
+        Corporate actions since BN-119 and features since BN-134 are both
+        reported even when the fixture holds none, because "we hold no
+        actions" is a fact the pane should state rather than a row it should
+        omit -- a client deciding whether to offer a fundamentals screen needs
+        the answer either way.
+
+        Compared against `DATASETS` rather than a literal set, so adding a
+        fifth is a change in one place instead of a test that has to be
+        remembered.
+        """
+        from beacon.data.fetcher import DATASETS
+
         datasets = client.get("/data/coverage", headers=auth()).json()["datasets"]
 
-        assert {d["dataset"] for d in datasets} == {"market", "reference",
-                                                    "corporate_actions"}
+        assert {d["dataset"] for d in datasets} == set(DATASETS)
 
     def test_market_coverage_reflects_the_loaded_data(self,
                                                       client):

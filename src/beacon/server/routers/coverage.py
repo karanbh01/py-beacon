@@ -21,6 +21,7 @@ from ..._optional import require
 from ...data import store
 from ...data.fetcher import (
     ACTIONS_DATASET,
+    FEATURES_DATASET,
     FREQUENCY_FOR_DATASET,
     STALE_AFTER_SECONDS,
     DataFetcher,
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 MARKET = "market"
 REFERENCE = "reference"
 ACTIONS = ACTIONS_DATASET
+FEATURES = FEATURES_DATASET
 
 # Syncable datasets. Corporate actions are reported by coverage but not
 # synced: nothing downloads them yet, and offering a sync that cannot run
@@ -159,6 +161,35 @@ def _actions_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
                            **_provenance(fetcher, ACTIONS))
 
 
+def _features_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
+    """Describe the feature table.
+
+    Reported even when empty, like the actions above: "we hold no features" is
+    a fact the pane should state rather than a dataset it should omit, and a
+    client deciding whether to offer a fundamentals screen needs the answer
+    either way.
+    """
+    if fetcher is None or fetcher.features.is_empty:
+        return DatasetCoverage(dataset=FEATURES, configured=False,
+                               identifiers=0)
+
+    features = fetcher.features
+    dates = features.data.index.get_level_values("DATE")
+
+    return DatasetCoverage(dataset=FEATURES,
+                           configured=True,
+                           identifiers=len(features.identifiers),
+                           start=dates.min().isoformat(),
+                           end=dates.max().isoformat(),
+                           # Distinct FIELD values, not columns. A feature
+                           # table has five columns however many datapoints it
+                           # carries, so a column count would report the same
+                           # number for every store ever loaded.
+                           field_count=len(features.fields()),
+                           **_freshness(fetcher, FEATURES),
+                           **_provenance(fetcher, FEATURES))
+
+
 def _identifiers_union(fetcher: DataFetcher | None) -> int:
     """Distinct identifiers across every dataset.
 
@@ -172,6 +203,7 @@ def _identifiers_union(fetcher: DataFetcher | None) -> int:
     names = set(fetcher.identifiers)
     names |= set(fetcher.reference_identifiers or [])
     names |= set(fetcher.corporate_actions.identifiers)
+    names |= set(fetcher.features.identifiers)
 
     return len(names)
 
@@ -194,7 +226,8 @@ def build_coverage_router() -> APIRouter:
         return CoverageResponse(
             datasets=[_market_coverage(fetcher),
                       _reference_coverage(fetcher),
-                      _actions_coverage(fetcher)],
+                      _actions_coverage(fetcher),
+                      _features_coverage(fetcher)],
             identifiers_union=_identifiers_union(fetcher),
             cache_size_bytes=store.size_on_disk(path) if path else None)
 

@@ -121,8 +121,26 @@ class TestSource:
     """Where the rows came from."""
 
     def test_it_comes_from_the_store_manifest(self, coverage):
-        for entry in coverage["datasets"]:
+        """For the datasets the store actually holds.
+
+        An unconfigured one carries no source, which is the same answer the
+        empty corporate-action history has always given: there are no rows, so
+        there is no provenance to report, and naming the store's would claim
+        one for data that is not there. Scoped here because the fixture gained
+        a fourth dataset in BN-134 that it does not populate.
+        """
+        configured = [entry for entry in coverage["datasets"]
+                      if entry["configured"]]
+
+        assert configured, "no dataset was configured, so this proves nothing"
+
+        for entry in configured:
             assert entry["source"] == store.SOURCE_SYNTHETIC
+
+    def test_an_unconfigured_dataset_claims_no_source(self, coverage):
+        for entry in coverage["datasets"]:
+            if not entry["configured"]:
+                assert entry["source"] is None
 
     def test_an_in_process_fetcher_reports_no_source(self):
         """Null rather than "local": a fetcher assembled from frames has no
@@ -185,14 +203,14 @@ class TestCacheSize:
         assert sizes[MARKET_DATASET] > sizes[REFERENCE_DATASET]
 
     def test_the_parts_do_not_exceed_the_whole(self, coverage):
-        total = sum(entry["cache_size_bytes"] for entry in coverage["datasets"])
+        total = sum(entry["cache_size_bytes"] or 0 for entry in coverage["datasets"])
 
         assert total <= coverage["cache_size_bytes"]
 
     def test_the_total_includes_more_than_the_datasets(self, coverage):
         """The manifest is part of the store but not a dataset, so the total is
         strictly larger than the sum of the parts."""
-        total = sum(entry["cache_size_bytes"] for entry in coverage["datasets"])
+        total = sum(entry["cache_size_bytes"] or 0 for entry in coverage["datasets"])
 
         assert coverage["cache_size_bytes"] > total
 
