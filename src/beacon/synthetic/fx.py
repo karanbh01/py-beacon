@@ -56,6 +56,10 @@ PEG_VOLATILITY = 0.01
 # The column `fetch_fx_rates` reads by default.
 RATE_COLUMN = "RATE"
 
+# And the one every price view reads. A pair carries its rate in both: see
+# `build` for why it is duplicated rather than moved.
+CLOSE_COLUMN = "CLOSE"
+
 
 def build(dates: pd.DatetimeIndex,
           rng: np.random.Generator,
@@ -68,13 +72,14 @@ def build(dates: pd.DatetimeIndex,
         regimes: Dated episodes, for the flight-to-quality drift.
 
     Returns:
-        pd.DataFrame: Long-form, with IDENTIFIER/DATE and a RATE column, ready
-        to be concatenated onto the equity market data.
+        pd.DataFrame: Long-form, with IDENTIFIER/DATE and the rate in both
+        RATE and CLOSE, ready to be concatenated onto the equity market data.
     """
     pairs = regions.pairs()
 
     if not pairs:
-        return pd.DataFrame(columns=["DATE", "IDENTIFIER", RATE_COLUMN])
+        return pd.DataFrame(columns=["DATE", "IDENTIFIER", RATE_COLUMN,
+                                     CLOSE_COLUMN])
 
     _scale, _drift, lift = market_multipliers(dates, regimes)
     steps = len(dates)
@@ -83,9 +88,23 @@ def build(dates: pd.DatetimeIndex,
     for identifier, initial, volatility in pairs:
         rate = _path(rng, steps, volatility, lift, initial)
 
+        # Written into CLOSE as well as RATE, so a pair charts like any other
+        # identifier (BN-145).
+        #
+        # A client reading `/data/prices/EURUSD` gets the same column it gets
+        # for an equity, rather than 261 rows of nulls and a rate hiding in a
+        # column no price view looks at -- which is how this was reported as
+        # "pairs are not addressable" when they always were.
+        #
+        # Duplicated rather than moved: RATE is what `fetch_fx_rates` reads by
+        # default and what the calculator, the action handler and the
+        # expression resolver all convert through. Renaming it would touch
+        # every conversion path to fix a presentation problem. Six identifiers
+        # carry one extra column; a test asserts the two never diverge.
         frames.append(pd.DataFrame({"DATE": dates,
                                     "IDENTIFIER": identifier,
-                                    RATE_COLUMN: rate}))
+                                    RATE_COLUMN: rate,
+                                    CLOSE_COLUMN: rate}))
 
     logger.info("Generated %d FX pair(s): %s.",
                 len(frames), ", ".join(pair for pair, _, _ in pairs))

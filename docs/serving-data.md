@@ -185,6 +185,37 @@ GET /data/corporate-actions/CMPA
    "value": 0.7514, "pay_date": "2026-06-05", "status": "paid"}
 ```
 
+## Adjusted prices
+
+`GET /data/prices/{identifier}?adjusted=true` adds an `ADJ_CLOSE` column:
+`CLOSE` back-adjusted for **splits and dividends**, the vendor convention.
+
+Two things follow from that, and both matter to what you render:
+
+**An adjusted series is not a price.** It answers "what would a holder have
+made", so its level is not what anything traded at that day. A chart of it is
+a total-return chart, and labelling it as a price is the mistake the name
+invites.
+
+**It is adjusted backwards**, so the last value equals the last raw close and
+only history moves. That makes the right-hand edge checkable against any other
+source — and it means the whole series shifts when a new action lands, so a
+cached adjusted series is not immutable.
+
+Computed per request rather than stored, for that last reason: a stored column
+would be wrong from the next dividend onwards, and silently.
+
+## Browsing a whole dataset
+
+`GET /data/tables/{dataset}?offset=&limit=` over `market`, `reference`,
+`corporate_actions` and `features`, returning the same `{index, columns, data}`
+frame shape as everything else plus a `total`.
+
+Paged, with a maximum of 1,000 rows: the default store is 11.8M market rows.
+Ordering is stable, `offset` past the end is an empty page rather than a 404,
+and there is deliberately no filtering or sorting — a client that needs those
+wants the expression API.
+
 ## Notes for a client
 
 **Branch on `kind`, not on `type`.** `kind` is `cash`, `ratio` or `structural`
@@ -198,7 +229,17 @@ thresholds is guessing at a property of the data, and the guess diverges from
 the engine the moment either changes.
 
 **Read `identifiers_union`, not a sum.** Per-dataset counts overlap; adding
-them reports more assets covered than exist.
+them reports more assets covered than exist. The `fx` row is the clearest
+case: currency pairs are market identifiers, so they are counted in `market`
+too, and `fx` exists to answer "do we hold exchange rates" rather than to add
+to a total. It reports a null `cache_size_bytes` for the same reason — the
+rows live in the market file.
+
+**A currency pair is an ordinary identifier.** `EURUSD` answers on
+`/data/prices` like anything else, with the rate in `CLOSE`, and appears in
+`/data/identifiers`. It carries no reference data, and `RATE` is populated on
+a pair and null on every instrument — which is how to tell them apart if you
+need to.
 
 **Per-dataset `cache_size_bytes` is that dataset's file.** The store total is
 reported once at the top level, and is larger than the sum of the parts because

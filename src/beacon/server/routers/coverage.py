@@ -23,6 +23,7 @@ from ...data.fetcher import (
     ACTIONS_DATASET,
     FEATURES_DATASET,
     FREQUENCY_FOR_DATASET,
+    FX_DATASET,
     STALE_AFTER_SECONDS,
     DataFetcher,
 )
@@ -48,6 +49,7 @@ MARKET = "market"
 REFERENCE = "reference"
 ACTIONS = ACTIONS_DATASET
 FEATURES = FEATURES_DATASET
+FX = FX_DATASET
 
 # Syncable datasets. Corporate actions are reported by coverage but not
 # synced: nothing downloads them yet, and offering a sync that cannot run
@@ -190,6 +192,46 @@ def _features_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
                            **_provenance(fetcher, FEATURES))
 
 
+def _fx_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
+    """Describe the currency pairs.
+
+    A dataset of its own in the report, though the rows live in the market
+    frame. "Do we hold exchange rates" has its own answer, and a client
+    deciding whether to offer an unhedged-versus-hedged comparison needs it —
+    a market row count cannot say.
+
+    The pairs stay counted inside `market` as well, because they *are* market
+    rows and a client summing the identifier counts would otherwise be told
+    the store holds more instruments than it does. `identifiers_union` is
+    unaffected for the same reason: it is distinct names across datasets, and
+    these were already among them.
+    """
+    if fetcher is None or not fetcher.fx_pairs:
+        return DatasetCoverage(dataset=FX, configured=False, identifiers=0)
+
+    pairs = fetcher.fx_pairs
+    start, end = fetcher.date_range
+
+    return DatasetCoverage(dataset=FX,
+                           configured=True,
+                           identifiers=len(pairs),
+                           start=start.isoformat(),
+                           end=end.isoformat(),
+                           # One field: the rate. The pairs share the market
+                           # frame's columns, but the others are null on a
+                           # pair, and reporting eight would claim we hold a
+                           # volume and a share count for EURUSD.
+                           field_count=1,
+                           **_freshness(fetcher, FX),
+                           # No file of its own: the pairs are rows in the
+                           # market file, which `market` already reports.
+                           # Repeating that size here would count it twice and
+                           # make the sum of the parts exceed the store total,
+                           # which is the invariant `TestCacheSize` pins.
+                           source=fetcher.source,
+                           cache_size_bytes=None)
+
+
 def _identifiers_union(fetcher: DataFetcher | None) -> int:
     """Distinct identifiers across every dataset.
 
@@ -227,7 +269,8 @@ def build_coverage_router() -> APIRouter:
             datasets=[_market_coverage(fetcher),
                       _reference_coverage(fetcher),
                       _actions_coverage(fetcher),
-                      _features_coverage(fetcher)],
+                      _features_coverage(fetcher),
+                      _fx_coverage(fetcher)],
             identifiers_union=_identifiers_union(fetcher),
             cache_size_bytes=store.size_on_disk(path) if path else None)
 

@@ -16,12 +16,30 @@ from .features import MAX_AGE_DAYS, FeatureData
 
 # The datasets a fetcher can report freshness for. Named here so the server
 # and the fetcher cannot drift apart on the spelling.
+# The column an FX pair carries its rate in, and the marker that makes a
+# market identifier a pair rather than an instrument.
+RATE_COLUMN = "RATE"
+
 MARKET_DATASET = "market"
 REFERENCE_DATASET = "reference"
 ACTIONS_DATASET = "corporate_actions"
 FEATURES_DATASET = "features"
+# Reported as a dataset of its own, though the rows live in the market frame:
+# "do we hold exchange rates" is a question with its own answer, and a client
+# deciding whether to offer an unhedged comparison needs it (BN-144).
+FX_DATASET = "fx"
+
+# Everything the freshness and coverage machinery knows about. FX is in here
+# although it has no store file of its own -- its rows live in the market
+# frame -- because it is reported and stamped like the rest.
 DATASETS = (MARKET_DATASET, REFERENCE_DATASET, ACTIONS_DATASET,
-            FEATURES_DATASET)
+            FEATURES_DATASET, FX_DATASET)
+
+# The subset that is persisted as its own file. `store.save` walks this, so
+# adding FX to DATASETS above must not make the store look for an fx file
+# that will never exist.
+STORED_DATASETS = (MARKET_DATASET, REFERENCE_DATASET, ACTIONS_DATASET,
+                   FEATURES_DATASET)
 
 # How often a dataset is expected to change. This is the engine's answer to
 # what "stale" means, and it belongs here rather than in a client: a UI holding
@@ -43,6 +61,8 @@ FREQUENCY_FOR_DATASET = {
     # table untouched for two months between reporting seasons is current,
     # not stale.
     FEATURES_DATASET: EVENT,
+    # Rates move daily, like the market rows they are stored beside.
+    FX_DATASET: DAILY,
 }
 
 # Seconds after which a dataset of each frequency should be treated as stale.
@@ -101,6 +121,9 @@ class DataFetcher:
             REFERENCE_DATASET: now if reference_data is not None else None,
             ACTIONS_DATASET: now if not self._actions.is_empty else None,
             FEATURES_DATASET: now if not self._features.is_empty else None,
+            # The pairs are market rows, so they are as fresh as the market
+            # data is. A separate stamp would drift from it for no reason.
+            FX_DATASET: now,
         }
 
         # Where this data was loaded from, stamped by whatever built the
@@ -115,6 +138,37 @@ class DataFetcher:
     def identifiers(self) -> list[str]:
         """Unique identifiers present in market data."""
         return self._market.identifiers
+
+    @property
+    def fx_pairs(self) -> list[str]:
+        """Currency pairs held in the market data.
+
+        A pair is stored as an ordinary market identifier named
+        ``f"{from}{to}"`` (BN-128), so nothing in the frame separates it from
+        an instrument except what it carries: `RATE` is populated on a pair
+        and null on everything else. That is the discriminator, rather than a
+        name pattern -- an instrument legitimately called `EURUSD` would be
+        misfiled by a six-letter rule, and a store may hold pairs for
+        currencies its reference data never mentions.
+        """
+        if RATE_COLUMN not in self._market.columns:
+            return []
+
+        rates = self._market.data[RATE_COLUMN]
+        present = rates.notna().groupby(level="IDENTIFIER").any()
+
+        return sorted(present[present].index)
+
+    @property
+    def instrument_identifiers(self) -> list[str]:
+        """Market identifiers that are instruments rather than currency pairs.
+
+        What a universe or a search should offer: a pair is a rate series, not
+        something anybody holds.
+        """
+        pairs = set(self.fx_pairs)
+
+        return [name for name in self.identifiers if name not in pairs]
 
     @property
     def market_columns(self) -> list[str]:
