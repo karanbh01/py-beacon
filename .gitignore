@@ -88,3 +88,6 @@ examples/output/
 .fuzzstore/
 fuzz-server.log
 .fuzzserver.log
+
+# Fuzz run artefacts (BN-131)
+.schemathesis/

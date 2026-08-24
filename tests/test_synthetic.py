@@ -701,6 +701,29 @@ class TestCommandLine:
 
         assert len(fetcher.identifiers) == expected
 
+    def test_help_renders(self):
+        """argparse interpolates `%` in help text, so a literal percent sign
+        in a description raises at format time and nowhere else. Neither ruff
+        nor mypy sees it, and every other test parses args without ever
+        formatting the help — so `--help` crashed while the suite stayed
+        green.
+        """
+        assert "--no-features" in build_parser().format_help()
+
+    def test_features_can_be_skipped(self, tmp_path):
+        code = main(["--assets", "8", "--start", "2022-01-03",
+                     "--end", "2022-12-30", "--seed", "3", "--no-features",
+                     "--out", str(tmp_path / "bare")])
+
+        assert code == 0
+        assert store.load(tmp_path / "bare").features.is_empty
+
+    def test_features_are_written_by_default(self, tmp_path):
+        main(["--assets", "40", "--start", "2022-01-03", "--end", "2022-12-30",
+              "--seed", "3", "--out", str(tmp_path / "full")])
+
+        assert not store.load(tmp_path / "full").features.is_empty
+
     def test_a_bad_window_exits_two(self, tmp_path, capsys):
         code = main(["--start", "2024-01-01", "--end", "2023-01-01",
                      "--out", str(tmp_path / "store")])

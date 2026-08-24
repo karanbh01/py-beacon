@@ -166,6 +166,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--equity-premium", type=float,
                         default=DEFAULT_EQUITY_PREMIUM,
                         help=f"annualised (default: {DEFAULT_EQUITY_PREMIUM})")
+    parser.add_argument("--no-features", action="store_true",
+                        help="skip the fundamental ratios and alternative "
+                             "data (about 8%% of the rows)")
     parser.add_argument("--out", type=Path, default=None,
                         help="store directory (default: the location "
                              "`python -m beacon.server` auto-loads)")
@@ -234,7 +237,8 @@ def main(argv: list[str] | None = None) -> int:
                                  end=end,
                                  seed=args.seed,
                                  risk_free_rate=args.risk_free_rate,
-                                 equity_premium=args.equity_premium)
+                                 equity_premium=args.equity_premium,
+                                 features=not args.no_features)
         path = args.out if args.out is not None else store.default_path()
 
         written = write(config, path)

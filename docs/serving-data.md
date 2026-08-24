@@ -102,6 +102,14 @@ GJR-GARCH volatility, Student-t innovations and negative skew, plus reference
 data, shares outstanding, free float, dividends and splits that agree with the
 prices.
 
+It also generates **features** — four fundamental ratios (`pe_ratio`,
+`pb_ratio`, `eps`, `debt_to_equity`) quarterly, and two alternative series
+(`x_sentiment`, `wikipedia_views`) monthly. The ratios are derived from the
+price path rather than drawn beside it, so `pe_ratio x eps` is the close at
+the period end, exactly. Announcement lags vary per name per quarter and
+coverage is deliberately incomplete, so a point-in-time read has a ragged edge
+to resolve against.
+
 | Flag | Default |
 | --- | --- |
 | `--assets` | 6,000 |
@@ -110,6 +118,7 @@ prices.
 | `--out` | The app-data store the server auto-loads |
 | `--extended-universe` | Off; widens the universe to 10,000 names |
 | `--long-history` | Off; reaches back past every crisis the generator models |
+| `--no-features` | Off; skips the ratios and alternative data (~8% of rows) |
 
 Both expansion flags widen a default rather than overruling a value you named:
 an explicit `--assets` beats `--extended-universe`, and an explicit `--start`

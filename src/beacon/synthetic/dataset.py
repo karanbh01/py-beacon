@@ -23,7 +23,7 @@ should assert on its exact values. Use the fixture when a test needs a known
 number, and this when something needs to look like a market.
 """
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -32,7 +32,9 @@ import pandas as pd
 from ..data import store
 from ..data.base import MarketData, ReferenceData
 from ..data.corporate_actions import CorporateActions
+from ..data.features import FeatureData
 from ..data.fetcher import DataFetcher
+from . import features as features_module
 from . import fx, listings, prices, returns, universe
 
 logger = logging.getLogger(__name__)
@@ -73,6 +75,11 @@ class SyntheticConfig:
             dataset had before BN-130.
         listing_rate: Annualised hazard of a name having joined partway
             through rather than at the start.
+        features: Generate fundamental ratios and a little alternative data.
+            On by default and cheap -- about a tenth of the market panel --
+            because a dataset with nothing to screen on cannot exercise a
+            feature rule, and a store that silently lacks one is harder to
+            diagnose than one that costs a few hundred thousand rows.
     """
     assets: int = DEFAULT_ASSETS
     start: str = DEFAULT_START
@@ -83,6 +90,7 @@ class SyntheticConfig:
     currency: str = universe.DEFAULT_CURRENCY
     delisting_rate: float = listings.ANNUAL_DELISTING_RATE
     listing_rate: float = listings.ANNUAL_LISTING_RATE
+    features: bool = True
 
     def __post_init__(self) -> None:
         if self.assets < 1:
@@ -106,16 +114,20 @@ class SyntheticDataset:
         returns: The economic total returns the prices were built from. Not
             recoverable from `market` alone without undoing the dividends and
             splits, which is precisely what a coherence test does.
+        features: Fundamental ratios and alternative data, derived from the
+            prices above so a valuation screen and a price screen agree.
     """
     market: MarketData
     reference: ReferenceData
     actions: CorporateActions
     universe: pd.DataFrame
     returns: pd.DataFrame
+    features: FeatureData = field(default_factory=FeatureData.empty)
 
     def fetcher(self) -> DataFetcher:
         """A `DataFetcher` over the generated data."""
-        return DataFetcher(self.market, self.reference, self.actions)
+        return DataFetcher(self.market, self.reference, self.actions,
+                           self.features)
 
 
 def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
@@ -154,6 +166,14 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
     # has no answer to.
     rates = fx.build(dates, rng)
 
+    # Derived from the prices above rather than drawn beside them: a P/E that
+    # contradicts the price series in the same dataset would make a valuation
+    # screen and a price screen disagree about the same company.
+    close = market_frame.pivot(index="DATE", columns="IDENTIFIER",
+                               values="CLOSE") if settings.features else None
+    feature_rows = (features_module.build(names, close, panel, rng)
+                    if settings.features else None)
+
     logger.info("Generated %d identifier(s) over %d business days (seed %d).",
                 settings.assets, len(dates), settings.seed)
 
@@ -163,6 +183,8 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
         reference=ReferenceData.from_dataframe(
             universe.reference_frame(names, settings.start)),
         actions=CorporateActions.from_dataframe(action_frame),
+        features=(FeatureData.from_dataframe(feature_rows)
+                  if feature_rows is not None else FeatureData.empty()),
         universe=names,
         returns=panel)
 
