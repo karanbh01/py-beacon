@@ -2,11 +2,21 @@
 """
 Where `data.market.close` and `data.features.fundamentals.revenue` come from.
 
-    from beacon import data
+    from beacon.expressions import data
 
     data.reference.sector == "Financials"
     data.market.market_cap > 1e9
     data.features.fundamentals.revenue > 1e9
+
+## Imported from `beacon.expressions`, not from `beacon`
+
+`from beacon import data` would be the obvious spelling and it cannot work:
+`beacon.data` is already the data *package*, and importing any of its
+submodules rebinds that name on the parent. An expression root living there
+would be whichever won the import race — which is exactly what happened, with
+tests passing alone and failing after anything that imported
+`beacon.data.store`. `beacon.data` raises a message naming this module for the
+three namespaces where the mistake is plausible.
 
 `data` is a **description, not a dataset**. It is a module-level symbol bound
 to nothing, because an expression is written before there is anything to

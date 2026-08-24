@@ -12,7 +12,6 @@ from .derivatives import (
     IndexFuture,
     TotalReturnSwap,
 )
-from .expressions import data
 
 __all__ = [
     "DerivativeBase",
@@ -20,6 +19,5 @@ __all__ = [
     "IndexFuture",
     "TotalReturnSwap",
     "__version__",
-    "data",
     "derivatives",
 ]

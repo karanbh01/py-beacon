@@ -11,9 +11,9 @@ import logging
 import pandas as pd
 import pytest
 
-from beacon import data
 from beacon.data.features import FeatureData
 from beacon.data.fetcher import DataFetcher
+from beacon.expressions import data
 from beacon.expressions.stubs import build_parser, generate
 from beacon.expressions.validation import (
     UNKNOWN_FEATURE_TYPE,

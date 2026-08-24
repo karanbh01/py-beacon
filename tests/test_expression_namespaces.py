@@ -7,8 +7,8 @@ the attribute protocol is not quietly broken by the dynamic lookup.
 """
 import pytest
 
-from beacon import data
 from beacon.exceptions import ExpressionError
+from beacon.expressions import data
 from beacon.expressions.namespaces import (
     DERIVED_COLUMNS,
     NAMESPACES,
@@ -181,8 +181,27 @@ class TestItComposesWithTheCore:
 
         assert from_dict(screen.to_dict()).to_dict() == screen.to_dict()
 
-    def test_the_root_is_importable_from_the_package(self):
-        """`from beacon import data` is the documented entry point."""
+    def test_the_root_is_importable_from_expressions(self):
+        """`from beacon.expressions import data` is the entry point."""
+        import beacon.expressions
+
+        assert beacon.expressions.data is data
+
+    def test_it_is_not_on_the_beacon_root(self):
+        """`beacon.data` is the data *package*, and a submodule import rebinds
+        that name on the parent — so an expression root living there would be
+        whichever won the import race. It caused exactly that: the tests
+        passed alone and failed after any module that imported
+        `beacon.data.store`.
+        """
         import beacon
 
-        assert beacon.data is data
+        assert beacon.data is not data
+        assert beacon.data.__name__ == "beacon.data"
+
+    def test_the_wrong_import_says_which_is_right(self):
+        """The default error names the attribute and not the fix."""
+        import beacon.data
+
+        with pytest.raises(AttributeError, match=r"beacon\.expressions"):
+            beacon.data.market  # noqa: B018

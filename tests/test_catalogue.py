@@ -203,10 +203,11 @@ class TestRegistry:
         test agree with whatever the code happens to do, which is the one
         thing it must not do.
 
-        FeatureRule joined in BN-136.
+        FeatureRule joined in BN-136, ExpressionRule in BN-142.
         """
         assert catalogue.registered_names(catalogue.SELECTION) == {
-            "MarketCapRule", "LiquidityRule", "FeatureRule"}
+            "MarketCapRule", "LiquidityRule", "FeatureRule",
+            "ExpressionRule"}
         assert catalogue.registered_names(catalogue.WEIGHTING) == {
             "EqualWeighted", "MarketCapWeighted"}
 
@@ -320,7 +321,8 @@ class TestRuleTypesEndpoint:
         body = client.get("/indices/rule-types", headers=auth()).json()
 
         assert {entry["name"] for entry in body["selection"]} == {
-            "MarketCapRule", "LiquidityRule", "FeatureRule"}
+            "MarketCapRule", "LiquidityRule", "FeatureRule",
+            "ExpressionRule"}
         assert {entry["name"] for entry in body["weighting"]} == {
             "EqualWeighted", "MarketCapWeighted"}
 

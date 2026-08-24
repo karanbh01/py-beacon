@@ -2,7 +2,7 @@
 """
 Expressions: a typed, autocompleting way to refer to a datapoint.
 
-    from beacon import data
+    from beacon.expressions import data
 
     data.reference.sector == "Financials"
     data.market.adv_3m > 1_000_000

@@ -8,6 +8,7 @@ calculating weights, and computing index levels.
 from .asset_view import IndexAssetView
 from .calculation import IndexCalculator
 from .constructor import IndexDefinition
+from .expression_rules import ExpressionRule
 from .feature_rules import FeatureRule
 from .methodology import (
     EligibilityRuleBase,
@@ -22,6 +23,7 @@ from .result import IndexResult
 __all__ = [
     "EligibilityRuleBase",
     "EqualWeighted",
+    "ExpressionRule",
     "FeatureRule",
     "IndexAssetView",
     "IndexCalculator",
