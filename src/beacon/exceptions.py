@@ -35,6 +35,27 @@ class InvalidRuleError(BeaconError):
         self.rule_description = rule_description
         self.reason = reason
 
+class ExpressionError(BeaconError):
+    """Raised when an expression is built or used in a way that cannot work.
+
+    Most often `bool(expression)` — Python evaluates `and`, `or` and `not` by
+    calling `__bool__`, and an expression has no truth value until it is
+    resolved against an instrument and a date. Returning `True` there would
+    make `(a == 1) and (b > 2)` silently discard half the expression, so it
+    raises instead.
+    """
+
+
+class UnknownDatasetError(ExpressionError, AttributeError):
+    """Raised when an expression names a dataset that does not exist.
+
+    Also an `AttributeError`, because it is raised from `__getattr__` and the
+    language builds on that: `hasattr` and `getattr(..., default)` catch
+    `AttributeError` and nothing else, so raising only a `BeaconError` would
+    make `hasattr(data, "typo")` blow up instead of answering False.
+    """
+
+
 class InvalidIdentifierError(BeaconError, ValueError):
     """Raised when a caller supplies an identifier that cannot be used.
 
