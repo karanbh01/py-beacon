@@ -237,7 +237,7 @@ def read_manifest(path: Path) -> StoreManifest:
                          datasets=tuple(payload.get("datasets", ())))
 
 
-def _flatten(frame: pd.DataFrame) -> pd.DataFrame:
+def flatten_index(frame: pd.DataFrame) -> pd.DataFrame:
     """Index levels back to columns, ready to write.
 
     The containers differ in whether they kept their key columns:
@@ -282,21 +282,21 @@ def save(fetcher: DataFetcher,
     path.mkdir(parents=True, exist_ok=True)
 
     datasets = ["market"]
-    _write_frame(_flatten(fetcher.market.data), path / MARKET_FILE)
+    _write_frame(flatten_index(fetcher.market.data), path / MARKET_FILE)
 
     if fetcher.reference is not None:
         datasets.append("reference")
-        _write_frame(_flatten(fetcher.reference.data), path / REFERENCE_FILE)
+        _write_frame(flatten_index(fetcher.reference.data), path / REFERENCE_FILE)
 
     actions = fetcher.corporate_actions
     if not actions.is_empty:
         datasets.append("corporate_actions")
-        _write_frame(_flatten(actions.data), path / ACTIONS_FILE)
+        _write_frame(flatten_index(actions.data), path / ACTIONS_FILE)
 
     features = fetcher.features
     if not features.is_empty:
         datasets.append("features")
-        _write_frame(_flatten(features.data), path / FEATURES_FILE)
+        _write_frame(flatten_index(features.data), path / FEATURES_FILE)
 
     manifest = {"schema_version": STORE_SCHEMA_VERSION,
                 "source": source,

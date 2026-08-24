@@ -19,6 +19,7 @@ from typing import Annotated
 import pandas as pd
 
 from ..._optional import require
+from ...data.adjustment import ADJUSTED_COLUMN, adjust_closes
 from ...data.fetcher import DataFetcher
 from ...data.identifiers import (
     DEFAULT_LIMIT,
@@ -26,6 +27,7 @@ from ...data.identifiers import (
     IdentifierIndex,
     fingerprint,
 )
+from ...data.store import flatten_index
 from ...exceptions import (
     ConfigurationError,
     DataNotFoundError,
@@ -54,8 +56,10 @@ from ..schemas import (
     IdentifierSearchResponse,
     PricesResponse,
     ReferenceResponse,
+    TablePage,
     UniverseMembership,
 )
+from ..serialisation import dataframe_to_payload
 
 require("fastapi", "The Beacon API server")
 
@@ -235,6 +239,68 @@ def _feature_findings(findings: list[Finding]) -> FeatureImportError:
     """
     return FeatureImportError(findings)
 
+# Whole-dataset browsing. Bounded on purpose: the default synthetic store is
+# 11.8M market rows, and an unbounded dump is not something a client can
+# render or an engine should assemble.
+#
+# `LimitQuery` and `OffsetQuery` above are reused rather than redefined, so
+# there is one paging convention in this router. Only the default differs --
+# 20 rows is right for an identifier typeahead and too few for a table.
+DEFAULT_PAGE = 100
+
+
+def _table_frame(fetcher: DataFetcher,
+                 dataset: str) -> pd.DataFrame:
+    """The stored frame for one dataset, in a stable order.
+
+    Sorted by its index rather than left as loaded. Paging an unordered frame
+    is the classic way to show a client the same row twice and never show it
+    another: the order has to be a property of the data, not of how it
+    happened to be built.
+    """
+    frames = {
+        "market": lambda: fetcher.market.data,
+        "reference": lambda: (fetcher.reference.data
+                              if fetcher.reference is not None
+                              else pd.DataFrame()),
+        "corporate_actions": lambda: fetcher.corporate_actions.data,
+        "features": lambda: fetcher.features.data,
+    }
+
+    if dataset not in frames:
+        raise DataNotFoundError(
+            f"dataset '{dataset}'",
+            source=f"expected one of {', '.join(sorted(frames))}")
+
+    frame = frames[dataset]()
+
+    return frame if frame.empty else frame.sort_index()
+
+AdjustedQuery = Annotated[bool, Query(
+    description="Add an ADJ_CLOSE column: CLOSE back-adjusted for splits and "
+                "dividends, so the last value equals the last raw close and "
+                "history is scaled. An adjusted series answers what a holder "
+                "would have made and is no longer a price.")]
+
+
+def _with_adjusted(fetcher: DataFetcher,
+                   identifier: str,
+                   frame: pd.DataFrame) -> pd.DataFrame:
+    """Add ADJ_CLOSE, derived from this instrument's actions.
+
+    Computed per request rather than stored. An adjusted series is not
+    immutable -- every historical value moves when a new action lands -- so a
+    stored column would be wrong from the next dividend onwards, and silently.
+    """
+    if "CLOSE" not in frame.columns:
+        return frame
+
+    actions = fetcher.corporate_actions.get(identifier)
+    adjusted = frame.copy()
+    adjusted[ADJUSTED_COLUMN] = adjust_closes(frame["CLOSE"], actions)
+
+    return adjusted
+
 
 def _memberships(request: Request,
                  identifier: str) -> list[UniverseMembership]:
@@ -317,22 +383,38 @@ def build_data_router() -> APIRouter:
                start: StartQuery = None,
                end: EndQuery = None,
                interval: IntervalQuery = NATIVE_INTERVAL,
-               columns: ColumnsQuery = None) -> PricesResponse:
-        # No `adjusted` parameter: the library holds no price-adjustment
-        # logic, so accepting one and returning the stored series regardless
-        # would misrepresent the response rather than merely limit it.
+               columns: ColumnsQuery = None,
+               adjusted: AdjustedQuery = False) -> PricesResponse:
         if interval not in SUPPORTED_INTERVALS:
             raise DataNotFoundError(
                 f"interval '{interval}'",
                 source=f"supported intervals are {', '.join(SUPPORTED_INTERVALS)}")
 
-        frame = _data_fetcher(request).fetch_market_data(identifier, start, end, columns)
+        fetcher = _data_fetcher(request)
+        wanted = parse_list(columns) if columns else None
+
+        # CLOSE is what the adjustment is computed from, so asking for the
+        # adjusted series without it is a request that cannot be answered.
+        # Refused rather than quietly returning neither, which would look like
+        # the instrument has no adjusted history.
+        if adjusted and wanted is not None and "CLOSE" not in wanted:
+            raise DataNotFoundError(
+                "an adjusted series without CLOSE",
+                source="ADJ_CLOSE is derived from CLOSE, so the column has to "
+                       "be among those requested")
+
+        frame = fetcher.fetch_market_data(identifier, start, end, columns)
 
         if frame.empty:
             raise DataNotFoundError(f"market data for '{identifier}'",
                                     source="MarketData")
 
-        return PricesResponse.from_frame(identifier, interval, _resample(frame, interval))
+        resampled = _resample(frame, interval)
+
+        if adjusted:
+            resampled = _with_adjusted(fetcher, identifier, resampled)
+
+        return PricesResponse.from_frame(identifier, interval, resampled)
 
     # Declared before the single-name route. Both paths are distinct so the
     # order does not decide matching, but reading them in this order is what
@@ -518,5 +600,35 @@ def build_data_router() -> APIRouter:
             accepted=len(body.rows),
             types=sorted({row.type for row in body.rows}),
             identifiers=len({row.identifier for row in body.rows}))
+
+
+    @router.get("/tables/{dataset}", response_model=TablePage)
+    def table_page(request: Request,
+                   dataset: str,
+                   offset: OffsetQuery = 0,
+                   limit: LimitQuery = DEFAULT_PAGE) -> TablePage:
+        """One page of a stored dataset, as it is held.
+
+        Deliberately without filtering or sorting parameters. A client needing
+        those wants a query language, and this is the wrong place to grow one
+        -- the per-identifier endpoints and the expression API already cover
+        every case anybody has asked for.
+        """
+        frame = _table_frame(_data_fetcher(request), dataset)
+        page = frame.iloc[offset:offset + limit]
+
+        return TablePage(dataset=dataset,
+                         offset=offset,
+                         limit=limit,
+                         total=len(frame),
+                         # Index levels become ordinary columns: a database
+                         # view wants the row as stored, and a MultiIndex
+                         # would otherwise serialise as tuples the client has
+                         # to unpack. Through the store's helper because the
+                         # containers disagree about whether they kept their
+                         # key columns -- `CorporateActions` sets its index
+                         # with drop=False, so a plain `reset_index()` raises
+                         # "cannot insert EX_DATE, already exists".
+                         rows=dataframe_to_payload(flatten_index(page)))
 
     return router

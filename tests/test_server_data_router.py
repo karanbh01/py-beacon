@@ -159,18 +159,22 @@ class TestPrices:
         assert response.status_code == 500
         assert response.json()["error"]["code"] == "CONFIGURATION_ERROR"
 
-    def test_adjusted_parameter_is_not_accepted(self,
-                                                client):
-        """No price-adjustment logic exists, so the parameter is not offered.
+    def test_adjusted_parameter_is_advertised(self,
+                                              client):
+        """Offered since BN-146, when the adjustment logic arrived.
 
-        FastAPI ignores unknown query parameters, so this asserts the schema
-        does not advertise one rather than that the request fails.
+        This test previously asserted the opposite, and was right to: FastAPI
+        ignores unknown query parameters, so a client passing `adjusted=true`
+        against a server with no adjustment logic would get 200 and a raw
+        series — the parameter looking supported is the failure, not the
+        parameter being absent. Now that the logic exists, the schema has to
+        say so for the same reason.
         """
         schema = client.app.openapi()
         names = {p["name"]
                  for p in schema["paths"]["/data/prices/{identifier}"]["get"]["parameters"]}
 
-        assert "adjusted" not in names
+        assert "adjusted" in names
 
 
 class TestReference:

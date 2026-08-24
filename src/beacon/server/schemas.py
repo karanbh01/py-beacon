@@ -343,6 +343,23 @@ class FieldCatalogue(BaseModel):
     namespaces: list[str]
 
 
+class TablePage(BaseModel):
+    """Response of `GET /data/tables/{dataset}`.
+
+    The stored data as it is, before any view shapes it. Paged because the
+    default synthetic store holds 11.8M market rows — an unbounded dump is not
+    something a client can render or an engine should assemble.
+    """
+    dataset: str
+    offset: int
+    limit: int
+    total: int = Field(description="Rows in the whole dataset, so a client can "
+                                   "size its scrollbar without paging to the "
+                                   "end to find out.")
+    rows: dict[str, Any] = Field(
+        description="The {index, columns, data} frame shape used elsewhere.")
+
+
 class FeatureRow(BaseModel):
     """One row of an import."""
     identifier: str = Field(min_length=1)
