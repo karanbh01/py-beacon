@@ -16,6 +16,7 @@ from ..exceptions import (
     CalculationError,
     ConfigurationError,
     DataNotFoundError,
+    ExpressionError,
     InvalidIdentifierError,
     InvalidRuleError,
     MissingDependencyError,
@@ -48,6 +49,10 @@ EXCEPTION_MAPPING: tuple[tuple[type[BeaconError], int, str], ...] = (
     (ConfigurationError, status.HTTP_500_INTERNAL_SERVER_ERROR, "CONFIGURATION_ERROR"),
     (CalculationError, status.HTTP_500_INTERNAL_SERVER_ERROR, "CALCULATION_ERROR"),
     (ReportingError, status.HTTP_500_INTERNAL_SERVER_ERROR, "REPORTING_ERROR"),
+    # A malformed expression is a client mistake, not a server fault: the tree
+    # arrived in the request or in a document the client wrote.
+    (ExpressionError, status.HTTP_422_UNPROCESSABLE_CONTENT,
+     "INVALID_EXPRESSION"),
     # Catch-all for any BeaconError subclass added later without a mapping.
     (BeaconError, status.HTTP_500_INTERNAL_SERVER_ERROR, "BEACON_ERROR"),
 )

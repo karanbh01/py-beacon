@@ -408,6 +408,10 @@ class TestEnvelopeExhaustiveness:
             "the same arrangement again, for an import whose rows name "
             "instruments the loaded data does not carry: 422 / INVALID_RULE "
             "from InvalidRuleError, with a finding naming each bad row",
+        "UnknownDatasetError":
+            "subclasses ExpressionError to inherit its 422 / "
+            "INVALID_EXPRESSION mapping, and AttributeError so that "
+            "`hasattr(data, 'typo')` answers False rather than raising",
         "UniverseValidationError":
             "the same arrangement as PipelineValidationError, for a universe "
             "whose members are not in the loaded data: 422 / INVALID_RULE "

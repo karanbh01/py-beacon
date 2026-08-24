@@ -7,6 +7,9 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
+from ..data.fetcher import DataFetcher
+from ..expressions.core import Expression
+from ..expressions.resolve import resolve
 from ..portfolio.base import Portfolio
 from .engine import TradeInstruction
 
@@ -102,3 +105,111 @@ class DriftThresholdModifier(BacktestModifier):
                       portfolio: Portfolio) -> list[TradeInstruction]:
         """Pass-through — no trade adjustment."""
         return trades
+
+
+class ExpressionScreen(BacktestModifier):
+    """Drop names that fail an expression, evaluated at each rebalance.
+
+    A backtest-level screen, composed with the modifier chain rather than
+    replacing it: the target weights still come from wherever they came from,
+    and this removes what should not be held.
+
+        engine = BacktestEngine(index_result=result,
+                                modifiers=[ExpressionScreen(
+                                    data.market.adv_3m > 1e6, fetcher)])
+
+    ## Evaluated per rebalance, not once
+
+    The screen is re-resolved on every rebalance date, through the same
+    point-in-time path an index rule uses (BN-142). Resolving it once at the
+    start would let a name that only became liquid in 2024 pass a 2019
+    rebalance -- which is look-ahead wearing a different hat, and it makes the
+    backtest look better rather than failing.
+
+    ## Cancelling a buy is not the same as selling a holding
+
+    An excluded name has both handled: its buys are dropped, and a holding
+    already carried is sold. Dropping only the buys would leave the position
+    from before the screen turned against it, so the screen would appear to
+    work on new entries and quietly not apply to anything held.
+
+    Args:
+        expression: The screen.
+        fetcher: Data to resolve against.
+        on_missing: Whether a name with no value passes. Excluded by default,
+            matching the index rules.
+    """
+
+    def __init__(self,
+                 expression: "Expression",
+                 fetcher: "DataFetcher",
+                 on_missing: bool = False):
+        self.expression = expression
+        self.fetcher = fetcher
+        self.on_missing = on_missing
+
+    def passes(self,
+               asset_id: str,
+               date: pd.Timestamp) -> bool:
+        """Whether one name survives the screen on a date."""
+        return resolve(self.expression, asset_id, date, self.fetcher,
+                       on_missing=self.on_missing)
+
+    def should_skip_rebalance(self,
+                              date: pd.Timestamp,
+                              portfolio: Portfolio,
+                              target_weights: dict[str, float]) -> bool:
+        """Never skips: a screen changes what is traded, not whether."""
+        return False
+
+    def adjust_trades(self,
+                      trades: list[TradeInstruction],
+                      date: pd.Timestamp,
+                      portfolio: Portfolio) -> list[TradeInstruction]:
+        """Drop buys of excluded names, and sell any already held."""
+        names = {trade.asset_id for trade in trades} | set(portfolio.holdings)
+        excluded = {name for name in names if not self.passes(name, date)}
+
+        if not excluded:
+            return trades
+
+        kept = [trade for trade in trades
+                if trade.asset_id not in excluded or trade.side == "SELL"]
+
+        logger.debug("[%s] Screen excluded %d name(s).", date, len(excluded))
+
+        return kept + self._exits(excluded, kept, date, portfolio)
+
+    def _exits(self,
+               excluded: set[str],
+               kept: list[TradeInstruction],
+               date: pd.Timestamp,
+               portfolio: Portfolio) -> list[TradeInstruction]:
+        """Sells for excluded names still held after the kept trades."""
+        already_selling = {trade.asset_id for trade in kept
+                           if trade.side == "SELL"}
+
+        exits = []
+        for asset_id in sorted(excluded - already_selling):
+            holding = portfolio.holdings.get(asset_id)
+
+            if holding is None or holding.quantity <= 0:
+                continue
+
+            # The price the portfolio was last marked at. There is no separate
+            # price source here on purpose: exiting at a price the rest of the
+            # rebalance did not use would make the screen a source of return
+            # rather than a filter.
+            price = holding.current_price
+
+            if price is None:
+                logger.warning(
+                    "[%s] %s failed the screen but has no price to exit at; "
+                    "the position is carried.", date, asset_id)
+                continue
+
+            exits.append(TradeInstruction(asset_id=asset_id, side="SELL",
+                                          quantity=float(holding.quantity),
+                                          price=float(price), cost=0.0))
+
+        return exits

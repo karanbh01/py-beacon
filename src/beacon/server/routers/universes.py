@@ -25,11 +25,24 @@ regenerating would discard whatever had been changed. Refusing now beats
 losing it later.
 """
 import re
-from typing import Any
+from typing import Annotated, Any
+
+import pandas as pd
 
 from ..._optional import require
-from ...exceptions import DataNotFoundError, InvalidRuleError
+from ...data.fetcher import DataFetcher
+from ...exceptions import (
+    ConfigurationError,
+    DataNotFoundError,
+    ExpressionError,
+    InvalidRuleError,
+)
+from ...expressions.core import from_dict
+from ...universe import where
+from ..config import ServerConfig
 from ..schemas import (
+    MODE_FROZEN,
+    MODE_LIVE,
     SOURCE_SEEDED,
     SOURCE_USER,
     Finding,
@@ -44,9 +57,14 @@ from ..store import DocumentStore
 
 require("fastapi", "The Beacon API server")
 
-from fastapi import APIRouter, Request, Response, status  # noqa: E402
+from fastapi import APIRouter, Query, Request, Response, status  # noqa: E402
 
 COLLECTION = "universes"
+
+AsOfQuery = Annotated[
+    str | None,
+    Query(description="Date to resolve a live filter at, YYYY-MM-DD. "
+                      "Defaults to the end of the loaded data.")]
 
 # How many missing identifiers a rejection names before it stops listing them.
 # A paste of a thousand tickers with nine hundred typos should not answer with
@@ -89,7 +107,10 @@ def _to_universe(document: dict[str, Any]) -> Universe:
                     name=document["name"],
                     identifiers=document.get("identifiers", []),
                     description=document.get("description"),
-                    source=document.get("source", SOURCE_USER))
+                    source=document.get("source", SOURCE_USER),
+                    filter=document.get("filter"),
+                    mode=document.get("mode", MODE_FROZEN),
+                    as_of=document.get("as_of"))
 
 
 def slug(name: str) -> str:
@@ -200,6 +221,84 @@ def _resolve_members(request: Request,
     raise _rejected(findings)
 
 
+def _data_fetcher(request: Request) -> DataFetcher:
+    """The process's data source, or a mapped error.
+
+    Defined here rather than imported from the data router, matching what the
+    other routers do: the CRUD endpoints work without a data source, but a
+    filter cannot be resolved without one.
+    """
+    config: ServerConfig = request.app.state.config
+
+    if config.data_fetcher is None:
+        raise ConfigurationError(
+            "data_source",
+            "This server was started without a data source, so a universe "
+            "filter cannot be resolved. Restart it with one configured.")
+
+    return config.data_fetcher
+
+
+def _standing(request: Request) -> pd.Timestamp:
+    """The date a filter resolves at by default.
+
+    The end of the loaded data rather than today: a store loaded from a file
+    has a last date, and resolving against a calendar the data does not reach
+    would select nothing and look like an empty filter.
+    """
+    return _data_fetcher(request).date_range[1]
+
+
+def _evaluate(request: Request,
+              stored: dict[str, Any],
+              date: str | None = None) -> list[str]:
+    """Resolve a stored filter against the loaded data."""
+    fetcher = _data_fetcher(request)
+
+    try:
+        expression = from_dict(stored)
+    except ExpressionError as error:
+        raise _rejected([Finding(
+            path="filter", severity="error", code="MALFORMED_FILTER",
+            message=str(error))]) from error
+
+    return where(expression, fetcher, date)
+
+
+def _members_for(request: Request,
+                 body: UniverseCreate) -> list[str]:
+    """The membership a create request asks for, however it asked.
+
+    A filter and an explicit list are mutually exclusive rather than merged:
+    a request carrying both is ambiguous about which one is the definition,
+    and guessing would make the answer depend on an implementation detail.
+    """
+    if body.filter is None:
+        return _resolve_members(request, body.identifiers)
+
+    if body.identifiers:
+        raise _rejected([Finding(
+            path="filter", severity="error", code="AMBIGUOUS_MEMBERSHIP",
+            message="A universe is defined by a filter or by a list of "
+                    "identifiers, not both. Send one.")])
+
+    if body.mode not in (MODE_FROZEN, MODE_LIVE):
+        raise _rejected([Finding(
+            path="mode", severity="error", code="UNKNOWN_MODE",
+            message=f"'{body.mode}' is not a mode. Expected "
+                    f"'{MODE_FROZEN}' or '{MODE_LIVE}'.")])
+
+    members = _evaluate(request, body.filter)
+
+    if not members:
+        raise _rejected([Finding(
+            path="filter", severity="error", code="EMPTY_FILTER",
+            message="The filter matches no instruments in the loaded data, "
+                    "so it would create an empty universe.")])
+
+    return members
+
+
 def _refuse_if_seeded(document: dict[str, Any],
                       universe_id: str) -> None:
     """Stop an edit to a generator-written universe."""
@@ -296,11 +395,24 @@ def build_universes_router() -> APIRouter:
 
     @router.get("/{universe_id}/members", response_model=UniverseMembers)
     def get_members(request: Request,
-                    universe_id: Identifier) -> UniverseMembers:
+                    universe_id: Identifier,
+                    date: AsOfQuery = None) -> UniverseMembers:
+        """The members, re-evaluating the filter when the universe is live.
+
+        This is where the frozen/live distinction becomes observable: a frozen
+        universe answers with what it stored, a live one answers with what its
+        filter selects now. Both are legitimate; a universe that looked like
+        one and behaved like the other would not be.
+        """
         universe = load_universe(request, universe_id)
 
-        return UniverseMembers(universe_id=universe.id,
-                               identifiers=universe.identifiers)
+        if universe.mode != MODE_LIVE or universe.filter is None:
+            return UniverseMembers(universe_id=universe.id,
+                                   identifiers=universe.identifiers)
+
+        return UniverseMembers(
+            universe_id=universe.id,
+            identifiers=_evaluate(request, universe.filter, date))
 
     @router.post("", response_model=Universe,
                  status_code=status.HTTP_201_CREATED)
@@ -324,10 +436,13 @@ def build_universes_router() -> APIRouter:
 
         universe = Universe(id=universe_id,
                             name=body.name,
-                            identifiers=_resolve_members(request,
-                                                         body.identifiers),
+                            identifiers=_members_for(request, body),
                             description=body.description,
-                            source=SOURCE_USER)
+                            source=SOURCE_USER,
+                            filter=body.filter,
+                            mode=body.mode if body.filter else MODE_FROZEN,
+                            as_of=(_standing(request).strftime("%Y-%m-%d")
+                                   if body.filter else None))
 
         store.write(universe_id, universe.model_dump())
 

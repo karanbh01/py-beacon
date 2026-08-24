@@ -22,6 +22,7 @@ from ..data.corporate_actions import (
 )
 from ..index.result import IndexResult
 from ..report.blocks import BLOCK_TYPES
+from ..universe import FROZEN, LIVE
 from .serialisation import dataframe_to_payload, series_to_payload
 
 # A rate or proportion expressed as a fraction: 0.0523 is 5.23%. Kept as a
@@ -1387,6 +1388,12 @@ class SavedIndex(BaseModel):
 SOURCE_USER = "user"
 SOURCE_SEEDED = "seeded"
 
+# Whether a universe stores its membership or the question that produced it.
+# Re-exported from the library so the document and the resolver cannot drift
+# apart on the spelling.
+MODE_FROZEN = FROZEN
+MODE_LIVE = LIVE
+
 
 class Universe(BaseModel):
     """A named set of instrument identifiers."""
@@ -1400,6 +1407,21 @@ class Universe(BaseModel):
         description=f"'{SOURCE_USER}' for one somebody created, "
                     f"'{SOURCE_SEEDED}' for one the generator wrote. A seeded "
                     f"universe cannot be edited or deleted.")
+    filter: dict[str, Any] | None = Field(
+        default=None,
+        description="The expression this universe was built from, when it was "
+                    "built by filtering. Null for a curated list.")
+    mode: str = Field(
+        default=MODE_FROZEN,
+        description=f"'{MODE_FROZEN}' means the stored identifiers are the "
+                    f"membership; '{MODE_LIVE}' means the filter is "
+                    f"re-evaluated on read, so the membership moves when the "
+                    f"data does. A frozen universe records what it contained; "
+                    f"a live one records how it was chosen. They are different "
+                    f"objects and a caller needs to know which they have.")
+    as_of: str | None = Field(
+        default=None,
+        description="The date a filter was last resolved at.")
 
 
 class UniverseUpsert(BaseModel):
@@ -1418,9 +1440,20 @@ class UniverseCreate(BaseModel):
     """
     name: str = Field(description="Display name.", min_length=1, max_length=64)
     identifiers: list[str] = Field(
-        description="Members. Must be non-empty, and every one must exist in "
-                    "the loaded reference data.")
+        default_factory=list,
+        description="Members. Every one must exist in the loaded reference "
+                    "data. Required unless a filter is given.")
     description: str | None = Field(default=None)
+    filter: dict[str, Any] | None = Field(
+        default=None,
+        description="A serialised expression to build the membership from, "
+                    "instead of naming it. Mutually exclusive with a "
+                    "non-empty `identifiers`.")
+    mode: str = Field(
+        default=MODE_FROZEN,
+        description=f"'{MODE_LIVE}' re-evaluates the filter on every read; "
+                    f"'{MODE_FROZEN}' keeps the membership it resolved to. "
+                    f"Only meaningful with a filter.")
 
 
 class UniverseCollection(BaseModel):
