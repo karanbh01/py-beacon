@@ -317,6 +317,31 @@ class FeatureCatalogue(BaseModel):
                     "per-type lists above exist.")
 
 
+class FieldDescriptor(BaseModel):
+    """One datapoint a client can offer as a filter."""
+    path: str = Field(description="How it is written, e.g. 'reference.sector' "
+                                  "or 'features.fundamentals.revenue'.")
+    namespace: str = Field(description="market, reference, actions or features.")
+    name: str
+    dataset: str | None = Field(
+        default=None, description="Feature TYPE, for feature fields only.")
+    derived: bool = Field(
+        default=False,
+        description="Computed per request rather than stored. Screenable "
+                    "either way — a client should not have to care.")
+
+
+class FieldCatalogue(BaseModel):
+    """Response of `GET /data/fields`.
+
+    Every datapoint an expression can name, from one place, so a client builds
+    one field picker rather than one per dataset. Derived from the loaded
+    store, so a column or dataset nobody declared still appears.
+    """
+    fields: list[FieldDescriptor]
+    namespaces: list[str]
+
+
 class FeatureRow(BaseModel):
     """One row of an import."""
     identifier: str = Field(min_length=1)

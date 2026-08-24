@@ -31,6 +31,8 @@ from ...exceptions import (
     DataNotFoundError,
     InvalidRuleError,
 )
+from ...expressions.catalogue import describe_fields
+from ...expressions.namespaces import NAMESPACES
 from ..config import ServerConfig
 from ..reference import MAX_BATCH, build_entries, parse_identifiers, parse_list
 from ..schemas import (
@@ -45,6 +47,8 @@ from ..schemas import (
     FeatureResponse,
     FeatureTypeCoverage,
     FeatureValue,
+    FieldCatalogue,
+    FieldDescriptor,
     Finding,
     IdentifierMatch,
     IdentifierSearchResponse,
@@ -396,6 +400,20 @@ def build_data_router() -> APIRouter:
             cumulative_split_ratio=fetcher.corporate_actions.cumulative_ratio(
                 identifier, start, end))
 
+
+    @router.get("/fields", response_model=FieldCatalogue)
+    def field_catalogue(request: Request) -> FieldCatalogue:
+        """Every datapoint an expression can name.
+
+        The features half already has its own catalogue; this adds the market
+        and reference side so a client builds one field picker rather than one
+        per dataset. Read from the loaded store rather than from the
+        declaration, so a column nobody declared appears too.
+        """
+        return FieldCatalogue(
+            fields=[FieldDescriptor(**entry)
+                    for entry in describe_fields(_data_fetcher(request))],
+            namespaces=list(NAMESPACES))
 
     # Declared before the by-identifier route below. FastAPI matches in
     # declaration order, and "catalogue" is a valid identifier as far as the
