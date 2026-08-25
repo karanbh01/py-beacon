@@ -301,6 +301,31 @@ def _with_adjusted(fetcher: DataFetcher,
 
     return adjusted
 
+def _only(frame: pd.DataFrame,
+          identifiers: list[str]) -> pd.DataFrame:
+    """The rows belonging to some instruments.
+
+    Matched on the IDENTIFIER index level where there is one and on the column
+    otherwise, because the containers differ: market and feature frames
+    consume the key into the index, while corporate actions keep it as a
+    column too.
+
+    An identifier the dataset does not carry contributes no rows rather than
+    raising. A filter matching nothing is an ordinary answer -- and one
+    unknown name should not fail a page that would have answered for the rest.
+    """
+    wanted = set(identifiers)
+
+    if "IDENTIFIER" in (frame.index.names or []):
+        level = frame.index.get_level_values("IDENTIFIER")
+
+        return frame[level.isin(wanted)]
+
+    if "IDENTIFIER" in frame.columns:
+        return frame[frame["IDENTIFIER"].isin(wanted)]
+
+    return frame.iloc[0:0]
+
 
 def _memberships(request: Request,
                  identifier: str) -> list[UniverseMembership]:
@@ -627,15 +652,28 @@ def build_data_router() -> APIRouter:
     def table_page(request: Request,
                    dataset: str,
                    offset: OffsetQuery = 0,
-                   limit: LimitQuery = DEFAULT_PAGE) -> TablePage:
-        """One page of a stored dataset, as it is held.
+                   limit: LimitQuery = DEFAULT_PAGE,
+                   identifiers: IdentifiersQuery = None) -> TablePage:
+        """One page of a stored dataset, optionally narrowed to some names.
 
-        Deliberately without filtering or sorting parameters. A client needing
-        those wants a query language, and this is the wrong place to grow one
-        -- the per-identifier endpoints and the expression API already cover
-        every case anybody has asked for.
+        `identifiers` is the only filter, and it exists because one
+        instrument's *history* -- its feature rows, its actions -- was
+        otherwise reachable only by paging the whole table and filtering
+        client-side, which is 964k rows to find a few dozen (BN-150).
+
+        Still no sorting or predicate parameters. A client needing those wants
+        a query language, and this is the wrong place to grow one -- the
+        per-identifier endpoints and the expression API cover the rest.
         """
         frame = _table_frame(_data_fetcher(request), dataset)
+        wanted = parse_identifiers(identifiers) if identifiers else None
+
+        if wanted is not None:
+            frame = _only(frame, wanted)
+
+        # Filtered before paging, so `total` counts the filtered set and
+        # offset/limit walk within it. Paging first would make the second page
+        # of a filtered request a slice of a different query.
         page = frame.iloc[offset:offset + limit]
 
         return TablePage(dataset=dataset,

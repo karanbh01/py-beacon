@@ -212,9 +212,23 @@ would be wrong from the next dividend onwards, and silently.
 frame shape as everything else plus a `total`.
 
 Paged, with a maximum of 1,000 rows: the default store is 11.8M market rows.
-Ordering is stable, `offset` past the end is an empty page rather than a 404,
-and there is deliberately no filtering or sorting — a client that needs those
-wants the expression API.
+Ordering is stable and `offset` past the end is an empty page rather than a
+404.
+
+`identifiers` narrows it to some instruments, comma-separated or repeated:
+
+```
+GET /data/tables/features?identifiers=CMPA&limit=1000
+```
+
+That is how you read **one instrument's history** — every feature value it has
+ever carried, with the date each became knowable and the period it describes.
+The filter is applied *before* paging, so `total` counts the filtered set and
+`offset` walks within it. An identifier the dataset does not carry contributes
+no rows rather than failing the request.
+
+There is deliberately no sorting or predicate parameter — a client that needs
+those wants the expression API.
 
 ## Notes for a client
 
