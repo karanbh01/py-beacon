@@ -35,7 +35,7 @@ from ..data.corporate_actions import CorporateActions
 from ..data.features import FeatureData
 from ..data.fetcher import DataFetcher
 from . import features as features_module
-from . import fx, listings, prices, returns, universe
+from . import fx, listings, prices, profiles, returns, universe
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +174,11 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
     feature_rows = (features_module.build(names, close, panel, rng)
                     if settings.features else None)
 
+    # The profile fields a client's instrument view needs. Generated from the
+    # universe rather than beside it, so status agrees with the listing dates
+    # and dividend frequency agrees with the dividends (BN-148).
+    profile = profiles.build(names, rng, dates[-1])
+
     logger.info("Generated %d identifier(s) over %d business days (seed %d).",
                 settings.assets, len(dates), settings.seed)
 
@@ -181,7 +186,7 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
         market=MarketData.from_dataframe(
             pd.concat([market_frame, rates], ignore_index=True)),
         reference=ReferenceData.from_dataframe(
-            universe.reference_frame(names, settings.start)),
+            universe.reference_frame(names, settings.start, profile)),
         actions=CorporateActions.from_dataframe(action_frame),
         features=(FeatureData.from_dataframe(feature_rows)
                   if feature_rows is not None else FeatureData.empty()),

@@ -436,16 +436,37 @@ def build_data_router() -> APIRouter:
     @router.get("/reference/{identifier}", response_model=ReferenceResponse)
     def reference(request: Request,
                   identifier: str,
-                  date: AsOfQuery = None) -> ReferenceResponse:
-        # GICS and profile remain in this endpoint's brief and out of the
-        # data model, so nothing here invents them: whatever columns the
-        # loaded reference data carries are returned as-is.
-        #
-        # Universe memberships *are* answerable now. They were not when this
-        # endpoint was written -- no universe could be created through the
-        # API and none was seeded, so the answer was always "none" and saying
-        # so would have been noise. BN-132 changed that.
-        frame = _data_fetcher(request).fetch_reference_data(identifier, date)
+                  date: AsOfQuery = None,
+                  fields: FieldsQuery = None) -> ReferenceResponse:
+        """One instrument's reference record, stored and derived.
+
+        `fields` is honoured on the same terms as the batch form (BN-149).
+        Before that it was accepted and ignored, so `market_cap` came back
+        empty from here and populated from `/data/reference` -- a parameter
+        that looks supported while doing nothing, which is the failure a
+        client cannot diagnose.
+
+        Universe memberships are answered here and not there: they were not
+        answerable when this endpoint was written, because no universe could
+        be created through the API and none was seeded, so the answer was
+        always "none". BN-132 changed that.
+        """
+        fetcher = _data_fetcher(request)
+        requested = parse_list(fields) if fields else None
+
+        if requested:
+            entries = build_entries(fetcher, [identifier], date, requested)
+
+            if not entries or not entries[0].fields:
+                raise DataNotFoundError(f"reference data for '{identifier}'",
+                                        source="ReferenceData")
+
+            return ReferenceResponse(identifier=identifier,
+                                     fields=entries[0].fields,
+                                     universes=_memberships(request,
+                                                            identifier))
+
+        frame = fetcher.fetch_reference_data(identifier, date)
 
         if frame.empty:
             raise DataNotFoundError(f"reference data for '{identifier}'",

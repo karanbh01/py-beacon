@@ -288,7 +288,8 @@ def build(count: int,
 
 
 def reference_frame(universe: pd.DataFrame,
-                    valid_from: str) -> pd.DataFrame:
+                    valid_from: str,
+                    profile: pd.DataFrame | None = None) -> pd.DataFrame:
     """The reference dataset, long-form and ready for `ReferenceData`.
 
     Args:
@@ -297,6 +298,8 @@ def reference_frame(universe: pd.DataFrame,
             generated universe has no history of reclassification, so a name
             that was there at the start gets one record valid from the start
             rather than pretending to a change it never had.
+        profile: Optional profile columns from `profiles.build`, joined on
+            identifier. Absent leaves the record as it was before BN-148.
 
     Returns:
         pd.DataFrame: One row per name, carrying the listed life. `DATE_TO` is
@@ -310,7 +313,7 @@ def reference_frame(universe: pd.DataFrame,
     listed_to = (universe["listed_to"] if "listed_to" in universe
                  else pd.Series(pd.NaT, index=universe.index))
 
-    return pd.DataFrame({
+    frame = pd.DataFrame({
         "IDENTIFIER": universe.index,
         "DATE_FROM": listed_from.to_numpy(),
         "DATE_TO": listed_to.to_numpy(),
@@ -323,3 +326,19 @@ def reference_frame(universe: pd.DataFrame,
         "COUNTRY_LISTING": universe["COUNTRY_LISTING"].to_numpy(),
         "COUNTRY_DOMICILE": universe["COUNTRY_DOMICILE"].to_numpy(),
     })
+
+    if profile is None:
+        return frame
+
+    # The profile fields a client's instrument view needs: identifiers,
+    # the middle two GICS levels, and the corporate facts (BN-148). Joined
+    # rather than generated here so this function stays the shape of the
+    # record, and `profiles.build` owns the coherence rules -- a status that
+    # agrees with the listing dates, a dividend frequency that agrees with the
+    # dividends.
+    joined = profile.reindex(universe.index)
+
+    for column in joined.columns:
+        frame[column] = joined[column].to_numpy()
+
+    return frame
