@@ -3,22 +3,19 @@
 BacktestEngine — simulates portfolio execution against a target weight schedule.
 """
 import logging
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import pandas as pd
-
-if TYPE_CHECKING:
-    # Imported under TYPE_CHECKING to avoid a circular import: rules.py imports
-    # TradeInstruction from this module at runtime, so engine.py must not import
-    # rules.py at runtime.
-    from .rules import BacktestModifier
 
 from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult
 from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
-from ..portfolio.base import Holding, Portfolio
+
+# TradeInstruction lives with the ledger that accepts it (BN-151). Imported
+# here as well so `from beacon.backtest.engine import TradeInstruction` keeps
+# working -- and because the engine is its main producer.
+from ..portfolio.base import Holding, Portfolio, TradeInstruction
 from .result import BacktestResult, UnfilledOrder
+from .rules import BacktestModifier
 
 # Reused from the portfolio rather than redefined: the engine decides whether
 # to size an order down, the portfolio decides whether to accept it, and the
@@ -31,24 +28,6 @@ CASH_TOLERANCE = PORTFOLIO_CASH_TOLERANCE
 MIN_TRADE_VALUE = 0.01
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class TradeInstruction:
-    """A single trade to execute during rebalancing.
-
-    Attributes:
-        asset_id: Asset identifier.
-        side: ``"SELL"`` or ``"BUY"``.
-        quantity: Number of units to trade.
-        price: Execution price per unit.
-        cost: Transaction cost in currency terms.
-    """
-    asset_id: str
-    side: str      # "SELL" or "BUY"
-    quantity: float
-    price: float
-    cost: float
 
 
 class BacktestEngine:
@@ -86,7 +65,7 @@ class BacktestEngine:
                  price_column: str = "CLOSE",
                  currency: str = "USD",
                  transaction_cost_bps: float = 0.0,
-                 modifiers: list['BacktestModifier'] | None = None):
+                 modifiers: list[BacktestModifier] | None = None):
         if target_index_result is not None and target_weights is not None:
             raise ValueError(
                 "Provide either target_index_result or target_weights, not both."
@@ -458,8 +437,7 @@ class BacktestEngine:
 
         for trade in trades:
             if trade.side == "SELL":
-                portfolio.execute_sell(trade.asset_id, trade.quantity, trade.price,
-                                      cost=trade.cost, date=date)
+                portfolio.apply(trade, date)
                 logger.debug(f"[{date}] Sold {trade.quantity:.4f} of {trade.asset_id}")
             elif trade.side == "BUY":
                 shortfall = self._execute_buy(portfolio, trade, date)
@@ -495,8 +473,7 @@ class BacktestEngine:
 
         # Affordable, allowing for accumulated float error on the cash balance.
         if portfolio.cash_balance >= required * (1 - CASH_TOLERANCE):
-            portfolio.execute_buy(trade.asset_id, trade.quantity, trade.price,
-                                  cost=trade.cost, date=date)
+            portfolio.apply(trade, date)
             logger.debug(f"[{date}] Bought {trade.quantity:.4f} of {trade.asset_id}")
             return None
 
@@ -521,8 +498,14 @@ class BacktestEngine:
 
         available = portfolio.cash_balance
         reduced_cost = affordable * trade.price * cost_rate
-        portfolio.execute_buy(trade.asset_id, affordable, trade.price,
-                              cost=reduced_cost, date=date)
+
+        # The sized-down leg is a new decision, so it is a new instruction:
+        # the engine decides, the portfolio accounts for what it is handed.
+        portfolio.apply(TradeInstruction(asset_id=trade.asset_id,
+                                         side="BUY",
+                                         quantity=affordable,
+                                         price=trade.price,
+                                         cost=reduced_cost), date)
         logger.warning(
             f"[{date}] Partially filled {trade.asset_id}: bought "
             f"{affordable:.4f} of {trade.quantity:.4f} requested "

@@ -44,6 +44,31 @@ class Transaction:
                     f"transaction_date must be a pandas Timestamp. Error: {e}") from e
 
 
+@dataclass(frozen=True)
+class TradeInstruction:
+    """A single trade for a portfolio to record.
+
+    Produced by whatever *decides* trades — the backtest engine sizes, prices
+    and costs an order — and consumed by :meth:`Portfolio.apply`, which does
+    the accounting. It lives here rather than in the backtest layer because
+    the portfolio is the layer that accepts one, and a ledger's input type
+    belongs with the ledger (BN-151; previously in ``backtest/engine.py``,
+    where it forced the codebase's one circular-import workaround).
+
+    Attributes:
+        asset_id: Asset identifier.
+        side: ``"SELL"`` or ``"BUY"``.
+        quantity: Number of units to trade.
+        price: Execution price per unit.
+        cost: Transaction cost in currency terms.
+    """
+    asset_id: str
+    side: str      # "SELL" or "BUY"
+    quantity: float
+    price: float
+    cost: float
+
+
 @dataclass
 class Holding:
     """
@@ -207,6 +232,40 @@ class Portfolio:
             Transaction(asset_id, quantity, price, 'SELL', tx_date, cost)
         )
 
+
+    def apply(self,
+              trade: TradeInstruction,
+              date: pd.Timestamp | None = None) -> None:
+        """Record one trade in the books.
+
+        The entry point for anything that has already *decided* a trade —
+        the engine, after sizing and pricing it. Dispatches to the buy/sell
+        accounting, which stays on the portfolio: weighted average cost,
+        closing at ~zero quantity, refusing entries that would push cash or
+        holdings negative are what make a ledger a ledger, wherever the
+        decision came from.
+
+        Args:
+            trade: The instruction, as the decider issued it.
+            date: Execution date. Defaults to now, as the underlying
+                accounting does.
+
+        Raises:
+            ValueError: If the side is neither ``"BUY"`` nor ``"SELL"`` —
+                refused rather than guessed, because silently ignoring an
+                unknown side would drop a trade from the record.
+        """
+        side = trade.side.upper()
+
+        if side == "BUY":
+            self.execute_buy(trade.asset_id, trade.quantity, trade.price,
+                             cost=trade.cost, date=date)
+        elif side == "SELL":
+            self.execute_sell(trade.asset_id, trade.quantity, trade.price,
+                              cost=trade.cost, date=date)
+        else:
+            raise ValueError(
+                f"Unknown trade side '{trade.side}'. Expected BUY or SELL.")
 
     def update_prices(self,
                       prices: dict[str, float]) -> None:

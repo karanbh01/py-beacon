@@ -341,3 +341,93 @@ class TestPortfolioIntegration:
         r = repr(portfolio)
         assert "test_portfolio" in r
         assert "num_holdings=1" in r
+
+
+class TestApply:
+    """BN-151: `apply(trade, date)` — the entry point for decided trades.
+
+    The engine decides (sizing, pricing, costs); the portfolio accounts. The
+    tests that matter are equivalence — a trade applied must produce exactly
+    the books the old five-argument call produced — and the import geometry,
+    which is most of why the move happened.
+    """
+
+    def build(self):
+        from beacon.portfolio.base import Portfolio
+
+        return Portfolio(portfolio_id="apply-test", initial_cash=100_000.0)
+
+    def test_a_buy_applies(self):
+        import pandas as pd
+
+        from beacon.portfolio.base import TradeInstruction
+
+        p = self.build()
+        p.apply(TradeInstruction("AAA", "BUY", 100.0, 50.0, 5.0),
+                pd.Timestamp("2024-01-10"))
+
+        assert p.holdings["AAA"].quantity == 100.0
+        assert p.cash_balance == 100_000.0 - 100.0 * 50.0 - 5.0
+
+    def test_a_sell_applies(self):
+        import pandas as pd
+
+        from beacon.portfolio.base import TradeInstruction
+
+        p = self.build()
+        p.apply(TradeInstruction("AAA", "BUY", 100.0, 50.0, 0.0),
+                pd.Timestamp("2024-01-10"))
+        p.apply(TradeInstruction("AAA", "SELL", 40.0, 60.0, 0.0),
+                pd.Timestamp("2024-02-10"))
+
+        assert p.holdings["AAA"].quantity == 60.0
+
+    def test_it_matches_the_direct_calls_exactly(self):
+        """A second spelling, not a second accounting. Same trades through
+        both paths must produce identical books."""
+        import pandas as pd
+
+        from beacon.portfolio.base import TradeInstruction
+
+        via_apply = self.build()
+        direct = self.build()
+        date = pd.Timestamp("2024-01-10")
+
+        via_apply.apply(TradeInstruction("AAA", "BUY", 100.0, 50.0, 7.5), date)
+        direct.execute_buy("AAA", 100.0, 50.0, cost=7.5, date=date)
+
+        assert via_apply.cash_balance == direct.cash_balance
+        assert (via_apply.holdings["AAA"].average_cost_price
+                == direct.holdings["AAA"].average_cost_price)
+        assert len(via_apply.transactions) == len(direct.transactions)
+
+    def test_an_unknown_side_is_refused(self):
+        """Refused rather than guessed: silently ignoring an unknown side
+        would drop a trade from the record."""
+        import pytest
+
+        from beacon.portfolio.base import TradeInstruction
+
+        with pytest.raises(ValueError, match="Unknown trade side"):
+            self.build().apply(TradeInstruction("AAA", "HOLD", 1.0, 1.0, 0.0))
+
+    def test_the_type_is_one_class_everywhere(self):
+        """The move's point: one definition in the ledger's layer, re-exported
+        upward. Two classes answering the same name would make isinstance
+        checks depend on the import path."""
+        from beacon.backtest.engine import TradeInstruction as from_engine
+        from beacon.backtest.rules import TradeInstruction as from_rules
+        from beacon.portfolio.base import TradeInstruction as from_portfolio
+
+        assert from_engine is from_portfolio
+        assert from_rules is from_portfolio
+
+    def test_the_type_checking_hack_is_gone(self):
+        """BN-151's other deliverable. The engine imports BacktestModifier
+        for real now; a reintroduced TYPE_CHECKING block would mean the
+        cycle is back."""
+        import inspect
+
+        import beacon.backtest.engine as engine
+
+        assert "TYPE_CHECKING" not in inspect.getsource(engine)

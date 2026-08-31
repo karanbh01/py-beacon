@@ -10,8 +10,7 @@ import pandas as pd
 from ..data.fetcher import DataFetcher
 from ..expressions.core import Expression
 from ..expressions.resolve import resolve
-from ..portfolio.base import Portfolio
-from .engine import TradeInstruction
+from ..portfolio.base import Portfolio, TradeInstruction
 
 logger = logging.getLogger(__name__)
 

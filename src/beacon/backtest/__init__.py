@@ -5,8 +5,9 @@ The __init__.py for the 'backtest' module.
 This module provides an engine for backtesting index methodologies
 and ETF tracking strategies.
 """
+from ..portfolio.base import TradeInstruction
 from .asset_view import BacktestAssetView
-from .engine import BacktestEngine, TradeInstruction
+from .engine import BacktestEngine
 from .result import BacktestResult, UnfilledOrder
 from .rules import BacktestModifier, DriftThresholdModifier
 
