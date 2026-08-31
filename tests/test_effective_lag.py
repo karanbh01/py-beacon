@@ -219,11 +219,11 @@ class TestBacktestTradesOnEffectiveDates:
         result = BacktestEngine(start_date=START, end_date=END,
                                 initial_capital=1_000_000.0,
                                 data_provider=dataset.data_fetcher(),
-                                target_index_result=lagged,
+                                index_result=lagged,
                                 transaction_cost_bps=0.0).run()
 
         traded = {pd.Timestamp(transaction.transaction_date)
-                  for transaction in result.transactions}
+                  for transaction in result.portfolio.transactions}
 
         announcements = set(lagged.announcement_dates.values())
         effectives = set(lagged.announcement_dates)

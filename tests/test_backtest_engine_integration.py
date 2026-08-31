@@ -136,7 +136,7 @@ def zero_cost_result(index_result,
         end_date=END_DATE,
         initial_capital=INITIAL_CAPITAL,
         data_provider=fetcher,
-        target_index_result=index_result,
+        index_result=index_result,
         transaction_cost_bps=0.0,
     )
     return engine.run()
@@ -150,7 +150,7 @@ def costed_result(index_result,
         end_date=END_DATE,
         initial_capital=INITIAL_CAPITAL,
         data_provider=fetcher,
-        target_index_result=index_result,
+        index_result=index_result,
         transaction_cost_bps=50.0,  # 0.5% per trade
     )
     return engine.run()
@@ -168,18 +168,18 @@ class TestPipelineAgainstIndex:
 
     def test_covers_all_trading_days(self,
                                      zero_cost_result):
-        assert len(zero_cost_result.portfolio_nav) == len(TRADING_DAYS)
+        assert len(zero_cost_result.trading_nav) == len(TRADING_DAYS)
 
     def test_first_nav_matches_base_value(self,
                                           zero_cost_result):
         """Fully invested on day 0 -> NAV equals initial capital."""
-        assert zero_cost_result.portfolio_nav.iloc[0] == pytest.approx(BASE_VALUE, rel=1e-9)
+        assert zero_cost_result.trading_nav.iloc[0] == pytest.approx(BASE_VALUE, rel=1e-9)
 
     def test_zero_cost_nav_tracks_index(self,
                                         zero_cost_result,
                                         index_result):
         """Zero-cost NAV should closely replicate the index level path."""
-        nav = zero_cost_result.portfolio_nav
+        nav = zero_cost_result.trading_nav
         levels = index_result.index_levels.reindex(nav.index)
         rel_dev = ((nav - levels) / levels).abs()
         assert rel_dev.max() < 1e-6
@@ -207,12 +207,12 @@ class TestTransactionCosts:
                                        costed_result,
                                        zero_cost_result):
         """Costs drag on performance -> final NAV must be lower."""
-        assert costed_result.portfolio_nav.iloc[-1] < zero_cost_result.portfolio_nav.iloc[-1]
+        assert costed_result.trading_nav.iloc[-1] < zero_cost_result.trading_nav.iloc[-1]
 
     def test_costed_nav_lags_index(self,
                                    costed_result,
                                    index_result):
-        assert costed_result.portfolio_nav.iloc[-1] < index_result.index_levels.iloc[-1]
+        assert costed_result.trading_nav.iloc[-1] < index_result.index_levels.iloc[-1]
 
     def test_costed_tracking_difference_negative(self,
                                                  costed_result):
@@ -222,7 +222,7 @@ class TestTransactionCosts:
 
     def test_transaction_costs_recorded(self,
                                         costed_result):
-        total_cost = sum(t.transaction_cost for t in costed_result.transactions)
+        total_cost = sum(t.transaction_cost for t in costed_result.portfolio.transactions)
         assert total_cost > 0.0
 
 
@@ -234,18 +234,18 @@ class TestTransactionTimingAndOrdering:
 
     def test_transactions_only_on_rebalance_dates(self,
                                                   zero_cost_result):
-        txn_dates = {t.transaction_date for t in zero_cost_result.transactions}
+        txn_dates = {t.transaction_date for t in zero_cost_result.portfolio.transactions}
         assert txn_dates.issubset(set(REBALANCE_DATES))
 
     def test_every_rebalance_date_has_transactions(self,
                                                    zero_cost_result):
-        txn_dates = {t.transaction_date for t in zero_cost_result.transactions}
+        txn_dates = {t.transaction_date for t in zero_cost_result.portfolio.transactions}
         assert txn_dates == set(REBALANCE_DATES)
 
     def test_first_rebalance_is_all_buys(self,
                                          zero_cost_result):
         """Investing from cash on day 0 produces buys for both assets."""
-        first = [t for t in zero_cost_result.transactions
+        first = [t for t in zero_cost_result.portfolio.transactions
                  if t.transaction_date == REBALANCE_DATES[0]]
         assert len(first) == 2
         assert all(t.transaction_type == "BUY" for t in first)
@@ -254,7 +254,7 @@ class TestTransactionTimingAndOrdering:
     def test_sells_before_buys_on_each_rebalance(self,
                                                  zero_cost_result):
         """Within any rebalance date, all sells are appended before buys."""
-        txns = zero_cost_result.transactions
+        txns = zero_cost_result.portfolio.transactions
         for rdate in REBALANCE_DATES:
             positions = [i for i, t in enumerate(txns) if t.transaction_date == rdate]
             sides = [txns[i].transaction_type for i in positions]
@@ -266,7 +266,7 @@ class TestTransactionTimingAndOrdering:
     def test_later_rebalance_rotates_weights(self,
                                              zero_cost_result):
         """Price drift makes ASSET_B overweight -> sell B, buy A at rebalance."""
-        second = [t for t in zero_cost_result.transactions
+        second = [t for t in zero_cost_result.portfolio.transactions
                   if t.transaction_date == REBALANCE_DATES[1]]
         sells = [t for t in second if t.transaction_type == "SELL"]
         buys = [t for t in second if t.transaction_type == "BUY"]
@@ -295,9 +295,9 @@ class TestCustomWeightTarget:
         result = engine.run()
 
         assert isinstance(result, BacktestResult)
-        assert len(result.transactions) > 0
+        assert len(result.portfolio.transactions) > 0
         # No index bound -> no target-relative metrics.
-        assert result.target_index_result is None
+        assert result.index is None
 
     def test_custom_weights_match_index_when_equal(self,
                                                    fetcher):
@@ -311,8 +311,8 @@ class TestCustomWeightTarget:
             target_weights=target_weights,
         )
         result = engine.run()
-        levels = _reference_index_levels().reindex(result.portfolio_nav.index)
-        rel_dev = ((result.portfolio_nav - levels) / levels).abs()
+        levels = _reference_index_levels().reindex(result.trading_nav.index)
+        rel_dev = ((result.trading_nav - levels) / levels).abs()
         assert rel_dev.max() < 1e-6
 
 

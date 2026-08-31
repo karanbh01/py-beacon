@@ -656,14 +656,19 @@ class TestReturnLevelRoundTrip:
         dates = pd.bdate_range("2025-01-02", periods=len(values))
         nav = pd.Series(values, index=dates)
 
-        result = BacktestResult(
-            portfolio_id="TEST",
-            initial_capital=nav.iloc[0],
-            portfolio_nav=nav,
-            cash_history=nav.copy(),
-            transactions=[],
-            actual_weight_history=pd.DataFrame(index=dates),
-        )
+        # The books enforce NAV == holdings + cash, so the fixture holds the
+        # whole NAV as cash: the property under test is about the return
+        # arithmetic, not the composition.
+        from beacon.portfolio.base import Portfolio
+
+        eve = dates[0] - pd.tseries.offsets.BDay(1)
+        portfolio = Portfolio(portfolio_id="TEST",
+                              initial_cash=float(nav.iloc[0]),
+                              inception=eve)
+        for date, value in nav.items():
+            portfolio._history.record(date, {}, float(value))
+
+        result = BacktestResult(portfolio=portfolio)
 
         returns = result.get_returns()
         recompounded = nav.iloc[0] * (1.0 + returns).cumprod()

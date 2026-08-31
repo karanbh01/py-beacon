@@ -395,7 +395,7 @@ class TestTheEngineConvertsCurrency:
         backtest = BacktestEngine(
             start_date="2021-01-04", end_date="2021-12-31",
             initial_capital=1e7, data_provider=fetcher,
-            target_index_result=index, transaction_cost_bps=0.0).run()
+            index_result=index, transaction_cost_bps=0.0).run()
 
         tracking = backtest.summary()["tracking_error"]
 

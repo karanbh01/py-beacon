@@ -133,8 +133,8 @@ class TestEngineModifierIntegration:
                                 modifiers=[modifier])
         result = engine.run()
         # No trades should happen
-        assert len(result.transactions) == 0
-        assert result.cash_history.iloc[-1] == pytest.approx(10000.0)
+        assert len(result.portfolio.transactions) == 0
+        assert result.portfolio.cash.iloc[-1] == pytest.approx(10000.0)
 
     def test_modifier_allows_rebalance(self):
         """With a tiny drift threshold, rebalance always proceeds."""
@@ -146,9 +146,10 @@ class TestEngineModifierIntegration:
                                 10000.0, dp, target_weights=w,
                                 modifiers=[modifier])
         result = engine.run()
-        assert len(result.transactions) > 0
-        # Should be fully invested
-        assert result.cash_history.iloc[0] == pytest.approx(0.0, abs=1.0)
+        assert len(result.portfolio.transactions) > 0
+        # Should be fully invested on the first trading day; iloc[0] is now
+        # the day-zero row, which records the capital before anything traded.
+        assert result.portfolio.cash.loc[DATES[0]] == pytest.approx(0.0, abs=1.0)
 
     def test_custom_modifier_adjust_trades(self):
         """A custom modifier that filters out sells."""
@@ -180,7 +181,7 @@ class TestEngineModifierIntegration:
                                 modifiers=[NoSellModifier()])
         result = engine.run()
         # A should still be held since sells were filtered out
-        sell_txns = [t for t in result.transactions if t.transaction_type == "SELL"]
+        sell_txns = [t for t in result.portfolio.transactions if t.transaction_type == "SELL"]
         assert len(sell_txns) == 0
 
     def test_no_modifiers_by_default(self):

@@ -77,7 +77,7 @@ def charts():
 
     backtest = BacktestEngine(
         start_date=dataset.START, end_date=END, initial_capital=10_000_000.0,
-        data_provider=fetcher, target_index_result=index_result,
+        data_provider=fetcher, index_result=index_result,
         transaction_cost_bps=10.0).run()
 
     prices = dataset.prices().loc[:END]

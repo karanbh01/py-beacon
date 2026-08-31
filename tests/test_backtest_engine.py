@@ -75,15 +75,15 @@ class TestConstruction:
         idx = _make_index_result({DATES[0]: {"A": 0.5}})
         with pytest.raises(ValueError, match="not both"):
             BacktestEngine("2025-01-02", "2025-01-10", 10000.0, dp,
-                           target_index_result=idx,
+                           index_result=idx,
                            target_weights={DATES[0]: {"A": 0.5}})
 
     def test_accepts_index_result(self):
         dp = MagicMock()
         idx = _make_index_result({DATES[0]: {"A": 0.5}})
         engine = BacktestEngine("2025-01-02", "2025-01-10", 10000.0, dp,
-                                target_index_result=idx)
-        assert engine.target_index_result is idx
+                                index_result=idx)
+        assert engine.index_result is idx
 
     def test_accepts_custom_weights(self):
         dp = MagicMock()
@@ -115,7 +115,7 @@ class TestRunBasic:
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
                                 10000.0, dp, target_weights=w)
         result = engine.run()
-        assert len(result.portfolio_nav) == len(DATES)
+        assert len(result.trading_nav) == len(DATES)
 
     def test_cash_history_length(self):
         prices = {"A": {d.strftime("%Y-%m-%d"): 100.0 for d in DATES}}
@@ -124,7 +124,10 @@ class TestRunBasic:
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
                                 10000.0, dp, target_weights=w)
         result = engine.run()
-        assert len(result.cash_history) == len(DATES)
+        # One row per trading day, plus the day-zero row on the eve: the
+        # books record what the run started with (decision 11).
+        assert len(result.portfolio.cash) == len(DATES) + 1
+        assert result.portfolio.cash.iloc[0] == pytest.approx(10000.0)
 
     def test_empty_date_range(self):
         dp = MagicMock()
@@ -133,7 +136,7 @@ class TestRunBasic:
         engine = BacktestEngine("2025-01-04", "2025-01-05",
                                 10000.0, dp, target_weights=w)
         result = engine.run()
-        assert result.portfolio_nav.empty
+        assert result.trading_nav.empty
 
     def test_initial_capital_stored(self):
         prices = {"A": {d.strftime("%Y-%m-%d"): 100.0 for d in DATES}}
@@ -142,7 +145,7 @@ class TestRunBasic:
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
                                 10000.0, dp, target_weights=w)
         result = engine.run()
-        assert result.initial_capital == 10000.0
+        assert result.portfolio.initial_capital == 10000.0
 
 
 # ---------------------------------------------------------------------------
@@ -159,8 +162,10 @@ class TestRebalancing:
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
                                 10000.0, dp, target_weights=w)
         result = engine.run()
-        # After first day rebalance, cash should be ~0
-        assert result.cash_history.iloc[0] == pytest.approx(0.0, abs=1.0)
+        # After first day rebalance, cash should be ~0. Read on the first
+        # trading date -- iloc[0] is now the day-zero row, which records the
+        # capital before anything traded.
+        assert result.portfolio.cash.loc[DATES[0]] == pytest.approx(0.0, abs=1.0)
 
     def test_two_asset_split(self):
         """50/50 split between two assets."""
@@ -174,7 +179,7 @@ class TestRebalancing:
                                 10000.0, dp, target_weights=w)
         result = engine.run()
         # NAV should stay at 10000 (prices don't change)
-        assert result.portfolio_nav.iloc[-1] == pytest.approx(10000.0, abs=1.0)
+        assert result.trading_nav.iloc[-1] == pytest.approx(10000.0, abs=1.0)
 
     def test_sells_before_buys(self):
         """Rotation from A to B should work — sells free up cash for buys."""
@@ -191,9 +196,9 @@ class TestRebalancing:
                                 10000.0, dp, target_weights=w)
         result = engine.run()
         # After rotation, should still have ~10000 total
-        assert result.portfolio_nav.iloc[-1] == pytest.approx(10000.0, abs=1.0)
+        assert result.trading_nav.iloc[-1] == pytest.approx(10000.0, abs=1.0)
         # Transactions: buy A, sell A, buy B = 3
-        assert len(result.transactions) == 3
+        assert len(result.portfolio.transactions) == 3
 
     def test_price_appreciation_reflected_in_nav(self):
         """Rising prices should increase NAV."""
@@ -206,7 +211,7 @@ class TestRebalancing:
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
                                 10000.0, dp, target_weights=w)
         result = engine.run()
-        assert result.portfolio_nav.iloc[-1] > result.portfolio_nav.iloc[0]
+        assert result.trading_nav.iloc[-1] > result.trading_nav.iloc[0]
 
     def test_no_rebalance_without_schedule(self):
         """If rebalance date is outside range, portfolio stays cash."""
@@ -217,8 +222,8 @@ class TestRebalancing:
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
                                 10000.0, dp, target_weights=w)
         result = engine.run()
-        assert len(result.transactions) == 0
-        assert result.cash_history.iloc[-1] == pytest.approx(10000.0)
+        assert len(result.portfolio.transactions) == 0
+        assert result.portfolio.cash.iloc[-1] == pytest.approx(10000.0)
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +239,9 @@ class TestWeightHistory:
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
                                 10000.0, dp, target_weights=w)
         result = engine.run()
-        assert "A_weight" in result.actual_weight_history.columns
+        # Plain asset ids, not the old "{id}_weight" suffix: the wide frame
+        # is a pivot of the positions panel, shaped for cross-book arithmetic.
+        assert "A" in result.portfolio.weights.columns
 
 
 # ---------------------------------------------------------------------------
@@ -248,9 +255,14 @@ class TestIndexResultIntegration:
         dp = _mock_data_provider(prices)
         idx = _make_index_result({DATES[0]: {"A": 1.0}})
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_index_result=idx)
+                                10000.0, dp, index_result=idx)
         result = engine.run()
-        assert result.target_index_result is idx
+        # The result holds a Book over the index, not the raw IndexResult:
+        # every comparator answers through the same levels/weights spelling,
+        # and the source stays reachable for snapshot-era access.
+        assert result.index is not None
+        assert result.index.source is idx
+        assert result.index.levels.equals(idx.index_levels)
 
     def test_custom_weights_no_target(self):
         prices = {"A": {d.strftime("%Y-%m-%d"): 100.0 for d in DATES}}
@@ -259,7 +271,7 @@ class TestIndexResultIntegration:
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
                                 10000.0, dp, target_weights=w)
         result = engine.run()
-        assert result.target_index_result is None
+        assert result.index is None
 
 
 # ---------------------------------------------------------------------------
@@ -409,9 +421,9 @@ class TestGenerateTrades:
         result = engine.run()
         # Buy 50 shares at $100 = $5000 notional, cost = $50
         # NAV = 5000 (holdings) + 5000 - 5000 - 50 (cash) = 9950
-        assert result.portfolio_nav.iloc[-1] == pytest.approx(9950.0, abs=1.0)
+        assert result.trading_nav.iloc[-1] == pytest.approx(9950.0, abs=1.0)
         # Verify the transaction cost was recorded
-        buy_txns = [t for t in result.transactions if t.transaction_type == "BUY"]
+        buy_txns = [t for t in result.portfolio.transactions if t.transaction_type == "BUY"]
         assert len(buy_txns) == 1
         assert buy_txns[0].transaction_cost == pytest.approx(50.0)
 
@@ -452,8 +464,16 @@ class TestPortfolioOfRecord:
 
         return built
 
-    def test_the_books_open_on_the_start_date(self,
-                                              monkeypatch):
+    def test_the_books_open_on_the_eve_of_the_run(self,
+                                                  monkeypatch):
+        """Day zero is the EVE of the first trading day, not the start date.
+
+        The start date is usually itself a trading day, and history keeps the
+        last write per date -- an inception row dated the first trading day
+        would be overwritten by that day's close mark, and the record of what
+        the run started with would be gone. BN-152 wired inception to the
+        start date; this run resolved the collision (decision 11).
+        """
         built = self._spy_on_portfolio(monkeypatch)
         prices = {"A": {d.strftime("%Y-%m-%d"): 100.0 for d in DATES}}
         dp = _mock_data_provider(prices)
@@ -462,11 +482,14 @@ class TestPortfolioOfRecord:
                        10000.0, dp, target_weights={DATES[0]: {"A": 1.0}}).run()
 
         portfolio = built[0]
+        eve = DATES[0] - pd.tseries.offsets.BDay(1)
 
-        assert portfolio.inception == DATES[0]
+        assert portfolio.inception == eve
         assert portfolio.initial_capital == 10000.0
-        assert portfolio.nav.index[0] == DATES[0]
+        assert portfolio.nav.index[0] == eve
         assert portfolio.nav.iloc[0] == pytest.approx(10000.0)
+        # The first trading day's row survives beside it, marked to market.
+        assert portfolio.nav.index[1] == DATES[0]
 
     def test_a_finished_run_freezes_its_books(self,
                                               monkeypatch):
@@ -490,3 +513,62 @@ class TestPortfolioOfRecord:
                        target_weights={DATES[0]: {"A": 1.0}}).run()
 
         assert built[0].frozen is True
+
+
+class TestComparatorsOfRecord:
+    """BN-154, decision 13: what the run was measured against is a fact
+    about the run, stored so every reader quotes the same numbers."""
+
+    def _run(self, **kwargs):
+        prices = {"A": {d.strftime("%Y-%m-%d"): 100.0 for d in DATES}}
+        dp = _mock_data_provider(prices)
+        engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
+                                10000.0, dp,
+                                target_weights={DATES[0]: {"A": 1.0}},
+                                **kwargs)
+        return engine.run()
+
+    def test_no_benchmark_means_no_benchmark_book(self):
+        result = self._run()
+
+        assert result.benchmark is None
+        assert result.target_index is None
+
+    def test_a_benchmark_series_becomes_the_book_of_record(self):
+        levels = pd.Series([100.0, 101.0, 102.0, 101.5, 103.0], index=DATES)
+        result = self._run(benchmark=levels)
+
+        assert result.benchmark is not None
+        assert result.benchmark.levels.equals(levels.astype(float))
+        # A bare series carries no composition; none is invented.
+        assert result.benchmark.weights.empty
+
+    def test_a_benchmark_index_keeps_its_source(self):
+        idx = _make_index_result({DATES[0]: {"A": 1.0}})
+        result = self._run(benchmark=idx)
+
+        assert result.benchmark is not None
+        assert result.benchmark.source is idx
+
+    def test_a_target_index_becomes_its_own_book(self):
+        """Post-selection, pre-optimisation: the comparison an optimisation
+        run is judged by, first-class rather than a manual join."""
+        idx = _make_index_result({DATES[0]: {"A": 1.0}})
+        result = self._run(target_index=idx)
+
+        assert result.target_index is not None
+        assert result.target_index.source is idx
+
+    def test_the_engine_never_trades_on_a_comparator(self):
+        """A benchmark is a yardstick, not an instruction: the trades of a
+        run with one are identical to the trades of a run without."""
+        bare = self._run()
+        measured = self._run(benchmark=pd.Series(
+            [100.0, 101.0, 102.0, 101.5, 103.0], index=DATES))
+
+        bare_trades = [(t.asset_id, t.transaction_type, t.quantity)
+                       for t in bare.portfolio.transactions]
+        measured_trades = [(t.asset_id, t.transaction_type, t.quantity)
+                           for t in measured.portfolio.transactions]
+
+        assert bare_trades == measured_trades

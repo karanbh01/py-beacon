@@ -537,12 +537,24 @@ class TestResultSchemas:
                                   transaction_type="BUY",
                                   transaction_date=DATES[0],
                                   transaction_cost=1.0)
-        result = BacktestResult(portfolio_id="bt",
-                                initial_capital=1000.0,
-                                portfolio_nav=nav,
-                                cash_history=cash,
-                                transactions=[transaction],
-                                actual_weight_history=pd.DataFrame())
+        from beacon.portfolio.base import Holding, Portfolio
+
+        eve = nav.index[0] - pd.tseries.offsets.BDay(1)
+        portfolio = Portfolio(portfolio_id="bt", initial_cash=1000.0,
+                              inception=eve)
+        for date, value in nav.items():
+            # The books enforce NAV == holdings + cash, so the holding
+            # carries whatever the cash does not.
+            invested = float(value) - float(cash.loc[date])
+            holding = Holding(asset_id="NAV", quantity=1.0,
+                              average_cost_price=invested,
+                              current_price=invested,
+                              market_value=invested)
+            portfolio._history.record(date, {"NAV": holding},
+                                      float(cash.loc[date]))
+        portfolio.transactions.append(transaction)
+
+        result = BacktestResult(portfolio=portfolio)
 
         payload = BacktestResultSummary.from_result(result).model_dump()
 

@@ -172,6 +172,23 @@ class Portfolio:
         return self._history.positions
 
     @property
+    def weights(self) -> pd.DataFrame:
+        """The stored weights, wide: dates by asset.
+
+        A pivot of the positions panel's `WEIGHT` column — the same recorded
+        numbers, shaped for cross-book arithmetic: `portfolio.weights`
+        subtracts cleanly against an index book's weights because both are
+        date-by-asset frames (decision 5).
+        """
+        positions = self.positions
+
+        if positions.empty:
+            return pd.DataFrame()
+
+        return positions.pivot_table(index="DATE", columns="ASSET_ID",
+                                     values="WEIGHT", observed=True)
+
+    @property
     def cash(self) -> pd.Series:
         """The cash balance on every recorded date."""
         return self._history.cash

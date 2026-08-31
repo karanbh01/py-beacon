@@ -202,7 +202,7 @@ class TestIndexFundNav:
         result = index_fund.run_backtest(end_date=END_DATE)
         assert index_fund.backtest_result is result
         assert index_fund.index_result is not None
-        assert len(result.portfolio_nav) == N_DAYS
+        assert len(result.trading_nav) == N_DAYS
 
     def test_nav_on_base_date_equals_initial_capital(self,
                                                      index_fund):
@@ -214,7 +214,7 @@ class TestIndexFundNav:
                                              index_fund):
         index_fund.run_backtest(end_date=END_DATE)
         nav = index_fund.calculate_nav(pd.Timestamp(END_DATE))
-        expected = index_fund.backtest_result.portfolio_nav.iloc[-1]
+        expected = index_fund.backtest_result.trading_nav.iloc[-1]
         assert nav == pytest.approx(expected)
 
     def test_nav_grows_with_appreciating_assets(self,
@@ -276,7 +276,7 @@ class TestIndexFundFee:
                          data_provider, management_fee_bps=fee_bps)
         fund.run_backtest(end_date=END_DATE)
 
-        gross = fund.backtest_result.portfolio_nav.iloc[-1]
+        gross = fund.backtest_result.trading_nav.iloc[-1]
         net = fund.calculate_nav(pd.Timestamp(END_DATE))
 
         daily_rate = (fee_bps / 10000.0) / 252.0

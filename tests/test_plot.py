@@ -68,7 +68,7 @@ def backtest(index_result):
     return BacktestEngine(start_date=dataset.START, end_date=END,
                           initial_capital=10_000_000.0,
                           data_provider=dataset.data_fetcher(),
-                          target_index_result=index_result,
+                          index_result=index_result,
                           transaction_cost_bps=10.0).run()
 
 

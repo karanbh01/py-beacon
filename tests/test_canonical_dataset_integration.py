@@ -66,7 +66,7 @@ def backtest_result(index_result,
         end_date=dataset.END,
         initial_capital=INITIAL_CAPITAL,
         data_provider=fetcher,
-        target_index_result=index_result,
+        index_result=index_result,
         transaction_cost_bps=0.0,
     ).run()
 
@@ -123,16 +123,16 @@ class TestBacktest:
 
     def test_the_nav_series_spans_the_run(self,
                                           backtest_result):
-        assert len(backtest_result.portfolio_nav) > 700
+        assert len(backtest_result.trading_nav) > 700
 
     def test_it_starts_at_the_initial_capital(self,
                                               backtest_result):
-        assert backtest_result.portfolio_nav.iloc[0] == pytest.approx(
+        assert backtest_result.trading_nav.iloc[0] == pytest.approx(
             INITIAL_CAPITAL, rel=1e-6)
 
     def test_trading_actually_happened(self,
                                        backtest_result):
-        assert len(backtest_result.transactions) > 0
+        assert len(backtest_result.portfolio.transactions) > 0
 
     def test_it_tracks_the_index_closely_at_zero_cost(self,
                                                       backtest_result):

@@ -96,10 +96,10 @@ class ETF(IndexFund):
                                  result: BacktestResult) -> dict[str, float | str]:
         """Calculate tracking metrics from a completed backtest.
 
-        Compares the backtest's ``portfolio_nav`` against the target index's
+        Compares the backtest's ``trading_nav`` against the tracked index's
         ``index_levels`` using the tracking methods built into
         :class:`~beacon.backtest.result.BacktestResult`. The *result* must carry
-        a ``target_index_result`` for the comparison to be possible.
+        an ``index_result`` for the comparison to be possible.
 
         Args:
             result: A BacktestResult produced by tracking this ETF's index. It

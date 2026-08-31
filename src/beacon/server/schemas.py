@@ -219,7 +219,7 @@ class BacktestResultSummary(BaseModel):
                 "price": transaction.price,
                 "cost": transaction.transaction_cost,
             }
-            for transaction in result.transactions
+            for transaction in result.portfolio.transactions
         ]
         frame = pd.DataFrame(
             rows,
@@ -235,10 +235,21 @@ class BacktestResultSummary(BaseModel):
             tracking_error=summary.get("tracking_error"),
             tracking_difference=summary.get("tracking_difference"))
 
-        return cls(portfolio_id=result.portfolio_id,
-                   initial_capital=result.initial_capital,
-                   portfolio_nav=SeriesPayload.from_series(result.portfolio_nav),
-                   cash_history=SeriesPayload.from_series(result.cash_history),
+        # The flat wire shape survives BN-154 deliberately: the payload
+        # reads the new books but serialises the old field names, so
+        # beacon-ui keeps working until #168 changes the shape once. Cash is
+        # sliced the same way trading_nav is -- the day-zero row is a
+        # starting fact, and including it would change the payload under a
+        # client that has not been told.
+        cash = result.portfolio.cash
+        if (result.portfolio.inception is not None and not cash.empty
+                and cash.index[0] == result.portfolio.inception):
+            cash = cash.iloc[1:]
+
+        return cls(portfolio_id=result.portfolio.portfolio_id,
+                   initial_capital=result.portfolio.initial_capital,
+                   portfolio_nav=SeriesPayload.from_series(result.trading_nav),
+                   cash_history=SeriesPayload.from_series(cash),
                    transactions=TableFrame.from_dataframe(frame),
                    metrics=metrics)
 

@@ -126,7 +126,7 @@ def _backtest(index_result,
         end_date=END_DATE,
         initial_capital=INITIAL_CAPITAL,
         data_provider=fetcher,
-        target_index_result=index_result,
+        index_result=index_result,
         transaction_cost_bps=cost_bps,
     ).run()
 
@@ -174,13 +174,17 @@ class TestPipelineSetup:
                                              zero_cost_result):
         r = zero_cost_result
         assert isinstance(r, BacktestResult)
-        assert isinstance(r.portfolio_nav, pd.Series)
-        assert isinstance(r.cash_history, pd.Series)
-        assert isinstance(r.actual_weight_history, pd.DataFrame)
-        assert len(r.portfolio_nav) == N_DAYS
-        assert len(r.cash_history) == N_DAYS
-        assert r.transactions and all(isinstance(t, Transaction) for t in r.transactions)
-        assert r.target_index_result is not None
+        assert isinstance(r.trading_nav, pd.Series)
+        assert isinstance(r.portfolio.cash, pd.Series)
+        assert isinstance(r.portfolio.weights, pd.DataFrame)
+        assert len(r.trading_nav) == N_DAYS
+        # The cash panel carries one extra row: day zero on the eve, the
+        # record of what the run started with (decision 11).
+        assert len(r.portfolio.cash) == N_DAYS + 1
+        assert r.portfolio.cash.iloc[0] == r.portfolio.initial_capital
+        transactions = r.portfolio.transactions
+        assert transactions and all(isinstance(t, Transaction) for t in transactions)
+        assert r.index is not None
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +210,7 @@ class TestTracking:
                                    costed_result):
         # Trading costs drag on the portfolio: lower final NAV and a more
         # negative tracking difference than the zero-cost run.
-        assert costed_result.portfolio_nav.iloc[-1] < zero_cost_result.portfolio_nav.iloc[-1]
+        assert costed_result.trading_nav.iloc[-1] < zero_cost_result.trading_nav.iloc[-1]
         assert costed_result.get_tracking_difference() < zero_cost_result.get_tracking_difference()
 
     def test_summary_reports_metrics(self,
@@ -229,14 +233,14 @@ class TestPipelineConsistency:
                                                   zero_cost_result,
                                                   index_result):
         rebalance_dates = set(index_result.weight_snapshots.keys())
-        txn_dates = {t.transaction_date for t in zero_cost_result.transactions}
+        txn_dates = {t.transaction_date for t in zero_cost_result.portfolio.transactions}
         assert txn_dates.issubset(rebalance_dates)
 
     def test_nav_starts_at_initial_capital(self,
                                            zero_cost_result):
-        assert zero_cost_result.portfolio_nav.iloc[0] == pytest.approx(INITIAL_CAPITAL, rel=1e-6)
+        assert zero_cost_result.trading_nav.iloc[0] == pytest.approx(INITIAL_CAPITAL, rel=1e-6)
 
     def test_index_and_portfolio_share_dates(self,
                                              zero_cost_result,
                                              index_result):
-        assert list(zero_cost_result.portfolio_nav.index) == list(index_result.index_levels.index)
+        assert list(zero_cost_result.trading_nav.index) == list(index_result.index_levels.index)

@@ -126,15 +126,15 @@ class IndexFund:
             end_date=end_date,
             initial_capital=self.portfolio.cash_balance,
             data_provider=self.data_provider,
-            target_index_result=self._index_result,
+            index_result=self._index_result,
             transaction_cost_bps=transaction_cost_bps,
         )
         self._backtest_result = engine.run()
 
         logger.info(
             f"Fund '{self.fund_id}': backtest complete "
-            f"({len(self._backtest_result.portfolio_nav)} days, "
-            f"{len(self._backtest_result.transactions)} transactions)."
+            f"({len(self._backtest_result.trading_nav)} days, "
+            f"{len(self._backtest_result.portfolio.transactions)} transactions)."
         )
         return self._backtest_result
 
@@ -160,7 +160,7 @@ class IndexFund:
             # Nothing to simulate before the index exists.
             return
 
-        nav = self._backtest_result.portfolio_nav if self._backtest_result else None
+        nav = self._backtest_result.trading_nav if self._backtest_result else None
         if nav is not None and not nav.empty and nav.index[-1] >= through_date:
             return  # Cached result already covers the requested date.
 
@@ -186,11 +186,17 @@ class IndexFund:
         ts = pd.Timestamp(current_date)
         self._ensure_backtest(ts)
 
-        if self._backtest_result is None or self._backtest_result.portfolio_nav.empty:
+        if self._backtest_result is None or self._backtest_result.trading_nav.empty:
             # Date precedes the simulation window — only seed capital exists.
             return float(self.portfolio.cash_balance)
 
-        nav_series = self._backtest_result.portfolio_nav
+        # The trading NAV, deliberately: the fee accrues over elapsed
+        # NAV-series days, and the day-zero row (decision 11) is a starting
+        # fact, not an elapsed day. Reading it here would shift every day
+        # count by one and change accrued fees; excluding it keeps them
+        # bit-identical to the pre-redesign series -- the fund tests are the
+        # proof.
+        nav_series = self._backtest_result.trading_nav
         on_or_before = nav_series.index[nav_series.index <= ts]
         if len(on_or_before) == 0:
             return float(self.portfolio.cash_balance)

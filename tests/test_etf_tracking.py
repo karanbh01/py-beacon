@@ -54,14 +54,26 @@ def _make_backtest_result(nav_series,
             constituent_snapshots={DATES[0]: ["A"]},
             weight_snapshots={DATES[0]: {"A": 1.0}},
         )
+    # A portfolio whose recorded NAV follows the series exactly: one
+    # holding marked to the NAV, cash zero, written through the history
+    # recorder the engine drives.
+    from beacon.backtest.result import Book
+    from beacon.portfolio.base import Holding
+
+    eve = nav_series.index[0] - pd.tseries.offsets.BDay(1)
+    portfolio = Portfolio(portfolio_id="etf_pf", initial_cash=100.0,
+                          inception=eve)
+
+    for date, value in nav_series.items():
+        holding = Holding(asset_id="NAV", quantity=1.0,
+                          average_cost_price=float(value),
+                          current_price=float(value),
+                          market_value=float(value))
+        portfolio._history.record(date, {"NAV": holding}, 0.0)
+
     return BacktestResult(
-        portfolio_id="etf_pf",
-        initial_capital=100.0,
-        portfolio_nav=nav_series,
-        cash_history=pd.Series(0.0, index=nav_series.index),
-        transactions=[],
-        actual_weight_history=pd.DataFrame(index=nav_series.index),
-        target_index_result=target,
+        portfolio=portfolio,
+        index=Book.from_index(target) if target is not None else None,
     )
 
 

@@ -44,7 +44,7 @@ METRIC_LABELS = ("Total return", "Volatility", "Max drawdown")
 
 def _level_of(result: Any) -> pd.Series:
     """The level series a result carries, whichever kind it is."""
-    for attribute in ("index_levels", "portfolio_nav"):
+    for attribute in ("index_levels", "trading_nav"):
         series = getattr(result, attribute, None)
         if series is not None and len(series):
             return pd.Series(series).astype(float)
@@ -61,6 +61,13 @@ def _label_of(result: Any,
         name = getattr(result, attribute, None)
         if name:
             return str(name)
+
+    # A BacktestResult names its portfolio through the books (decision 15:
+    # the id has one home, on the portfolio).
+    portfolio = getattr(result, "portfolio", None)
+    name = getattr(portfolio, "portfolio_id", None)
+    if name:
+        return str(name)
 
     return f"Series {position + 1}"
 

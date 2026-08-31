@@ -14,7 +14,7 @@ from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 # here as well so `from beacon.backtest.engine import TradeInstruction` keeps
 # working -- and because the engine is its main producer.
 from ..portfolio.base import Holding, Portfolio, TradeInstruction
-from .result import BacktestResult, UnfilledOrder
+from .result import BacktestResult, Book, UnfilledOrder
 from .rules import BacktestModifier
 
 # Reused from the portfolio rather than redefined: the engine decides whether
@@ -42,12 +42,12 @@ class BacktestEngine:
         end_date: The end date of the backtest (YYYY-MM-DD).
         initial_capital: The starting capital for the backtest.
         data_provider: Data source for market prices.
-        target_index_result: An IndexResult whose weight_snapshots provide
+        index_result: An IndexResult whose weight_snapshots provide
             the rebalance schedule and target weights. Mutually exclusive
             with *target_weights*.
         target_weights: Custom weight schedule as a mapping of
             ``pd.Timestamp -> Dict[str, float]``. Mutually exclusive with
-            *target_index_result*.
+            *index_result*.
         price_column: Column name to read from market data. Defaults to
             ``"CLOSE"``.
         transaction_cost_bps: Transaction cost in basis points applied to
@@ -60,26 +60,34 @@ class BacktestEngine:
                  end_date: str,
                  initial_capital: float,
                  data_provider: DataFetcher,
-                 target_index_result: IndexResult | None = None,
+                 index_result: IndexResult | None = None,
                  target_weights: dict[pd.Timestamp, dict[str, float]] | None = None,
                  price_column: str = "CLOSE",
                  currency: str = "USD",
                  transaction_cost_bps: float = 0.0,
-                 modifiers: list[BacktestModifier] | None = None):
-        if target_index_result is not None and target_weights is not None:
+                 modifiers: list[BacktestModifier] | None = None,
+                 benchmark: IndexResult | pd.Series | None = None,
+                 target_index: IndexResult | None = None):
+        if index_result is not None and target_weights is not None:
             raise ValueError(
-                "Provide either target_index_result or target_weights, not both."
+                "Provide either index_result or target_weights, not both."
             )
-        if target_index_result is None and target_weights is None:
+        if index_result is None and target_weights is None:
             raise ValueError(
-                "One of target_index_result or target_weights must be provided."
+                "One of index_result or target_weights must be provided."
             )
 
         self.start_date: pd.Timestamp = pd.Timestamp(start_date)
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
         self.initial_capital: float = initial_capital
         self.data_provider: DataFetcher = data_provider
-        self.target_index_result: IndexResult | None = target_index_result
+        self.index_result: IndexResult | None = index_result
+
+        # The comparators of record (decision 13). The engine trades on
+        # neither; it stores them so the run states what it was measured
+        # against, and every reader quotes the same numbers.
+        self.benchmark: IndexResult | pd.Series | None = benchmark
+        self.target_index: IndexResult | None = target_index
         self.price_column: str = price_column
         self.currency: str = currency.upper()
 
@@ -94,11 +102,11 @@ class BacktestEngine:
         # Normalise weight schedule to a dict
         if target_weights is not None:
             self._weight_schedule: dict[pd.Timestamp, dict[str, float]] = target_weights
-        elif target_index_result is not None:
-            self._weight_schedule = target_index_result.weight_snapshots
+        elif index_result is not None:
+            self._weight_schedule = index_result.weight_snapshots
         else:
             raise ValueError(
-                "One of target_index_result or target_weights must be provided."
+                "One of index_result or target_weights must be provided."
             )
 
     # ------------------------------------------------------------------
@@ -214,7 +222,11 @@ class BacktestEngine:
             price = self._fetch_price(asset_id, date)
             if price is not None:
                 prices[asset_id] = price
-        portfolio.update_prices(prices)
+
+        # Dated, so the history row lands on the simulated day rather than
+        # at wall-clock time -- an undated mark would make the recorded NAV
+        # panel useless (flagged in BN-152, resolved here).
+        portfolio.update_prices(prices, date)
 
     def _delisting_dates(self) -> dict[str, pd.Timestamp]:
         """When each holding stops being listed, or an empty mapping.
@@ -534,21 +546,25 @@ class BacktestEngine:
             f"{self.end_date.date()} with capital {self.initial_capital:.2f}"
         )
 
-        # The run's start date is the portfolio's day zero: its books open
-        # with the capital they were given, before anything trades.
-        portfolio = Portfolio(portfolio_id="backtest_portfolio",
-                              initial_cash=self.initial_capital,
-                              inception=self.start_date)
-
         trading_days = pd.bdate_range(start=self.start_date, end=self.end_date, freq="B")
         if trading_days.empty:
             logger.warning("No trading days in the specified date range.")
+            portfolio = Portfolio(portfolio_id="backtest_portfolio",
+                                  initial_cash=self.initial_capital,
+                                  inception=self.start_date)
             portfolio.freeze()
-            return self._build_empty_result(portfolio)
+            return self._build_result(portfolio, [])
 
-        nav_records: dict[pd.Timestamp, float] = {}
-        cash_records: dict[pd.Timestamp, float] = {}
-        weight_records = []
+        # Day zero is the EVE of the first trading day, not the start date:
+        # the start date is usually itself a trading day, and history keeps
+        # the last write per date -- an inception row dated the first trading
+        # day would be overwritten by that day's close mark, and the record
+        # of what the run started with would be gone (decision 11).
+        eve = trading_days[0] - pd.tseries.offsets.BDay(1)
+        portfolio = Portfolio(portfolio_id="backtest_portfolio",
+                              initial_cash=self.initial_capital,
+                              inception=eve)
+
         unfilled: list[UnfilledOrder] = []
 
         delistings = self._delisting_dates()
@@ -570,15 +586,10 @@ class BacktestEngine:
                 # Re-price after rebalance
                 self._update_portfolio_prices(portfolio, date)
 
-            # 3. Record end-of-day state
+            # 3. End-of-day state is already in the books: the dated mark
+            # in step 1 (and the re-mark after a rebalance) wrote the day's
+            # position, cash and NAV rows. Nothing to flatten here.
             nav = portfolio.get_total_value()
-            nav_records[date] = nav
-            cash_records[date] = portfolio.cash_balance
-
-            daily_weights: dict[str, float] = {}
-            for asset_id, w in portfolio.get_weights().items():
-                daily_weights[f"{asset_id}_weight"] = w
-            weight_records.append({"Date": date, **daily_weights})
 
             # Progress logging
             n = len(trading_days)
@@ -588,40 +599,39 @@ class BacktestEngine:
                     f"({date.date()}, NAV={nav:.2f})"
                 )
 
-        logger.info(f"Backtest finished. Final NAV: {nav_records[trading_days[-1]]:.2f}")
-
-        portfolio_nav = pd.Series(nav_records, dtype=float)
-        portfolio_nav.index.name = "Date"
-        cash_history = pd.Series(cash_records, dtype=float)
-        cash_history.index.name = "Date"
-        weight_df = pd.DataFrame(weight_records)
-        if not weight_df.empty:
-            weight_df.set_index("Date", inplace=True)
+        logger.info(f"Backtest finished. Final NAV: {portfolio.get_total_value():.2f}")
 
         # The run is over, so its books are closed: the portfolio is now the
         # record of this backtest, and a later write would restate it.
         portfolio.freeze()
 
+        return self._build_result(portfolio, unfilled)
+
+    def _build_result(self,
+                      portfolio: Portfolio,
+                      unfilled: list[UnfilledOrder]) -> BacktestResult:
+        """Assemble the result: the portfolio kept whole, plus the books.
+
+        Nothing is flattened -- the portfolio recorded its own history as the
+        run marked and traded, and the comparators become books so every one
+        answers through the same spelling (decision 5).
+        """
         return BacktestResult(
-            portfolio_id=portfolio.portfolio_id,
-            initial_capital=self.initial_capital,
-            portfolio_nav=portfolio_nav,
-            cash_history=cash_history,
-            transactions=list(portfolio.transactions),
-            actual_weight_history=weight_df,
-            target_index_result=self.target_index_result,
+            portfolio=portfolio,
+            index=(Book.from_index(self.index_result)
+                   if self.index_result is not None else None),
+            target_index=(Book.from_index(self.target_index)
+                          if self.target_index is not None else None),
+            benchmark=self._benchmark_book(),
             unfilled=unfilled,
         )
 
-    def _build_empty_result(self,
-                            portfolio: Portfolio) -> BacktestResult:
-        """Build a BacktestResult with no data."""
-        return BacktestResult(
-            portfolio_id=portfolio.portfolio_id,
-            initial_capital=self.initial_capital,
-            portfolio_nav=pd.Series(dtype=float),
-            cash_history=pd.Series(dtype=float),
-            transactions=[],
-            actual_weight_history=pd.DataFrame(),
-            target_index_result=self.target_index_result,
-        )
+    def _benchmark_book(self) -> "Book | None":
+        """The benchmark of record, whichever form it was given in."""
+        if self.benchmark is None:
+            return None
+
+        if isinstance(self.benchmark, pd.Series):
+            return Book.from_levels(self.benchmark)
+
+        return Book.from_index(self.benchmark)

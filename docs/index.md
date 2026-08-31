@@ -187,7 +187,7 @@ print("Final index level:", round(index_result.index_levels.iloc[-1], 2))
 backtest = BacktestEngine(
     start_date="2024-01-02", end_date="2024-03-29",
     initial_capital=1_000_000.0, data_provider=data,
-    target_index_result=index_result,
+    index_result=index_result,
 ).run()
 
 # --- 5. View results ---

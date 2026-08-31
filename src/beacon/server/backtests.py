@@ -118,7 +118,7 @@ def assemble_result(result: BacktestResult,
         BacktestRunResult: Level, returns, drawdown, annual returns, the
         tracked index and metrics, all derived from the same NAV series.
     """
-    level = _rebase(result.portfolio_nav)
+    level = _rebase(result.trading_nav)
     returns = level.pct_change().dropna()
 
     return BacktestRunResult(
@@ -131,7 +131,7 @@ def assemble_result(result: BacktestResult,
         benchmark=benchmark,
         rebalances=rebalance_snapshots(index_result, cap),
         total_costs=_total_costs(result),
-        initial_capital=result.initial_capital)
+        initial_capital=result.portfolio.initial_capital)
 
 
 def rebalance_snapshots(index_result: IndexResult,
@@ -177,7 +177,7 @@ def rebalance_snapshots(index_result: IndexResult,
 def _total_costs(result: BacktestResult) -> float:
     """Transaction costs paid across the run."""
     return float(sum(transaction.transaction_cost
-                     for transaction in result.transactions))
+                     for transaction in result.portfolio.transactions))
 
 
 def compare_against_benchmark(nav: pd.Series,
@@ -259,7 +259,7 @@ def build_backtest_job(document: IndexDocument,
                                 end_date=end,
                                 initial_capital=request.initial_capital,
                                 data_provider=fetcher,
-                                target_index_result=index_result,
+                                index_result=index_result,
                                 transaction_cost_bps=request.transaction_cost_bps)
         backtest = engine.run()
 
@@ -267,7 +267,7 @@ def build_backtest_job(document: IndexDocument,
         if request.benchmark is not None:
             await report(0.8, f"Comparing against benchmark '{request.benchmark.id}'.")
             comparison = compare_against_benchmark(
-                backtest.portfolio_nav, request.benchmark, fetcher, index_store,
+                backtest.trading_nav, request.benchmark, fetcher, index_store,
                 start, end)
 
         await report(0.9, "Assembling results.")

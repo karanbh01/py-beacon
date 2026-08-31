@@ -276,7 +276,7 @@ class BacktestPlots(ChartMethods):
         upper = figure.add_subplot(grid[0])
         lower = figure.add_subplot(grid[1], sharex=upper)
 
-        levels = _rebase(_series(self._result.portfolio_nav))
+        levels = _rebase(_series(self._result.trading_nav))
         upper.plot(levels.index, levels.to_numpy(), color=_ink(upper, "accent"),
                    linewidth=beacon_style.SERIES_WIDTH)
         _mark_last(upper, levels)
@@ -309,7 +309,7 @@ class BacktestPlots(ChartMethods):
         """
         ax = _axes(ax, "annual_returns")
 
-        levels = _series(self._result.portfolio_nav)
+        levels = _series(self._result.trading_nav)
         yearly = levels.resample("YE").last()
         opening = levels.resample("YE").first()
         returns = (yearly / opening - 1.0).dropna()

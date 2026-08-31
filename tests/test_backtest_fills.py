@@ -82,7 +82,7 @@ class TestRebalanceLegsExecute:
     def test_first_rebalance_only_buys(self):
         """Nothing to sell yet — the portfolio starts as cash."""
         result = run(0.0)
-        sides = {t.transaction_type for t in result.transactions
+        sides = {t.transaction_type for t in result.portfolio.transactions
                  if t.transaction_date == REBALANCES[0]}
 
         assert sides == {"BUY"}
@@ -91,15 +91,15 @@ class TestRebalanceLegsExecute:
         """The case the defect broke: the buy funded by the sell must execute."""
         result = run(0.0)
         second = REBALANCES[1]
-        sides = {t.transaction_type for t in result.transactions
+        sides = {t.transaction_type for t in result.portfolio.transactions
                  if t.transaction_date == second}
 
         assert sides == {"BUY", "SELL"}, f"{second} only did {sides}"
 
         # AAA rose and BBB fell, so equal weight trims AAA and tops up BBB.
-        bought = {t.asset_id for t in result.transactions
+        bought = {t.asset_id for t in result.portfolio.transactions
                   if t.transaction_date == second and t.transaction_type == "BUY"}
-        sold = {t.asset_id for t in result.transactions
+        sold = {t.asset_id for t in result.portfolio.transactions
                 if t.transaction_date == second and t.transaction_type == "SELL"}
 
         assert sold == {"AAA"}
@@ -115,10 +115,10 @@ class TestRebalanceLegsExecute:
     def test_weights_land_near_target_after_a_rebalance(self):
         result = run(0.0)
         second = REBALANCES[1]
-        row = result.actual_weight_history.loc[second]
+        row = result.portfolio.weights.loc[second]
 
-        assert row["AAA_weight"] == pytest.approx(0.5, abs=0.02)
-        assert row["BBB_weight"] == pytest.approx(0.5, abs=0.02)
+        assert row["AAA"] == pytest.approx(0.5, abs=0.02)
+        assert row["BBB"] == pytest.approx(0.5, abs=0.02)
 
 
 class TestPartialFill:
