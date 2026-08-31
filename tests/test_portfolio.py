@@ -3,7 +3,8 @@
 import pandas as pd
 import pytest
 
-from beacon.portfolio.base import Portfolio, Transaction
+from beacon.exceptions import FrozenPortfolioError
+from beacon.portfolio.base import Portfolio, TradeInstruction, Transaction
 
 AAPL = "AAPL"
 MSFT = "MSFT"
@@ -431,3 +432,269 @@ class TestApply:
         import beacon.backtest.engine as engine
 
         assert "TYPE_CHECKING" not in inspect.getsource(engine)
+
+
+# ---------------------------------------------------------------------------
+# BN-152: the portfolio as the store of record
+# ---------------------------------------------------------------------------
+
+INCEPTION = pd.Timestamp("2025-01-01")
+POSITION_COLUMNS = ["DATE", "ASSET_ID", "QUANTITY", "PRICE", "MARKET_VALUE", "WEIGHT"]
+
+
+def _booked():
+    """A portfolio with a deliberately uneven history.
+
+    Trades and marks land on distinct dates, one date carries both, and one
+    name is exited entirely — so the replay, the last-write-wins rule and the
+    disappearance of a closed position all have something to bite on.
+    """
+    p = Portfolio("booked", initial_cash=100_000.0, inception=INCEPTION)
+
+    p.execute_buy(AAPL, quantity=100, price=150.0, date=pd.Timestamp("2025-01-02"))
+    p.execute_buy(MSFT, quantity=50, price=300.0, date=pd.Timestamp("2025-01-02"))
+
+    p.update_prices({AAPL: 160.0, MSFT: 290.0}, date=pd.Timestamp("2025-01-03"))
+
+    # A mark and then a trade, same day.
+    p.update_prices({AAPL: 155.0, MSFT: 295.0}, date=pd.Timestamp("2025-01-06"))
+    p.execute_sell(AAPL, quantity=40, price=165.0, date=pd.Timestamp("2025-01-06"))
+
+    p.update_prices({AAPL: 170.0, MSFT: 310.0}, date=pd.Timestamp("2025-01-07"))
+    p.execute_sell(MSFT, quantity=50, price=305.0, date=pd.Timestamp("2025-01-08"))
+
+    return p
+
+
+def _replay(transactions,
+            as_of):
+    """Quantities implied by replaying every transaction up to *as_of*."""
+    quantities = {}
+
+    for tx in transactions:
+        if tx.transaction_date > as_of:
+            continue
+
+        signed = tx.quantity if tx.transaction_type == "BUY" else -tx.quantity
+        quantities[tx.asset_id] = quantities.get(tx.asset_id, 0.0) + signed
+
+    # A closed position leaves the holdings, so it leaves the panel too.
+    return {asset_id: qty for asset_id, qty in quantities.items() if qty > 1e-9}
+
+
+def _rows_on(portfolio,
+             date):
+    """The recorded position rows for one date."""
+    positions = portfolio.positions
+    return positions[positions["DATE"] == date]
+
+
+class TestInitialCapital:
+    """`initial_cash` was accepted and thrown away; only the mutating balance
+    survived, so a portfolio could not say what it started with."""
+
+    def test_it_is_retained(self):
+        assert Portfolio("p1", initial_cash=5000.0).initial_capital == 5000.0
+
+    def test_it_survives_while_the_balance_moves(self,
+                                                 portfolio):
+        portfolio.execute_buy(AAPL, quantity=10, price=150.0)
+
+        assert portfolio.cash_balance == pytest.approx(8500.0)
+        assert portfolio.initial_capital == 10000.0
+
+    def test_it_defaults_to_zero(self):
+        assert Portfolio("p1").initial_capital == 0.0
+
+
+class TestDayZero:
+    """With an inception date the books open at what they were given, before
+    anything trades."""
+
+    def test_nav_opens_at_the_initial_capital(self):
+        p = Portfolio("p1", initial_cash=100_000.0, inception=INCEPTION)
+
+        assert p.nav.index[0] == INCEPTION
+        assert p.nav.iloc[0] == pytest.approx(100_000.0)
+
+    def test_cash_opens_at_the_initial_capital(self):
+        p = Portfolio("p1", initial_cash=100_000.0, inception=INCEPTION)
+
+        assert p.cash.index[0] == INCEPTION
+        assert p.cash.iloc[0] == pytest.approx(100_000.0)
+
+    def test_day_zero_holds_nothing(self):
+        p = Portfolio("p1", initial_cash=100_000.0, inception=INCEPTION)
+
+        assert _rows_on(p, INCEPTION).empty
+
+    def test_it_stays_the_first_row_once_trading_starts(self):
+        p = _booked()
+
+        assert p.nav.index[0] == INCEPTION
+        assert p.nav.iloc[0] == pytest.approx(100_000.0)
+
+    def test_without_inception_history_starts_at_the_first_event(self):
+        """A hand-built portfolio need not name a day zero."""
+        p = Portfolio("hand-built", initial_cash=10_000.0)
+
+        assert p.nav.empty
+
+        p.execute_buy(AAPL, quantity=10, price=100.0, date=pd.Timestamp("2025-03-04"))
+
+        assert list(p.nav.index) == [pd.Timestamp("2025-03-04")]
+        assert p.nav.iloc[0] == pytest.approx(10_000.0)
+
+
+class TestHistoryPanels:
+    """Positions, cash and NAV at rest: plain frames and series, no classes."""
+
+    def test_positions_are_long_form(self):
+        assert list(_booked().positions.columns) == POSITION_COLUMNS
+
+    def test_a_row_per_held_asset_per_recorded_date(self):
+        rows = _rows_on(_booked(), pd.Timestamp("2025-01-03"))
+
+        assert sorted(rows["ASSET_ID"]) == [AAPL, MSFT]
+
+    def test_a_mark_is_recorded_like_a_trade(self):
+        """Nothing traded on the 3rd; the marks alone are an event."""
+        rows = _rows_on(_booked(), pd.Timestamp("2025-01-03"))
+        aapl = rows[rows["ASSET_ID"] == AAPL].iloc[0]
+
+        assert aapl["QUANTITY"] == pytest.approx(100.0)
+        assert aapl["PRICE"] == pytest.approx(160.0)
+        assert aapl["MARKET_VALUE"] == pytest.approx(16_000.0)
+
+    def test_the_last_write_on_a_date_wins(self):
+        """The 6th carries a mark and then a sell; the day ends post-trade."""
+        p = _booked()
+        rows = _rows_on(p, pd.Timestamp("2025-01-06"))
+        aapl = rows[rows["ASSET_ID"] == AAPL].iloc[0]
+
+        assert aapl["QUANTITY"] == pytest.approx(60.0)
+        assert aapl["PRICE"] == pytest.approx(165.0)
+        assert p.cash.loc[pd.Timestamp("2025-01-06")] == pytest.approx(
+            100_000.0 - 15_000.0 - 15_000.0 + 40 * 165.0)
+
+    def test_a_closed_position_leaves_the_panel(self):
+        rows = _rows_on(_booked(), pd.Timestamp("2025-01-08"))
+
+        assert list(rows["ASSET_ID"]) == [AAPL]
+
+    def test_cash_and_nav_are_date_indexed_series(self):
+        p = _booked()
+
+        assert isinstance(p.cash, pd.Series)
+        assert isinstance(p.nav, pd.Series)
+        assert list(p.cash.index) == list(p.nav.index)
+        assert p.nav.index.is_monotonic_increasing
+
+    def test_an_untouched_portfolio_is_empty_but_typed(self):
+        """Empty is not a reason to hand back untyped columns: a caller
+        filtering on DATE must not have to special-case the empty run."""
+        p = Portfolio("never-traded")
+
+        assert list(p.positions.columns) == POSITION_COLUMNS
+        assert p.positions.empty
+        assert p.positions["DATE"].dtype.kind == "M"
+        assert p.positions["QUANTITY"].dtype == "float64"
+        assert p.cash.empty and p.cash.dtype == "float64"
+        assert p.nav.empty and p.nav.dtype == "float64"
+
+
+class TestReconciliation:
+    """The pinned invariant. Positions and transactions are two lenses on one
+    history, and the double-counting is only safe while they agree."""
+
+    def test_positions_replay_the_transaction_log(self):
+        p = _booked()
+
+        for as_of in p.nav.index:
+            rows = _rows_on(p, as_of)
+            recorded = dict(zip(rows["ASSET_ID"], rows["QUANTITY"], strict=True))
+
+            assert recorded == pytest.approx(_replay(p.transactions, as_of)), as_of
+
+    def test_a_mid_run_date_reconciles_too(self):
+        """Named separately from the sweep above: the interesting failure is a
+        partial sell, and a bug there is easy to lose in a loop's message."""
+        p = _booked()
+        as_of = pd.Timestamp("2025-01-06")
+
+        assert _replay(p.transactions, as_of) == {AAPL: pytest.approx(60.0),
+                                                  MSFT: pytest.approx(50.0)}
+
+        rows = _rows_on(p, as_of)
+        recorded = dict(zip(rows["ASSET_ID"], rows["QUANTITY"], strict=True))
+
+        assert recorded == pytest.approx(_replay(p.transactions, as_of))
+
+    def test_the_stored_weight_is_the_recorded_value_over_the_recorded_nav(self):
+        p = _booked()
+        nav = p.nav
+
+        for _, row in p.positions.iterrows():
+            assert row["WEIGHT"] == pytest.approx(
+                row["MARKET_VALUE"] / nav.loc[row["DATE"]]), row["DATE"]
+
+    def test_nav_is_the_recorded_positions_plus_the_recorded_cash(self):
+        p = _booked()
+        held = p.positions.groupby("DATE")["MARKET_VALUE"].sum()
+
+        for date, nav in p.nav.items():
+            assert nav == pytest.approx(held.get(date, 0.0) + p.cash.loc[date]), date
+
+
+class TestFreeze:
+    """After a run the portfolio is the record of it, and a later write would
+    restate a result somebody has already read."""
+
+    def _frozen(self):
+        p = _booked()
+        p.freeze()
+        return p
+
+    def test_a_fresh_portfolio_is_not_frozen(self):
+        assert Portfolio("p1").frozen is False
+
+    def test_apply_is_refused(self):
+        with pytest.raises(FrozenPortfolioError):
+            self._frozen().apply(TradeInstruction(AAPL, "BUY", 1.0, 100.0, 0.0),
+                                 pd.Timestamp("2025-01-09"))
+
+    def test_execute_buy_is_refused(self):
+        with pytest.raises(FrozenPortfolioError):
+            self._frozen().execute_buy(AAPL, quantity=1, price=100.0)
+
+    def test_execute_sell_is_refused(self):
+        with pytest.raises(FrozenPortfolioError):
+            self._frozen().execute_sell(AAPL, quantity=1, price=100.0)
+
+    def test_update_prices_is_refused(self):
+        with pytest.raises(FrozenPortfolioError):
+            self._frozen().update_prices({AAPL: 100.0})
+
+    def test_the_message_says_what_to_do_instead(self):
+        with pytest.raises(FrozenPortfolioError, match="Seed a new run"):
+            self._frozen().execute_buy(AAPL, quantity=1, price=100.0)
+
+    def test_the_error_names_the_portfolio_and_the_operation(self):
+        with pytest.raises(FrozenPortfolioError) as raised:
+            self._frozen().update_prices({AAPL: 100.0})
+
+        assert raised.value.portfolio_id == "booked"
+        assert raised.value.operation == "update_prices"
+
+    def test_reads_still_work(self):
+        p = self._frozen()
+
+        assert not p.positions.empty
+        assert p.nav.iloc[0] == pytest.approx(100_000.0)
+        assert p.get_total_value() > 0
+
+    def test_freezing_twice_is_harmless(self):
+        p = self._frozen()
+        p.freeze()
+
+        assert p.frozen is True

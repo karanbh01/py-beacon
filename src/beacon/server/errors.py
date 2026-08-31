@@ -17,6 +17,7 @@ from ..exceptions import (
     ConfigurationError,
     DataNotFoundError,
     ExpressionError,
+    FrozenPortfolioError,
     InvalidIdentifierError,
     InvalidRuleError,
     MissingDependencyError,
@@ -45,6 +46,10 @@ EXCEPTION_MAPPING: tuple[tuple[type[BeaconError], int, str], ...] = (
     (InvalidIdentifierError, status.HTTP_422_UNPROCESSABLE_CONTENT,
      "INVALID_IDENTIFIER"),
     (InvalidRuleError, status.HTTP_422_UNPROCESSABLE_CONTENT, "INVALID_RULE"),
+    # Writing to a finished backtest's books is the caller's mistake, not the
+    # server's fault: the record is closed and the request asked to change it.
+    (FrozenPortfolioError, status.HTTP_422_UNPROCESSABLE_CONTENT,
+     "FROZEN_PORTFOLIO"),
     (MissingDependencyError, status.HTTP_503_SERVICE_UNAVAILABLE, "MISSING_DEPENDENCY"),
     (ConfigurationError, status.HTTP_500_INTERNAL_SERVER_ERROR, "CONFIGURATION_ERROR"),
     (CalculationError, status.HTTP_500_INTERNAL_SERVER_ERROR, "CALCULATION_ERROR"),

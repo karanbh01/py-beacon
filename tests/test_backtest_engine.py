@@ -422,3 +422,71 @@ class TestGenerateTrades:
         portfolio = Portfolio("p", initial_cash=10000.0)
         trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
         assert all(isinstance(t, TradeInstruction) for t in trades)
+
+
+# ---------------------------------------------------------------------------
+# The portfolio as the record of the run (BN-152)
+# ---------------------------------------------------------------------------
+
+class TestPortfolioOfRecord:
+    """The engine's own portfolio is not a scratch object any more.
+
+    It opens on the run's start date with the capital it was given, and is
+    frozen when the run ends. The portfolio is reached through a spy on the
+    constructor because the engine does not hand it out — wiring the result to
+    carry it is a separate change.
+    """
+
+    def _spy_on_portfolio(self,
+                          monkeypatch):
+        built = []
+        original = Portfolio
+
+        def _capture(*args,
+                    **kwargs):
+            portfolio = original(*args, **kwargs)
+            built.append(portfolio)
+            return portfolio
+
+        monkeypatch.setattr("beacon.backtest.engine.Portfolio", _capture)
+
+        return built
+
+    def test_the_books_open_on_the_start_date(self,
+                                              monkeypatch):
+        built = self._spy_on_portfolio(monkeypatch)
+        prices = {"A": {d.strftime("%Y-%m-%d"): 100.0 for d in DATES}}
+        dp = _mock_data_provider(prices)
+
+        BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
+                       10000.0, dp, target_weights={DATES[0]: {"A": 1.0}}).run()
+
+        portfolio = built[0]
+
+        assert portfolio.inception == DATES[0]
+        assert portfolio.initial_capital == 10000.0
+        assert portfolio.nav.index[0] == DATES[0]
+        assert portfolio.nav.iloc[0] == pytest.approx(10000.0)
+
+    def test_a_finished_run_freezes_its_books(self,
+                                              monkeypatch):
+        built = self._spy_on_portfolio(monkeypatch)
+        prices = {"A": {d.strftime("%Y-%m-%d"): 100.0 for d in DATES}}
+        dp = _mock_data_provider(prices)
+
+        BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
+                       10000.0, dp, target_weights={DATES[0]: {"A": 1.0}}).run()
+
+        assert built[0].frozen is True
+
+    def test_a_run_with_no_trading_days_freezes_too(self,
+                                                    monkeypatch):
+        """The empty path builds a result as well, so it closes its books as
+        well — otherwise whether the record is writable depends on whether the
+        date range happened to contain a business day."""
+        built = self._spy_on_portfolio(monkeypatch)
+
+        BacktestEngine("2025-01-04", "2025-01-05", 10000.0, MagicMock(),
+                       target_weights={DATES[0]: {"A": 1.0}}).run()
+
+        assert built[0].frozen is True

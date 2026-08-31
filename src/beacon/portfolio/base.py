@@ -8,6 +8,9 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from ..exceptions import FrozenPortfolioError
+from .history import PortfolioHistory
+
 logger = logging.getLogger(__name__)
 
 # Relative slack on the cash check in execute_buy. Sized to absorb float error
@@ -109,10 +112,26 @@ class Portfolio:
     Holdings are keyed by string asset identifiers. The Portfolio has no
     dependency on Asset objects or DataFetcher — callers pass simple strings
     and prices.
+
+    It is also the **store of record** (BN-152): what it started with, and
+    what the books said on every date something changed them, are kept here
+    rather than flattened onto whatever ran it. See :attr:`positions`,
+    :attr:`cash` and :attr:`nav`.
+
+    Args:
+        portfolio_id: Identifier for these books.
+        initial_cash: Opening cash balance. Retained as
+            :attr:`initial_capital` — `cash_balance` goes on mutating, so
+            without it a portfolio could not say what it started with.
+        inception: Optional day zero. When given, the books open on that date
+            with NAV and cash equal to the initial capital, before anything
+            trades. A backtest passes its start date; a hand-built portfolio
+            can leave it out, and its history then starts at its first event.
     """
     def __init__(self,
                  portfolio_id: str,
-                 initial_cash: float = 0.0):
+                 initial_cash: float = 0.0,
+                 inception: pd.Timestamp | None = None):
         if not portfolio_id:
             raise ValueError("portfolio_id cannot be empty.")
         if initial_cash < 0:
@@ -123,8 +142,78 @@ class Portfolio:
         self.cash_balance: float = initial_cash
         self.transactions: list[Transaction] = []
 
+        self.initial_capital: float = initial_cash
+        self.inception: pd.Timestamp | None = (
+            pd.Timestamp(inception) if inception is not None else None)
+        self.frozen: bool = False
+
+        self._history = PortfolioHistory()
+
+        if self.inception is not None:
+            self._history.record(self.inception, self.holdings, self.cash_balance)
+
         logger.info(
             f"Portfolio '{self.portfolio_id}' initialized with cash: {self.cash_balance:.2f}")
+
+    # ------------------------------------------------------------------
+    # The books over time
+    # ------------------------------------------------------------------
+
+    @property
+    def positions(self) -> pd.DataFrame:
+        """What was held, long-form: DATE, ASSET_ID, QUANTITY, PRICE,
+        MARKET_VALUE, WEIGHT.
+
+        A row per held asset per date on which the books changed — a trade or
+        a mark. `WEIGHT` was computed and stored at write time, so it records
+        what the portfolio believed then rather than what recomputing it now
+        would say.
+        """
+        return self._history.positions
+
+    @property
+    def cash(self) -> pd.Series:
+        """The cash balance on every recorded date."""
+        return self._history.cash
+
+    @property
+    def nav(self) -> pd.Series:
+        """Total value on every recorded date.
+
+        Starts at :attr:`initial_capital` on the inception date when one was
+        given.
+        """
+        return self._history.nav
+
+    def freeze(self) -> None:
+        """Close the books: from here on, any write raises.
+
+        Called by the backtest engine when a run ends. The portfolio is then
+        the record of that run, and a later trade against it would restate a
+        result somebody may already have read. Idempotent.
+        """
+        if not self.frozen:
+            logger.info(f"Portfolio '{self.portfolio_id}' frozen.")
+
+        self.frozen = True
+
+    def _refuse_if_frozen(self,
+                          operation: str) -> None:
+        """Guard every write path.
+
+        Args:
+            operation: The method that was called, for the message.
+
+        Raises:
+            FrozenPortfolioError: If :meth:`freeze` has been called.
+        """
+        if self.frozen:
+            raise FrozenPortfolioError(self.portfolio_id, operation)
+
+    def _record(self,
+                date: pd.Timestamp) -> None:
+        """Snapshot the books as of *date* into the history."""
+        self._history.record(date, self.holdings, self.cash_balance)
 
 
     def execute_buy(self,
@@ -140,8 +229,14 @@ class Portfolio:
             quantity: Number of units to buy (must be positive).
             price: Execution price per unit.
             cost: Optional transaction cost (brokerage, taxes, etc.).
-            date: Optional execution date. Defaults to now.
+            date: Optional execution date. Defaults to now, and the history
+                row is written under that same timestamp.
+
+        Raises:
+            FrozenPortfolioError: If the books have been frozen.
         """
+        self._refuse_if_frozen("execute_buy")
+
         if quantity <= 0:
             raise ValueError("quantity must be positive.")
         if price < 0:
@@ -189,6 +284,8 @@ class Portfolio:
         # Update market data using execution price
         self.holdings[asset_id].update_market_data(price, tx_date)
 
+        self._record(tx_date)
+
     def execute_sell(self,
                      asset_id: str,
                      quantity: float,
@@ -202,8 +299,14 @@ class Portfolio:
             quantity: Number of units to sell (must be positive).
             price: Execution price per unit.
             cost: Optional transaction cost (brokerage, taxes, etc.).
-            date: Optional execution date. Defaults to now.
+            date: Optional execution date. Defaults to now, and the history
+                row is written under that same timestamp.
+
+        Raises:
+            FrozenPortfolioError: If the books have been frozen.
         """
+        self._refuse_if_frozen("execute_sell")
+
         if quantity <= 0:
             raise ValueError("quantity must be positive.")
         if price < 0:
@@ -227,10 +330,19 @@ class Portfolio:
         if self.holdings[asset_id].quantity < 1e-9:
             logger.debug(f"Fully sold asset: {asset_id}. Removing from holdings.")
             del self.holdings[asset_id]
+        else:
+            # Re-mark what is left, at the price it just traded at. Without
+            # this the remaining holding keeps the market value of the
+            # *larger* position it used to be, so `get_total_value` overstates
+            # the books until the next mark — and the position row written
+            # below would record a quantity and a market value that disagree.
+            self.holdings[asset_id].update_market_data(price, tx_date)
 
         self.transactions.append(
             Transaction(asset_id, quantity, price, 'SELL', tx_date, cost)
         )
+
+        self._record(tx_date)
 
 
     def apply(self,
@@ -254,7 +366,12 @@ class Portfolio:
             ValueError: If the side is neither ``"BUY"`` nor ``"SELL"`` —
                 refused rather than guessed, because silently ignoring an
                 unknown side would drop a trade from the record.
+            FrozenPortfolioError: If the books have been frozen. Checked here
+                as well as in the accounting, so the message names the entry
+                point the caller actually used.
         """
+        self._refuse_if_frozen("apply")
+
         side = trade.side.upper()
 
         if side == "BUY":
@@ -268,24 +385,38 @@ class Portfolio:
                 f"Unknown trade side '{trade.side}'. Expected BUY or SELL.")
 
     def update_prices(self,
-                      prices: dict[str, float]) -> None:
+                      prices: dict[str, float],
+                      date: pd.Timestamp | None = None) -> None:
         """
         Update current prices for holdings from a dictionary.
+
+        A mark changes what the books say the portfolio is worth, so it is
+        recorded like a trade is.
 
         Args:
             prices: Mapping of asset_id to current price.
                     Holdings whose asset_id is not in the dict are left
                     unchanged with a warning.
+            date: Optional date to mark as of. Defaults to now.
+
+        Raises:
+            FrozenPortfolioError: If the books have been frozen.
         """
+        self._refuse_if_frozen("update_prices")
+
+        as_of = date if date is not None else pd.Timestamp.now()
+
         for asset_id, holding in self.holdings.items():
             price = prices.get(asset_id)
             if price is not None:
-                holding.update_market_data(price, pd.Timestamp.now())
+                holding.update_market_data(price, as_of)
             else:
                 logger.warning(
                     f"No price supplied for {asset_id}. "
                     "Market value may be stale."
                 )
+
+        self._record(as_of)
 
     def get_total_value(self) -> float:
         """
