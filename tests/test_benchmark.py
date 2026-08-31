@@ -425,7 +425,7 @@ class TestBenchmarkIsOptional:
         result = run_backtest(
             client, benchmark={"kind": "identifier", "id": "MKT"})["result"]
 
-        assert result["benchmark_level"]["data"][0] == pytest.approx(100.0)
+        assert result["index_level"]["data"][0] == pytest.approx(100.0)
         assert result["benchmark"]["level"]["data"][0] == pytest.approx(100.0)
 
     def test_an_invalid_kind_is_rejected_before_the_job(self,

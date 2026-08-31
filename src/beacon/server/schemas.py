@@ -197,34 +197,78 @@ def _metric(summary: dict[str, float | None],
     return 0.0 if value is None else float(value)
 
 
-class BacktestResultSummary(BaseModel):
-    """Serialised view of a `BacktestResult`."""
+# The record payload is bounded, matching the table endpoint's stance: an
+# unbounded panel is not something a client can render or an engine should
+# assemble. When a panel exceeds the bound, the MOST RECENT rows are kept and
+# the true total is published beside them, so a client can say "showing the
+# last N of M" instead of guessing.
+MAX_POSITION_ROWS = 50_000
+MAX_WEIGHT_DATES = 1_000
+
+
+class PortfolioBookPayload(BaseModel):
+    """The portfolio's books on the wire."""
     portfolio_id: str
     initial_capital: float
-    portfolio_nav: SeriesPayload
-    cash_history: SeriesPayload
+    nav: SeriesPayload = Field(
+        description="The full NAV book, day-zero row included: it opens with "
+                    "initial capital on the eve of the first trading day. "
+                    "Metrics derive from the series without that row.")
+    cash: SeriesPayload
+    weights: TableFrame = Field(
+        description="Stored daily weights, dates by asset; most recent "
+                    "MAX_WEIGHT_DATES dates at most.")
+    weights_dates_total: int = Field(
+        description="Dates the weights panel actually covers; larger than "
+                    "the rows served when the panel was truncated.")
+    positions: TableFrame = Field(
+        description="The positions panel, long-form; most recent "
+                    "MAX_POSITION_ROWS rows at most.")
+    positions_total: int = Field(
+        description="Rows in the whole positions panel.")
     transactions: TableFrame
+
+
+class BookPayload(BaseModel):
+    """One comparator's record on the wire."""
+    levels: SeriesPayload
+    weights: TableFrame = Field(
+        description="Daily weights, dates by identifier; most recent "
+                    "MAX_WEIGHT_DATES dates at most. Empty for a comparator "
+                    "supplied as a bare level series.")
+    weights_dates_total: int
+
+
+class UnfilledOrderPayload(BaseModel):
+    """A buy the simulation could not execute in full."""
+    date: str
+    asset_id: str
+    requested_quantity: float
+    filled_quantity: float
+    price: float
+    shortfall_value: float
+
+
+class BacktestResultSummary(BaseModel):
+    """Serialised view of a `BacktestResult`, in the shape of its books.
+
+    The nested shape mirrors the library object (BN-155): one home per fact,
+    and the new data — positions, daily index weights — has a natural place
+    instead of being bolted flat beside old names. Books the run did not have
+    (no benchmark given, no target index) are null rather than empty, so a
+    client can tell "not measured" from "measured and empty".
+    """
+    portfolio: PortfolioBookPayload
+    index: BookPayload | None = None
+    target_index: BookPayload | None = None
+    benchmark: BookPayload | None = None
+    unfilled: list[UnfilledOrderPayload] = Field(default_factory=list)
     metrics: BacktestMetrics
 
     @classmethod
     def from_result(cls,
                     result: BacktestResult) -> "BacktestResultSummary":
         """Build from a library `BacktestResult`."""
-        rows = [
-            {
-                "date": transaction.transaction_date,
-                "asset_id": transaction.asset_id,
-                "type": transaction.transaction_type,
-                "quantity": transaction.quantity,
-                "price": transaction.price,
-                "cost": transaction.transaction_cost,
-            }
-            for transaction in result.portfolio.transactions
-        ]
-        frame = pd.DataFrame(
-            rows,
-            columns=["date", "asset_id", "type", "quantity", "price", "cost"])
-
         summary = result.summary()
         metrics = BacktestMetrics(
             total_return=_metric(summary, "total_return"),
@@ -235,23 +279,63 @@ class BacktestResultSummary(BaseModel):
             tracking_error=summary.get("tracking_error"),
             tracking_difference=summary.get("tracking_difference"))
 
-        # The flat wire shape survives BN-154 deliberately: the payload
-        # reads the new books but serialises the old field names, so
-        # beacon-ui keeps working until #168 changes the shape once. Cash is
-        # sliced the same way trading_nav is -- the day-zero row is a
-        # starting fact, and including it would change the payload under a
-        # client that has not been told.
-        cash = result.portfolio.cash
-        if (result.portfolio.inception is not None and not cash.empty
-                and cash.index[0] == result.portfolio.inception):
-            cash = cash.iloc[1:]
-
-        return cls(portfolio_id=result.portfolio.portfolio_id,
-                   initial_capital=result.portfolio.initial_capital,
-                   portfolio_nav=SeriesPayload.from_series(result.trading_nav),
-                   cash_history=SeriesPayload.from_series(cash),
-                   transactions=TableFrame.from_dataframe(frame),
+        return cls(portfolio=_portfolio_payload(result.portfolio),
+                   index=_book_payload(result.index),
+                   target_index=_book_payload(result.target_index),
+                   benchmark=_book_payload(result.benchmark),
+                   unfilled=[UnfilledOrderPayload(
+                       date=str(order.date.date()),
+                       asset_id=order.asset_id,
+                       requested_quantity=order.requested_quantity,
+                       filled_quantity=order.filled_quantity,
+                       price=order.price,
+                       shortfall_value=order.shortfall_value)
+                       for order in result.unfilled],
                    metrics=metrics)
+
+
+def _portfolio_payload(portfolio: Any) -> PortfolioBookPayload:
+    """The portfolio's books, bounded."""
+    rows = [
+        {
+            "date": transaction.transaction_date,
+            "asset_id": transaction.asset_id,
+            "type": transaction.transaction_type,
+            "quantity": transaction.quantity,
+            "price": transaction.price,
+            "cost": transaction.transaction_cost,
+        }
+        for transaction in portfolio.transactions
+    ]
+    frame = pd.DataFrame(
+        rows,
+        columns=["date", "asset_id", "type", "quantity", "price", "cost"])
+
+    positions = portfolio.positions
+    weights = portfolio.weights
+
+    return PortfolioBookPayload(
+        portfolio_id=portfolio.portfolio_id,
+        initial_capital=portfolio.initial_capital,
+        nav=SeriesPayload.from_series(portfolio.nav),
+        cash=SeriesPayload.from_series(portfolio.cash),
+        weights=TableFrame.from_dataframe(weights.tail(MAX_WEIGHT_DATES)),
+        weights_dates_total=len(weights),
+        positions=TableFrame.from_dataframe(
+            positions.tail(MAX_POSITION_ROWS)),
+        positions_total=len(positions),
+        transactions=TableFrame.from_dataframe(frame))
+
+
+def _book_payload(book: Any) -> BookPayload | None:
+    """One comparator's record, or None when the run had none."""
+    if book is None:
+        return None
+
+    return BookPayload(
+        levels=SeriesPayload.from_series(book.levels),
+        weights=TableFrame.from_dataframe(book.weights.tail(MAX_WEIGHT_DATES)),
+        weights_dates_total=len(book.weights))
 
 
 class PricesResponse(BaseModel):
@@ -1960,8 +2044,11 @@ class BacktestRunResult(BaseModel):
         description="Level against its running peak; 0 at a new high.")
     annual_returns: dict[str, float] = Field(
         description="Calendar year -> return. Compounds to total_return.")
-    benchmark_level: SeriesPayload = Field(
-        description="The tracked index, rebased to 100 on the same axis.")
+    index_level: SeriesPayload = Field(
+        description="The tracked index, rebased to 100 on the same axis. "
+                    "Named `benchmark_level` before BN-155; renamed because "
+                    "the tracked index and the benchmark of record are "
+                    "different comparators, and this series is the former.")
     metrics: BacktestMetrics
     benchmark: RelativeMetricsPayload | None = Field(
         default=None,

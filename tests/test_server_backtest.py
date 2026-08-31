@@ -252,7 +252,7 @@ class TestSeriesShape:
 
     def test_benchmark_starts_at_one_hundred(self,
                                              result):
-        assert result["benchmark_level"]["data"][0] == pytest.approx(100.0)
+        assert result["index_level"]["data"][0] == pytest.approx(100.0)
 
     def test_returns_is_one_shorter_than_level(self,
                                                result):

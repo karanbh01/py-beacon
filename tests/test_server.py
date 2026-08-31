@@ -558,12 +558,84 @@ class TestResultSchemas:
 
         payload = BacktestResultSummary.from_result(result).model_dump()
 
-        assert payload["portfolio_id"] == "bt"
-        assert payload["transactions"]["columns"] == [
+        assert payload["portfolio"]["portfolio_id"] == "bt"
+        # Books the run did not have are null, not empty: a client can tell
+        # "not measured" from "measured and empty".
+        assert payload["index"] is None
+        assert payload["benchmark"] is None
+        assert payload["unfilled"] == []
+        # The nav book keeps its day-zero row on the wire.
+        assert payload["portfolio"]["nav"]["data"][0] == pytest.approx(1000.0)
+        assert payload["portfolio"]["transactions"]["columns"] == [
             "date", "asset_id", "type", "quantity", "price", "cost"]
-        assert payload["transactions"]["data"][0][1] == "AAA"
+        assert payload["portfolio"]["transactions"]["data"][0][1] == "AAA"
         assert payload["metrics"]["total_return"] == pytest.approx(0.1)
         assert payload["metrics"]["tracking_error"] is None
+
+    def test_books_serialise_with_their_weights(self):
+        """An index with a daily panel arrives as a book: levels plus wide
+        weights, with the true date count published beside the served rows."""
+        import pandas as pd
+
+        from beacon.backtest.result import BacktestResult, Book
+        from beacon.index.result import IndexResult
+        from beacon.portfolio.base import Portfolio
+
+        dates = pd.bdate_range("2025-01-02", periods=3)
+        idx = IndexResult(
+            index_id="idx",
+            index_levels=pd.Series([100.0, 101.0, 102.0], index=dates),
+            divisor_history=pd.Series(1.0, index=dates),
+            constituent_snapshots={},
+            weight_snapshots={},
+        )
+        idx.daily_weights = pd.DataFrame({
+            "DATE": list(dates) * 2,
+            "IDENTIFIER": ["AAA"] * 3 + ["BBB"] * 3,
+            "AMOUNT": [1.0] * 6,
+            "WEIGHT": [0.6, 0.58, 0.61, 0.4, 0.42, 0.39],
+        })
+
+        portfolio = Portfolio(portfolio_id="bt", initial_cash=1000.0,
+                              inception=dates[0] - pd.tseries.offsets.BDay(1))
+        for date in dates:
+            portfolio._history.record(date, {}, 1000.0)
+
+        payload = BacktestResultSummary.from_result(
+            BacktestResult(portfolio=portfolio,
+                           index=Book.from_index(idx))).model_dump()
+
+        book = payload["index"]
+        assert book is not None
+        assert book["levels"]["data"] == [100.0, 101.0, 102.0]
+        assert book["weights_dates_total"] == 3
+        assert set(book["weights"]["columns"]) == {"AAA", "BBB"}
+
+    def test_positions_totals_are_published(self):
+        """The bound keeps payloads renderable; the total keeps them honest —
+        a client shows "last N of M" rather than believing it saw
+        everything."""
+        import pandas as pd
+
+        from beacon.backtest.result import BacktestResult
+        from beacon.portfolio.base import Holding, Portfolio
+
+        dates = pd.bdate_range("2025-01-02", periods=4)
+        portfolio = Portfolio(portfolio_id="bt", initial_cash=1000.0,
+                              inception=dates[0] - pd.tseries.offsets.BDay(1))
+        for date in dates:
+            holding = Holding(asset_id="AAA", quantity=1.0,
+                              average_cost_price=500.0, current_price=500.0,
+                              market_value=500.0)
+            portfolio._history.record(date, {"AAA": holding}, 500.0)
+
+        payload = BacktestResultSummary.from_result(
+            BacktestResult(portfolio=portfolio)).model_dump()
+
+        book = payload["portfolio"]
+        assert book["positions_total"] == 4
+        assert len(book["positions"]["data"]) == 4
+        assert book["weights_dates_total"] == 4
 
     def test_money_requires_a_currency_code(self):
         assert Money(value=1.5, currency="USD").currency == "USD"
