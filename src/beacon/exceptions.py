@@ -130,6 +130,27 @@ class MissingDependencyError(BeaconError, ImportError):
         self.feature = feature
         self.extra = extra
 
+class FrozenPortfolioError(BeaconError):
+    """Raised when something tries to write to a portfolio that is closed.
+
+    A finished backtest freezes its portfolio, because that portfolio *is* the
+    record of the run: applying another trade to it would quietly restate a
+    result someone has already read. Continuing a strategy means seeding a new
+    run from the old end state, not mutating the record.
+
+    Frozen is a state, not a subclass — a hand-built portfolio is never frozen
+    unless its owner freezes it.
+    """
+    def __init__(self,
+                 portfolio_id: str,
+                 operation: str):
+        message = (f"Portfolio '{portfolio_id}' is frozen: it is the record of a "
+                   f"finished backtest, so '{operation}' cannot change it. Seed a "
+                   f"new run from its end state to continue.")
+        super().__init__(message)
+        self.portfolio_id = portfolio_id
+        self.operation = operation
+
 class CalculationError(BeaconError):
     """Raised during financial calculations if an error occurs (e.g., division by
     zero, bad inputs)."""

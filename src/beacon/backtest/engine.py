@@ -534,12 +534,16 @@ class BacktestEngine:
             f"{self.end_date.date()} with capital {self.initial_capital:.2f}"
         )
 
+        # The run's start date is the portfolio's day zero: its books open
+        # with the capital they were given, before anything trades.
         portfolio = Portfolio(portfolio_id="backtest_portfolio",
-                              initial_cash=self.initial_capital)
+                              initial_cash=self.initial_capital,
+                              inception=self.start_date)
 
         trading_days = pd.bdate_range(start=self.start_date, end=self.end_date, freq="B")
         if trading_days.empty:
             logger.warning("No trading days in the specified date range.")
+            portfolio.freeze()
             return self._build_empty_result(portfolio)
 
         nav_records: dict[pd.Timestamp, float] = {}
@@ -593,6 +597,10 @@ class BacktestEngine:
         weight_df = pd.DataFrame(weight_records)
         if not weight_df.empty:
             weight_df.set_index("Date", inplace=True)
+
+        # The run is over, so its books are closed: the portfolio is now the
+        # record of this backtest, and a later write would restate it.
+        portfolio.freeze()
 
         return BacktestResult(
             portfolio_id=portfolio.portfolio_id,
