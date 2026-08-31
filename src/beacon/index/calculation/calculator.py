@@ -13,7 +13,7 @@ from ...data.fetcher import DataFetcher
 from ...exceptions import CalculationError
 from ..capping import CapReport, apply_cap
 from ..constructor import IndexDefinition
-from ..result import IndexResult
+from ..result import IndexResult, daily_weights_frame
 from ..schedule import effective_date, sessions
 from .corporate_actions import CorporateActionsMixin
 from .deletions import DeletionMixin
@@ -27,6 +27,47 @@ from .selection import (
 from .total_return import REINVESTING, TotalReturnMixin, withholding_for
 
 logger = logging.getLogger(__name__)
+
+
+def weight_rows(date: pd.Timestamp,
+                units: dict[Asset, float],
+                values: dict[Asset, float]) -> list[dict[str, object]]:
+    """One record per constituent for one day: what was held, and its share.
+
+    The weights are *realised* shares of the day's aggregate — value over
+    total — so they drift with prices between rebalances, and they renormalise
+    the moment a name is deleted. That is why the panel is recorded here
+    rather than derived later from the rebalance snapshot: the two only agree
+    on the rebalance date itself.
+
+    Plain dicts appended during the run and converted once at the end, the
+    pattern the backtest engine already uses for its own records — there is no
+    per-day object to build and throw away.
+
+    Args:
+        date: The calculation day.
+        units: What the index holds after the day's events.
+        values: Those holdings valued for *date*, from
+            :meth:`~.market_values.MarketValuesMixin.holding_values`.
+
+    Returns:
+        list: Records keyed by :data:`~beacon.index.result.DAILY_WEIGHT_COLUMNS`.
+        A day whose holdings are worth nothing at all records nothing, because
+        it has no weights to record — the level is carried forward on such a
+        day, and a row of zeros would read as "held nothing" rather than
+        "could not be valued".
+    """
+    total = sum(values.values())
+
+    if total <= 0.0:
+        return []
+
+    return [{"DATE": date,
+             "IDENTIFIER": asset.asset_id,
+             "AMOUNT": units[asset],
+             "WEIGHT": values[asset] / total}
+            for asset in units]
+
 
 class IndexCalculator(MarketValuesMixin, DeletionMixin,
                       TotalReturnMixin, CorporateActionsMixin):
@@ -360,7 +401,10 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
 
         Returns:
             An :class:`IndexResult` containing index levels, divisor history,
-            constituent snapshots and weight snapshots.
+            constituent snapshots, weight snapshots, and the daily weights
+            panel — one row per constituent per day, recorded as the loop
+            goes, since the state it holds each day is path-dependent and
+            cannot be reconstructed from the rebalance snapshots afterwards.
 
         Raises:
             ValueError: If *end_date* is not provided or precedes the base date.
@@ -431,6 +475,17 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         # differ. An index with no lag carries an empty mapping, so its
         # presence is itself the signal that a lag applies.
         announcements: dict[pd.Timestamp, pd.Timestamp] = {}
+        # One record per constituent per day. The loop already holds the true
+        # state of the index on every date and used to discard it, keeping
+        # only levels, divisors and the rebalance snapshots.
+        #
+        # Held as dicts until the run ends and converted once, which is the
+        # pattern the backtest engine uses. The cost is at the peak rather
+        # than at rest: a pending record measures ~240 bytes against ~19 in
+        # the frame, so a 6,000-name decade would hold ~3.6 GB here before
+        # collapsing to ~286 MB. Chunked conversion is the fix if that ever
+        # binds; nothing in this repository runs at that size yet.
+        daily_records: list[dict[str, object]] = []
 
         # Cash distributions, loaded once. A price index skips this entirely,
         # so it costs nothing and reads no action history — which is what keeps
@@ -456,6 +511,10 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         level: float = self.definition.base_value
 
         for date in trading_days:
+            # Today's holdings, valued. Empty on a day the index has no
+            # holdings to value, which records no weights.
+            values: dict[Asset, float] = {}
+
             if date == base_date:
                 # --- Base date initialisation ---
                 constituents_raw = self._get_universe(date)
@@ -473,6 +532,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 mv_map = self._get_constituent_market_values(weights, date)
                 total_mv = sum(mv_map.values())
                 units = self.index_units(weights, total_mv, date)
+                values = self.holding_values(units, date)
 
                 if total_mv > 0:
                     divisor = self.initialize_divisor(total_mv)
@@ -537,7 +597,8 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 new_mv_map = self._get_constituent_market_values(weights, date)
                 new_total_mv = sum(new_mv_map.values())
                 units = self.index_units(weights, new_total_mv, date)
-                new_aggregate = self.aggregate_value(units, date)
+                values = self.holding_values(units, date)
+                new_aggregate = float(sum(values.values()))
 
                 # Adjust divisor for continuity
                 if old_aggregate > 0 and new_aggregate > 0:
@@ -573,11 +634,17 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                                    for asset, weight in weights.items()
                                    if asset.asset_id not in set(deleted)}
 
+                    # Valued once, then used three times over: to reinvest
+                    # into, to set the level, and to record the day's weights.
+                    # A price lookup per holding is the run's dominant cost.
+                    values = self.holding_values(units, date)
+                    aggregate = float(sum(values.values()))
+
                     if reinvesting:
                         paid = distributions.get(date, {})
                         divisor = self.reinvest(
                             divisor,
-                            self.aggregate_value(units, date),
+                            aggregate,
                             self.distribution_received(
                                 units, paid, withholding,
                                 self.distribution_rates(
@@ -589,10 +656,12 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                         divisor=divisor,
                         current_date=date,
                         previous_index_level=level,
+                        values=values,
                     )
 
             index_levels[date] = level
             divisor_values[date] = divisor
+            daily_records.extend(weight_rows(date, units, values))
 
             # Deletions are valued on the last day the leaver still had a
             # price, so the loop has to remember which day that was.
@@ -601,7 +670,8 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         logger.info(
             f"run() completed for '{self.definition.index_name}': "
             f"{len(trading_days)} trading days, "
-            f"{len(constituent_snapshots)} rebalance(s)."
+            f"{len(constituent_snapshots)} rebalance(s), "
+            f"{len(daily_records)} daily weight record(s)."
         )
 
         return IndexResult(
@@ -612,6 +682,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             weight_snapshots=weight_snapshots,
             cap_reports=cap_reports,
             announcement_dates=announcements,
+            daily_weights=daily_weights_frame(daily_records),
         ).with_data(self.data)
 
     def run_daily_calculation(self,
