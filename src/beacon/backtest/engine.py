@@ -551,7 +551,8 @@ class BacktestEngine:
             logger.warning("No trading days in the specified date range.")
             portfolio = Portfolio(portfolio_id="backtest_portfolio",
                                   initial_cash=self.initial_capital,
-                                  inception=self.start_date)
+                                  inception=self.start_date,
+                                  source=self.data_provider)
             portfolio.freeze()
             return self._build_result(portfolio, [])
 
@@ -563,7 +564,8 @@ class BacktestEngine:
         eve = trading_days[0] - pd.tseries.offsets.BDay(1)
         portfolio = Portfolio(portfolio_id="backtest_portfolio",
                               initial_cash=self.initial_capital,
-                              inception=eve)
+                              inception=eve,
+                              source=self.data_provider)
 
         unfilled: list[UnfilledOrder] = []
 
@@ -616,6 +618,9 @@ class BacktestEngine:
         run marked and traded, and the comparators become books so every one
         answers through the same spelling (decision 5).
         """
+        # Bound to the run's own data (decision 16): asset-level views on
+        # this result always read what the simulation read, however the
+        # process-level source moves later.
         return BacktestResult(
             portfolio=portfolio,
             index=(Book.from_index(self.index_result)
@@ -624,7 +629,7 @@ class BacktestEngine:
                           if self.target_index is not None else None),
             benchmark=self._benchmark_book(),
             unfilled=unfilled,
-        )
+        ).with_data(self.data_provider)
 
     def _benchmark_book(self) -> "Book | None":
         """The benchmark of record, whichever form it was given in."""

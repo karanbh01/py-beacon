@@ -16,6 +16,7 @@ from ..exceptions import (
     CalculationError,
     ConfigurationError,
     DataNotFoundError,
+    DataSourceError,
     ExpressionError,
     FrozenPortfolioError,
     InvalidIdentifierError,
@@ -52,6 +53,9 @@ EXCEPTION_MAPPING: tuple[tuple[type[BeaconError], int, str], ...] = (
      "FROZEN_PORTFOLIO"),
     (MissingDependencyError, status.HTTP_503_SERVICE_UNAVAILABLE, "MISSING_DEPENDENCY"),
     (ConfigurationError, status.HTTP_500_INTERNAL_SERVER_ERROR, "CONFIGURATION_ERROR"),
+    # A process with no data source is a deployment fact, not a client
+    # mistake -- same family as ConfigurationError.
+    (DataSourceError, status.HTTP_500_INTERNAL_SERVER_ERROR, "NO_DATA_SOURCE"),
     (CalculationError, status.HTTP_500_INTERNAL_SERVER_ERROR, "CALCULATION_ERROR"),
     (ReportingError, status.HTTP_500_INTERNAL_SERVER_ERROR, "REPORTING_ERROR"),
     # A malformed expression is a client mistake, not a server fault: the tree

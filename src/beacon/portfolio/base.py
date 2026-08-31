@@ -8,7 +8,10 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from ..data.fetcher import DataFetcher
 from ..exceptions import FrozenPortfolioError
+from ..sources import resolve
+from .asset_view import PortfolioAssetView
 from .history import PortfolioHistory
 
 logger = logging.getLogger(__name__)
@@ -131,7 +134,8 @@ class Portfolio:
     def __init__(self,
                  portfolio_id: str,
                  initial_cash: float = 0.0,
-                 inception: pd.Timestamp | None = None):
+                 inception: pd.Timestamp | None = None,
+                 source: "DataFetcher | None" = None):
         if not portfolio_id:
             raise ValueError("portfolio_id cannot be empty.")
         if initial_cash < 0:
@@ -143,6 +147,12 @@ class Portfolio:
         self.transactions: list[Transaction] = []
 
         self.initial_capital: float = initial_cash
+
+        # Where this portfolio's market questions are answered. Bound wins
+        # over the process-level fallback (decision 16): the engine binds its
+        # data provider here, so a backtest result's views always read the
+        # data the run used.
+        self.source: DataFetcher | None = source
         self.inception: pd.Timestamp | None = (
             pd.Timestamp(inception) if inception is not None else None)
         self.frozen: bool = False
@@ -201,6 +211,37 @@ class Portfolio:
         given.
         """
         return self._history.nav
+
+    def asset(self,
+              asset_id: str) -> "PortfolioAssetView":
+        """One asset's position and market data, read live.
+
+        Args:
+            asset_id: An asset this portfolio holds or has ever held.
+
+        Returns:
+            PortfolioAssetView: Position numbers from these books, market
+            facts from the resolved data source.
+
+        Raises:
+            KeyError: If the books have never seen *asset_id* — matching
+                `IndexResult.asset` for a non-constituent.
+            DataSourceError: If no source is bound and the process has none.
+        """
+        known = set(self.holdings)
+        positions = self.positions
+
+        if not positions.empty:
+            known |= set(positions["ASSET_ID"])
+
+        if asset_id not in known:
+            raise KeyError(
+                f"Asset '{asset_id}' does not appear in this portfolio's "
+                f"books.")
+
+        fetcher = self.source if self.source is not None else resolve()
+
+        return PortfolioAssetView(asset_id, fetcher, self)
 
     def freeze(self) -> None:
         """Close the books: from here on, any write raises.

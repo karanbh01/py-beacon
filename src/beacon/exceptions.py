@@ -56,6 +56,15 @@ class UnknownDatasetError(ExpressionError, AttributeError):
     """
 
 
+class DataSourceError(BeaconError):
+    """Raised when a read needs a data source and the process has none.
+
+    The message always names both fixes — `beacon.use(fetcher)` and
+    generating the default store — because "no data" discovered deep inside a
+    price lookup is useless without being told what to do about it.
+    """
+
+
 class InvalidIdentifierError(BeaconError, ValueError):
     """Raised when a caller supplies an identifier that cannot be used.
 
