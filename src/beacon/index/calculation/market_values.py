@@ -256,18 +256,40 @@ class MarketValuesMixin:
 
         return units
 
+    def holding_values(self,
+                       units: dict[Asset, float],
+                       current_date: pd.Timestamp) -> dict[Asset, float]:
+        """What each holding is worth today: units times unit value.
+
+        Split out of :meth:`aggregate_value` because the daily weights panel
+        needs the parts as well as the total, and a part costs a market-data
+        lookup — computing them twice would double the lookups a run makes,
+        which is its dominant cost.
+
+        Args:
+            units: What the index holds, asset to unit count.
+            current_date: Valuation date.
+
+        Returns:
+            dict: Value per holding in the index currency. A name with no
+            price today is worth 0.0 and still appears, because it is still
+            held.
+        """
+        return {asset: count * self.asset_unit_value(asset, current_date)
+                for asset, count in units.items()}
+
     def aggregate_value(self,
                         units: dict[Asset, float],
                         current_date: pd.Timestamp) -> float:
         """Total value of the index's holdings: units times unit value."""
-        return float(sum(count * self.asset_unit_value(asset, current_date)
-                         for asset, count in units.items()))
+        return float(sum(self.holding_values(units, current_date).values()))
 
     def level_from_units(self,
                          units: dict[Asset, float],
                          divisor: float,
                          current_date: pd.Timestamp,
-                         previous_index_level: float) -> float:
+                         previous_index_level: float,
+                         values: dict[Asset, float] | None = None) -> float:
         """Index level on an ordinary day: holdings value over the divisor.
 
         Args:
@@ -277,6 +299,10 @@ class MarketValuesMixin:
             previous_index_level: Carried forward when the index cannot be
                 valued today, so a missing price shows as a flat day rather
                 than a collapse to zero.
+            values: Holdings already valued for *current_date*, from
+                :meth:`holding_values`. Passed by the run loop, which needs
+                them anyway to record the day's weights; omitting it values
+                the holdings here instead.
 
         Returns:
             float: The index level.
@@ -294,7 +320,8 @@ class MarketValuesMixin:
                 f"'{self.definition.index_name}'. Returning previous level.")
             return previous_index_level
 
-        aggregate = self.aggregate_value(units, current_date)
+        aggregate = (float(sum(values.values())) if values is not None
+                     else self.aggregate_value(units, current_date))
 
         if aggregate <= 0.0:
             logger.warning(
