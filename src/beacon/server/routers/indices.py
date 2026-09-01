@@ -265,6 +265,12 @@ def build_indices_router() -> APIRouter:
         registry: JobRegistry = request.app.state.jobs
         registry.forget(f"backtest:{index_id}")
 
+        # The record store too (BN-158), or the delete leaves exactly the
+        # orphan it exists to prevent: a nested record readable by an id
+        # whose definition no longer resolves.
+        records: DocumentStore = request.app.state.backtest_record_store
+        records.delete(index_id)
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.post("", response_model=SavedIndex)

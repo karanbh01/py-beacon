@@ -134,6 +134,13 @@ def create_app(config: ServerConfig) -> FastAPI:
     app.state.watchlist_store = DocumentStore("watchlists", root=config.storage_root)
     app.state.universe_store = DocumentStore("universes", root=config.storage_root)
     app.state.index_store = DocumentStore("indices", root=config.storage_root)
+    # One record per index: the nested BacktestResultSummary of its latest
+    # run, written by the backtest job and served by /beacon/{id}/record
+    # (BN-158). Kept beside the job registry's run payloads because the
+    # library BacktestResult exists only inside the job -- the record must be
+    # captured at completion, not recomputed later.
+    app.state.backtest_record_store = DocumentStore(
+        "backtest_records", root=config.storage_root)
 
     # A dataset with no universe document is a dataset the editor cannot
     # select from, so one covering everything is written as soon as data is

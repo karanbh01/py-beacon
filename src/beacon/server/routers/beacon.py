@@ -31,6 +31,7 @@ from ..schemas import (
     AssetView,
     AttributionView,
     BacktestRequest,
+    BacktestResultSummary,
     CompareView,
     Identifier,
     IndexDocument,
@@ -93,6 +94,7 @@ def _latest_run(request: Request,
     return run
 
 
+
 def _index_document(request: Request,
                     index_id: Identifier) -> IndexDocument:
     """Load a stored index definition, or fail with a mapped error."""
@@ -143,9 +145,11 @@ def build_beacon_router() -> APIRouter:
 
         registry: JobRegistry = request.app.state.jobs
         store: DocumentStore = request.app.state.index_store
+        records: DocumentStore = request.app.state.backtest_record_store
         job = registry.submit(
             f"backtest:{index_id}",
-            build_backtest_job(document, fetcher, settings, store))
+            build_backtest_job(document, fetcher, settings, store,
+                               record_store=records))
 
         return JobStatus(**job.snapshot())
 
@@ -176,6 +180,32 @@ def build_beacon_router() -> APIRouter:
         document = _index_document(request, index_id)
 
         return build_overview(index_id, document.name, _latest_run(request, index_id))
+
+    @router.get("/{index_id}/record", response_model=BacktestResultSummary)
+    def backtest_record(request: Request,
+                        index_id: Identifier) -> dict[str, Any]:
+        """The latest run's books, nested: the record, not the derived view.
+
+        `JobStatus.result` carries the run payload — rebased level, returns,
+        drawdown — which is what a chart wants. This is the other half BN-155
+        shaped and BN-158 finally serves: the portfolio book with its
+        day-zero NAV, bounded positions and weights with true totals, and the
+        comparator books, null when the run had none.
+
+        Raises:
+            DataNotFoundError: If the index has never been backtested
+                successfully — the same answer, and the same pointer, as the
+                overview.
+        """
+        records: DocumentStore = request.app.state.backtest_record_store
+        record = records.read(index_id)
+
+        if record is None:
+            raise DataNotFoundError(
+                f"a backtest record for index '{index_id}'",
+                source="run POST /beacon/{index_id}/backtest first")
+
+        return record
 
     @router.get("/{index_id}/weights", response_model=WeightsView)
     def weights(request: Request,

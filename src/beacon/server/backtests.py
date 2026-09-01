@@ -23,6 +23,7 @@ from .jobs import JobBody, ProgressReporter
 from .schemas import (
     BacktestMetrics,
     BacktestRequest,
+    BacktestResultSummary,
     BacktestRunResult,
     BenchmarkRef,
     IndexDocument,
@@ -226,7 +227,8 @@ def compare_against_benchmark(nav: pd.Series,
 def build_backtest_job(document: IndexDocument,
                        fetcher: DataFetcher,
                        request: BacktestRequest,
-                       index_store: DocumentStore) -> JobBody:
+                       index_store: DocumentStore,
+                       record_store: DocumentStore | None = None) -> JobBody:
     """Build the job body that runs one backtest.
 
     Returned as a closure rather than run inline: the caller submits it to the
@@ -273,6 +275,14 @@ def build_backtest_job(document: IndexDocument,
         await report(0.9, "Assembling results.")
         payload = assemble_result(backtest, index_result, comparison,
                                   cap=definition.max_constituent_weight)
+
+        # The record is captured here or never: the library BacktestResult
+        # exists only inside this job, and the run payload the job returns is
+        # a derived view of it, not the books (BN-158). Latest run wins,
+        # matching latest_result semantics.
+        if record_store is not None:
+            record = BacktestResultSummary.from_result(backtest)
+            record_store.write(document.id, record.model_dump(mode="json"))
 
         await report(1.0, "Complete.")
 

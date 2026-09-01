@@ -339,3 +339,111 @@ class TestAnnualReturnsHelper:
         level = pd.Series([100.0, 125.0], index=dates)
 
         assert annual_returns(level)["2023"] == pytest.approx(0.25)
+
+
+@pytest.fixture(scope="module")
+def record(module_client,
+           result):
+    """The record of the run the module fixture already paid for.
+
+    Depends on `result` so the backtest has definitely completed before the
+    record is read.
+    """
+    response = module_client.get("/beacon/BT/record", headers=auth())
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+class TestTheRecord:
+    """BN-158: `GET /beacon/{index_id}/record` — the books, finally served.
+
+    Found by the beacon-ui session after its BN-155 migration: the nested
+    `BacktestResultSummary` was defined, exported and tested, but referenced
+    by no route — the OpenAPI spec was byte-identical before and after the
+    reshape. The record is captured at job completion, because the library
+    BacktestResult exists only inside the job.
+    """
+
+
+    def test_the_portfolio_book_arrives(self,
+                                        record):
+        book = record["portfolio"]
+
+        assert book["portfolio_id"]
+        assert book["positions_total"] > 0
+        assert len(book["positions"]["data"]) > 0
+        assert book["weights_dates_total"] > 0
+
+    def test_nav_opens_with_the_capital(self,
+                                        record):
+        """The day-zero row survives serialisation: the first NAV value is
+        the initial capital, dated before the first trading day."""
+        book = record["portfolio"]
+
+        assert book["nav"]["data"][0] == pytest.approx(
+            book["initial_capital"])
+
+    def test_the_index_book_is_present_and_the_benchmark_null(self,
+                                                              record):
+        """This run tracked an index and was given no benchmark. Null and
+        present must both survive the wire — a client tells "not measured"
+        from "measured and empty" by exactly this."""
+        assert record["index"] is not None
+        assert len(record["index"]["levels"]["data"]) > 0
+        assert record["benchmark"] is None
+
+    def test_a_never_backtested_index_404s_with_the_pointer(self,
+                                                            module_client):
+        created = module_client.post(
+            "/indices", json={**index_document(), "id": "NEVER-RUN",
+                              "name": "Never run"}, headers=auth())
+        assert created.status_code == 200
+
+        response = module_client.get("/beacon/NEVER-RUN/record",
+                                     headers=auth())
+
+        assert response.status_code == 404
+        assert "backtest" in response.json()["error"]["message"]
+
+    def test_it_requires_authentication(self,
+                                        module_client):
+        assert module_client.get("/beacon/BT/record").status_code == 401
+
+    def test_the_route_is_in_the_spec(self,
+                                      module_client):
+        """The finding that started this: the spec did not change when the
+        payload did. Now it must contain the path."""
+        paths = module_client.get("/openapi.json").json()["paths"]
+
+        assert "/beacon/{index_id}/record" in paths
+
+    def test_deleting_the_index_deletes_the_record(self,
+                                                   module_client):
+        """BN-157's cascade extends to the record store, or the delete leaves
+        exactly the orphan it exists to prevent.
+
+        A dedicated index rather than the shared BT one: consuming the module
+        fixture's index would break sibling tests under randomised ordering.
+        The record is seeded through the store the job writes to, which is
+        the layer the cascade must clean.
+        """
+        created = module_client.post(
+            "/indices", json={**index_document(), "id": "DOOMED",
+                              "name": "Doomed"}, headers=auth())
+        assert created.status_code == 200
+
+        # A skeletal record: enough for the store, deliberately not enough
+        # for the route's response model -- this test is about the cascade,
+        # and the pre-check that guards against a vacuous pass reads the
+        # store directly.
+        records = module_client.app.state.backtest_record_store
+        records.write("DOOMED", {"portfolio": {"portfolio_id": "DOOMED"}})
+        assert records.read("DOOMED") is not None
+
+        deleted = module_client.delete("/indices/DOOMED", headers=auth())
+        assert deleted.status_code == 204
+
+        assert records.read("DOOMED") is None
+        response = module_client.get("/beacon/DOOMED/record", headers=auth())
+
+        assert response.status_code == 404
