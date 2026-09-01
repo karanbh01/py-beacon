@@ -236,6 +236,45 @@ class JobRegistry:
 
         return result
 
+    def forget(self,
+               kind: str) -> int:
+        """Drop every job and persisted result of one kind.
+
+        The cascade half of deleting the thing a kind is keyed to (BN-157):
+        an index's backtest results go with its definition, rather than
+        surviving under an id that no longer resolves.
+
+        Args:
+            kind: The exact kind, e.g. ``"backtest:my-index"``. Exact rather
+                than a prefix, so ``backtest:core`` cannot take
+                ``backtest:core-hedged`` with it.
+
+        Returns:
+            int: How many records went — in-memory jobs plus persisted
+            results — so the caller can log what the delete cost.
+        """
+        forgotten = 0
+
+        for job_id in [job_id for job_id, job in self._jobs.items()
+                       if job.kind == kind]:
+            del self._jobs[job_id]
+            forgotten += 1
+
+        if self._results is not None:
+            for document in self._results.read_all():
+                if document.get("kind") != kind:
+                    continue
+
+                document_id = document.get("job_id")
+                if (document_id is not None
+                        and self._results.delete(str(document_id))):
+                    forgotten += 1
+
+        if forgotten:
+            logger.info(f"Forgot {forgotten} record(s) of kind '{kind}'.")
+
+        return forgotten
+
     def latest_results_by_kind(self,
                                prefix: str) -> dict[str, dict[str, Any]]:
         """The newest successful result for every kind under a prefix.

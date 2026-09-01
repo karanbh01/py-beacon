@@ -415,3 +415,112 @@ class TestMaterialisation:
 
     def test_validation_passes_for_the_document_we_materialise(self):
         assert validate_document(IndexDocument.model_validate(tech10())) == []
+
+
+def _persist_result(registry,
+                    kind,
+                    result):
+    """Write a succeeded result the way a finished job would.
+
+    Straight into the persisted store, because that is the layer the cascade
+    must clean: it is the one that survives restarts, and `latest_result`
+    reads it rather than memory.
+    """
+    import uuid
+    from datetime import UTC, datetime
+
+    job_id = str(uuid.uuid4())
+    registry._results.write(job_id, {
+        "job_id": job_id,
+        "kind": kind,
+        "status": "succeeded",
+        "progress": 1.0,
+        "message": "done",
+        "result": result,
+        "error": None,
+        "completed_at": datetime.now(UTC).isoformat(),
+    })
+
+
+class TestDelete:
+    """BN-157: `DELETE /indices/{index_id}`, cascading its backtest results.
+
+    Universes could be deleted; indices could not — same kind of document in
+    the same kind of store, so the asymmetry was the whole request.
+    """
+
+    def _create(self,
+                client,
+                index_id="beacon-tech-10"):
+        body = {**TECH10, "id": index_id, "name": index_id}
+        response = client.post("/indices", headers=auth(), json=body)
+        assert response.status_code in (200, 201), response.text
+        return index_id
+
+    def test_it_deletes(self,
+                        client):
+        index_id = self._create(client)
+
+        assert client.delete(f"/indices/{index_id}",
+                             headers=auth()).status_code == 204
+        assert client.get(f"/indices/{index_id}",
+                          headers=auth()).status_code == 404
+
+    def test_a_missing_index_is_404(self,
+                                    client):
+        """The same answer the GET gives, not a silent 204 — deleting nothing
+        should not read as having deleted something."""
+        assert client.delete("/indices/never-existed",
+                             headers=auth()).status_code == 404
+
+    def test_it_requires_authentication(self,
+                                        client):
+        assert client.delete("/indices/anything").status_code == 401
+
+    def test_backtest_results_cascade(self,
+                                      client):
+        """The decision beacon-ui filed upward, answered: results go with
+        the definition. Orphaned results would be addressable by an id that
+        no longer resolves — the overview route 404s on the definition load
+        before it ever reaches them."""
+        index_id = self._create(client)
+        registry = client.app.state.jobs
+
+        _persist_result(registry, f"backtest:{index_id}",
+                        {"level": [100.0, 101.0]})
+
+        assert registry.latest_result(f"backtest:{index_id}") is not None
+
+        client.delete(f"/indices/{index_id}", headers=auth())
+
+        assert registry.latest_result(f"backtest:{index_id}") is None
+
+    def test_another_index_s_results_survive(self,
+                                             client):
+        """The forget is exact-kind, not prefix: deleting `core` must not
+        take `core-hedged`'s results with it."""
+        keep = self._create(client, "core-hedged")
+        drop = self._create(client, "core")
+        registry = client.app.state.jobs
+
+        for index_id in (keep, drop):
+            _persist_result(registry, f"backtest:{index_id}",
+                            {"level": [100.0]})
+
+        client.delete(f"/indices/{drop}", headers=auth())
+
+        assert registry.latest_result(f"backtest:{drop}") is None
+        assert registry.latest_result(f"backtest:{keep}") is not None
+
+    def test_an_index_without_results_deletes_cleanly(self,
+                                                      client):
+        index_id = self._create(client)
+
+        assert client.delete(f"/indices/{index_id}",
+                             headers=auth()).status_code == 204
+
+    def test_the_route_is_in_the_spec(self,
+                                      client):
+        spec = client.get("/openapi.json").json()
+
+        assert "delete" in spec["paths"]["/indices/{index_id}"]

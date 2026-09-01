@@ -18,6 +18,7 @@ from ...exceptions import ConfigurationError, DataNotFoundError, InvalidRuleErro
 from ...index.schedule import FREQUENCY_MONTHS, next_rebalance, rebalance_dates
 from ..config import ServerConfig
 from ..definitions import PipelineValidationError, has_errors, validate_document
+from ..jobs import JobRegistry
 from ..preview import build_preview
 from ..schemas import (
     Identifier,
@@ -37,7 +38,7 @@ from .universes import load_universe
 
 require("fastapi", "The Beacon API server")
 
-from fastapi import APIRouter, Query, Request  # noqa: E402
+from fastapi import APIRouter, Query, Request, Response, status  # noqa: E402
 
 COLLECTION = "indices"
 
@@ -241,6 +242,30 @@ def build_indices_router() -> APIRouter:
             raise DataNotFoundError(f"index '{index_id}'", source="DocumentStore")
 
         return IndexDocument.model_validate(document)
+
+    @router.delete("/{index_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_index(request: Request,
+                     index_id: Identifier) -> Response:
+        """Remove a stored index definition, and its backtest results.
+
+        The cascade is deliberate (BN-157): results are keyed
+        `backtest:{index_id}`, and orphaning them would leave records
+        addressable by an id that no longer resolves -- the overview route
+        404s on the definition load before it ever reaches them. The client's
+        confirm dialog says "and its backtest results", so nothing goes that
+        the user was not told about.
+
+        No refusal case: unlike universes, no index is seeded -- every stored
+        definition was created by somebody, so every one may be deleted.
+        """
+        if not _store(request).delete(index_id):
+            raise DataNotFoundError(f"index '{index_id}'",
+                                    source="DocumentStore")
+
+        registry: JobRegistry = request.app.state.jobs
+        registry.forget(f"backtest:{index_id}")
+
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.post("", response_model=SavedIndex)
     def create_index(request: Request,
