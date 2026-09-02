@@ -399,63 +399,83 @@ def _optimisation(client) -> dict:
     return _optimisation.cached
 
 
+def _run_export(destination: Path) -> dict:
+    """Load and run scripts/export_openapi.py against a destination."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parent.parent / "scripts" / "export_openapi.py"
+    spec_loader = importlib.util.spec_from_file_location("export_openapi", path)
+    assert spec_loader is not None and spec_loader.loader is not None
+
+    module = importlib.util.module_from_spec(spec_loader)
+    spec_loader.loader.exec_module(module)
+
+    return module.export(destination)
+
+
+@pytest.fixture(scope="module")
+def exported(tmp_path_factory):
+    """One export, shared by every test that only reads the result.
+
+    Each export builds the whole app and generates the spec (~1s), and five
+    tests were paying it separately -- a third of this file's runtime for
+    identical output (BN-159). Tests exercising the *write path* itself (the
+    stability re-export, the directory creation) keep their own calls.
+    """
+    destination = tmp_path_factory.mktemp("spec") / "openapi.json"
+    spec = _run_export(destination)
+
+    return spec, destination
+
+
 class TestSpecExport:
     """The artifact beacon-ui generates its client from."""
 
-    def _export(self,
-                destination: Path) -> dict:
-        import importlib.util
-
-        path = Path(__file__).resolve().parent.parent / "scripts" / "export_openapi.py"
-        spec_loader = importlib.util.spec_from_file_location("export_openapi", path)
-        assert spec_loader is not None and spec_loader.loader is not None
-
-        module = importlib.util.module_from_spec(spec_loader)
-        spec_loader.loader.exec_module(module)
-
-        return module.export(destination)
-
     def test_it_writes_a_file(self,
-                              tmp_path):
-        destination = tmp_path / "openapi.json"
-        self._export(destination)
+                              exported):
+        _, destination = exported
 
         assert destination.exists()
         assert json.loads(destination.read_text(encoding="utf-8"))["openapi"]
 
     def test_it_needs_no_data_source(self,
-                                     tmp_path):
+                                     exported):
         """Routes and schemas are declared at import time, so the export runs
         as its own CI step without a fixture."""
-        spec = self._export(tmp_path / "openapi.json")
+        spec, _ = exported
 
         assert len(spec["paths"]) > 30
 
     def test_the_output_is_stable(self,
+                                  exported,
                                   tmp_path):
         """The file is committed to a client repository and diffed there, so an
-        unstable key order would make every regeneration look like a change."""
-        first = tmp_path / "a.json"
+        unstable key order would make every regeneration look like a change.
+
+        One fresh export compared against the shared one: two independent
+        runs, which is what stability means."""
+        _, first = exported
         second = tmp_path / "b.json"
 
-        self._export(first)
-        self._export(second)
+        _run_export(second)
 
         assert first.read_bytes() == second.read_bytes()
 
     def test_it_matches_the_running_app(self,
                                         client,
-                                        tmp_path):
+                                        exported):
         """A spec exported without a data source must describe the same API as
         one serving with it, or the client is generated against a fiction."""
-        exported = self._export(tmp_path / "openapi.json")
+        spec, _ = exported
 
-        assert set(exported["paths"]) == set(client.app.openapi()["paths"])
+        assert set(spec["paths"]) == set(client.app.openapi()["paths"])
 
     def test_the_creating_directories_path_works(self,
                                                  tmp_path):
+        """Its own export on purpose: the property under test is the write
+        path creating missing directories, not the spec content."""
         destination = tmp_path / "nested" / "deep" / "openapi.json"
-        self._export(destination)
+        _run_export(destination)
 
         assert destination.exists()
 

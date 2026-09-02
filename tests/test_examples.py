@@ -20,6 +20,11 @@ from pathlib import Path
 
 import pytest
 
+# The whole module runs five real Jupyter kernels through full pipelines --
+# 3-7 minutes, the single largest cost in the suite. Routine local runs skip
+# it (-m "not slow", or scripts/test_chunks.sh); CI and pre-push runs keep it.
+pytestmark = pytest.mark.slow
+
 nbformat = pytest.importorskip("nbformat")
 nbclient = pytest.importorskip("nbclient")
 

@@ -85,6 +85,9 @@ Source = "https://github.com/karanbh01/py-beacon"
 "Issue Tracker" = "https://github.com/karanbh01/py-beacon/issues"
 
 [tool.pytest.ini_options]
+markers = [
+    "slow: multi-minute tests (the example notebooks); routine local runs deselect with -m 'not slow', CI runs everything",
+]
 testpaths = ["tests"]
 # Explicit rather than auto: an async test without the marker is far more
 # likely to be a mistake than an intention, and strict mode says so.
