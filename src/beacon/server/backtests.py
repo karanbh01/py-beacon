@@ -12,10 +12,9 @@ apart at the last decimal and nobody would know which to trust.
 import pandas as pd
 
 from ..analysis.relative import align_on_common_window, relative_metrics
-from ..backtest.engine import BacktestEngine
+from ..backtest.main import Backtest
 from ..backtest.result import BacktestResult
 from ..data.fetcher import DataFetcher
-from ..index.calculation import IndexCalculator
 from ..index.result import IndexResult
 from .benchmarks import resolve_benchmark
 from .definitions import build_index_definition
@@ -245,25 +244,32 @@ def build_backtest_job(document: IndexDocument,
     async def run(report: ProgressReporter) -> dict[str, object]:
         definition = build_index_definition(document)
 
-        # Both ends are resolved up front. IndexCalculator.run() requires an
-        # explicit end_date, so an omitted one becomes the last date the data
+        # Both ends are resolved up front. The calculation requires an
+        # explicit end date, so an omitted one becomes the last date the data
         # actually covers rather than an error the client never asked for.
         start = request.start or str(definition.base_date.date())
         end = request.end or str(fetcher.date_range[1].date())
 
-        await report(0.05, "Calculating the index.")
-        index_result = IndexCalculator(definition, fetcher).run(
-            start_date=start, end_date=end)
+        # One call covers both stages since BN-161: the front door
+        # fingerprints the calculation, reuses a cached index result when the
+        # store allows it, and hands the schedule to the engine. The two
+        # stage messages collapse into one; the reporter and the later
+        # milestones stay.
+        await report(0.05, "Calculating the index and simulating the "
+                           "tracking portfolio.")
 
-        await report(0.5, "Simulating the tracking portfolio.")
+        backtest = Backtest(initial_capital=request.initial_capital,
+                            transaction_cost_bps=request.transaction_cost_bps,
+                            data_provider=fetcher).run(definition,
+                                                       start=start,
+                                                       end=end)
 
-        engine = BacktestEngine(start_date=start,
-                                end_date=end,
-                                initial_capital=request.initial_capital,
-                                data_provider=fetcher,
-                                index_result=index_result,
-                                transaction_cost_bps=request.transaction_cost_bps)
-        backtest = engine.run()
+        # The calculation the run tracked, still needed for the payload's
+        # index level and rebalance snapshots. A definition-driven run always
+        # carries its own calculation as the index book.
+        book = backtest.index
+        assert book is not None and book.source is not None
+        index_result = book.source
 
         comparison = None
         if request.benchmark is not None:

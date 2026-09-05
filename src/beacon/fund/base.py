@@ -6,7 +6,7 @@ import logging
 
 import pandas as pd
 
-from ..backtest.engine import BacktestEngine
+from ..backtest.main import Backtest
 from ..backtest.result import BacktestResult
 from ..data.fetcher import DataFetcher
 from ..index.calculation import IndexCalculator
@@ -20,11 +20,12 @@ logger = logging.getLogger(__name__)
 class IndexFund:
     """An index fund that tracks a target index.
 
-    The fund composes an :class:`~beacon.index.calculation.IndexCalculator`
-    (to compute the target weight schedule) and a
-    :class:`~beacon.backtest.engine.BacktestEngine` (to simulate the tracking
-    portfolio). It contains no buy/sell logic of its own — rebalancing and
-    portfolio accounting are delegated entirely to the backtest engine.
+    The fund delegates the whole pipeline — target weight calculation and the
+    simulated tracking portfolio — to :class:`~beacon.backtest.main.Backtest`,
+    the front door composing :class:`~beacon.index.calculation.IndexCalculator`
+    and :class:`~beacon.backtest.engine.BacktestEngine` (BN-161). It contains
+    no buy/sell logic of its own — rebalancing and portfolio accounting are
+    delegated entirely to the backtest engine.
     """
 
     def __init__(self,
@@ -92,9 +93,12 @@ class IndexFund:
                      transaction_cost_bps: float = 0.0) -> BacktestResult:
         """Compute target weights and simulate the tracking portfolio.
 
-        Runs the index calculator to produce the target weight schedule, then
-        hands that schedule to a :class:`BacktestEngine` which manages its own
-        portfolio. The resulting :class:`BacktestResult` is cached and returned.
+        Delegates the whole calculate-then-simulate composition to
+        :class:`~beacon.backtest.main.Backtest` (BN-161), which fingerprints
+        the calculation, reuses a cached IndexResult when the data source
+        allows it, and hands the schedule to a backtest engine that manages
+        its own portfolio. The resulting :class:`BacktestResult` is cached on
+        the fund and returned.
 
         Args:
             start_date: First simulation date (YYYY-MM-DD). Defaults to the
@@ -117,19 +121,17 @@ class IndexFund:
             f"'{self.target_index_definition.index_name}' from {start} to {end_date}."
         )
 
-        # 1. Target weight schedule from the index calculator.
-        self._index_result = self.index_agent.run(start_date=start, end_date=end_date)
+        backtest = Backtest(initial_capital=self.portfolio.cash_balance,
+                            transaction_cost_bps=transaction_cost_bps,
+                            price_column=self.index_agent.price_column,
+                            data_provider=self.data_provider)
+        self._backtest_result = backtest.run(self.target_index_definition,
+                                             start=start,
+                                             end=end_date)
 
-        # 2. Simulate the tracking portfolio with the backtest engine.
-        engine = BacktestEngine(
-            start_date=start,
-            end_date=end_date,
-            initial_capital=self.portfolio.cash_balance,
-            data_provider=self.data_provider,
-            index_result=self._index_result,
-            transaction_cost_bps=transaction_cost_bps,
-        )
-        self._backtest_result = engine.run()
+        # The calculation the run tracked, kept for the fund's own accessor.
+        book = self._backtest_result.index
+        self._index_result = book.source if book is not None else None
 
         logger.info(
             f"Fund '{self.fund_id}': backtest complete "

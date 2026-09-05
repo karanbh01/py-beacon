@@ -8,10 +8,12 @@ and ETF tracking strategies.
 from ..portfolio.base import TradeInstruction
 from .asset_view import BacktestAssetView
 from .engine import BacktestEngine
+from .main import Backtest
 from .result import BacktestResult, UnfilledOrder
 from .rules import BacktestModifier, DriftThresholdModifier
 
 __all__ = [
+    "Backtest",
     "BacktestAssetView",
     "BacktestEngine",
     "BacktestModifier",
