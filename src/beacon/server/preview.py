@@ -73,6 +73,11 @@ def build_preview(document: IndexDocument,
     calculator = IndexCalculator(definition, fetcher)
 
     universe = calculator.resolve_universe(date)
+
+    # `build_index_definition` above refuses an optimiser-derived document, so
+    # by here the pipeline is present; the assertion says so to the reader and
+    # to the type checker rather than repeating the refusal.
+    assert document.pipeline is not None
     rule_ids = [rule.id for rule in document.pipeline.selection]
 
     selection = calculator.select_with_provenance(universe, date)

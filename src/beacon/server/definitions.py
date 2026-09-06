@@ -14,7 +14,7 @@ caused it, not a single exception naming whichever one failed first.
 from typing import Any
 
 from .. import catalogue
-from ..exceptions import InvalidRuleError
+from ..exceptions import DataNotFoundError, InvalidRuleError
 
 # Imported for its import side effect: the rule and scheme classes register
 # themselves in the catalogue when their module loads, and nothing else here
@@ -23,8 +23,22 @@ from ..index import methodology  # noqa: F401
 from ..index.calculation.total_return import NET_TOTAL_RETURN
 from ..index.capping import minimum_feasible_cap
 from ..index.constructor import IndexDefinition
+from ..index.derived import (
+    OBJECTIVES,
+    AnyIndexDefinition,
+    OptimisedIndexDefinition,
+)
 from ..index.schedule import DAY_RULES, is_known_calendar
-from .schemas import Finding, IndexDocument, RuleSpec
+from .constraints import build_constraint_rows, validate_constraint_rows
+from .schemas import (
+    DerivationPayload,
+    Finding,
+    IndexDocument,
+    PipelineSpec,
+    RuleSpec,
+    UniverseRef,
+)
+from .store import DocumentStore
 
 
 class PipelineValidationError(InvalidRuleError):
@@ -188,9 +202,10 @@ def _validate_schedule(document: IndexDocument) -> list[Finding]:
     return findings
 
 
-def _validate_weighting(document: IndexDocument) -> list[Finding]:
+def _validate_weighting(pipeline: PipelineSpec,
+                        universe: UniverseRef) -> list[Finding]:
     """Check the weighting group, including the unsupported cap slot."""
-    weighting = document.pipeline.weighting
+    weighting = pipeline.weighting
     findings: list[Finding] = []
 
     known = weighting_schemes()
@@ -213,19 +228,20 @@ def _validate_weighting(document: IndexDocument) -> list[Finding]:
             for name in _unknown_params(weighting.params,
                                         known[weighting.scheme]))
 
-    findings.extend(_validate_cap(document))
+    findings.extend(_validate_cap(pipeline, universe))
 
     return findings
 
 
-def _validate_cap(document: IndexDocument) -> list[Finding]:
+def _validate_cap(pipeline: PipelineSpec,
+                  universe: UniverseRef) -> list[Finding]:
     """Check the weight cap against its bounds and against the universe.
 
     An infeasible cap is caught here rather than at calculation time: a cap
     of 5% across 10 names can distribute at most 50%, and discovering that
     mid-run is far worse than being told while editing.
     """
-    weighting = document.pipeline.weighting
+    weighting = pipeline.weighting
     cap = weighting.max_weight
 
     if cap is None:
@@ -239,7 +255,7 @@ def _validate_cap(document: IndexDocument) -> list[Finding]:
             code="INVALID_CAP",
             message=f"max_weight must be a fraction in (0, 1]; got {cap}.")]
 
-    count = len(document.universe.identifiers)
+    count = len(universe.identifiers)
     if not count:
         return []
 
@@ -272,9 +288,9 @@ def _validate_cap(document: IndexDocument) -> list[Finding]:
     return []
 
 
-def _validate_treatment(document: IndexDocument) -> list[Finding]:
+def _validate_treatment(pipeline: PipelineSpec) -> list[Finding]:
     """Check the treatment group."""
-    treatment = document.pipeline.treatment
+    treatment = pipeline.treatment
 
     if treatment.corporate_actions not in TREATMENT_CORPORATE_ACTIONS:
         return [Finding(
@@ -289,7 +305,11 @@ def _validate_treatment(document: IndexDocument) -> list[Finding]:
 
 
 def _validate_details(document: IndexDocument) -> list[Finding]:
-    """Check the scalar fields IndexDefinition validates in its constructor."""
+    """Check the scalar fields IndexDefinition validates in its constructor.
+
+    Identity only: these hold for either face of a document, so an optimised
+    index is checked against them exactly as a rule-driven one is.
+    """
     findings: list[Finding] = []
 
     if document.base_value <= 0:
@@ -308,7 +328,15 @@ def _validate_details(document: IndexDocument) -> list[Finding]:
             message=f"'{document.rebalancing_frequency}' is not supported. "
                     f"Available: {', '.join(REBALANCE_FREQUENCIES)}."))
 
-    if not document.universe.identifiers:
+    return findings
+
+
+def _validate_pipeline_face(pipeline: PipelineSpec,
+                            universe: UniverseRef) -> list[Finding]:
+    """Check the rule-driven face: universe, selection, weighting, treatment."""
+    findings: list[Finding] = []
+
+    if not universe.identifiers:
         findings.append(Finding(
             path="universe.identifiers",
             rule_id=None,
@@ -316,7 +344,7 @@ def _validate_details(document: IndexDocument) -> list[Finding]:
             code="EMPTY_UNIVERSE",
             message="The universe must contain at least one identifier."))
 
-    if not document.pipeline.selection:
+    if not pipeline.selection:
         findings.append(Finding(
             path="pipeline.selection",
             rule_id=None,
@@ -325,24 +353,8 @@ def _validate_details(document: IndexDocument) -> list[Finding]:
             message="No selection rules: every universe member will be a "
                     "constituent."))
 
-    return findings
-
-
-def validate_document(document: IndexDocument) -> list[Finding]:
-    """Collect every finding for a definition document.
-
-    Args:
-        document: The definition to check.
-
-    Returns:
-        list[Finding]: Every problem found, each carrying the path and, where
-        applicable, the id of the rule responsible. Empty when the definition
-        is valid and unremarkable; warnings alone do not block saving.
-    """
-    findings = _validate_details(document)
-
     seen_ids: set[str] = set()
-    for position, rule in enumerate(document.pipeline.selection):
+    for position, rule in enumerate(pipeline.selection):
         findings.extend(_validate_selection_rule(rule, position))
 
         if rule.id in seen_ids:
@@ -355,8 +367,62 @@ def validate_document(document: IndexDocument) -> list[Finding]:
                         "would not be addressable."))
         seen_ids.add(rule.id)
 
-    findings.extend(_validate_weighting(document))
-    findings.extend(_validate_treatment(document))
+    findings.extend(_validate_weighting(pipeline, universe))
+    findings.extend(_validate_treatment(pipeline))
+
+    return findings
+
+
+def _validate_derivation_face(derivation: DerivationPayload) -> list[Finding]:
+    """Check the optimiser-derived face: objective and constraints.
+
+    The objective is checked against the library's own tuple rather than a
+    list here, and the message names the accepted set, because the whole point
+    of the field being a plain string is that a client learns what it may send
+    from the server rather than from a copy of it.
+
+    The constraint rows go through exactly the checker
+    `/optimise/constraint-sets` uses, re-addressed under `derivation`, so a
+    row that is refused in one place is refused identically in the other.
+    """
+    findings: list[Finding] = []
+
+    if derivation.objective not in OBJECTIVES:
+        findings.append(Finding(
+            path="derivation.objective",
+            rule_id=None,
+            severity="error",
+            code="UNKNOWN_OBJECTIVE",
+            message=f"'{derivation.objective}' is not an objective this "
+                    f"server can solve. Accepted: {', '.join(OBJECTIVES)}."))
+
+    findings.extend(validate_constraint_rows(derivation.constraints,
+                                             prefix="derivation.constraints"))
+
+    return findings
+
+
+def validate_document(document: IndexDocument) -> list[Finding]:
+    """Collect every finding for a definition document.
+
+    Args:
+        document: The definition to check — either face. Which checks run is
+            decided by `derivation`, the same discriminator a client branches
+            on.
+
+    Returns:
+        list[Finding]: Every problem found, each carrying the path and, where
+        applicable, the id of the rule responsible. Empty when the definition
+        is valid and unremarkable; warnings alone do not block saving.
+    """
+    findings = _validate_details(document)
+
+    if document.derivation is not None:
+        findings.extend(_validate_derivation_face(document.derivation))
+    elif document.pipeline is not None and document.universe is not None:
+        findings.extend(_validate_pipeline_face(document.pipeline,
+                                                document.universe))
+
     findings.extend(_validate_schedule(document))
 
     return findings
@@ -368,24 +434,38 @@ def has_errors(findings: list[Finding]) -> bool:
 
 
 def build_index_definition(document: IndexDocument) -> IndexDefinition:
-    """Materialise a valid document into the library's IndexDefinition.
+    """Materialise a valid rule-driven document into an IndexDefinition.
 
     Args:
         document: A document that has already passed validate_document()
-            without errors.
+            without errors, carrying a rule pipeline.
 
     Returns:
         IndexDefinition: The library object, ready for IndexCalculator.
 
     Raises:
+        InvalidRuleError: If the document is optimiser-derived. An
+            `OptimisedIndexDefinition` is not an `IndexDefinition` — the
+            calculator must never receive one by accident — so callers that
+            can handle either use :func:`build_definition`.
         ValueError: If the document is invalid after all — the library's own
             constructor validation is the final word.
     """
+    pipeline = document.pipeline
+    universe = document.universe
+
+    if pipeline is None or universe is None:
+        raise InvalidRuleError(
+            f"index '{document.id}'",
+            "it is optimiser-derived, so it has no rule pipeline to "
+            "materialise. Its methodology is its derivation, which only the "
+            "backtest path calculates")
+
     rules = [
         catalogue.classes(catalogue.SELECTION)[rule.type](**rule.params)
-        for rule in document.pipeline.selection
+        for rule in pipeline.selection
     ]
-    weighting = document.pipeline.weighting
+    weighting = pipeline.weighting
     scheme = catalogue.classes(catalogue.WEIGHTING)[weighting.scheme](
         **weighting.params)
 
@@ -398,10 +478,100 @@ def build_index_definition(document: IndexDocument) -> IndexDefinition:
                            weighting_scheme=scheme,
                            rebalancing_frequency=document.rebalancing_frequency,
                            description=document.description,
-                           universe_identifiers=list(document.universe.identifiers),
+                           universe_identifiers=list(universe.identifiers),
                            max_constituent_weight=weighting.max_weight,
                            rebalance_day_rule=document.rebalance_day_rule,
                            calendar=document.calendar,
                            return_type=document.return_type,
                            withholding_tax_rate=document.withholding_tax_rate,
                            effective_lag_sessions=document.effective_lag_sessions)
+
+
+def build_definition(document: IndexDocument,
+                     documents: DocumentStore) -> AnyIndexDefinition:
+    """Materialise a document of either face into a library definition.
+
+    A rule-driven document builds an :class:`IndexDefinition`; an
+    optimiser-derived one builds an
+    :class:`~beacon.index.derived.OptimisedIndexDefinition` over its source,
+    resolved through the store — recursively, so a chain of derivations builds
+    a chain of definitions and the whole thing calculates through one path.
+
+    Args:
+        document: The stored definition to materialise.
+        documents: Where the sources of a derivation are read from.
+
+    Returns:
+        AnyIndexDefinition: The library object, ready for
+        :class:`~beacon.backtest.main.Backtest`.
+
+    Raises:
+        DataNotFoundError: If a derivation names a source that is not stored.
+        InvalidRuleError: If a derivation chain returns to itself, or runs
+            deeper than :data:`MAX_DERIVATION_DEPTH`.
+    """
+    return _built_definition(document, documents, ())
+
+
+# How many derivations deep a chain may go. Chained optimisation is allowed by
+# design ("depth is naturally limited by sanity"), so this is not a modelling
+# limit — it is the backstop for a chain whose links a visited set cannot see,
+# and a number no honest chain reaches.
+MAX_DERIVATION_DEPTH = 16
+
+
+def _built_definition(document: IndexDocument,
+                      documents: DocumentStore,
+                      chain: tuple[str, ...]) -> AnyIndexDefinition:
+    """One link of a derivation chain, refusing a chain that eats itself.
+
+    Two guards, because they fail differently. The *visited set* — the ids
+    already on the way down, carried in `chain` — catches a cycle at the exact
+    link that closes it, so the message can print the loop; without it the
+    recursion would run until the interpreter's stack gave out, which reaches
+    the client as a 500 that says nothing. The *depth cap* is the backstop for
+    a chain that is not a cycle but is absurd, and keeps the recursion bounded
+    no matter what a stored document says.
+    """
+    derivation = document.derivation
+
+    if derivation is None:
+        return build_index_definition(document)
+
+    if document.id in chain:
+        loop = " -> ".join((*chain, document.id))
+        raise InvalidRuleError(
+            f"index '{document.id}'",
+            f"its derivation chain returns to itself ({loop}), so there is no "
+            f"source index to optimise. Re-point one of the derivations at a "
+            f"rule-driven index")
+
+    if len(chain) >= MAX_DERIVATION_DEPTH:
+        raise InvalidRuleError(
+            f"index '{document.id}'",
+            f"its derivation chain is more than {MAX_DERIVATION_DEPTH} "
+            f"indices deep ({' -> '.join(chain)}), which is deeper than this "
+            f"server will resolve")
+
+    stored = documents.read(derivation.source_index_id)
+
+    if stored is None:
+        raise DataNotFoundError(
+            f"source index '{derivation.source_index_id}', which "
+            f"'{document.id}' is derived from",
+            source="DocumentStore")
+
+    source = _built_definition(IndexDocument.model_validate(stored),
+                               documents,
+                               (*chain, document.id))
+
+    return OptimisedIndexDefinition(
+        index_id=document.id,
+        index_name=document.name,
+        source=source,
+        objective=derivation.objective,
+        constraints=build_constraint_rows(derivation.constraints),
+        base_date=document.base_date,
+        base_value=document.base_value,
+        currency=document.currency,
+        description=document.description)

@@ -461,10 +461,23 @@ class TestDelete:
                         client):
         index_id = self._create(client)
 
-        assert client.delete(f"/indices/{index_id}",
-                             headers=auth()).status_code == 204
+        removed = client.delete(f"/indices/{index_id}", headers=auth())
+
+        assert removed.status_code == 200, removed.text
         assert client.get(f"/indices/{index_id}",
                           headers=auth()).status_code == 404
+
+    def test_the_response_names_what_went(self,
+                                          client):
+        """BN-168 turned the 204 into a body: the client reports the outcome
+        from the response rather than from its own prediction."""
+        index_id = self._create(client)
+
+        body = client.delete(f"/indices/{index_id}", headers=auth()).json()
+
+        assert body["index_id"] == index_id
+        assert [entry["index_id"] for entry in body["deleted"]] == [index_id]
+        assert body["deleted"][0]["derived_from"] is None
 
     def test_a_missing_index_is_404(self,
                                     client):
@@ -515,9 +528,11 @@ class TestDelete:
     def test_an_index_without_results_deletes_cleanly(self,
                                                       client):
         index_id = self._create(client)
+        response = client.delete(f"/indices/{index_id}", headers=auth())
 
-        assert client.delete(f"/indices/{index_id}",
-                             headers=auth()).status_code == 204
+        assert response.status_code == 200
+        assert response.json()["deleted"][0]["backtest_results_deleted"] == 0
+        assert response.json()["deleted"][0]["backtest_record_deleted"] is False
 
     def test_the_route_is_in_the_spec(self,
                                       client):

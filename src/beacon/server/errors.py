@@ -74,6 +74,10 @@ HTTP_STATUS_CODES: dict[int, str] = {
     status.HTTP_403_FORBIDDEN: "FORBIDDEN",
     status.HTTP_404_NOT_FOUND: "NOT_FOUND",
     status.HTTP_405_METHOD_NOT_ALLOWED: "METHOD_NOT_ALLOWED",
+    # An id that is already taken. Not a library exception: nothing in the
+    # library knows a document store exists, and "this name is in use" is a
+    # fact about storage rather than about a rule (BN-168).
+    status.HTTP_409_CONFLICT: "CONFLICT",
     status.HTTP_501_NOT_IMPLEMENTED: "NOT_IMPLEMENTED",
 }
 FALLBACK_HTTP_CODE = "HTTP_ERROR"

@@ -17,7 +17,7 @@ from ..backtest.result import BacktestResult
 from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult
 from .benchmarks import resolve_benchmark
-from .definitions import build_index_definition
+from .definitions import build_definition
 from .jobs import JobBody, ProgressReporter
 from .schemas import (
     BacktestMetrics,
@@ -242,7 +242,11 @@ def build_backtest_job(document: IndexDocument,
         JobBody: A coroutine function taking a progress reporter.
     """
     async def run(report: ProgressReporter) -> dict[str, object]:
-        definition = build_index_definition(document)
+        # Either face (BN-168): a rule pipeline, or a derivation whose source
+        # is resolved through the store — recursively for a chain. The rest of
+        # the job is identical, which is the point: an optimised index is
+        # backtested through the same endpoint as any other.
+        definition = build_definition(document, index_store)
 
         # Both ends are resolved up front. The calculation requires an
         # explicit end date, so an omitted one becomes the last date the data
@@ -265,9 +269,12 @@ def build_backtest_job(document: IndexDocument,
                                                        end=end)
 
         # The calculation the run tracked, still needed for the payload's
-        # index level and rebalance snapshots. A definition-driven run always
-        # carries its own calculation as the target book (BN-164).
-        book = backtest.index.target
+        # index level and rebalance snapshots. The *tracked* book, not the
+        # target one: on an optimised index those differ, and the replication
+        # reference a client charts against the NAV has to be the book the
+        # engine actually traded toward. A definition-driven run always
+        # carries one (BN-164).
+        book = backtest.index.tracked
         assert book is not None and book.source is not None
         index_result = book.source
 
@@ -279,8 +286,12 @@ def build_backtest_job(document: IndexDocument,
                 start, end)
 
         await report(0.9, "Assembling results.")
-        payload = assemble_result(backtest, index_result, comparison,
-                                  cap=definition.max_constituent_weight)
+        # From the document rather than the definition: an optimised index has
+        # no weight cap of its own — the solved weights are what its
+        # constraints made them — so the field is simply absent there.
+        cap = (document.pipeline.weighting.max_weight
+               if document.pipeline is not None else None)
+        payload = assemble_result(backtest, index_result, comparison, cap=cap)
 
         # The record is captured here or never: the library BacktestResult
         # exists only inside this job, and the run payload the job returns is

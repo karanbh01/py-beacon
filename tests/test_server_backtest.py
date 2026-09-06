@@ -445,7 +445,8 @@ class TestTheRecord:
         assert records.read("DOOMED") is not None
 
         deleted = module_client.delete("/indices/DOOMED", headers=auth())
-        assert deleted.status_code == 204
+        assert deleted.status_code == 200
+        assert deleted.json()["deleted"][0]["backtest_record_deleted"] is True
 
         assert records.read("DOOMED") is None
         response = module_client.get("/beacon/DOOMED/record", headers=auth())
@@ -521,7 +522,7 @@ class TestTheListing:
         records.write("BT", {"run_at": "2025-01-01T00:00:00+00:00"})
 
         deleted = client.delete("/indices/BT", headers=auth())
-        assert deleted.status_code == 204
+        assert deleted.status_code == 200
 
         assert client.get("/beacon/backtests", headers=auth()).json() == []
 

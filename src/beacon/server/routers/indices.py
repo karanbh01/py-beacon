@@ -17,13 +17,23 @@ from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError, DataNotFoundError, InvalidRuleError
 from ...index.schedule import FREQUENCY_MONTHS, next_rebalance, rebalance_dates
 from ..config import ServerConfig
-from ..definitions import PipelineValidationError, has_errors, validate_document
+from ..definitions import (
+    PipelineValidationError,
+    build_definition,
+    has_errors,
+    validate_document,
+)
 from ..jobs import JobRegistry
 from ..preview import build_preview
 from ..schemas import (
+    DeletedIndex,
+    DerivationPayload,
+    ErrorEnvelope,
     Identifier,
     IndexCollection,
+    IndexDeletion,
     IndexDocument,
+    OptimiseRequest,
     PreviewDocumentRequest,
     PreviewRequest,
     PreviewResponse,
@@ -38,7 +48,7 @@ from .universes import load_universe
 
 require("fastapi", "The Beacon API server")
 
-from fastapi import APIRouter, Query, Request, Response, status  # noqa: E402
+from fastapi import APIRouter, HTTPException, Query, Request, status  # noqa: E402
 
 COLLECTION = "indices"
 
@@ -78,15 +88,87 @@ def _resolve_universe(request: Request,
     Resolving on save means every stored definition carries its identifiers,
     so a consumer never has to chase the reference — and a reference to a
     universe that does not exist fails now rather than at calculation time.
+
+    An optimiser-derived document has no universe of its own: it reallocates
+    exactly the names its source published, so there is nothing to resolve.
     """
-    if document.universe.universe_id is None:
+    if document.universe is None or document.universe.universe_id is None:
         return document
 
     universe = load_universe(request, document.universe.universe_id)
     resolved = document.model_copy(deep=True)
+
+    assert resolved.universe is not None
     resolved.universe.identifiers = list(universe.identifiers)
 
     return resolved
+
+
+def _children_by_source(store: DocumentStore) -> dict[str, list[str]]:
+    """Source index id -> the ids of the optimised indices derived from it.
+
+    Read off the stored documents rather than kept as an index of its own: the
+    derivation *is* the link, so scanning cannot disagree with it. Raw dicts
+    rather than validated documents, because one unreadable document must not
+    stop a delete from finding the children of a readable one.
+    """
+    children: dict[str, list[str]] = {}
+
+    for stored in store.read_all():
+        derivation = stored.get("derivation")
+        document_id = stored.get("id")
+
+        if not isinstance(derivation, dict) or not isinstance(document_id, str):
+            continue
+
+        source = derivation.get("source_index_id")
+
+        if isinstance(source, str) and source:
+            children.setdefault(source, []).append(document_id)
+
+    return children
+
+
+def _cascade(store: DocumentStore,
+             index_id: str) -> list[tuple[str, str | None]]:
+    """Everything a delete of *index_id* takes with it, in the order it goes.
+
+    Breadth-first from the named index, each entry paired with the index it was
+    derived from (None for the one the request named). The visited set is what
+    makes a cycle harmless: a derivation chain that loops is refused at
+    calculation time, but it can still be *stored*, and a delete that walked it
+    without one would never return.
+    """
+    children = _children_by_source(store)
+    order: list[tuple[str, str | None]] = [(index_id, None)]
+    seen = {index_id}
+    position = 0
+
+    while position < len(order):
+        parent = order[position][0]
+        position += 1
+
+        for child in children.get(parent, ()):
+            if child not in seen:
+                seen.add(child)
+                order.append((child, parent))
+
+    return order
+
+
+def _delete_one(store: DocumentStore,
+                registry: JobRegistry,
+                records: DocumentStore,
+                index_id: str,
+                derived_from: str | None) -> DeletedIndex:
+    """Put one index through the full cascade and report what went."""
+    store.delete(index_id)
+
+    return DeletedIndex(index_id=index_id,
+                        derived_from=derived_from,
+                        backtest_record_deleted=records.delete(index_id),
+                        backtest_results_deleted=registry.forget(
+                            f"backtest:{index_id}"))
 
 
 # How much history and how far ahead the schedule view shows. Enough for a
@@ -243,40 +325,86 @@ def build_indices_router() -> APIRouter:
 
         return IndexDocument.model_validate(document)
 
-    @router.delete("/{index_id}", status_code=status.HTTP_204_NO_CONTENT)
+    @router.delete("/{index_id}", response_model=IndexDeletion)
     def delete_index(request: Request,
-                     index_id: Identifier) -> Response:
-        """Remove a stored index definition, and its backtest results.
+                     index_id: Identifier) -> IndexDeletion:
+        """Remove a stored index definition, its optimised children, and the
+        backtest results of every one of them.
 
-        The cascade is deliberate (BN-157): results are keyed
+        The first cascade is deliberate (BN-157): results are keyed
         `backtest:{index_id}`, and orphaning them would leave records
         addressable by an id that no longer resolves -- the overview route
-        404s on the definition load before it ever reaches them. The client's
-        confirm dialog says "and its backtest results", so nothing goes that
-        the user was not told about.
+        404s on the definition load before it ever reaches them.
+
+        The second is the owner's call for BN-168: an optimised index
+        *references* its source rather than copying it, so a child left behind
+        would be a methodology with no methodology — it could never be
+        calculated again. Each child goes through the identical cascade, and
+        the chain is followed recursively. The confirmation warning stays
+        client-side: documents carry `source_index_id`, so the UI computes the
+        blast radius from the catalogue before sending. This response then
+        says what actually went, which is what the client reports.
 
         No refusal case: unlike universes, no index is seeded -- every stored
         definition was created by somebody, so every one may be deleted.
         """
-        if not _store(request).delete(index_id):
+        store = _store(request)
+
+        if not store.exists(index_id):
             raise DataNotFoundError(f"index '{index_id}'",
                                     source="DocumentStore")
 
         registry: JobRegistry = request.app.state.jobs
-        registry.forget(f"backtest:{index_id}")
-
         # The record store too (BN-158), or the delete leaves exactly the
         # orphan it exists to prevent: a nested record readable by an id
         # whose definition no longer resolves.
         records: DocumentStore = request.app.state.backtest_record_store
-        records.delete(index_id)
 
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        removed = [_delete_one(store, registry, records, target, parent)
+                   for target, parent in _cascade(store, index_id)]
+
+        return IndexDeletion(index_id=index_id, deleted=removed)
 
     @router.post("", response_model=SavedIndex)
     def create_index(request: Request,
                      body: IndexDocument) -> SavedIndex:
         return _save(request, body.id, body)
+
+    @router.post("/{index_id}/optimise",
+                 response_model=SavedIndex,
+                 responses={409: {"model": ErrorEnvelope,
+                                  "description": "An index with the requested "
+                                                 "id already exists."}})
+    def optimise_index(request: Request,
+                       index_id: Identifier,
+                       body: OptimiseRequest) -> SavedIndex:
+        """Derive a new, optimised index from a stored one.
+
+        The UI's "Optimise" action on any index. Provenance is server-truth:
+        the source is the index in the URL, and the body has no way to assert
+        a parentage the server did not create.
+
+        The derived document inherits the parent's identity — base date, base
+        value, currency, calendar, and the rebalancing cadence in particular,
+        because the child solves exactly at the parent's published snapshots
+        and a cadence of its own would have no parent weights at the extra
+        dates (design record, default 2).
+        """
+        stored = _store(request).read(index_id)
+
+        if stored is None:
+            raise DataNotFoundError(f"index '{index_id}'",
+                                    source="DocumentStore")
+
+        if _store(request).exists(body.id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"An index with id '{body.id}' already exists. Choose "
+                       f"another id, or delete that index first.")
+
+        parent = IndexDocument.model_validate(stored)
+
+        return _save(request, body.id, _derived_document(parent, body))
 
     @router.put("/{index_id}", response_model=SavedIndex)
     def put_index(request: Request,
@@ -289,7 +417,46 @@ def build_indices_router() -> APIRouter:
                 f"index '{index_id}'",
                 f"body id '{body.id}' does not match the URL id '{index_id}'")
 
+        _refuse_repointed_derivation(request, index_id, body)
+
         return _save(request, index_id, body)
+
+    def _refuse_repointed_derivation(request: Request,
+                                     index_id: Identifier,
+                                     body: IndexDocument) -> None:
+        """Hold `derivation.source_index_id` still across an update.
+
+        Re-pointing a derivation is a new index, not an edit: every calculated
+        level, every stored backtest record and every comparison against the
+        old parent would silently become a statement about a different one.
+        The objective and the constraints are ordinary rule edits — they
+        re-fingerprint and recalculate exactly as a pipeline change does — and
+        stay editable.
+        """
+        stored = _store(request).read(index_id)
+
+        if stored is None:
+            return
+
+        current = IndexDocument.model_validate(stored).derivation
+
+        if current is None:
+            return
+
+        if body.derivation is None:
+            raise InvalidRuleError(
+                f"index '{index_id}'",
+                f"it is derived from '{current.source_index_id}', and a "
+                f"derivation cannot be dropped by an update. Create a new "
+                f"index for the rule pipeline")
+
+        if body.derivation.source_index_id != current.source_index_id:
+            raise InvalidRuleError(
+                f"index '{index_id}'",
+                f"its derivation source is '{current.source_index_id}' and "
+                f"cannot be changed to '{body.derivation.source_index_id}': "
+                f"re-pointing a derivation is a new index, not an edit. The "
+                f"objective and the constraints are editable")
 
     def _save(request: Request,
               index_id: Identifier,
@@ -302,8 +469,43 @@ def build_indices_router() -> APIRouter:
                                           "the rule pipeline has errors",
                                           findings)
 
+        if resolved.derivation is not None:
+            # Resolved on save for the same reason a referenced universe is: a
+            # derivation naming a source that does not exist is a document
+            # that can never be calculated, and the editor should hear that
+            # now rather than from a backtest a minute later.
+            build_definition(resolved, _store(request))
+
         _store(request).write(index_id, resolved.model_dump())
 
         return SavedIndex(index=resolved, findings=findings)
 
     return router
+
+
+def _derived_document(parent: IndexDocument,
+                      body: OptimiseRequest) -> IndexDocument:
+    """The document `POST /indices/{id}/optimise` stores.
+
+    A normal index document with all the usual identity attributes, whose
+    methodology is the derivation rather than a pipeline. No weights are
+    carried — not the parent's, not the solved ones — because no Beacon
+    document stores weights.
+    """
+    return IndexDocument(
+        id=body.id,
+        name=body.name,
+        base_date=parent.base_date,
+        base_value=parent.base_value,
+        currency=parent.currency,
+        rebalancing_frequency=parent.rebalancing_frequency,
+        derivation=DerivationPayload(source_index_id=parent.id,
+                                     objective=body.objective,
+                                     constraints=list(body.constraints)),
+        description=body.description,
+        return_type=parent.return_type,
+        withholding_tax_rate=parent.withholding_tax_rate,
+        calendar=parent.calendar,
+        rebalance_day_rule=parent.rebalance_day_rule,
+        publication_time=parent.publication_time,
+        effective_lag_sessions=parent.effective_lag_sessions)

@@ -12,7 +12,13 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 import pandas as pd
-from pydantic import AfterValidator, BaseModel, Field, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from ..backtest.result import BacktestResult
 from ..data.corporate_actions import (
@@ -21,7 +27,9 @@ from ..data.corporate_actions import (
     kind_of,
     status_of,
 )
+from ..index.derived import OBJECTIVES
 from ..index.result import IndexResult
+from ..optimise.config import MIN_TRACKING_ERROR
 from ..report.blocks import BLOCK_TYPES
 from ..universe import FROZEN, LIVE
 from .serialisation import dataframe_to_payload, series_to_payload
@@ -828,8 +836,74 @@ class UniverseRef(BaseModel):
                                    description="Resolved instrument identifiers.")
 
 
+# Declared here rather than beside the rest of the optimiser schemas below,
+# because `DerivationPayload` — and therefore `IndexDocument` — carries a list
+# of these, and a model has to exist before another model refers to it.
+class ConstraintRow(BaseModel):
+    """One constraint, in the shape a client's editor holds it.
+
+    Maps 1:1 to a class in `beacon.optimise.constraints`: the row a user edits,
+    the JSON that is stored and the object the solver receives are the same
+    thing in three representations, so a rule cannot change meaning in
+    translation.
+    """
+    id: str = Field(default="", max_length=64,
+                    description="Stable row id. Carried back on any binding "
+                                "constraint so a client can highlight the row "
+                                "that bound.")
+    type: str = Field(description="Constraint class, e.g. 'PositionBounds'.")
+    params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Constructor arguments for that class, by name.")
+
+
+# Published in the field description below, and read from the library rather
+# than restated, so the accepted set on the wire cannot drift from the set the
+# calculation actually solves (BN-168, agreed with beacon-ui: the objective has
+# to be *discoverable*, not merely validated).
+OBJECTIVE_VALUES = ", ".join(OBJECTIVES)
+
+
+class DerivationPayload(BaseModel):
+    """How an optimised index is derived from the index it was built on.
+
+    The whole of an optimised index's methodology: the source it reallocates,
+    what the solve minimises, and what the answer must satisfy. No weights —
+    neither the parent's nor the solved ones — because definitions are rules
+    and weights are calculated.
+    """
+    source_index_id: str = Field(
+        min_length=1, max_length=64,
+        description="Id of the index this one optimises. Immutable after "
+                    "creation: re-pointing a derivation is a new index, not "
+                    "an edit, so an update that changes it is refused.")
+    objective: str = Field(
+        default=MIN_TRACKING_ERROR,
+        description=f"What the solve minimises. Accepted values: "
+                    f"{OBJECTIVE_VALUES}. A plain string rather than an enum "
+                    f"so a risk-model objective can be added without a wire "
+                    f"break; an unknown value is refused with a finding "
+                    f"naming the accepted set.")
+    constraints: list[ConstraintRow] = Field(
+        default_factory=list,
+        description="What the solved weights must satisfy — exactly the rows "
+                    "`/optimise/constraint-sets` stores, so one editor serves "
+                    "both. Empty leaves the solver's own full-investment "
+                    "default.")
+
+
 class IndexDocument(BaseModel):
-    """A stored index definition."""
+    """A stored index definition, in one of its two faces.
+
+    A document carries **either** a rule pipeline (`pipeline` and `universe`)
+    **or** a `derivation` — never both, never neither. `derivation` is the
+    discriminator: present, the index is optimiser-derived and its methodology
+    is the derivation; absent, it is a rule pipeline over a universe.
+
+    A synthesised pipeline for optimised documents was considered and rejected
+    (design record, "Document schema"): it would be a methodology nobody wrote
+    and nobody can meaningfully edit.
+    """
     id: str = Field(description="Stable identifier, used in the URL.",
                     min_length=1, max_length=64)
     name: str = Field(description="Display name.", min_length=1)
@@ -849,8 +923,23 @@ class IndexDocument(BaseModel):
     rebalancing_frequency: str = Field(
         description="MONTHLY, QUARTERLY, SEMI-ANNUAL or ANNUAL. The cadence; "
                     "`rebalance_day_rule` decides which day of the month.")
-    universe: UniverseRef
-    pipeline: PipelineSpec
+    # Optional since BN-168: an optimiser-derived index has neither, and a
+    # rule-driven one has both. `_exactly_one_face` below is what keeps that
+    # from meaning "either may be missing on any document".
+    universe: UniverseRef | None = Field(
+        default=None,
+        description="The investable set. Present on a rule-driven index, null "
+                    "on an optimiser-derived one, which reallocates exactly "
+                    "the names its source published.")
+    pipeline: PipelineSpec | None = Field(
+        default=None,
+        description="The rule pipeline. Present on a rule-driven index, null "
+                    "on an optimiser-derived one.")
+    derivation: DerivationPayload | None = Field(
+        default=None,
+        description="Present on an optimiser-derived index, null on a "
+                    "rule-driven one. Its presence is the discriminator a "
+                    "client branches on.")
     description: str | None = None
 
     # --- BN-121 metadata. All defaulted, so every stored document stays valid
@@ -900,6 +989,43 @@ class IndexDocument(BaseModel):
                     "calculator in BN-126; until then it is declared and not "
                     "applied, and 0 is the behaviour in force.")
 
+    @model_validator(mode="after")
+    def _exactly_one_face(self) -> "IndexDocument":
+        """Refuse a document that is neither face, or both.
+
+        The rule the whole one-type schema rests on. A document with both would
+        have two methodologies and no answer to which one calculates; a
+        document with neither has none at all, and would only fail later with a
+        message about whichever field was read first.
+        """
+        if self.derivation is not None:
+            if self.pipeline is not None or self.universe is not None:
+                carried = " and ".join(
+                    name for name, value in (("pipeline", self.pipeline),
+                                             ("universe", self.universe))
+                    if value is not None)
+
+                raise ValueError(
+                    f"an index document carries either a rule pipeline "
+                    f"(`pipeline` and `universe`) or a `derivation`, never "
+                    f"both; this one carries a derivation and also {carried}")
+
+            return self
+
+        missing = [name for name, value in (("pipeline", self.pipeline),
+                                            ("universe", self.universe))
+                   if value is None]
+
+        if missing:
+            raise ValueError(
+                f"an index document carries either a rule pipeline "
+                f"(`pipeline` and `universe`) or a `derivation`, and this one "
+                f"carries neither: {', '.join(missing)} "
+                f"{'is' if len(missing) == 1 else 'are'} missing and there is "
+                f"no `derivation` in its place")
+
+        return self
+
 
 class Finding(BaseModel):
     """One validation result, addressable to the rule that caused it."""
@@ -920,6 +1046,58 @@ class ValidationReport(BaseModel):
 class IndexCollection(BaseModel):
     """Response of `GET /indices`."""
     indices: list[IndexDocument]
+
+
+class OptimiseRequest(BaseModel):
+    """Body of `POST /indices/{index_id}/optimise`.
+
+    Everything the derived index needs that the parent cannot supply. The
+    source is deliberately absent: provenance is server-truth, taken from the
+    URL, so a client cannot assert a parentage the server did not create.
+    """
+    id: str = Field(description="Id for the new optimised index.",
+                    min_length=1, max_length=64)
+    name: str = Field(description="Display name for the new optimised index.",
+                      min_length=1)
+    objective: str = Field(
+        default=MIN_TRACKING_ERROR,
+        description=f"What the solve minimises. Accepted values: "
+                    f"{OBJECTIVE_VALUES}.")
+    constraints: list[ConstraintRow] = Field(
+        default_factory=list,
+        description="What the solved weights must satisfy. Validated through "
+                    "the same catalogue `/optimise/constraint-sets` uses, so "
+                    "a bad row is refused here naming the row.")
+    description: str | None = Field(
+        default=None,
+        description="Optional description for the derived index. Null inherits "
+                    "nothing — the parent's description describes the parent.")
+
+
+class DeletedIndex(BaseModel):
+    """One index a delete removed, and what went with it."""
+    index_id: str = Field(description="The index that was removed.")
+    derived_from: str | None = Field(
+        default=None,
+        description="The index this one was derived from, when it went as an "
+                    "optimised child. Null for the index the request named.")
+    backtest_record_deleted: bool = Field(
+        description="Whether a stored backtest record went with it.")
+    backtest_results_deleted: int = Field(
+        description="How many job records and persisted run results were "
+                    "forgotten with it.")
+
+
+class IndexDeletion(BaseModel):
+    """Response of `DELETE /indices/{index_id}`.
+
+    Everything the delete removed, so a client reports the outcome from the
+    response rather than from its own prediction of the blast radius. The
+    named index comes first, then each optimised child in the order the
+    cascade reached it.
+    """
+    index_id: str = Field(description="The index the request named.")
+    deleted: list[DeletedIndex]
 
 
 class ReportTemplateDocument(BaseModel):
@@ -1274,24 +1452,6 @@ class RiskModelSummary(BaseModel):
 class RiskModelCollection(BaseModel):
     """Response of `GET /risk-models`."""
     risk_models: list[RiskModelSummary]
-
-
-class ConstraintRow(BaseModel):
-    """One constraint, in the shape a client's editor holds it.
-
-    Maps 1:1 to a class in `beacon.optimise.constraints`: the row a user edits,
-    the JSON that is stored and the object the solver receives are the same
-    thing in three representations, so a rule cannot change meaning in
-    translation.
-    """
-    id: str = Field(default="", max_length=64,
-                    description="Stable row id. Carried back on any binding "
-                                "constraint so a client can highlight the row "
-                                "that bound.")
-    type: str = Field(description="Constraint class, e.g. 'PositionBounds'.")
-    params: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Constructor arguments for that class, by name.")
 
 
 class ConstraintSet(BaseModel):

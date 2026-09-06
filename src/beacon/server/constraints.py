@@ -22,6 +22,7 @@ the optimiser answers that when it runs. It refuses rather than fudging, so the
 failure still reaches the client with a message naming what is impossible.
 """
 import logging
+from collections.abc import Sequence
 
 from .. import catalogue
 from ..optimise import Constraint, constraint_from_payload
@@ -66,28 +67,49 @@ def validate_constraint_set(document: ConstraintSet) -> list[Finding]:
         list: Findings, addressed to the row that caused each. Empty when the
         set is well formed — which is not the same as feasible.
     """
+    return validate_constraint_rows(document.constraints)
+
+
+def validate_constraint_rows(constraints: Sequence[ConstraintRow],
+                             prefix: str = "constraints") -> list[Finding]:
+    """Check a list of constraint rows wherever it is carried.
+
+    The same rows appear in two documents — a stored constraint set, and an
+    optimised index's derivation (BN-168) — and a client editing either needs
+    identical answers, so there is one checker and the caller only says where
+    the rows live.
+
+    Args:
+        constraints: The rows to check.
+        prefix: Dotted path the findings are addressed under, e.g.
+            ``"derivation.constraints"``.
+
+    Returns:
+        list: Findings, addressed to the row that caused each.
+    """
     findings: list[Finding] = []
 
-    if not document.constraints:
+    if not constraints:
         findings.append(Finding(
-            path="constraints",
+            path=prefix,
             severity=WARNING,
             code="NO_CONSTRAINTS",
             message="This set constrains nothing. A solve against it returns "
                     "the target unchanged."))
 
-    for position, row in enumerate(document.constraints):
-        findings.extend(_validate_row(position, row))
+    for position, row in enumerate(constraints):
+        findings.extend(_validate_row(position, row, prefix))
 
-    findings.extend(_validate_set_shape(document))
+    findings.extend(_validate_set_shape(constraints, prefix))
 
     return findings
 
 
 def _validate_row(position: int,
-                  row: ConstraintRow) -> list[Finding]:
+                  row: ConstraintRow,
+                  prefix: str) -> list[Finding]:
     """Check one row's type and parameters."""
-    path = f"constraints[{position}]"
+    path = f"{prefix}[{position}]"
 
     if row.type not in constraint_types_registered():
         return [Finding(
@@ -144,15 +166,16 @@ def _probe_construction(path: str,
     return []
 
 
-def _validate_set_shape(document: ConstraintSet) -> list[Finding]:
+def _validate_set_shape(constraints: Sequence[ConstraintRow],
+                        prefix: str) -> list[Finding]:
     """Check the set as a whole, rather than row by row."""
     findings: list[Finding] = []
 
-    kinds = [row.type for row in document.constraints]
+    kinds = [row.type for row in constraints]
 
     if kinds.count("FullInvestment") > 1:
         findings.append(Finding(
-            path="constraints",
+            path=prefix,
             severity=ERROR,
             code="DUPLICATE_FULL_INVESTMENT",
             message="Two full-investment constraints cannot both hold unless "
@@ -160,7 +183,7 @@ def _validate_set_shape(document: ConstraintSet) -> list[Finding]:
 
     if "FullInvestment" not in kinds and kinds:
         findings.append(Finding(
-            path="constraints",
+            path=prefix,
             severity=WARNING,
             code="NO_INVESTMENT_TARGET",
             message="Nothing fixes how much is invested, so the solve is free "
@@ -168,7 +191,7 @@ def _validate_set_shape(document: ConstraintSet) -> list[Finding]:
 
     if "Cardinality" in kinds:
         findings.append(Finding(
-            path="constraints",
+            path=prefix,
             severity=WARNING,
             code="NON_CONVEX_CONSTRAINT",
             message="A holding limit is not convex. It is honoured by a "
@@ -177,10 +200,10 @@ def _validate_set_shape(document: ConstraintSet) -> list[Finding]:
                     "optimal."))
 
     seen: set[str] = set()
-    for position, row in enumerate(document.constraints):
+    for position, row in enumerate(constraints):
         if row.id and row.id in seen:
             findings.append(Finding(
-                path=f"constraints[{position}].id",
+                path=f"{prefix}[{position}].id",
                 rule_id=row.id,
                 severity=ERROR,
                 code="DUPLICATE_ROW_ID",
@@ -207,7 +230,20 @@ def build_constraints(document: ConstraintSet) -> list[Constraint]:
         CalculationError: If a row's type is unknown, which validation would
             have caught. Reaching here means the set was never validated.
     """
-    return [_built(row) for row in document.constraints]
+    return build_constraint_rows(document.constraints)
+
+
+def build_constraint_rows(constraints: Sequence[ConstraintRow]) -> list[Constraint]:
+    """Turn constraint rows into optimiser constraint objects.
+
+    Args:
+        constraints: Rows that have already been validated, from a stored set
+            or from an optimised index's derivation.
+
+    Returns:
+        list: The constraints, in the order the rows carry them.
+    """
+    return [_built(row) for row in constraints]
 
 
 def _built(row: ConstraintRow) -> Constraint:
