@@ -753,3 +753,56 @@ class TestBacktestingAnOptimisedIndex:
 
         assert record["index"]["target"] is not None
         assert record["index"]["optimised"] is None
+
+
+class TestAnOptimisedIndexAsABenchmark:
+    """BN-169: a benchmark needs a level series, and an optimised index has one.
+
+    The refusal this fixes was an accident of resolution rather than a
+    judgement: benchmarks were built through the pipeline-only builder, which
+    refuses a derivation, so an index that could perfectly well be compared
+    against could not be named as the comparator.
+    """
+
+    def test_the_parent_can_be_measured_against_its_optimised_child(self,
+                                                                    backtested):
+        """The comparison the whole feature exists to make — what did the
+        constraints cost? — asked the way a client asks it."""
+        submitted = backtested.post(
+            f"/beacon/{PARENT_ID}/backtest",
+            json={"start": START, "end": END,
+                  "benchmark": {"kind": "index", "id": CHILD_ID}},
+            headers=auth())
+
+        assert submitted.status_code == 202, submitted.text
+
+        backtested.portal.call(backtested.app.state.jobs.drain)
+
+        job = backtested.get(f"/jobs/{submitted.json()['job_id']}",
+                             headers=auth()).json()
+
+        assert job["status"] == "succeeded", job
+
+        comparison = job["result"]["benchmark"]
+
+        assert comparison is not None
+        assert comparison["level"]["data"], "the benchmark produced no levels"
+
+    def test_an_unknown_benchmark_index_still_404s(self,
+                                                   backtested):
+        """The widened resolution must not widen into accepting nothing."""
+        submitted = backtested.post(
+            f"/beacon/{PARENT_ID}/backtest",
+            json={"start": START, "end": END,
+                  "benchmark": {"kind": "index", "id": "NEVER-EXISTED"}},
+            headers=auth())
+
+        assert submitted.status_code == 202, submitted.text
+
+        backtested.portal.call(backtested.app.state.jobs.drain)
+
+        job = backtested.get(f"/jobs/{submitted.json()['job_id']}",
+                             headers=auth()).json()
+
+        assert job["status"] == "failed"
+        assert "NEVER-EXISTED" in str(job["error"])
