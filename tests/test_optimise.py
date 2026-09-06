@@ -377,9 +377,11 @@ class TestNonConvergence:
         diagnostics, which for a weight vector someone is about to trade is
         the wrong default.
         """
-        from beacon.optimise import solver
+        # Patched where the solver now finds it: scipy is imported at solve
+        # time (BN-166), so there is no `solver.minimize` module attribute.
+        import scipy.optimize
 
-        real = solver.minimize
+        real = scipy.optimize.minimize
 
         def stalls(*args, **kwargs):
             outcome = real(*args, **kwargs)
@@ -388,16 +390,16 @@ class TestNonConvergence:
             outcome.message = "Positive directional derivative for linesearch"
             return outcome
 
-        monkeypatch.setattr(solver, "minimize", stalls)
+        monkeypatch.setattr(scipy.optimize, "minimize", stalls)
 
         with pytest.raises(CalculationError, match="did not converge"):
             solve(FullInvestment())
 
     def test_the_refusal_names_the_solver_message(self,
                                                   monkeypatch):
-        from beacon.optimise import solver
+        import scipy.optimize
 
-        real = solver.minimize
+        real = scipy.optimize.minimize
 
         def stalls(*args, **kwargs):
             outcome = real(*args, **kwargs)
@@ -406,7 +408,7 @@ class TestNonConvergence:
             outcome.message = "Iteration limit reached"
             return outcome
 
-        monkeypatch.setattr(solver, "minimize", stalls)
+        monkeypatch.setattr(scipy.optimize, "minimize", stalls)
 
         with pytest.raises(CalculationError, match="Iteration limit reached"):
             solve(FullInvestment())

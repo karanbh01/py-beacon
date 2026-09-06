@@ -62,10 +62,6 @@ from .constraints import (
 )
 from .result import BindingConstraint, OptimisationResult, SolverDiagnostics
 
-require("scipy", "Portfolio optimisation")
-
-from scipy.optimize import minimize  # noqa: E402
-
 logger = logging.getLogger(__name__)
 
 # Sequential Least Squares Programming. It handles a smooth objective with
@@ -571,7 +567,16 @@ def _solve(objective: Callable[[Vector], float],
            hint: Vector,
            lows: Vector,
            highs: Vector) -> Any:
-    """Run SLSQP once over the given box."""
+    """Run SLSQP once over the given box.
+
+    scipy is required here, at solve time, rather than at import: describing a
+    problem — constraints, configs, results — is core work, and only actually
+    solving one needs the ``optimise`` extra (BN-166).
+    """
+    require("scipy", "Portfolio optimisation")
+
+    from scipy.optimize import minimize  # noqa: PLC0415
+
     return minimize(objective,
                     x0=_starting_point(rules, hint, lows, highs),
                     jac=gradient,

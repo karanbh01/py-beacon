@@ -24,29 +24,20 @@ failure still reaches the client with a message naming what is impossible.
 import logging
 
 from .. import catalogue
-from ..optimise.constraints import (
-    Cardinality,
-    Constraint,
-    ExpectedReturnTarget,
-    FullInvestment,
-    GroupBounds,
-    PositionBounds,
-    TurnoverBudget,
-)
+from ..optimise import Constraint, constraint_from_payload
 from .schemas import ConstraintRow, ConstraintSet, Finding
 
 logger = logging.getLogger(__name__)
 
-# Row type to the class it becomes. The keys are what a client sends and what
-# is stored; adding a constraint class means adding it here and nowhere else.
-CONSTRAINT_TYPES = {
-    "FullInvestment": FullInvestment,
-    "PositionBounds": PositionBounds,
-    "GroupBounds": GroupBounds,
-    "TurnoverBudget": TurnoverBudget,
-    "Cardinality": Cardinality,
-    "ExpectedReturnTarget": ExpectedReturnTarget,
-}
+
+def constraint_types_registered() -> set[str]:
+    """The constraint types a row may name.
+
+    Read off the catalogue (BN-166) rather than a hand-kept table: importing
+    `beacon.optimise` above is what registers the classes, and adding a
+    constraint means decorating it there and nowhere else.
+    """
+    return catalogue.registered_names(catalogue.CONSTRAINT)
 
 # Parameters each type accepts, so an unknown key is reported against the row
 # that carries it rather than surfacing as a TypeError from a constructor.
@@ -98,14 +89,14 @@ def _validate_row(position: int,
     """Check one row's type and parameters."""
     path = f"constraints[{position}]"
 
-    if row.type not in CONSTRAINT_TYPES:
+    if row.type not in constraint_types_registered():
         return [Finding(
             path=path,
             rule_id=row.id,
             severity=ERROR,
             code="UNKNOWN_CONSTRAINT_TYPE",
             message=f"Unknown constraint type '{row.type}'. Available: "
-                    f"{', '.join(sorted(CONSTRAINT_TYPES))}.")]
+                    f"{', '.join(sorted(constraint_types_registered()))}.")]
 
     accepted = constraint_params()[row.type]
     unexpected = sorted(set(row.params) - accepted)
@@ -133,7 +124,7 @@ def _probe_construction(path: str,
     cardinality below one, and duplicating those rules would let the two drift.
     """
     try:
-        CONSTRAINT_TYPES[row.type](**row.params)
+        _built(row)
     except TypeError as exc:
         return [Finding(path=f"{path}.params",
                         rule_id=row.id,
@@ -213,11 +204,20 @@ def build_constraints(document: ConstraintSet) -> list[Constraint]:
         only for reporting, since the solver applies them all at once.
 
     Raises:
-        KeyError: If a row's type is unknown, which validation would have
-            caught. Reaching here means the set was never validated.
+        CalculationError: If a row's type is unknown, which validation would
+            have caught. Reaching here means the set was never validated.
     """
-    return [CONSTRAINT_TYPES[row.type](**row.params)
-            for row in document.constraints]
+    return [_built(row) for row in document.constraints]
+
+
+def _built(row: ConstraintRow) -> Constraint:
+    """One row through the catalogue's own builder.
+
+    The row already is the ``{type, params}`` payload shape, so the round-trip
+    machinery in `beacon.optimise.config` builds it directly — one code path
+    from a stored document to the object the solver receives.
+    """
+    return constraint_from_payload({"type": row.type, "params": row.params})
 
 
 def has_errors(findings: list[Finding]) -> bool:
@@ -240,7 +240,7 @@ def label_map(document: ConstraintSet) -> dict[str, str]:
         if not row.id:
             continue
 
-        constraint = CONSTRAINT_TYPES[row.type](**row.params)
+        constraint = _built(row)
         for condition in constraint.conditions(_placeholder_assets(row)):
             mapping[condition.label] = row.id
 

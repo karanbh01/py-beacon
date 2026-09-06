@@ -102,6 +102,14 @@ CORE_MODULES = [
     "beacon.derivatives",
     "beacon.fund",
     "beacon.index",
+    # The optimise package imports scipy-free (BN-166): constraints, configs
+    # and results are descriptions, and only an actual solve needs scipy. The
+    # submodules are listed individually as well as through the package so a
+    # future import cannot hide behind __init__'s import order.
+    "beacon.optimise",
+    "beacon.optimise.config",
+    "beacon.optimise.constraints",
+    "beacon.optimise.result",
     "beacon.portfolio",
     # The generator is pandas and numpy only (BN-114); its CLI needs
     # `platformdirs` solely to resolve a default output path.
@@ -171,18 +179,23 @@ class TestGuardedFeatures:
 
 
     def test_the_optimiser_reports_the_missing_extra(self):
-        """Importing beacon.optimise without scipy names the extra to install.
+        """Solving without scipy names the extra to install.
 
-        Run in a subprocess with scipy blocked, because the guard fires at
-        import time and this interpreter has already imported the package.
+        Since BN-166 the guard fires at solve time rather than import time —
+        the package itself must import clean, which the core-import test above
+        proves — so the failing act here is an actual solve. Run in a
+        subprocess with scipy blocked, because this interpreter has scipy.
         """
-        script = BARE_ENVIRONMENT_SCRIPT.format(blocked=["scipy"],
-                                                modules=["beacon.optimise"])
+        script = BARE_ENVIRONMENT_SCRIPT.replace(
+            "for name in {modules!r}:\n    importlib.import_module(name)",
+            "from beacon.optimise import FullInvestment, minimise_tracking_error\n"
+            "minimise_tracking_error({{'A': 0.6, 'B': 0.4}}, [FullInvestment()])")
 
-        completed = subprocess.run([sys.executable, "-c", script],
-                                   capture_output=True,
-                                   text=True,
-                                   check=False)
+        completed = subprocess.run(
+            [sys.executable, "-c", script.format(blocked=["scipy"], modules=[])],
+            capture_output=True,
+            text=True,
+            check=False)
 
         assert completed.returncode != 0
         assert 'py-beacon[optimise]' in completed.stderr

@@ -18,10 +18,12 @@ calculation a separable, cacheable artifact; the fused loop is recorded
 The engine is deliberately untouched: it keeps its weights-in/trades-out
 contract, the raw-schedule path and every existing construction site.
 
-scipy stays behind ``optimise=`` — imported at the point of use — and the
-default cache location needs `platformdirs`; without it a Backtest simply
-runs uncached, because caching is a convenience and the front door must work
-on the core install exactly as it does on a full one.
+scipy stays behind ``optimise=`` — `beacon.optimise` imports scipy-free
+(BN-166), so :class:`Constraint` is named in the signature while scipy itself
+is required only when a solve actually runs — and the default cache location
+needs `platformdirs`; without it a Backtest simply runs uncached, because
+caching is a convenience and the front door must work on the core install
+exactly as it does on a full one.
 """
 import logging
 from collections.abc import Sequence
@@ -37,6 +39,7 @@ from ..index.cache import IndexResultCache
 from ..index.calculation import IndexCalculator
 from ..index.constructor import IndexDefinition
 from ..index.result import IndexResult
+from ..optimise import Constraint
 from .engine import BacktestEngine
 from .result import BacktestResult
 from .rules import BacktestModifier
@@ -161,7 +164,7 @@ class Backtest:
             definition: IndexDefinition,
             start: str | None = None,
             end: str | None = None,
-            optimise: Sequence[Any] | None = None) -> BacktestResult:
+            optimise: Sequence[Constraint] | None = None) -> BacktestResult:
         """Calculate (or reuse) the index, then simulate tracking it.
 
         Args:
@@ -295,7 +298,8 @@ class Backtest:
 
     def _optimised_schedule(self,
                             index_result: IndexResult,
-                            constraints: Sequence[Any]) -> dict[pd.Timestamp, dict[str, float]]:
+                            constraints: Sequence[Constraint]
+                            ) -> dict[pd.Timestamp, dict[str, float]]:
         """Solve every rebalance's published weights under the constraints.
 
         The solved schedule is what the engine tracks; the calculation the
@@ -303,8 +307,9 @@ class Backtest:
         which is what makes optimised-versus-unoptimised a first-class
         comparison on the result (decision 5).
         """
-        # scipy stays behind `optimise=`: imported at the point of use, so a
-        # plain run needs only the core dependencies.
+        # Deferred so a plain run never touches the solver at all; scipy
+        # itself is required inside the solve (BN-166), so this path is the
+        # only one that can raise MissingDependencyError.
         from ..optimise import minimise_tracking_error  # noqa: PLC0415
 
         schedule: dict[pd.Timestamp, dict[str, float]] = {}
