@@ -142,12 +142,18 @@ class IndexBooks:
     for one concept — "the calculated index this run aims at" — chosen by
     mode. Here the concept has one home:
 
+    The **container is always present**; its books are what can be None.
+    That distinction reads as safe and is not — a guard written against
+    `result.index` rather than `result.index.target` never fires — so it is
+    said here rather than left to be discovered.
+
     Attributes:
-        target: The index being aimed at, pre-optimisation. Filled on every
-            definition-driven run; None only when no index was calculated
-            (a raw weight-schedule run).
-        optimised: The solved index's own calculation. None on plain
-            passive runs; the derived-index work (BN-167) fills it.
+        target: The index being aimed at, pre-optimisation. Always filled
+            on an engine-produced result: the engine has taken an
+            IndexResult as its only schedule source since BN-165. None only
+            on a result built by hand from an empty container.
+        optimised: The solved index's own calculation, filled when the run
+            tracked a derived index (BN-167). None on plain passive runs.
     """
     target: Book | None = None
     optimised: Book | None = None

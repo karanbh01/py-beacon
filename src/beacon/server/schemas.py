@@ -222,7 +222,11 @@ class PortfolioBookPayload(BaseModel):
     nav: SeriesPayload = Field(
         description="The full NAV book, day-zero row included: it opens with "
                     "initial capital on the eve of the first trading day. "
-                    "Metrics derive from the series without that row.")
+                    "Metrics derive from the series without that row, and a "
+                    "client deriving its own period figures should do the "
+                    "same — a period holding only the day-zero row measures "
+                    "that row against itself and reads as a flat period "
+                    "rather than one that never traded.")
     cash: SeriesPayload
     weights: TableFrame = Field(
         description="Stored daily weights, dates by asset; most recent "
