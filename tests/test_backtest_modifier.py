@@ -8,6 +8,7 @@ import pytest
 from beacon.backtest.engine import BacktestEngine, TradeInstruction
 from beacon.backtest.rules import BacktestModifier, DriftThresholdModifier
 from beacon.portfolio.base import Portfolio
+from beacon.testing import index_result_from_weights
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -129,7 +130,8 @@ class TestEngineModifierIntegration:
         modifier = DriftThresholdModifier(threshold=10.0)
         w = {DATES[0]: {"A": 1.0}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w,
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w),
                                 modifiers=[modifier])
         result = engine.run()
         # No trades should happen
@@ -143,7 +145,8 @@ class TestEngineModifierIntegration:
         modifier = DriftThresholdModifier(threshold=0.0)
         w = {DATES[0]: {"A": 1.0}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w,
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w),
                                 modifiers=[modifier])
         result = engine.run()
         assert len(result.portfolio.transactions) > 0
@@ -177,7 +180,8 @@ class TestEngineModifierIntegration:
             DATES[2]: {"B": 1.0},  # would normally sell A, buy B
         }
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w,
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w),
                                 modifiers=[NoSellModifier()])
         result = engine.run()
         # A should still be held since sells were filtered out
@@ -189,5 +193,6 @@ class TestEngineModifierIntegration:
         dp = _mock_data_provider(prices)
         w = {DATES[0]: {"A": 1.0}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         assert engine.modifiers == []

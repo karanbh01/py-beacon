@@ -357,14 +357,23 @@ class TestETFTrackingPerformance:
     def test_error_when_no_target_index(self,
                                         etf,
                                         data_provider):
-        """A backtest driven by a raw weight dict has no target index."""
+        """A result without a target book answers with an error, not a raise.
+
+        The engine cannot produce one since BN-165 (every run trades an
+        IndexResult), so the bookless result is built by hand — the shape a
+        hand-assembled or historical record can still have.
+        """
         from beacon.backtest.engine import BacktestEngine
+        from beacon.backtest.result import BacktestResult, IndexBooks
+        from beacon.testing import index_result_from_weights
+
         weights = {pd.Timestamp(BASE_DATE): dict.fromkeys(ASSETS, 0.5)}
-        result = BacktestEngine(
+        run = BacktestEngine(
             start_date=BASE_DATE, end_date=END_DATE,
             initial_capital=INITIAL_CAPITAL, data_provider=data_provider,
-            target_weights=weights,
+            index_result=index_result_from_weights(weights),
         ).run()
+        result = BacktestResult(portfolio=run.portfolio, index=IndexBooks())
         perf = etf.get_tracking_performance(result)
         assert "error" in perf
 

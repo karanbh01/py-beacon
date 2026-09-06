@@ -11,10 +11,11 @@ import pandas as pd
 import pytest
 
 from beacon.backtest.engine import BacktestEngine
-from beacon.backtest.result import BacktestResult
+from beacon.backtest.result import BacktestResult, IndexBooks
 from beacon.data.base import MarketData
 from beacon.data.fetcher import DataFetcher
 from beacon.index.result import IndexResult
+from beacon.testing import index_result_from_weights
 
 # ---------------------------------------------------------------------------
 # Synthetic universe: 2 assets, equal weight, monthly rebalance, ~3 months
@@ -282,33 +283,35 @@ class TestCustomWeightTarget:
 
     def test_runs_with_custom_weights(self,
                                       fetcher):
-        target_weights = {
+        schedule = {
             d: {a: 1.0 / len(ASSETS) for a in ASSETS} for d in REBALANCE_DATES
         }
+        idx = index_result_from_weights(schedule)
         engine = BacktestEngine(
             start_date=BASE_DATE,
             end_date=END_DATE,
             initial_capital=INITIAL_CAPITAL,
             data_provider=fetcher,
-            target_weights=target_weights,
+            index_result=idx,
         )
         result = engine.run()
 
         assert isinstance(result, BacktestResult)
         assert len(result.portfolio.transactions) > 0
-        # No index bound -> no target-relative metrics.
-        assert result.index.target is None
+        # The schedule's own calculation is the target book (BN-165).
+        assert result.index.target is not None
+        assert result.index.target.source is idx
 
     def test_custom_weights_match_index_when_equal(self,
                                                    fetcher):
         """A custom equal-weight schedule reproduces the equal-weight index NAV."""
-        target_weights = {
+        schedule = {
             d: {a: 1.0 / len(ASSETS) for a in ASSETS} for d in REBALANCE_DATES
         }
         engine = BacktestEngine(
             start_date=BASE_DATE, end_date=END_DATE,
             initial_capital=INITIAL_CAPITAL, data_provider=fetcher,
-            target_weights=target_weights,
+            index_result=index_result_from_weights(schedule),
         )
         result = engine.run()
         levels = _reference_index_levels().reindex(result.trading_nav.index)
@@ -341,42 +344,38 @@ class TestResultMetrics:
         """Both assets appreciate, so the tracking portfolio should gain."""
         assert zero_cost_result.summary()["total_return"] > 0.0
 
-    def test_tracking_error_none_without_target(self,
-                                                fetcher):
-        target_weights = {
+    def _result_without_target(self,
+                               fetcher) -> BacktestResult:
+        """A result whose index books are empty.
+
+        The engine cannot produce one any more (every run trades an
+        IndexResult since BN-165), but a result built by hand — or
+        deserialised from an older record — still can, and the metrics must
+        answer None rather than raise.
+        """
+        schedule = {
             d: {a: 1.0 / len(ASSETS) for a in ASSETS} for d in REBALANCE_DATES
         }
-        engine = BacktestEngine(
+        run = BacktestEngine(
             start_date=BASE_DATE, end_date=END_DATE,
             initial_capital=INITIAL_CAPITAL, data_provider=fetcher,
-            target_weights=target_weights,
-        )
-        result = engine.run()
+            index_result=index_result_from_weights(schedule),
+        ).run()
+
+        return BacktestResult(portfolio=run.portfolio, index=IndexBooks())
+
+    def test_tracking_error_none_without_target(self,
+                                                fetcher):
+        result = self._result_without_target(fetcher)
         assert result.get_tracking_error() is None
 
     def test_tracking_difference_none_without_target(self,
                                                      fetcher):
-        target_weights = {
-            d: {a: 1.0 / len(ASSETS) for a in ASSETS} for d in REBALANCE_DATES
-        }
-        engine = BacktestEngine(
-            start_date=BASE_DATE, end_date=END_DATE,
-            initial_capital=INITIAL_CAPITAL, data_provider=fetcher,
-            target_weights=target_weights,
-        )
-        result = engine.run()
+        result = self._result_without_target(fetcher)
         assert result.get_tracking_difference() is None
 
     def test_summary_omits_tracking_metrics_without_target(self,
                                                            fetcher):
-        target_weights = {
-            d: {a: 1.0 / len(ASSETS) for a in ASSETS} for d in REBALANCE_DATES
-        }
-        engine = BacktestEngine(
-            start_date=BASE_DATE, end_date=END_DATE,
-            initial_capital=INITIAL_CAPITAL, data_provider=fetcher,
-            target_weights=target_weights,
-        )
-        summary = engine.run().summary()
+        summary = self._result_without_target(fetcher).summary()
         assert "tracking_error" not in summary
         assert "tracking_difference" not in summary

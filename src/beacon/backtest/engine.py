@@ -33,21 +33,18 @@ logger = logging.getLogger(__name__)
 class BacktestEngine:
     """Simulates portfolio execution against a target weight schedule.
 
-    The engine consumes target weights from an ``IndexResult`` or a
-    custom weight dictionary, and simulates trading over a date range
-    using prices from a ``DataFetcher``.
+    The engine consumes target weights from an ``IndexResult`` — the sole
+    schedule source since BN-165, when the raw weight-dict mode was removed —
+    and simulates trading over a date range using prices from a
+    ``DataFetcher``.
 
     Args:
         start_date: The start date of the backtest (YYYY-MM-DD).
         end_date: The end date of the backtest (YYYY-MM-DD).
         initial_capital: The starting capital for the backtest.
         data_provider: Data source for market prices.
-        index_result: An IndexResult whose weight_snapshots provide
-            the rebalance schedule and target weights. Mutually exclusive
-            with *target_weights*.
-        target_weights: Custom weight schedule as a mapping of
-            ``pd.Timestamp -> Dict[str, float]``. Mutually exclusive with
-            *index_result*.
+        index_result: The IndexResult whose weight_snapshots provide
+            the rebalance schedule and target weights.
         price_column: Column name to read from market data. Defaults to
             ``"CLOSE"``.
         transaction_cost_bps: Transaction cost in basis points applied to
@@ -56,13 +53,11 @@ class BacktestEngine:
         benchmark: The benchmark of record, stored on the result so every
             reader quotes excess return against the same comparator.
         target_index: The calculated index the traded schedule was derived
-            from, when it differs from the schedule itself. On a
-            *target_weights* run it books alone as `index.target`. Given
-            alongside *index_result* — the derived-index shape (BN-167) —
-            *index_result* is an optimised calculation and this is its
-            parent: they land in `index.optimised` and `index.target`
-            respectively. Omitted on a plain *index_result* run, whose own
-            calculation fills the target book.
+            from, when it differs from the schedule itself — the
+            derived-index shape (BN-167): *index_result* is an optimised
+            calculation and this is its parent, and they land in
+            `index.optimised` and `index.target` respectively. Omitted on a
+            plain run, whose own calculation fills the target book.
     """
 
     def __init__(self,
@@ -70,28 +65,18 @@ class BacktestEngine:
                  end_date: str,
                  initial_capital: float,
                  data_provider: DataFetcher,
-                 index_result: IndexResult | None = None,
-                 target_weights: dict[pd.Timestamp, dict[str, float]] | None = None,
+                 index_result: IndexResult,
                  price_column: str = "CLOSE",
                  currency: str = "USD",
                  transaction_cost_bps: float = 0.0,
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
                  target_index: IndexResult | None = None):
-        if index_result is not None and target_weights is not None:
-            raise ValueError(
-                "Provide either index_result or target_weights, not both."
-            )
-        if index_result is None and target_weights is None:
-            raise ValueError(
-                "One of index_result or target_weights must be provided."
-            )
-
         self.start_date: pd.Timestamp = pd.Timestamp(start_date)
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
         self.initial_capital: float = initial_capital
         self.data_provider: DataFetcher = data_provider
-        self.index_result: IndexResult | None = index_result
+        self.index_result: IndexResult = index_result
 
         # The comparators of record (decision 13). The engine trades on
         # neither; it stores them so the run states what it was measured
@@ -109,15 +94,9 @@ class BacktestEngine:
         self.transaction_cost_bps: float = transaction_cost_bps
         self.modifiers: list[BacktestModifier] = modifiers or []
 
-        # Normalise weight schedule to a dict
-        if target_weights is not None:
-            self._weight_schedule: dict[pd.Timestamp, dict[str, float]] = target_weights
-        elif index_result is not None:
-            self._weight_schedule = index_result.weight_snapshots
-        else:
-            raise ValueError(
-                "One of index_result or target_weights must be provided."
-            )
+        # The internal schedule representation: rebalance date -> weights.
+        self._weight_schedule: dict[pd.Timestamp, dict[str, float]] = (
+            index_result.weight_snapshots)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -642,31 +621,16 @@ class BacktestEngine:
         """The run's calculated indices, one book each (BN-164, BN-167).
 
         Given *index_result* alone, the run traded a plain calculation: it is
-        the `index.target` book. Given **both** *index_result* and
-        *target_index* — the derived-index shape — the schedule the engine
-        traded is an optimised calculation and *target_index* is the parent it
-        was solved from, so they land in `index.optimised` and `index.target`
-        respectively. A raw-schedule run given only *target_index* books it as
-        the target, since no optimised calculation exists as an IndexResult.
+        the `index.target` book. Given *target_index* as well — the
+        derived-index shape — the schedule the engine traded is an optimised
+        calculation and *target_index* is the parent it was solved from, so
+        they land in `index.optimised` and `index.target` respectively.
         """
-        if self.index_result is not None and self.target_index is not None:
+        if self.target_index is not None:
             return IndexBooks(target=Book.from_index(self.target_index),
                               optimised=Book.from_index(self.index_result))
 
-        return IndexBooks(target=self._target_book())
-
-    def _target_book(self) -> "Book | None":
-        """The calculated index this run aimed at, whichever arg carried it.
-
-        A plain run carries it as *index_result* (the schedule the engine
-        traded); a raw-schedule run given *target_index* carries the
-        calculation the schedule was derived from there. Both land in
-        `index.target`.
-        """
-        tracked = (self.index_result if self.index_result is not None
-                   else self.target_index)
-
-        return Book.from_index(tracked) if tracked is not None else None
+        return IndexBooks(target=Book.from_index(self.index_result))
 
     def _benchmark_book(self) -> "Book | None":
         """The benchmark of record, whichever form it was given in."""

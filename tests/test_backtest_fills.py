@@ -10,6 +10,7 @@ from beacon.backtest.result import UnfilledOrder
 from beacon.data.base import MarketData
 from beacon.data.fetcher import DataFetcher
 from beacon.portfolio.base import Portfolio
+from beacon.testing import index_result_from_weights
 
 ASSETS = ["AAA", "BBB"]
 DATES = pd.bdate_range("2024-01-01", "2024-06-28")
@@ -47,7 +48,8 @@ def run(cost_bps: float):
                             end_date=str(DATES[-1].date()),
                             initial_capital=1_000_000.0,
                             data_provider=build_fetcher(),
-                            target_weights=equal_weight_schedule(),
+                            index_result=index_result_from_weights(
+                                equal_weight_schedule()),
                             transaction_cost_bps=cost_bps)
 
     return engine.run()
@@ -134,7 +136,8 @@ class TestPartialFill:
                               end_date=str(DATES[-1].date()),
                               initial_capital=1_000.0,
                               data_provider=build_fetcher(),
-                              target_weights=equal_weight_schedule(),
+                              index_result=index_result_from_weights(
+                                  equal_weight_schedule()),
                               transaction_cost_bps=cost_bps)
 
     def test_exactly_affordable_buy_executes_in_full(self):

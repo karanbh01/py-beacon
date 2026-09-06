@@ -7,8 +7,8 @@ import pytest
 
 from beacon.backtest.engine import BacktestEngine, TradeInstruction
 from beacon.backtest.result import BacktestResult
-from beacon.index.result import IndexResult
 from beacon.portfolio.base import Portfolio
+from beacon.testing import index_result_from_weights
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -44,15 +44,7 @@ def _bday(offset=0,
 
 def _make_index_result(weight_snapshots):
     """Create a minimal IndexResult from weight snapshots."""
-    dates = sorted(weight_snapshots.keys())
-    levels = pd.Series(100.0, index=pd.DatetimeIndex(dates))
-    return IndexResult(
-        index_id="test_idx",
-        index_levels=levels,
-        divisor_history=pd.Series(1.0, index=levels.index),
-        constituent_snapshots={d: list(w.keys()) for d, w in weight_snapshots.items()},
-        weight_snapshots=weight_snapshots,
-    )
+    return index_result_from_weights(weight_snapshots, index_id="test_idx")
 
 
 # 5 business days starting 2025-01-02
@@ -65,18 +57,10 @@ DATES = pd.bdate_range(start="2025-01-02", periods=5, freq="B")
 
 class TestConstruction:
 
-    def test_requires_one_weight_source(self):
+    def test_requires_an_index_result(self):
         dp = MagicMock()
-        with pytest.raises(ValueError, match="One of"):
+        with pytest.raises(TypeError):
             BacktestEngine("2025-01-02", "2025-01-10", 10000.0, dp)
-
-    def test_rejects_both_weight_sources(self):
-        dp = MagicMock()
-        idx = _make_index_result({DATES[0]: {"A": 0.5}})
-        with pytest.raises(ValueError, match="not both"):
-            BacktestEngine("2025-01-02", "2025-01-10", 10000.0, dp,
-                           index_result=idx,
-                           target_weights={DATES[0]: {"A": 0.5}})
 
     def test_accepts_index_result(self):
         dp = MagicMock()
@@ -85,12 +69,23 @@ class TestConstruction:
                                 index_result=idx)
         assert engine.index_result is idx
 
-    def test_accepts_custom_weights(self):
+    def test_the_raw_weight_mode_is_gone(self):
+        """BN-165: the raw dict entry was deleted, not deprecated. Anything
+        still passing one should fail loudly here rather than trade an
+        empty schedule."""
         dp = MagicMock()
-        w = {DATES[0]: {"A": 0.5}}
+        idx = _make_index_result({DATES[0]: {"A": 0.5}})
+        with pytest.raises(TypeError):
+            BacktestEngine("2025-01-02", "2025-01-10", 10000.0, dp,
+                           index_result=idx,
+                           target_weights={DATES[0]: {"A": 0.5}})
+
+    def test_the_schedule_comes_from_the_snapshots(self):
+        dp = MagicMock()
+        idx = _make_index_result({DATES[0]: {"A": 0.5}})
         engine = BacktestEngine("2025-01-02", "2025-01-10", 10000.0, dp,
-                                target_weights=w)
-        assert engine._weight_schedule is w
+                                index_result=idx)
+        assert engine._weight_schedule is idx.weight_snapshots
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +99,8 @@ class TestRunBasic:
         dp = _mock_data_provider(prices)
         w = {DATES[0]: {"A": 1.0}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         result = engine.run()
         assert isinstance(result, BacktestResult)
 
@@ -113,7 +109,8 @@ class TestRunBasic:
         dp = _mock_data_provider(prices)
         w = {DATES[0]: {"A": 1.0}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         result = engine.run()
         assert len(result.trading_nav) == len(DATES)
 
@@ -122,7 +119,8 @@ class TestRunBasic:
         dp = _mock_data_provider(prices)
         w = {DATES[0]: {"A": 1.0}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         result = engine.run()
         # One row per trading day, plus the day-zero row on the eve: the
         # books record what the run started with (decision 11).
@@ -134,7 +132,8 @@ class TestRunBasic:
         w = {DATES[0]: {"A": 1.0}}
         # Weekend range — no business days
         engine = BacktestEngine("2025-01-04", "2025-01-05",
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         result = engine.run()
         assert result.trading_nav.empty
 
@@ -143,7 +142,8 @@ class TestRunBasic:
         dp = _mock_data_provider(prices)
         w = {DATES[0]: {"A": 1.0}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         result = engine.run()
         assert result.portfolio.initial_capital == 10000.0
 
@@ -160,7 +160,8 @@ class TestRebalancing:
         dp = _mock_data_provider(prices)
         w = {DATES[0]: {"A": 1.0}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         result = engine.run()
         # After first day rebalance, cash should be ~0. Read on the first
         # trading date -- iloc[0] is now the day-zero row, which records the
@@ -176,7 +177,8 @@ class TestRebalancing:
         dp = _mock_data_provider(prices)
         w = {DATES[0]: {"A": 0.5, "B": 0.5}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         result = engine.run()
         # NAV should stay at 10000 (prices don't change)
         assert result.trading_nav.iloc[-1] == pytest.approx(10000.0, abs=1.0)
@@ -193,7 +195,8 @@ class TestRebalancing:
             DATES[2]: {"B": 1.0},  # rotate from A to B on day 3
         }
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         result = engine.run()
         # After rotation, should still have ~10000 total
         assert result.trading_nav.iloc[-1] == pytest.approx(10000.0, abs=1.0)
@@ -209,7 +212,8 @@ class TestRebalancing:
         dp = _mock_data_provider(prices)
         w = {DATES[0]: {"A": 1.0}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         result = engine.run()
         assert result.trading_nav.iloc[-1] > result.trading_nav.iloc[0]
 
@@ -220,7 +224,8 @@ class TestRebalancing:
         future = pd.Timestamp("2026-01-02")
         w = {future: {"A": 1.0}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         result = engine.run()
         assert len(result.portfolio.transactions) == 0
         assert result.portfolio.cash.iloc[-1] == pytest.approx(10000.0)
@@ -237,7 +242,8 @@ class TestWeightHistory:
         dp = _mock_data_provider(prices)
         w = {DATES[0]: {"A": 1.0}}
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w))
         result = engine.run()
         # Plain asset ids, not the old "{id}_weight" suffix: the wide frame
         # is a pivot of the positions panel, shaped for cross-book arithmetic.
@@ -267,15 +273,19 @@ class TestIndexResultIntegration:
         assert result.index.optimised is None
         assert result.index.tracked is result.index.target
 
-    def test_custom_weights_no_target(self):
+    def test_every_run_has_a_target_book(self):
+        """BN-165: with the raw weight-dict mode gone, every run trades an
+        IndexResult, so the target book is always filled — the "no target"
+        state no longer exists on a result the engine built."""
         prices = {"A": {d.strftime("%Y-%m-%d"): 100.0 for d in DATES}}
         dp = _mock_data_provider(prices)
-        w = {DATES[0]: {"A": 1.0}}
+        idx = index_result_from_weights({DATES[0]: {"A": 1.0}})
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w)
+                                10000.0, dp, index_result=idx)
         result = engine.run()
-        assert result.index.target is None
-        assert result.index.tracked is None
+        assert result.index.target is not None
+        assert result.index.target.source is idx
+        assert result.index.tracked is result.index.target
 
 
 # ---------------------------------------------------------------------------
@@ -286,12 +296,13 @@ class TestGenerateTrades:
 
     def _make_engine(self,
                      prices,
-                     target_weights=None,
+                     weights=None,
                      cost_bps=0.0):
         dp = _mock_data_provider(prices)
-        w = target_weights or {DATES[0]: {"A": 1.0}}
+        w = weights or {DATES[0]: {"A": 1.0}}
         return BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                              10000.0, dp, target_weights=w,
+                              10000.0, dp,
+                              index_result=index_result_from_weights(w),
                               transaction_cost_bps=cost_bps)
 
     def test_buy_new_asset(self):
@@ -420,7 +431,8 @@ class TestGenerateTrades:
         dp = _mock_data_provider(prices)
         w = {DATES[0]: {"A": 0.5}}  # target 50% in A
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                                10000.0, dp, target_weights=w,
+                                10000.0, dp,
+                                index_result=index_result_from_weights(w),
                                 transaction_cost_bps=100.0)  # 1%
         result = engine.run()
         # Buy 50 shares at $100 = $5000 notional, cost = $50
@@ -483,7 +495,9 @@ class TestPortfolioOfRecord:
         dp = _mock_data_provider(prices)
 
         BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                       10000.0, dp, target_weights={DATES[0]: {"A": 1.0}}).run()
+                       10000.0, dp,
+                       index_result=index_result_from_weights(
+                           {DATES[0]: {"A": 1.0}})).run()
 
         portfolio = built[0]
         eve = DATES[0] - pd.tseries.offsets.BDay(1)
@@ -502,7 +516,9 @@ class TestPortfolioOfRecord:
         dp = _mock_data_provider(prices)
 
         BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
-                       10000.0, dp, target_weights={DATES[0]: {"A": 1.0}}).run()
+                       10000.0, dp,
+                       index_result=index_result_from_weights(
+                           {DATES[0]: {"A": 1.0}})).run()
 
         assert built[0].frozen is True
 
@@ -514,7 +530,8 @@ class TestPortfolioOfRecord:
         built = self._spy_on_portfolio(monkeypatch)
 
         BacktestEngine("2025-01-04", "2025-01-05", 10000.0, MagicMock(),
-                       target_weights={DATES[0]: {"A": 1.0}}).run()
+                       index_result=index_result_from_weights(
+                           {DATES[0]: {"A": 1.0}})).run()
 
         assert built[0].frozen is True
 
@@ -528,7 +545,8 @@ class TestComparatorsOfRecord:
         dp = _mock_data_provider(prices)
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
                                 10000.0, dp,
-                                target_weights={DATES[0]: {"A": 1.0}},
+                                index_result=index_result_from_weights(
+                                    {DATES[0]: {"A": 1.0}}),
                                 **kwargs)
         return engine.run()
 
@@ -536,7 +554,9 @@ class TestComparatorsOfRecord:
         result = self._run()
 
         assert result.benchmark is None
-        assert result.index.target is None
+        # The schedule's own calculation fills the target book (BN-165);
+        # nothing else is invented alongside it.
+        assert result.index.optimised is None
 
     def test_a_benchmark_series_becomes_the_book_of_record(self):
         levels = pd.Series([100.0, 101.0, 102.0, 101.5, 103.0], index=DATES)
@@ -555,15 +575,17 @@ class TestComparatorsOfRecord:
         assert result.benchmark.source is idx
 
     def test_a_target_index_lands_in_the_target_book(self):
-        """Post-selection, pre-optimisation: on a raw-schedule run the
-        calculation the weights came from fills `index.target` (BN-164);
-        the optimised slot stays empty until BN-167 fills it."""
+        """The derived-index shape (BN-167): given a *target_index* beside
+        the schedule, the schedule the engine traded is an optimised
+        calculation and *target_index* is the parent it was solved from,
+        so they land in `index.optimised` and `index.target`."""
         idx = _make_index_result({DATES[0]: {"A": 1.0}})
         result = self._run(target_index=idx)
 
         assert result.index.target is not None
         assert result.index.target.source is idx
-        assert result.index.optimised is None
+        assert result.index.optimised is not None
+        assert result.index.tracked is result.index.optimised
 
     def test_the_engine_never_trades_on_a_comparator(self):
         """A benchmark is a yardstick, not an instruction: the trades of a

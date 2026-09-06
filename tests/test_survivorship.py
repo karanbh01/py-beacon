@@ -45,6 +45,7 @@ from beacon.index.methodology import EqualWeighted, MarketCapWeighted
 from beacon.synthetic import SyntheticConfig, generate
 from beacon.synthetic import listings as listings_module
 from beacon.synthetic import universe as universe_module
+from beacon.testing import index_result_from_weights
 
 START = "2021-01-04"
 END = "2021-03-31"
@@ -310,7 +311,8 @@ class TestTheEngineConvertsCurrency:
         engine = BacktestEngine(
             start_date="2021-01-04", end_date="2021-12-31",
             initial_capital=1e7, data_provider=dataset.fetcher(),
-            target_weights={pd.Timestamp("2021-01-04"): {}})
+            index_result=index_result_from_weights(
+                {pd.Timestamp("2021-01-04"): {}}))
 
         universe = dataset.universe
         foreign = universe.index[universe["CURRENCY"] == "JPY"]
@@ -336,7 +338,8 @@ class TestTheEngineConvertsCurrency:
         engine = BacktestEngine(
             start_date="2021-01-04", end_date="2021-12-31",
             initial_capital=1e7, data_provider=dataset.fetcher(),
-            target_weights={pd.Timestamp("2021-01-04"): {}})
+            index_result=index_result_from_weights(
+                {pd.Timestamp("2021-01-04"): {}}))
 
         universe = dataset.universe
         domestic = universe.index[universe["CURRENCY"] == "USD"][0]
@@ -362,7 +365,8 @@ class TestTheEngineConvertsCurrency:
         engine = BacktestEngine(
             start_date="2021-01-04", end_date="2021-12-31",
             initial_capital=1e7, data_provider=dataset.fetcher(),
-            target_weights={pd.Timestamp("2021-01-04"): {}})
+            index_result=index_result_from_weights(
+                {pd.Timestamp("2021-01-04"): {}}))
 
         universe = dataset.universe
         foreign = universe.index[universe["CURRENCY"] != "USD"]

@@ -43,6 +43,7 @@ from .dataset import (
     sectors,
     trading_days,
 )
+from .weights import index_result_from_weights
 
 __all__ = [
     "BASE_CURRENCY",
@@ -57,6 +58,7 @@ __all__ = [
     "dataset",
     "equal_weights",
     "fx_rates",
+    "index_result_from_weights",
     "market_data",
     "market_frame",
     "prices",

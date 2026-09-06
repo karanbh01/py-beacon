@@ -15,7 +15,7 @@ from beacon import sources
 from beacon.exceptions import DataSourceError
 from beacon.portfolio.asset_view import PortfolioAssetView
 from beacon.portfolio.base import Portfolio, TradeInstruction
-from beacon.testing import dataset
+from beacon.testing import dataset, index_result_from_weights
 
 
 @pytest.fixture(autouse=True)
@@ -217,7 +217,8 @@ class TestTheEngineBindsItsRun:
 
         engine = BacktestEngine(str(dates[0].date()), str(dates[-1].date()),
                                 10_000.0, dp,
-                                target_weights={dates[0]: {"AAA": 1.0}})
+                                index_result=index_result_from_weights(
+                                    {dates[0]: {"AAA": 1.0}}))
         return engine.run(), dp
 
     def test_the_portfolio_is_bound_to_the_run_data(self):
