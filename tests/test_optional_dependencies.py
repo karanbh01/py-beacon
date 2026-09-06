@@ -102,6 +102,9 @@ CORE_MODULES = [
     "beacon.derivatives",
     "beacon.fund",
     "beacon.index",
+    # The derived-index calculation (BN-167) solves with scipy at solve time
+    # only; the module itself must import on the core install.
+    "beacon.index.derived",
     # The optimise package imports scipy-free (BN-166): constraints, configs
     # and results are descriptions, and only an actual solve needs scipy. The
     # submodules are listed individually as well as through the package so a

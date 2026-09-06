@@ -55,10 +55,14 @@ class BacktestEngine:
         modifiers: Optional hooks that can skip rebalances or adjust trades.
         benchmark: The benchmark of record, stored on the result so every
             reader quotes excess return against the same comparator.
-        target_index: On a *target_weights* run, the calculated index the
-            schedule was derived from; it lands in the result's
-            `index.target` book. Unused on *index_result* runs, whose own
-            calculation fills that book.
+        target_index: The calculated index the traded schedule was derived
+            from, when it differs from the schedule itself. On a
+            *target_weights* run it books alone as `index.target`. Given
+            alongside *index_result* — the derived-index shape (BN-167) —
+            *index_result* is an optimised calculation and this is its
+            parent: they land in `index.optimised` and `index.target`
+            respectively. Omitted on a plain *index_result* run, whose own
+            calculation fills the target book.
     """
 
     def __init__(self,
@@ -629,19 +633,35 @@ class BacktestEngine:
         # process-level source moves later.
         return BacktestResult(
             portfolio=portfolio,
-            index=IndexBooks(target=self._target_book()),
+            index=self._index_books(),
             benchmark=self._benchmark_book(),
             unfilled=unfilled,
         ).with_data(self.data_provider)
+
+    def _index_books(self) -> IndexBooks:
+        """The run's calculated indices, one book each (BN-164, BN-167).
+
+        Given *index_result* alone, the run traded a plain calculation: it is
+        the `index.target` book. Given **both** *index_result* and
+        *target_index* — the derived-index shape — the schedule the engine
+        traded is an optimised calculation and *target_index* is the parent it
+        was solved from, so they land in `index.optimised` and `index.target`
+        respectively. A raw-schedule run given only *target_index* books it as
+        the target, since no optimised calculation exists as an IndexResult.
+        """
+        if self.index_result is not None and self.target_index is not None:
+            return IndexBooks(target=Book.from_index(self.target_index),
+                              optimised=Book.from_index(self.index_result))
+
+        return IndexBooks(target=self._target_book())
 
     def _target_book(self) -> "Book | None":
         """The calculated index this run aimed at, whichever arg carried it.
 
         A plain run carries it as *index_result* (the schedule the engine
-        traded); a raw-schedule run given *target_index* (the BN-161
-        optimise path) carries the pre-optimisation calculation there. Both
-        land in `index.target` — the optimised book stays None until the
-        derived-index work (BN-167) fills it.
+        traded); a raw-schedule run given *target_index* carries the
+        calculation the schedule was derived from there. Both land in
+        `index.target`.
         """
         tracked = (self.index_result if self.index_result is not None
                    else self.target_index)

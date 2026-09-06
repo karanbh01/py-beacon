@@ -212,6 +212,154 @@ class TestUncacheable:
                                    disk_fetcher, START, END) is None
 
 
+class TestDerivedFingerprint:
+    """BN-167: an optimised definition keys as its derivation, recursively.
+
+    The child's fingerprint folds in the PARENT's full payload, the objective
+    and each constraint via the catalogue convention — so a change anywhere in
+    the chain misses, and anything unkeyable anywhere in the chain makes the
+    whole chain uncacheable, never wrong.
+    """
+
+    @staticmethod
+    def derived(source: IndexDefinition | None = None,
+                constraints=None,
+                **kwargs):
+        from beacon.index.derived import OptimisedIndexDefinition
+        from beacon.optimise import FullInvestment, PositionBounds
+
+        return OptimisedIndexDefinition(
+            index_id=kwargs.pop("index_id", "DERIVED-IX"),
+            index_name=kwargs.pop("index_name", "Derived Index"),
+            source=source if source is not None else build_definition(),
+            constraints=(constraints if constraints is not None
+                         else [FullInvestment(),
+                               PositionBounds(minimum=0.0, maximum=0.4)]),
+            **kwargs)
+
+    def test_identical_derivations_share_a_key(self,
+                                               disk_fetcher):
+        assert (the_key(disk_fetcher, self.derived())
+                == the_key(disk_fetcher, self.derived()))
+
+    def test_a_changed_parent_rule_parameter_changes_the_key(self,
+                                                             disk_fetcher):
+        """Reference-not-copy is the point: editing the parent must change the
+        child's next calculation, which here means a fingerprint miss."""
+        edited_parent = build_definition(min_market_cap=2.0)
+
+        assert (the_key(disk_fetcher, self.derived())
+                != the_key(disk_fetcher, self.derived(source=edited_parent)))
+
+    def test_changed_constraints_change_the_key(self,
+                                                disk_fetcher):
+        from beacon.optimise import FullInvestment, PositionBounds
+
+        loosened = self.derived(constraints=[FullInvestment(),
+                                             PositionBounds(minimum=0.0,
+                                                            maximum=0.5)])
+
+        assert (the_key(disk_fetcher, self.derived())
+                != the_key(disk_fetcher, loosened))
+
+    def test_a_changed_objective_changes_the_key(self,
+                                                 disk_fetcher):
+        assert (the_key(disk_fetcher, self.derived())
+                != the_key(disk_fetcher,
+                           self.derived(objective="min_variance")))
+
+    def test_an_uncacheable_parent_makes_the_chain_uncacheable(self,
+                                                               disk_fetcher):
+        class UnregisteredRule(EligibilityRuleBase):
+            def __init__(self) -> None:
+                super().__init__(rule_name="Unregistered")
+
+            def is_eligible(self,
+                            asset,
+                            current_date,
+                            market_data_provider,
+                            context=None) -> bool:
+                return True
+
+        derived = self.derived(source=build_definition(rules=[UnregisteredRule()]))
+
+        assert fingerprint(derived, disk_fetcher, START, END) is None
+
+        reason = explain_uncacheable(derived, disk_fetcher, START, END)
+
+        assert reason is not None
+        assert "source" in reason
+        assert "UnregisteredRule" in reason
+
+    def test_an_unregistered_constraint_is_uncacheable(self,
+                                                       disk_fetcher):
+        from beacon.optimise import Constraint
+
+        class UnregisteredConstraint(Constraint):
+            def conditions(self, assets):
+                return []
+
+        derived = self.derived(constraints=[UnregisteredConstraint()])
+
+        assert fingerprint(derived, disk_fetcher, START, END) is None
+
+        reason = explain_uncacheable(derived, disk_fetcher, START, END)
+
+        assert reason is not None
+        assert "UnregisteredConstraint" in reason
+        assert "not registered" in reason
+
+    def test_a_risk_model_is_uncacheable_for_now(self,
+                                                 disk_fetcher):
+        """The reserved field cannot be keyed yet, so setting one refuses the
+        key outright rather than keying a calculation minus one input."""
+        import numpy as np
+
+        from beacon.risk.model import RiskDiagnostics, RiskModel
+
+        matrix = pd.DataFrame(np.eye(2), index=["AAA", "BBB"],
+                              columns=["AAA", "BBB"])
+        model = RiskModel(covariance=matrix,
+                          correlation=matrix,
+                          diagnostics=RiskDiagnostics(
+                              observations=10, assets=2, target="scaled_identity",
+                              intensity=0.0, average_correlation=0.0,
+                              condition_number=1.0, smallest_eigenvalue=1.0,
+                              positive_semi_definite=True, repaired=False))
+
+        derived = self.derived(risk_model=model)
+
+        assert fingerprint(derived, disk_fetcher, START, END) is None
+
+        reason = explain_uncacheable(derived, disk_fetcher, START, END)
+
+        assert reason is not None
+        assert "risk model" in reason
+
+    def test_a_two_level_chain_fingerprints(self,
+                                            disk_fetcher):
+        """Chained optimisation keys through the same recursion: the outer key
+        exists, and it folds the inner derivation in — so editing the inner
+        constraints misses at the outer level too."""
+        from beacon.optimise import FullInvestment, PositionBounds
+
+        inner = self.derived(index_id="INNER-IX", index_name="Inner")
+        outer_key = the_key(disk_fetcher, self.derived(source=inner,
+                                                       index_id="OUTER-IX",
+                                                       index_name="Outer"))
+
+        edited_inner = self.derived(index_id="INNER-IX", index_name="Inner",
+                                    constraints=[FullInvestment(),
+                                                 PositionBounds(minimum=0.0,
+                                                                maximum=0.5)])
+
+        assert outer_key != the_key(disk_fetcher,
+                                    self.derived(source=edited_inner,
+                                                 index_id="OUTER-IX",
+                                                 index_name="Outer"))
+        assert outer_key != the_key(disk_fetcher, inner)
+
+
 class TestRoundTrip:
     """A stored result reloads equal on every panel: the second run is a read,
     and it calculates nothing."""

@@ -15,18 +15,22 @@ produces numbers identical to a fused daily loop while keeping the
 calculation a separable, cacheable artifact; the fused loop is recorded
 (decision 20) as the shape of a future walk-forward mode, not built here.
 
-The engine is deliberately untouched: it keeps its weights-in/trades-out
-contract, the raw-schedule path and every existing construction site.
+An optimised run (BN-167) is the same composition one derivation deeper: the
+definition-plus-config becomes an **ephemeral**
+:class:`~beacon.index.derived.OptimisedIndexDefinition`, calculated through
+the same cache-assisted path a stored one takes — the parent's calculation is
+one cache entry shared with every plain run of the same definition, the
+derived calculation is another when the whole chain keys — and the engine
+receives the solved calculation as a real IndexResult. Ad-hoc and stored are
+one thing in two lifetimes, which is what makes their numbers bit-identical.
 
-scipy stays behind ``optimise=`` — `beacon.optimise` imports scipy-free
-(BN-166), so :class:`Constraint` is named in the signature while scipy itself
-is required only when a solve actually runs — and the default cache location
-needs `platformdirs`; without it a Backtest simply runs uncached, because
-caching is a convenience and the front door must work on the core install
-exactly as it does on a full one.
+scipy is required only when a solve actually runs (`beacon.optimise` imports
+scipy-free since BN-166), and the default cache location needs
+`platformdirs`; without it a Backtest simply runs uncached, because caching
+is a convenience and the front door must work on the core install exactly as
+it does on a full one.
 """
 import logging
-from collections.abc import Sequence
 from typing import Any
 
 import pandas as pd
@@ -37,9 +41,13 @@ from ..exceptions import CalculationError, MissingDependencyError
 from ..index import cache as index_cache
 from ..index.cache import IndexResultCache
 from ..index.calculation import IndexCalculator
-from ..index.constructor import IndexDefinition
+from ..index.derived import (
+    AnyIndexDefinition,
+    OptimisedIndexDefinition,
+    calculate_derived_index,
+)
 from ..index.result import IndexResult
-from ..optimise import Constraint
+from ..optimise import OptimisationConfig
 from .engine import BacktestEngine
 from .result import BacktestResult
 from .rules import BacktestModifier
@@ -61,7 +69,7 @@ def _default_cache() -> IndexResultCache | None:
         return None
 
 
-def _rejecting_empty(definition: IndexDefinition,
+def _rejecting_empty(definition: AnyIndexDefinition,
                      result: IndexResult) -> IndexResult:
     """The result, unless the calculation came back empty — then fail loudly.
 
@@ -161,37 +169,54 @@ class Backtest:
                     "off" if self.cache is None else f"at {self.cache.root}")
 
     def run(self,
-            definition: IndexDefinition,
+            definition: AnyIndexDefinition,
             start: str | None = None,
             end: str | None = None,
-            optimise: Sequence[Constraint] | None = None) -> BacktestResult:
+            optimised: bool = False,
+            optimisation_config: OptimisationConfig | None = None) -> BacktestResult:
         """Calculate (or reuse) the index, then simulate tracking it.
 
         Args:
-            definition: The index to calculate and track.
+            definition: The index to calculate and track — a plain
+                :class:`IndexDefinition`, or a stored
+                :class:`~beacon.index.derived.OptimisedIndexDefinition`,
+                which always fills both index books: its parent's calculation
+                as ``index.target`` and its own as ``index.optimised``.
             start: First date (YYYY-MM-DD). Defaults to the definition's
                 base date.
             end: Last date (YYYY-MM-DD). Required.
-            optimise: Optional constraints (:class:`beacon.optimise.Constraint`
-                instances). When given, each rebalance's published weights are
-                solved into the closest feasible portfolio and the engine
-                tracks the *solved* schedule, with the definition's own
-                calculation carried as the result's ``index.target`` book.
-                Needs scipy, imported only on this path.
+            optimised: Ad-hoc optimisation of *definition*: build an
+                ephemeral derived index over it from *optimisation_config* —
+                same solve, same chained levels as a stored one — and trade
+                that. Requires the config; needs scipy only on this path.
+            optimisation_config: What the ad-hoc derivation is asked to do
+                (objective, constraints, reserved risk model). Only
+                meaningful — and only allowed — with ``optimised=True``.
 
         Returns:
             BacktestResult: The engine's result — portfolio kept whole, books
             filled, data bound to the run's own source.
 
         Raises:
-            ValueError: If *end* is not provided.
-            CalculationError: If the calculation comes back empty (see
-                :func:`_rejecting_empty`), or an optimisation is infeasible.
+            ValueError: If *end* is not provided, or *optimised* and
+                *optimisation_config* contradict each other (a flag with no
+                config, or a config with no flag).
+            CalculationError: If a calculation comes back empty (see
+                :func:`_rejecting_empty`), the objective is unknown, or an
+                optimisation is infeasible.
             DataSourceError: If no data source is bound and the process has
                 no ambient one.
         """
         if end is None:
             raise ValueError("end must be provided.")
+        if optimised and optimisation_config is None:
+            raise ValueError(
+                "optimised=True needs an optimisation_config saying what to "
+                "solve for.")
+        if not optimised and optimisation_config is not None:
+            raise ValueError(
+                "an optimisation_config was given but optimised is False; "
+                "pass optimised=True to use it, or drop the config.")
 
         fetcher = (self.data_provider if self.data_provider is not None
                    else sources.resolve())
@@ -199,24 +224,33 @@ class Backtest:
         logger.info("Backtest run for '%s' from %s to %s.",
                     definition.index_id, start or definition.base_date.date(), end)
 
-        index_result = self._calculated(definition, fetcher, start, end)
+        derived = self._derived_definition(definition, optimised,
+                                           optimisation_config)
 
-        schedule = (self._optimised_schedule(index_result, optimise)
-                    if optimise is not None else None)
+        if derived is None:
+            index_result = self._calculated(definition, fetcher, start, end)
+            target_index = None
+        else:
+            # The parent's calculation is cache-assisted exactly as a plain
+            # run's is — and it is the same entry, so an optimised run over a
+            # warm definition solves without recalculating the parent. The
+            # derived calculation caches too, when the whole chain keys.
+            target_index = self._calculated(derived.source, fetcher, start, end)
+            index_result = self._calculated(derived, fetcher, start, end,
+                                            parent_result=target_index)
 
         engine = BacktestEngine(
             start_date=start if start is not None else str(definition.base_date.date()),
             end_date=end,
             initial_capital=self.initial_capital,
             data_provider=fetcher,
-            index_result=index_result if schedule is None else None,
-            target_weights=schedule,
+            index_result=index_result,
             price_column=self.price_column,
             currency=self.currency,
             transaction_cost_bps=self.transaction_cost_bps,
             modifiers=self.modifiers,
             benchmark=self.benchmark,
-            target_index=index_result if schedule is not None else None)
+            target_index=target_index)
 
         return engine.run()
 
@@ -224,15 +258,45 @@ class Backtest:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _derived_definition(definition: AnyIndexDefinition,
+                            optimised: bool,
+                            config: OptimisationConfig | None
+                            ) -> OptimisedIndexDefinition | None:
+        """The derivation this run trades, or None for a plain passive run.
+
+        A stored optimised definition *is* the derivation. The ad-hoc flag
+        wraps whatever was given — plain or already optimised, which is how a
+        chain is tried without minting one — in an ephemeral derived
+        definition built from the config, so both lifetimes calculate through
+        the identical path and produce identical numbers.
+        """
+        if optimised and config is not None:
+            return OptimisedIndexDefinition.from_config(
+                index_id=f"{definition.index_id}::optimised",
+                index_name=f"{definition.index_name} (optimised)",
+                source=definition,
+                config=config)
+
+        if isinstance(definition, OptimisedIndexDefinition):
+            return definition
+
+        return None
+
     def _calculated(self,
-                    definition: IndexDefinition,
+                    definition: AnyIndexDefinition,
                     fetcher: DataFetcher,
                     start: str | None,
-                    end: str) -> IndexResult:
+                    end: str,
+                    parent_result: IndexResult | None = None) -> IndexResult:
         """The IndexResult for this run: cached when possible, fresh otherwise.
 
         An empty calculation is rejected *before* it can be stored, so the
-        cache only ever holds results worth reusing.
+        cache only ever holds results worth reusing. A derived definition
+        calculates through :func:`calculate_derived_index`, reusing
+        *parent_result* when the caller already holds the source's
+        calculation; its fingerprint folds in the parent's recursively, so a
+        hit here is honest about every link of the chain.
         """
         key, parts = self._cache_key(definition, fetcher, start, end)
 
@@ -249,11 +313,19 @@ class Backtest:
             logger.info("Index cache miss for '%s' (%s): calculating.",
                         definition.index_id, key)
 
-        result = _rejecting_empty(
-            definition,
-            IndexCalculator(definition, fetcher,
-                            price_column=self.price_column).run(start_date=start,
-                                                                end_date=end))
+        if isinstance(definition, OptimisedIndexDefinition):
+            calculated = calculate_derived_index(definition, fetcher,
+                                                 start_date=start,
+                                                 end_date=end,
+                                                 price_column=self.price_column,
+                                                 parent_result=parent_result)
+        else:
+            calculated = IndexCalculator(
+                definition, fetcher,
+                price_column=self.price_column).run(start_date=start,
+                                                    end_date=end)
+
+        result = _rejecting_empty(definition, calculated)
 
         if key is not None and self.cache is not None:
             self.cache.put(key, result, parts)
@@ -261,7 +333,7 @@ class Backtest:
         return result
 
     def _cache_key(self,
-                   definition: IndexDefinition,
+                   definition: AnyIndexDefinition,
                    fetcher: DataFetcher,
                    start: str | None,
                    end: str) -> tuple[str | None, dict[str, Any] | None]:
@@ -295,35 +367,3 @@ class Backtest:
                         "not be built (%s).", definition.index_id, error)
 
             return None, None
-
-    def _optimised_schedule(self,
-                            index_result: IndexResult,
-                            constraints: Sequence[Constraint]
-                            ) -> dict[pd.Timestamp, dict[str, float]]:
-        """Solve every rebalance's published weights under the constraints.
-
-        The solved schedule is what the engine tracks; the calculation the
-        weights were solved *from* rides along as the ``index.target`` book,
-        which is what makes optimised-versus-unoptimised a first-class
-        comparison on the result (decision 5).
-        """
-        # Deferred so a plain run never touches the solver at all; scipy
-        # itself is required inside the solve (BN-166), so this path is the
-        # only one that can raise MissingDependencyError.
-        from ..optimise import minimise_tracking_error  # noqa: PLC0415
-
-        schedule: dict[pd.Timestamp, dict[str, float]] = {}
-
-        for date, weights in index_result.weight_snapshots.items():
-            if not weights:
-                schedule[date] = {}
-                continue
-
-            solved = minimise_tracking_error(weights, list(constraints))
-            schedule[date] = {str(asset): float(value)
-                              for asset, value in solved.weights.items()}
-
-        logger.info("Optimised %d rebalance(s) under %d constraint(s).",
-                    len(schedule), len(constraints))
-
-        return schedule

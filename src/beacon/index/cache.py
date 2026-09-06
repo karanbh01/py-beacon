@@ -37,11 +37,11 @@ import pandas as pd
 
 from .. import __version__
 from .._optional import require
-from ..catalogue import SELECTION, WEIGHTING, classes, parameters_of
+from ..catalogue import CONSTRAINT, SELECTION, WEIGHTING, classes, parameters_of
 from ..data import store
 from ..data.fetcher import DataFetcher
 from .capping import CapReport
-from .constructor import IndexDefinition
+from .derived import AnyIndexDefinition, OptimisedIndexDefinition
 from .result import _DAILY_WEIGHT_DTYPES, IndexResult
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ def default_root() -> Path:
 # -- fingerprinting ----------------------------------------------------------
 
 
-def fingerprint(definition: IndexDefinition,
+def fingerprint(definition: AnyIndexDefinition,
                 fetcher: DataFetcher,
                 start_date: str | None,
                 end_date: str) -> str | None:
@@ -111,7 +111,7 @@ def fingerprint(definition: IndexDefinition,
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def key_parts(definition: IndexDefinition,
+def key_parts(definition: AnyIndexDefinition,
               fetcher: DataFetcher,
               start_date: str | None,
               end_date: str) -> dict[str, Any] | None:
@@ -122,7 +122,7 @@ def key_parts(definition: IndexDefinition,
     return parts
 
 
-def explain_uncacheable(definition: IndexDefinition,
+def explain_uncacheable(definition: AnyIndexDefinition,
                         fetcher: DataFetcher,
                         start_date: str | None,
                         end_date: str) -> str | None:
@@ -132,7 +132,7 @@ def explain_uncacheable(definition: IndexDefinition,
     return reason
 
 
-def _key_parts(definition: IndexDefinition,
+def _key_parts(definition: AnyIndexDefinition,
                fetcher: DataFetcher,
                start_date: str | None,
                end_date: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -158,9 +158,16 @@ def _key_parts(definition: IndexDefinition,
             "beacon_version": __version__}, None
 
 
-def _definition_payload(definition: IndexDefinition) -> tuple[dict[str, Any] | None, str | None]:
+def _definition_payload(definition: AnyIndexDefinition) -> tuple[dict[str, Any] | None, str | None]:
     """Every constructor field of the definition, rules and scheme included —
-    or None with the reason, when a rule or the scheme cannot be keyed."""
+    or None with the reason, when a rule or the scheme cannot be keyed.
+
+    An optimised definition keys as its derivation — parent fingerprint parts
+    folded in recursively, objective, constraints — through
+    :func:`_derived_payload`."""
+    if isinstance(definition, OptimisedIndexDefinition):
+        return _derived_payload(definition)
+
     rules = []
     for rule in definition.eligibility_rules:
         payload, reason = _configured_payload(rule, SELECTION, "eligibility rule")
@@ -193,6 +200,50 @@ def _definition_payload(definition: IndexDefinition) -> tuple[dict[str, Any] | N
             "effective_lag_sessions": definition.effective_lag_sessions,
             "eligibility_rules": rules,
             "weighting_scheme": scheme}, None
+
+
+def _derived_payload(definition: OptimisedIndexDefinition
+                     ) -> tuple[dict[str, Any] | None, str | None]:
+    """An optimised definition as its derivation plus identity — or None.
+
+    The parent's payload is folded in **recursively**, so a chain terminates
+    at a non-derived definition and any uncacheable link — an unregistered
+    rule three parents up, say — makes the whole chain uncacheable. The
+    constraints key by the same catalogue convention `constraint_payload`
+    uses (BN-166), but return None on an unregistered class rather than raise,
+    matching the cache's uncacheable style. The reserved risk_model field
+    cannot be keyed yet, so setting one refuses the key outright — the BN-160
+    safety rule, never a key that silently omits an input.
+    """
+    if definition.risk_model is not None:
+        return None, (f"the optimised index '{definition.index_id}' carries a "
+                      f"risk model, which cannot be keyed yet (the field is "
+                      f"reserved)")
+
+    parent, reason = _definition_payload(definition.source)
+    if parent is None:
+        return None, (f"the source of optimised index '{definition.index_id}' "
+                      f"is uncacheable: {reason}")
+
+    constraints = []
+    for constraint in definition.constraints:
+        payload, reason = _configured_payload(constraint, CONSTRAINT,
+                                              "constraint")
+        if payload is None:
+            return None, reason
+
+        constraints.append(payload)
+
+    return {"derivation": True,
+            "index_id": definition.index_id,
+            "index_name": definition.index_name,
+            "base_date": definition.base_date.isoformat(),
+            "base_value": definition.base_value,
+            "currency": definition.currency,
+            "description": definition.description,
+            "objective": definition.objective,
+            "constraints": constraints,
+            "source": parent}, None
 
 
 def _configured_payload(instance: Any,
@@ -255,7 +306,7 @@ def _data_identity(fetcher: DataFetcher) -> tuple[dict[str, Any] | None, str | N
             "manifest_mtime_ns": modified}, None
 
 
-def _window_payload(definition: IndexDefinition,
+def _window_payload(definition: AnyIndexDefinition,
                     start_date: str | None,
                     end_date: str) -> tuple[dict[str, str] | None, str | None]:
     """The calculation window, normalised the way the calculator resolves it."""

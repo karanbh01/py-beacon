@@ -420,24 +420,27 @@ class TestTheEmptyUniverseError:
 
 
 class TestOptimisedRuns:
-    """`optimise=` tracks the solved weights and books the calculation."""
+    """`optimised=True` trades the derived calculation and books both indices."""
 
     def optimised(self,
                   constraints) -> tuple:
+        from beacon.optimise import OptimisationConfig
+
         fetcher = dataset.data_fetcher()
         plain = quiet_run(Backtest(initial_capital=CAPITAL,
                                    data_provider=fetcher))
         optimised = quiet_run(Backtest(initial_capital=CAPITAL,
                                        data_provider=fetcher),
-                              optimise=constraints)
+                              optimised=True,
+                              optimisation_config=OptimisationConfig(
+                                  constraints=constraints))
 
         return plain, optimised
 
-    def test_the_target_book_is_populated(self):
-        """The acceptance case: the definition's calculation becomes the
-        `index.target` book — while the engine tracks the solved schedule.
-        The optimised slot stays empty until BN-167 fills it with the
-        solved index's own calculation."""
+    def test_both_index_books_are_populated(self):
+        """The acceptance case (BN-167): the definition's own calculation is
+        the `index.target` book, the ephemeral derived calculation fills
+        `index.optimised`, and the engine trades toward the latter."""
         pytest.importorskip("scipy")
         from beacon.optimise import FullInvestment, PositionBounds
 
@@ -447,7 +450,8 @@ class TestOptimisedRuns:
 
         assert optimised.index.target is not None
         assert optimised.index.target.source is not None
-        assert optimised.index.optimised is None
+        assert optimised.index.optimised is not None
+        assert optimised.index.tracked is optimised.index.optimised
         pd.testing.assert_series_equal(optimised.index.target.levels,
                                        plain.index.target.levels)
 
@@ -463,3 +467,17 @@ class TestOptimisedRuns:
 
         assert (float(optimised.trading_nav.iloc[-1])
                 != pytest.approx(float(plain.trading_nav.iloc[-1])))
+
+    def test_the_flag_and_the_config_must_agree(self):
+        """The contradictory states are caller mistakes, named as such."""
+        from beacon.optimise import OptimisationConfig
+
+        bt = Backtest(initial_capital=CAPITAL,
+                      data_provider=dataset.data_fetcher())
+
+        with pytest.raises(ValueError, match="optimisation_config"):
+            bt.run(build_definition(), start=START, end=END, optimised=True)
+
+        with pytest.raises(ValueError, match="optimised"):
+            bt.run(build_definition(), start=START, end=END,
+                   optimisation_config=OptimisationConfig())

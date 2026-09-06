@@ -8,6 +8,7 @@ calculating weights, and computing index levels.
 from .asset_view import IndexAssetView
 from .calculation import IndexCalculator
 from .constructor import IndexDefinition
+from .derived import OptimisedIndexDefinition, calculate_derived_index
 from .expression_rules import ExpressionRule
 from .feature_rules import FeatureRule
 from .methodology import (
@@ -32,5 +33,7 @@ __all__ = [
     "LiquidityRule",
     "MarketCapRule",
     "MarketCapWeighted",
+    "OptimisedIndexDefinition",
     "WeightingSchemeBase",
+    "calculate_derived_index",
 ]
