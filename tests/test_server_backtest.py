@@ -447,3 +447,86 @@ class TestTheRecord:
         response = module_client.get("/beacon/DOOMED/record", headers=auth())
 
         assert response.status_code == 404
+
+
+class TestTheListing:
+    """BN-162: `GET /beacon/backtests` — which indices HAVE a record.
+
+    The record endpoint answers per index, so a client wanting to offer
+    backtests as search results had no way to enumerate them. The listing is
+    deliberately thin — id and capture time — because everything else is one
+    `/record` call away, and names live in the catalogue the client already
+    holds.
+    """
+
+    def test_an_empty_store_lists_nothing(self,
+                                          client):
+        response = client.get("/beacon/backtests", headers=auth())
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_a_run_appears_with_a_parseable_utc_stamp(self,
+                                                      module_client,
+                                                      result):
+        """The stamp is the row's whole value over a boolean: "backtest ·
+        3 days ago" is a row someone can judge, a flag is not."""
+        from datetime import datetime
+
+        rows = module_client.get("/beacon/backtests", headers=auth()).json()
+        ours = [row for row in rows if row["index_id"] == "BT"]
+
+        assert len(ours) == 1
+        stamp = datetime.fromisoformat(ours[0]["run_at"])
+        assert stamp.tzinfo is not None
+
+    def test_newest_first_and_unstamped_last(self,
+                                             client):
+        """Records written before BN-162 carry no stamp; they sort after
+        every dated row rather than lying about when they ran. Seeded
+        skeletally in a function-scoped store: ordering is the subject, so
+        the rows are arranged, not raced."""
+        records = client.app.state.backtest_record_store
+        records.write("OLD", {"run_at": "2020-01-01T00:00:00+00:00"})
+        records.write("NEW", {"run_at": "2030-01-01T00:00:00+00:00"})
+        records.write("UNSTAMPED", {})
+
+        rows = client.get("/beacon/backtests", headers=auth()).json()
+
+        assert [row["index_id"] for row in rows] == ["NEW", "OLD", "UNSTAMPED"]
+        assert rows[-1]["run_at"] is None
+
+    def test_a_corrupt_record_is_skipped_not_a_500(self,
+                                                   client):
+        """One bad file must not hide every good one: the search bar losing
+        all its backtest rows to a single truncated write would report the
+        store empty when it is merely imperfect."""
+        records = client.app.state.backtest_record_store
+        records.write("GOOD", {"run_at": "2025-01-01T00:00:00+00:00"})
+        (records.directory / "BAD.json").write_text("{not json",
+                                                    encoding="utf-8")
+
+        rows = client.get("/beacon/backtests", headers=auth()).json()
+
+        assert [row["index_id"] for row in rows] == ["GOOD"]
+
+    def test_deleting_the_index_removes_the_row(self,
+                                                client):
+        """The acceptance case: the BN-157 cascade reaches the listing."""
+        records = client.app.state.backtest_record_store
+        records.write("BT", {"run_at": "2025-01-01T00:00:00+00:00"})
+
+        deleted = client.delete("/indices/BT", headers=auth())
+        assert deleted.status_code == 204
+
+        assert client.get("/beacon/backtests", headers=auth()).json() == []
+
+    def test_it_requires_authentication(self,
+                                        client):
+        assert client.get("/beacon/backtests").status_code == 401
+
+    def test_the_route_is_in_the_spec(self,
+                                      client):
+        paths = client.get("/openapi.json").json()["paths"]
+
+        assert "/beacon/backtests" in paths

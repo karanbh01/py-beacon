@@ -18,6 +18,7 @@ moment apart should describe the same run.
 Every read is a 404 until a backtest has been run, which is the honest answer:
 there is no view of an index nobody has calculated.
 """
+import logging
 from typing import Annotated, Any
 
 from ..._optional import require
@@ -30,6 +31,7 @@ from ..runs import snapshot_at, snapshots_from
 from ..schemas import (
     AssetView,
     AttributionView,
+    BacktestRecordRow,
     BacktestRequest,
     BacktestResultSummary,
     CompareView,
@@ -51,6 +53,8 @@ from ..weights import build_weights
 require("fastapi", "The Beacon API server")
 
 from fastapi import APIRouter, Query, Request, status  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 BenchmarkQuery = Annotated[
     str | None,
@@ -173,6 +177,38 @@ def build_beacon_router() -> APIRouter:
 
         return build_compare({index_id: _latest_run(request, index_id)
                               for index_id in ids})
+
+    @router.get("/backtests", response_model=list[BacktestRecordRow])
+    def backtest_records(request: Request) -> list[BacktestRecordRow]:
+        """Every stored backtest record, newest first (BN-162).
+
+        The enumeration Beacon View's search bar needs: which indices HAVE a
+        record, and when each was captured. One row per index — the record
+        store keeps the latest run only — and the row is deliberately thin;
+        `/beacon/{index_id}/record` serves the books.
+
+        A record that cannot be read is skipped with a warning rather than
+        failing the listing: one bad file must not hide every good one.
+        """
+        records: DocumentStore = request.app.state.backtest_record_store
+
+        rows = []
+        for index_id in records.list_ids():
+            try:
+                record = records.read(index_id)
+            except ConfigurationError as error:
+                logger.warning("Skipping unreadable backtest record '%s': %s",
+                               index_id, error)
+                continue
+
+            if record is not None:
+                rows.append(BacktestRecordRow(index_id=index_id,
+                                              run_at=record.get("run_at")))
+
+        # Newest first; unstamped records (pre-BN-162) sort to the end.
+        return sorted(rows,
+                      key=lambda row: row.run_at or "",
+                      reverse=True)
 
     @router.get("/{index_id}/overview", response_model=OverviewView)
     def overview(request: Request,

@@ -8,6 +8,7 @@ otherwise become an API contract by accident. Everything crossing the wire is
 declared here, so OpenAPI describes it and a library refactor cannot silently
 reshape a response.
 """
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 import pandas as pd
@@ -264,6 +265,9 @@ class BacktestResultSummary(BaseModel):
     benchmark: BookPayload | None = None
     unfilled: list[UnfilledOrderPayload] = Field(default_factory=list)
     metrics: BacktestMetrics
+    # None only on records written before BN-162 stamped them: a listing row
+    # without a date is honest about predating the stamp.
+    run_at: str | None = None
 
     @classmethod
     def from_result(cls,
@@ -291,7 +295,8 @@ class BacktestResultSummary(BaseModel):
                        price=order.price,
                        shortfall_value=order.shortfall_value)
                        for order in result.unfilled],
-                   metrics=metrics)
+                   metrics=metrics,
+                   run_at=datetime.now(UTC).isoformat())
 
 
 def _portfolio_payload(portfolio: Any) -> PortfolioBookPayload:
@@ -336,6 +341,20 @@ def _book_payload(book: Any) -> BookPayload | None:
         levels=SeriesPayload.from_series(book.levels),
         weights=TableFrame.from_dataframe(book.weights.tail(MAX_WEIGHT_DATES)),
         weights_dates_total=len(book.weights))
+
+
+class BacktestRecordRow(BaseModel):
+    """One stored backtest record, as a listing knows it (BN-162).
+
+    The row is deliberately thin — the id to fetch the record by, and when it
+    was captured. Names come from the index catalogue the client already
+    holds, and everything else from `/beacon/{index_id}/record`.
+    """
+    index_id: str
+    run_at: str | None = Field(
+        default=None,
+        description="ISO-8601 UTC capture time; null on records written "
+                    "before they were stamped.")
 
 
 class PricesResponse(BaseModel):
