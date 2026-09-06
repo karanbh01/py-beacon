@@ -173,7 +173,7 @@ class Backtest:
                 instances). When given, each rebalance's published weights are
                 solved into the closest feasible portfolio and the engine
                 tracks the *solved* schedule, with the definition's own
-                calculation carried as the result's ``target_index`` book.
+                calculation carried as the result's ``index.target`` book.
                 Needs scipy, imported only on this path.
 
         Returns:
@@ -299,7 +299,7 @@ class Backtest:
         """Solve every rebalance's published weights under the constraints.
 
         The solved schedule is what the engine tracks; the calculation the
-        weights were solved *from* rides along as the ``target_index`` book,
+        weights were solved *from* rides along as the ``index.target`` book,
         which is what makes optimised-versus-unoptimised a first-class
         comparison on the result (decision 5).
         """

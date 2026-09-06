@@ -560,8 +560,10 @@ class TestResultSchemas:
 
         assert payload["portfolio"]["portfolio_id"] == "bt"
         # Books the run did not have are null, not empty: a client can tell
-        # "not measured" from "measured and empty".
-        assert payload["index"] is None
+        # "not measured" from "measured and empty". The index container is
+        # always present (BN-164); its books are the nullable parts.
+        assert payload["index"]["target"] is None
+        assert payload["index"]["optimised"] is None
         assert payload["benchmark"] is None
         assert payload["unfilled"] == []
         # The nav book keeps its day-zero row on the wire.
@@ -577,7 +579,7 @@ class TestResultSchemas:
         weights, with the true date count published beside the served rows."""
         import pandas as pd
 
-        from beacon.backtest.result import BacktestResult, Book
+        from beacon.backtest.result import BacktestResult, Book, IndexBooks
         from beacon.index.result import IndexResult
         from beacon.portfolio.base import Portfolio
 
@@ -603,10 +605,12 @@ class TestResultSchemas:
 
         payload = BacktestResultSummary.from_result(
             BacktestResult(portfolio=portfolio,
-                           index=Book.from_index(idx))).model_dump()
+                           index=IndexBooks(
+                               target=Book.from_index(idx)))).model_dump()
 
-        book = payload["index"]
+        book = payload["index"]["target"]
         assert book is not None
+        assert payload["index"]["optimised"] is None
         assert book["levels"]["data"] == [100.0, 101.0, 102.0]
         assert book["weights_dates_total"] == 3
         assert set(book["weights"]["columns"]) == {"AAA", "BBB"}

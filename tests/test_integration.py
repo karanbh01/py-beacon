@@ -184,7 +184,7 @@ class TestPipelineSetup:
         assert r.portfolio.cash.iloc[0] == r.portfolio.initial_capital
         transactions = r.portfolio.transactions
         assert transactions and all(isinstance(t, Transaction) for t in transactions)
-        assert r.index is not None
+        assert r.index.target is not None
 
 
 # ---------------------------------------------------------------------------

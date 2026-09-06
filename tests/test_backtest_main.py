@@ -236,7 +236,8 @@ class TestCacheFlows:
 
         assert counted_runs["count"] == 1
         pd.testing.assert_series_equal(first.trading_nav, second.trading_nav)
-        pd.testing.assert_series_equal(first.index.levels, second.index.levels)
+        pd.testing.assert_series_equal(first.index.target.levels,
+                                       second.index.target.levels)
 
     def test_a_hit_rebinds_the_cached_result_to_the_run_data(self,
                                                              disk_fetcher,
@@ -250,8 +251,8 @@ class TestCacheFlows:
 
         reused = quiet_run(bt)
 
-        assert reused.index.source._data_fetcher is disk_fetcher
-        assert reused.index.source.asset("AAA").asset_id == "AAA"
+        assert reused.index.target.source._data_fetcher is disk_fetcher
+        assert reused.index.target.source.asset("AAA").asset_id == "AAA"
 
     def test_an_in_memory_fetcher_still_works_and_calculates_every_time(self,
                                                                         cache,
@@ -352,8 +353,8 @@ class TestEquivalence:
 
         pd.testing.assert_series_equal(front_door.trading_nav,
                                        by_hand.trading_nav)
-        pd.testing.assert_series_equal(front_door.index.levels,
-                                       by_hand.index.levels)
+        pd.testing.assert_series_equal(front_door.index.target.levels,
+                                       by_hand.index.target.levels)
         assert (len(front_door.portfolio.transactions)
                 == len(by_hand.portfolio.transactions))
 
@@ -432,10 +433,11 @@ class TestOptimisedRuns:
 
         return plain, optimised
 
-    def test_the_target_index_book_is_populated(self):
+    def test_the_target_book_is_populated(self):
         """The acceptance case: the definition's calculation becomes the
-        `target_index` book — the first thing to actually populate decision
-        5's book — while the engine tracks the solved schedule."""
+        `index.target` book — while the engine tracks the solved schedule.
+        The optimised slot stays empty until BN-167 fills it with the
+        solved index's own calculation."""
         pytest.importorskip("scipy")
         from beacon.optimise import FullInvestment, PositionBounds
 
@@ -443,11 +445,11 @@ class TestOptimisedRuns:
             [FullInvestment(),
              PositionBounds(minimum=0.4, maximum=1.0, assets=["AAA"])])
 
-        assert optimised.target_index is not None
-        assert optimised.target_index.source is not None
-        assert optimised.index is None
-        pd.testing.assert_series_equal(optimised.target_index.levels,
-                                       plain.index.levels)
+        assert optimised.index.target is not None
+        assert optimised.index.target.source is not None
+        assert optimised.index.optimised is None
+        pd.testing.assert_series_equal(optimised.index.target.levels,
+                                       plain.index.target.levels)
 
     def test_a_binding_constraint_moves_the_money(self):
         """Forcing 40% into one name of an equal-weight three must trade a

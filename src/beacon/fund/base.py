@@ -130,7 +130,7 @@ class IndexFund:
                                              end=end_date)
 
         # The calculation the run tracked, kept for the fund's own accessor.
-        book = self._backtest_result.index
+        book = self._backtest_result.index.target
         self._index_result = book.source if book is not None else None
 
         logger.info(

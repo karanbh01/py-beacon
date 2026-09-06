@@ -240,6 +240,17 @@ class BookPayload(BaseModel):
     weights_dates_total: int
 
 
+class IndexBooksPayload(BaseModel):
+    """The run's calculated indices on the wire (BN-164).
+
+    Mirrors the library's `IndexBooks`: `target` is the index being aimed
+    at, pre-optimisation; `optimised` is the solved index's own
+    calculation, null until an optimised run fills it.
+    """
+    target: BookPayload | None = None
+    optimised: BookPayload | None = None
+
+
 class UnfilledOrderPayload(BaseModel):
     """A buy the simulation could not execute in full."""
     date: str
@@ -256,12 +267,13 @@ class BacktestResultSummary(BaseModel):
     The nested shape mirrors the library object (BN-155): one home per fact,
     and the new data — positions, daily index weights — has a natural place
     instead of being bolted flat beside old names. Books the run did not have
-    (no benchmark given, no target index) are null rather than empty, so a
-    client can tell "not measured" from "measured and empty".
+    (no benchmark given, no index calculated) are null rather than empty, so
+    a client can tell "not measured" from "measured and empty". Since BN-164
+    `index` is a container of two books, `{target, optimised}`, matching the
+    library's `IndexBooks`.
     """
     portfolio: PortfolioBookPayload
-    index: BookPayload | None = None
-    target_index: BookPayload | None = None
+    index: IndexBooksPayload = Field(default_factory=IndexBooksPayload)
     benchmark: BookPayload | None = None
     unfilled: list[UnfilledOrderPayload] = Field(default_factory=list)
     metrics: BacktestMetrics
@@ -284,8 +296,9 @@ class BacktestResultSummary(BaseModel):
             tracking_difference=summary.get("tracking_difference"))
 
         return cls(portfolio=_portfolio_payload(result.portfolio),
-                   index=_book_payload(result.index),
-                   target_index=_book_payload(result.target_index),
+                   index=IndexBooksPayload(
+                       target=_book_payload(result.index.target),
+                       optimised=_book_payload(result.index.optimised)),
                    benchmark=_book_payload(result.benchmark),
                    unfilled=[UnfilledOrderPayload(
                        date=str(order.date.date()),

@@ -14,7 +14,7 @@ from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 # here as well so `from beacon.backtest.engine import TradeInstruction` keeps
 # working -- and because the engine is its main producer.
 from ..portfolio.base import Holding, Portfolio, TradeInstruction
-from .result import BacktestResult, Book, UnfilledOrder
+from .result import BacktestResult, Book, IndexBooks, UnfilledOrder
 from .rules import BacktestModifier
 
 # Reused from the portfolio rather than redefined: the engine decides whether
@@ -53,6 +53,12 @@ class BacktestEngine:
         transaction_cost_bps: Transaction cost in basis points applied to
             each trade's notional value. Defaults to 0 (no cost).
         modifiers: Optional hooks that can skip rebalances or adjust trades.
+        benchmark: The benchmark of record, stored on the result so every
+            reader quotes excess return against the same comparator.
+        target_index: On a *target_weights* run, the calculated index the
+            schedule was derived from; it lands in the result's
+            `index.target` book. Unused on *index_result* runs, whose own
+            calculation fills that book.
     """
 
     def __init__(self,
@@ -623,13 +629,24 @@ class BacktestEngine:
         # process-level source moves later.
         return BacktestResult(
             portfolio=portfolio,
-            index=(Book.from_index(self.index_result)
-                   if self.index_result is not None else None),
-            target_index=(Book.from_index(self.target_index)
-                          if self.target_index is not None else None),
+            index=IndexBooks(target=self._target_book()),
             benchmark=self._benchmark_book(),
             unfilled=unfilled,
         ).with_data(self.data_provider)
+
+    def _target_book(self) -> "Book | None":
+        """The calculated index this run aimed at, whichever arg carried it.
+
+        A plain run carries it as *index_result* (the schedule the engine
+        traded); a raw-schedule run given *target_index* (the BN-161
+        optimise path) carries the pre-optimisation calculation there. Both
+        land in `index.target` — the optimised book stays None until the
+        derived-index work (BN-167) fills it.
+        """
+        tracked = (self.index_result if self.index_result is not None
+                   else self.target_index)
+
+        return Book.from_index(tracked) if tracked is not None else None
 
     def _benchmark_book(self) -> "Book | None":
         """The benchmark of record, whichever form it was given in."""

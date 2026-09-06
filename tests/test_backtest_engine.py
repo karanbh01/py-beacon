@@ -259,10 +259,13 @@ class TestIndexResultIntegration:
         result = engine.run()
         # The result holds a Book over the index, not the raw IndexResult:
         # every comparator answers through the same levels/weights spelling,
-        # and the source stays reachable for snapshot-era access.
-        assert result.index is not None
-        assert result.index.source is idx
-        assert result.index.levels.equals(idx.index_levels)
+        # and the source stays reachable for snapshot-era access. Since
+        # BN-164 the calculation lands in the container's target slot.
+        assert result.index.target is not None
+        assert result.index.target.source is idx
+        assert result.index.target.levels.equals(idx.index_levels)
+        assert result.index.optimised is None
+        assert result.index.tracked is result.index.target
 
     def test_custom_weights_no_target(self):
         prices = {"A": {d.strftime("%Y-%m-%d"): 100.0 for d in DATES}}
@@ -271,7 +274,8 @@ class TestIndexResultIntegration:
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
                                 10000.0, dp, target_weights=w)
         result = engine.run()
-        assert result.index is None
+        assert result.index.target is None
+        assert result.index.tracked is None
 
 
 # ---------------------------------------------------------------------------
@@ -532,7 +536,7 @@ class TestComparatorsOfRecord:
         result = self._run()
 
         assert result.benchmark is None
-        assert result.target_index is None
+        assert result.index.target is None
 
     def test_a_benchmark_series_becomes_the_book_of_record(self):
         levels = pd.Series([100.0, 101.0, 102.0, 101.5, 103.0], index=DATES)
@@ -550,14 +554,16 @@ class TestComparatorsOfRecord:
         assert result.benchmark is not None
         assert result.benchmark.source is idx
 
-    def test_a_target_index_becomes_its_own_book(self):
-        """Post-selection, pre-optimisation: the comparison an optimisation
-        run is judged by, first-class rather than a manual join."""
+    def test_a_target_index_lands_in_the_target_book(self):
+        """Post-selection, pre-optimisation: on a raw-schedule run the
+        calculation the weights came from fills `index.target` (BN-164);
+        the optimised slot stays empty until BN-167 fills it."""
         idx = _make_index_result({DATES[0]: {"A": 1.0}})
         result = self._run(target_index=idx)
 
-        assert result.target_index is not None
-        assert result.target_index.source is idx
+        assert result.index.target is not None
+        assert result.index.target.source is idx
+        assert result.index.optimised is None
 
     def test_the_engine_never_trades_on_a_comparator(self):
         """A benchmark is a yardstick, not an instruction: the trades of a

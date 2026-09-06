@@ -8,8 +8,9 @@ target index, the benchmark of record, unfilled orders — and its methods
 answer questions by comparing books:
 
     result.portfolio.nav          what the money did
-    result.index.levels           what the tracked index did
-    result.index.weights          daily, including mid-period deletions
+    result.index.target.levels    what the index being aimed at did
+    result.index.optimised        the solved index's own calculation, when one exists
+    result.index.tracked          the book the engine actually traded toward
     result.benchmark.levels       the benchmark of record, when one was given
     result.against(other)         any comparator, after the fact
 
@@ -78,8 +79,8 @@ class Book:
     """One comparator's daily record: levels, weights, returns.
 
     The uniform surface every comparator answers through, so
-    `result.index.weights` and `result.benchmark.levels` are the same
-    spelling on every book. A book built from an `IndexResult` keeps it as
+    `result.index.target.weights` and `result.benchmark.levels` are the
+    same spelling on every book. A book built from an `IndexResult` keeps it as
     `source`, because the snapshots it holds (what each rebalance *decided*)
     are a different fact from the daily panel (what happened between).
 
@@ -133,6 +134,30 @@ class Book:
                 f"weighted={not self.weights.empty})")
 
 
+@dataclass
+class IndexBooks:
+    """The run's calculated indices, one home each (BN-164).
+
+    Replaces the flat `index` / `target_index` pair, which were two names
+    for one concept — "the calculated index this run aims at" — chosen by
+    mode. Here the concept has one home:
+
+    Attributes:
+        target: The index being aimed at, pre-optimisation. Filled on every
+            definition-driven run; None only when no index was calculated
+            (a raw weight-schedule run).
+        optimised: The solved index's own calculation. None on plain
+            passive runs; the derived-index work (BN-167) fills it.
+    """
+    target: Book | None = None
+    optimised: Book | None = None
+
+    @property
+    def tracked(self) -> Book | None:
+        """The book the engine traded toward: optimised when solved, else target."""
+        return self.optimised if self.optimised is not None else self.target
+
+
 # What `against()` accepts: anything carrying a daily level series.
 Comparable = Union["BacktestResult", Book, IndexResult, pd.Series]
 
@@ -144,11 +169,11 @@ class BacktestResult:
     Args:
         portfolio: The books — positions, weights, cash, NAV, transactions —
             kept whole and frozen by the engine on completion.
-        index: The index the run tracked, when it tracked one. A run driven
-            by a raw weight schedule has none.
-        target_index: The post-selection, pre-optimisation index, populated
-            on optimisation runs so optimised-versus-unoptimised is a
-            first-class comparison.
+        index: The run's calculated indices, as an :class:`IndexBooks`
+            container — always present, its books None when the run
+            calculated none. `index.target` is the index aimed at,
+            `index.optimised` the solved calculation when one exists, and
+            `index.tracked` the book the engine traded toward.
         benchmark: The benchmark of record, when one was given to the engine.
         unfilled: Buys the simulation could not execute in full. Empty for a
             run where every rebalance leg filled, so a non-empty list is
@@ -160,8 +185,7 @@ class BacktestResult:
     #: access, so matplotlib is imported only when something is drawn.
     plot = PlotAccessor("BacktestPlots")
     portfolio: Portfolio
-    index: Book | None = None
-    target_index: Book | None = None
+    index: IndexBooks = field(default_factory=IndexBooks)
     benchmark: Book | None = None
     unfilled: list[UnfilledOrder] = field(default_factory=list)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
@@ -229,7 +253,7 @@ class BacktestResult:
         return BacktestAssetView(asset_id=asset_id,
                                  data_fetcher=self._data_fetcher,
                                  portfolio=self.portfolio,
-                                 index_book=self.index)
+                                 index_book=self.index.tracked)
 
     def against(self,
                 other: Comparable) -> RelativeMetrics:
@@ -274,11 +298,12 @@ class BacktestResult:
             float or None: Annualised tracking error, or None if the run
             tracked no index.
         """
-        if self.index is None:
+        tracked = self.index.tracked
+        if tracked is None:
             return None
 
         port_returns = self.get_returns()
-        index_returns = self.index.returns
+        index_returns = tracked.returns
 
         # Align on common dates
         aligned = pd.DataFrame({
@@ -303,11 +328,12 @@ class BacktestResult:
             float or None: Tracking difference, or None if the run tracked
             no index.
         """
-        if self.index is None:
+        tracked = self.index.tracked
+        if tracked is None:
             return None
 
         port_returns = self.get_returns()
-        index_returns = self.index.returns
+        index_returns = tracked.returns
 
         if port_returns.empty or index_returns.empty:
             return None
@@ -379,7 +405,7 @@ class BacktestResult:
         return (
             f"BacktestResult(portfolio='{self.portfolio.portfolio_id}', "
             f"dates={n_dates}, transactions={n_txns}, "
-            f"index={self.index is not None}, "
+            f"index={self.index.tracked is not None}, "
             f"benchmark={self.benchmark is not None}, data_bound={bound})"
         )
 

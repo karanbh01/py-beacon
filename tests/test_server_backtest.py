@@ -383,14 +383,18 @@ class TestTheRecord:
         assert book["nav"]["data"][0] == pytest.approx(
             book["initial_capital"])
 
-    def test_the_index_book_is_present_and_the_benchmark_null(self,
-                                                              record):
+    def test_the_target_book_is_present_and_the_benchmark_null(self,
+                                                               record):
         """This run tracked an index and was given no benchmark. Null and
         present must both survive the wire — a client tells "not measured"
-        from "measured and empty" by exactly this."""
-        assert record["index"] is not None
-        assert len(record["index"]["levels"]["data"]) > 0
+        from "measured and empty" by exactly this. Since BN-164 the index
+        arrives as a `{target, optimised}` container, the flat
+        `target_index` field gone."""
+        assert record["index"]["target"] is not None
+        assert len(record["index"]["target"]["levels"]["data"]) > 0
+        assert record["index"]["optimised"] is None
         assert record["benchmark"] is None
+        assert "target_index" not in record
 
     def test_a_never_backtested_index_404s_with_the_pointer(self,
                                                             module_client):

@@ -266,8 +266,8 @@ def build_backtest_job(document: IndexDocument,
 
         # The calculation the run tracked, still needed for the payload's
         # index level and rebalance snapshots. A definition-driven run always
-        # carries its own calculation as the index book.
-        book = backtest.index
+        # carries its own calculation as the target book (BN-164).
+        book = backtest.index.target
         assert book is not None and book.source is not None
         index_result = book.source
 

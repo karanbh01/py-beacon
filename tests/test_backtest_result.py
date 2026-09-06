@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 from beacon.backtest.asset_view import BacktestAssetView
-from beacon.backtest.result import BacktestResult, Book
+from beacon.backtest.result import BacktestResult, Book, IndexBooks
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Holding, Portfolio, Transaction
 
@@ -95,7 +95,8 @@ def _make_result(nav_values=None,
 
     fields = {"portfolio": portfolio}
     if index_levels is not None:
-        fields["index"] = Book.from_index(_make_index_result(index_levels))
+        fields["index"] = IndexBooks(
+            target=Book.from_index(_make_index_result(index_levels)))
     fields.update(overrides)
 
     return BacktestResult(**fields)
@@ -125,9 +126,10 @@ class TestConstruction:
         assert r.portfolio.portfolio_id == "test_bt"
         assert r.portfolio.initial_capital == 10000.0
         assert len(r.trading_nav) == 5
-        assert r.index is None
+        assert r.index.target is None
+        assert r.index.optimised is None
+        assert r.index.tracked is None
         assert r.benchmark is None
-        assert r.target_index is None
         assert r._data_fetcher is None
 
     def test_nav_opens_with_the_capital(self):
@@ -169,7 +171,8 @@ class TestConstruction:
         r = _make_result()
 
         for name in ("portfolio_nav", "cash_history", "actual_weight_history",
-                     "portfolio_id", "transactions", "initial_capital"):
+                     "portfolio_id", "transactions", "initial_capital",
+                     "target_index"):
             assert not hasattr(r, name), name
 
 
@@ -207,6 +210,43 @@ class TestBook:
         book = Book.from_index(idx)
 
         assert book.weights.loc[_dates(2)[1], "BBB"] == pytest.approx(0.45)
+
+
+class TestIndexBooks:
+
+    def test_tracked_is_target_when_nothing_was_optimised(self):
+        target = Book.from_index(_make_index_result([100, 101]))
+        books = IndexBooks(target=target)
+
+        assert books.tracked is target
+        assert books.optimised is None
+
+    def test_tracked_prefers_the_optimised_book(self):
+        """The engine trades toward the solved index when one exists; the
+        convenience must answer with the same book the metrics measure
+        against."""
+        target = Book.from_index(_make_index_result([100, 101]))
+        optimised = Book.from_index(_make_index_result([100, 102]))
+        books = IndexBooks(target=target, optimised=optimised)
+
+        assert books.tracked is optimised
+
+    def test_tracked_is_none_when_no_index_was_calculated(self):
+        assert IndexBooks().tracked is None
+
+    def test_metrics_follow_the_tracked_book(self):
+        """An optimised book present means tracking is measured against it,
+        not against the pre-optimisation target."""
+        nav_values = [10000, 10100, 10200, 10150, 10300]
+        r = _make_result(
+            nav_values=nav_values,
+            index=IndexBooks(
+                target=Book.from_index(
+                    _make_index_result([10000, 10500, 11000, 11500, 12000])),
+                optimised=Book.from_index(_make_index_result(nav_values))))
+
+        assert r.get_tracking_error() == pytest.approx(0.0, abs=1e-10)
+        assert r.get_tracking_difference() == pytest.approx(0.0, abs=1e-10)
 
 
 class TestWithData:
@@ -617,7 +657,7 @@ class TestBacktestResultAssetIntegration:
         r = _make_result(nav_values=[10000, 10050, 10100],
                          weights_per_asset={"AAPL": [0.5, 0.51, 0.49]},
                          txns=txns,
-                         index=Book.from_index(target_idx))
+                         index=IndexBooks(target=Book.from_index(target_idx)))
         r.with_data(MagicMock())
         view = r.asset("AAPL")
         assert isinstance(view, BacktestAssetView)

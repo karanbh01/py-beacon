@@ -57,7 +57,7 @@ def _make_backtest_result(nav_series,
     # A portfolio whose recorded NAV follows the series exactly: one
     # holding marked to the NAV, cash zero, written through the history
     # recorder the engine drives.
-    from beacon.backtest.result import Book
+    from beacon.backtest.result import Book, IndexBooks
     from beacon.portfolio.base import Holding
 
     eve = nav_series.index[0] - pd.tseries.offsets.BDay(1)
@@ -73,7 +73,8 @@ def _make_backtest_result(nav_series,
 
     return BacktestResult(
         portfolio=portfolio,
-        index=Book.from_index(target) if target is not None else None,
+        index=IndexBooks(target=(Book.from_index(target)
+                                 if target is not None else None)),
     )
 
 

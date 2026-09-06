@@ -297,7 +297,7 @@ class TestCustomWeightTarget:
         assert isinstance(result, BacktestResult)
         assert len(result.portfolio.transactions) > 0
         # No index bound -> no target-relative metrics.
-        assert result.index is None
+        assert result.index.target is None
 
     def test_custom_weights_match_index_when_equal(self,
                                                    fetcher):
