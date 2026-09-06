@@ -461,6 +461,16 @@ class TestSpecExport:
 
         assert first.read_bytes() == second.read_bytes()
 
+    def test_the_line_endings_are_lf_on_every_platform(self,
+                                                       exported):
+        """BN-163: a Windows export flipped every line ending to CRLF, so a
+        six-line spec change diffed as a rewrite of the whole file in the
+        client repository. Bytes, not text — text mode is where the
+        translation hides."""
+        _, destination = exported
+
+        assert b"\r" not in destination.read_bytes()
+
     def test_it_matches_the_running_app(self,
                                         client,
                                         exported):

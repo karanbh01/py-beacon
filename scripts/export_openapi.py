@@ -41,12 +41,14 @@ def export(destination: Path) -> dict[str, object]:
 
     destination.parent.mkdir(parents=True, exist_ok=True)
 
-    # Sorted keys and a trailing newline: the file is committed to a client
-    # repository and diffed there, and an unstable key order would make every
-    # regeneration look like a change.
+    # Sorted keys, a trailing newline, and LF regardless of platform: the
+    # file is committed to a client repository and diffed there, and an
+    # unstable key order — or a Windows export flipping every line ending —
+    # would make a regeneration look like a rewrite (BN-163).
     destination.write_text(
         json.dumps(spec, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8")
+        encoding="utf-8",
+        newline="\n")
 
     return dict(spec)
 
