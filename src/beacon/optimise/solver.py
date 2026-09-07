@@ -670,7 +670,8 @@ def _build_result(target: pd.Series,
                   solved: Solution) -> OptimisationResult:
     """Assemble the result object from a verified solution."""
     outcome = solved.outcome
-    binding = [BindingConstraint(label=slack.label, kind=slack.kind, slack=slack.slack)
+    binding = [BindingConstraint(label=slack.label, kind=slack.kind,
+                                 slack=slack.slack, unit=slack.unit)
                for slack in solved.slacks if slack.is_binding]
     binding.sort(key=lambda constraint: abs(constraint.slack))
 

@@ -14,6 +14,7 @@ from beacon.server import ServerConfig, create_app
 from beacon.server.definitions import build_index_definition
 from beacon.server.preview import build_preview
 from beacon.server.schemas import IndexDocument
+from beacon.server.store import DocumentStore
 
 TOKEN = "test-token-value"
 AS_OF = "2025-01-02"
@@ -293,12 +294,14 @@ class TestCapping:
 class TestConsistencyWithTheCalculator:
     """Preview must not drift from what a real run would select."""
 
-    def test_survivors_match_select_constituents(self):
+    def test_survivors_match_select_constituents(self,
+                                                 tmp_path):
         document = IndexDocument.model_validate(definition_document())
         fetcher = build_fetcher()
         date = pd.Timestamp(AS_OF)
 
-        payload = build_preview(document, fetcher, AS_OF)
+        payload = build_preview(document, fetcher,
+                                DocumentStore("indices", tmp_path), AS_OF)
         from_preview = {a.identifier for a in payload.assets if a.included}
 
         calculator = IndexCalculator(build_index_definition(document), fetcher)
@@ -308,12 +311,14 @@ class TestConsistencyWithTheCalculator:
 
         assert from_preview == from_calculator
 
-    def test_weights_match_the_calculator(self):
+    def test_weights_match_the_calculator(self,
+                                          tmp_path):
         document = IndexDocument.model_validate(definition_document())
         fetcher = build_fetcher()
         date = pd.Timestamp(AS_OF)
 
-        payload = build_preview(document, fetcher, AS_OF)
+        payload = build_preview(document, fetcher,
+                                DocumentStore("indices", tmp_path), AS_OF)
 
         calculator = IndexCalculator(build_index_definition(document), fetcher)
         universe = calculator.resolve_universe(date)

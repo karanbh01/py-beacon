@@ -287,7 +287,11 @@ def build_indices_router() -> APIRouter:
                                           "the rule pipeline has errors",
                                           findings)
 
-        return build_preview(resolved, _data_fetcher(request), body.as_of)
+        # The store goes with it because a *derived* draft names its source by
+        # id and carries nothing else about it: the document being edited has
+        # never been saved, but its parent has, and that is where it is found.
+        return build_preview(resolved, _data_fetcher(request),
+                             _store(request), body.as_of)
 
     @router.post("/{index_id}/preview", response_model=PreviewResponse)
     def preview(request: Request,
@@ -304,6 +308,7 @@ def build_indices_router() -> APIRouter:
 
         return build_preview(IndexDocument.model_validate(document),
                              _data_fetcher(request),
+                             _store(request),
                              as_of)
 
     @router.get("/{index_id}/schedule", response_model=ScheduleView)

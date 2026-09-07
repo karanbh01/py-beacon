@@ -52,6 +52,19 @@ FEASIBILITY_TOLERANCE = 1e-6
 # position any real universe produces.
 HOLDING_THRESHOLD = 1e-6
 
+# What a constraint's slack is measured in. A slack has no single unit across
+# constraint types — a position bound's room is a weight fraction, a turnover
+# budget's is a turnover fraction, an expected-return target's is a return, and
+# a cardinality limit's is a whole number of names — so a client formatting the
+# number needs to be told which, by the constraint itself.
+#
+# Declared on the class rather than inferred from its name at any call site,
+# for the reason `/indices/rule-types` and `/optimise/constraint-types` exist
+# at all: a client-side table mapping type to unit is a copy, and a copy drifts
+# the moment a seventh constraint class is added.
+FRACTION = "fraction"
+COUNT = "count"
+
 
 @dataclass(frozen=True)
 class Condition:
@@ -85,10 +98,15 @@ class Slack:
             negative means it has crossed. For an equality it is the negated
             absolute residual, which makes an exactly-satisfied equality read
             as zero slack — correctly, since an equality is always binding.
+        unit: What `slack` is measured in — :data:`FRACTION` or :data:`COUNT`,
+            copied off the constraint that produced it. Carried because a
+            number whose unit is only knowable from the constraint's class name
+            is a number no consumer can format.
     """
     label: str
     kind: str
     slack: float
+    unit: str = FRACTION
 
     @property
     def is_binding(self) -> bool:
@@ -106,7 +124,16 @@ class Constraint(ABC):
 
     Subclasses state their rules as conditions, and everything else — solving,
     binding detection, verification — is derived from those.
+
+    Attributes:
+        UNIT: What this constraint's slack is measured in. :data:`FRACTION` for
+            everything expressed as a share of something — weights, turnover,
+            an expected return — which is every constraint here but one, so it
+            is the default a new subclass inherits. Override it when the
+            quantity is not a fraction; :class:`Cardinality` counts names.
     """
+
+    UNIT: str = FRACTION
 
     @abstractmethod
     def conditions(self,
@@ -154,9 +181,10 @@ class Constraint(ABC):
             assets: The universe.
 
         Returns:
-            list: One Slack per condition.
+            list: One Slack per condition, each stamped with this constraint's
+            :attr:`UNIT`.
         """
-        return [_slack_of(condition, weights)
+        return [_slack_of(condition, weights, self.UNIT)
                 for condition in self.conditions(assets)]
 
     def validate(self,  # noqa: B027 — an optional hook, not part of the interface
@@ -172,13 +200,15 @@ class Constraint(ABC):
 
 
 def _slack_of(condition: Condition,
-              weights: Vector) -> Slack:
-    """Measure one condition at a solution."""
+              weights: Vector,
+              unit: str = FRACTION) -> Slack:
+    """Measure one condition at a solution, in the owning constraint's unit."""
     value = float(condition.evaluate(weights))
 
     return Slack(label=condition.label,
                  kind=condition.kind,
-                 slack=-abs(value) if condition.kind == EQUALITY else value)
+                 slack=-abs(value) if condition.kind == EQUALITY else value,
+                 unit=unit)
 
 
 def _positions(assets: Sequence[str],
@@ -536,6 +566,10 @@ class Cardinality(Constraint):
     Attributes:
         maximum: The largest number of names that may carry weight.
     """
+
+    #: The one constraint whose slack is not a fraction: its room is a number
+    #: of names, and rendering "2" as "200%" would be nonsense.
+    UNIT = COUNT
 
     def __init__(self,
                  maximum: int):

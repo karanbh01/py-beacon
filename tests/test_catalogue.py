@@ -404,6 +404,26 @@ class TestConstraintTypesUpgrade:
         assert parameters["minimum"]["required"] is False
         assert parameters["minimum"]["default"] == 0.0
 
+    def test_every_constraint_publishes_the_unit_of_its_slack(self, client):
+        """BN-170: a slack has no unit common to every constraint type, so the
+        type says which. Published rather than left to the client, for the
+        reason this whole endpoint exists: a private type-to-unit table is a
+        copy, and it drifts the day a new constraint class is added."""
+        body = client.get("/optimise/constraint-types", headers=auth()).json()
+        units = {spec["name"]: spec["slack_unit"] for spec in body["specs"]}
+
+        assert set(units.values()) <= {"fraction", "count"}
+        assert None not in units.values()
+        assert units["Cardinality"] == "count"
+        assert units["PositionBounds"] == "fraction"
+
+    def test_a_selection_rule_publishes_no_slack_unit(self, client):
+        """The field is shared with the methodology editor's types, which have
+        no slack for a unit to describe."""
+        body = client.get("/indices/rule-types", headers=auth()).json()
+
+        assert all(spec["slack_unit"] is None for spec in body["selection"])
+
     def test_both_editors_get_the_same_shape(self, client):
         """The reason the registry is shared: one client component renders
         both forms."""

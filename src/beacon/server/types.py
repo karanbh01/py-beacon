@@ -33,11 +33,18 @@ def specs_for(kind: str) -> list[TypeSpec]:
 
     Returns:
         list: Type specs, name-ordered, each carrying its parameters in the
-        order a form should show them.
+        order a form should show them, and — for a constraint — the unit its
+        slack is reported in.
     """
+    # The class, not just the entry: `UNIT` is declared on the constraint
+    # class, and reading it here is what keeps the constraint editor and a
+    # preview's solve block quoting one source rather than two.
+    classes = catalogue.classes(kind)
+
     return [TypeSpec(name=entry.name,
                      label=entry.label,
                      summary=entry.summary,
                      parameters=[_parameter(parameter)
-                                 for parameter in entry.parameters])
+                                 for parameter in entry.parameters],
+                     slack_unit=getattr(classes[entry.name], "UNIT", None))
             for entry in catalogue.entries(kind)]

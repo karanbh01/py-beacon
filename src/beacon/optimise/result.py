@@ -15,7 +15,7 @@ import pandas as pd
 
 from ..plot.base import PlotAccessor
 from ..risk.model import RiskModel
-from .constraints import Slack, count_holdings, one_way_turnover
+from .constraints import FRACTION, Slack, count_holdings, one_way_turnover
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +33,16 @@ class BindingConstraint:
         kind: EQUALITY or INEQUALITY.
         slack: Room left, at or near zero by definition of binding. Carried so
             a caller can see how tight "tight" was.
+        unit: What `slack` is measured in, off the constraint that produced it.
+            Near-meaningless here, where the number is zero by construction; it
+            matters on the non-binding slacks in :attr:`OptimisationResult
+            .slacks`, and the two carry the same field so a client formats
+            either the same way.
     """
     label: str
     kind: str
     slack: float
+    unit: str = FRACTION
 
 
 @dataclass(frozen=True)

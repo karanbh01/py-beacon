@@ -1515,6 +1515,13 @@ class TypeSpec(BaseModel):
     summary: str = Field(default="",
                          description="One line describing what it does.")
     parameters: list[ParameterSpec] = Field(default_factory=list)
+    slack_unit: str | None = Field(
+        default=None,
+        description="For a constraint type, what its slack is measured in: "
+                    "'fraction' or 'count'. Read off the constraint class, so "
+                    "the same answer reaches the constraint editor here and "
+                    "each row of a preview's `solve.constraints`. Null on a "
+                    "selection rule or weighting scheme, which have no slack.")
 
 
 class RuleTypes(BaseModel):
@@ -1847,37 +1854,161 @@ class PreviewStep(BaseModel):
 
 
 class PreviewAsset(BaseModel):
-    """Per-asset outcome of the derivation."""
+    """Per-asset outcome of the derivation.
+
+    Two disjoint groups of fields, matching the two faces of a preview. The
+    rule-provenance fields (`excluded_by`, `excluded_at`, `uncapped_weight`,
+    `capped`) describe a walk down a pipeline and are null on a derived
+    preview, which has no rules to attribute anything to. The derived fields
+    (`source_weight`, `solved_weight`, `weight_delta`) describe a reallocation
+    and are null on a rule-driven one. Neither group was overloaded to carry
+    the other's meaning: a client reading `excluded_by` on a derived index
+    would be reading an answer to a question nobody asked.
+    """
     identifier: str
     included: bool = Field(description="Whether it reached the final index.")
     excluded_by: str | None = Field(
         default=None,
-        description="Id of the first rule that excluded it. Null when included.")
+        description="Id of the first rule that excluded it. Null when included, "
+                    "and always null on a derived preview.")
     excluded_at: int | None = Field(
         default=None, description="Waterfall position where it dropped out.")
     weight: float | None = Field(
-        default=None, description="Final weight as a fraction. Null when excluded.")
+        default=None,
+        description="Final weight as a fraction: the capped pipeline weight on "
+                    "a rule-driven preview, the solved weight on a derived "
+                    "one. Null when the name is not held.")
     uncapped_weight: float | None = Field(
         default=None,
         description="Weight before capping, when the cap bound this name.")
     capped: bool = Field(default=False,
                          description="Whether this name sits at the cap.")
+    source_weight: float | None = Field(
+        default=None,
+        description="Derived preview only: what the parent index published for "
+                    "this name at the rebalance being previewed — the 'before'.")
+    solved_weight: float | None = Field(
+        default=None,
+        description="Derived preview only: what the optimiser allocated it — "
+                    "the 'after'. Equal to `weight`, and carried separately so "
+                    "the before/after/delta triple reads as one row without a "
+                    "client having to know which face it is on.")
+    weight_delta: float | None = Field(
+        default=None,
+        description="Derived preview only: `solved_weight` minus "
+                    "`source_weight`. What the constraints did to this name.")
+
+
+class PreviewConstraint(BaseModel):
+    """One constraint at the solved point: whether it bound, and its room.
+
+    Every constraint appears, not only the binding ones. A binding constraint's
+    slack is zero by definition, so a report of only those is a list of zeros;
+    what a reader actually wants beside "this cap bound" is "and the turnover
+    budget had four points of room left".
+    """
+    label: str = Field(
+        description="The constraint's own description of itself, e.g. "
+                    "'maximum weight 60.0000% on AAA'.")
+    kind: str = Field(
+        description="'eq' for an equality, 'ineq' for an inequality. An "
+                    "equality is always binding.")
+    slack: float = Field(
+        description="Signed room at the solution: zero sits exactly on the "
+                    "boundary, positive has room, negative would be a "
+                    "violation and is never returned. Measured in `unit`, not "
+                    "in a common currency — there is no shadow price here and "
+                    "slacks of different constraints are not comparable.")
+    unit: str = Field(
+        description="What `slack` is measured in, declared by the constraint "
+                    "class and also published by `/optimise/constraint-types`. "
+                    "'fraction' means a proportion — of the portfolio for a "
+                    "weight or turnover limit, of return for a return target — "
+                    "and formats as a percentage; 'count' is a whole number of "
+                    "names.")
+    binding: bool = Field(
+        description="Whether the solution sits on this constraint's boundary.")
+
+
+class PreviewSolve(BaseModel):
+    """What the optimiser did at one rebalance — the derived face of a preview.
+
+    A derivation has no waterfall: the solve moves every weight at once rather
+    than eliminating names in steps, so there are no rungs to show. This is the
+    honest analogue — which parent snapshot was solved, under what, and which
+    rules cost something.
+    """
+    source_index_id: str = Field(
+        description="The parent index whose published weights were solved.")
+    rebalance_date: str = Field(
+        description="The parent snapshot this reports, YYYY-MM-DD: the latest "
+                    "one on or before `as_of`. A derivation solves only at its "
+                    "parent's rebalances, so an `as_of` between two of them "
+                    "previews the composition actually in force on that day.")
+    objective: str = Field(description="What the solve minimised.")
+    binding: list[str] = Field(
+        default_factory=list,
+        description="Labels of the constraints the solution sits on — the "
+                    "headline answer to 'what did my constraints do?'. Each "
+                    "also appears in `constraints` with its slack.")
+    constraints: list[PreviewConstraint] = Field(
+        default_factory=list,
+        description="Every constraint at the solution, binding or not.")
 
 
 class PreviewResponse(BaseModel):
-    """Response of `POST /indices/{id}/preview`."""
+    """Response of `POST /indices/{id}/preview`, in one of its two faces.
+
+    Exactly one of `steps` and `solve` is present, mirroring `pipeline` and
+    `derivation` on the document the preview was built from: a rule-driven
+    index answers with the waterfall, a derived one with the solve. `solve` is
+    the discriminator, and it is the same discriminator the client already
+    branches on one level up.
+
+    Everything outside the pair is common to both: the resolved weights, their
+    total, and one row per name.
+    """
     index_id: str
     as_of: str
-    steps: list[PreviewStep]
+    steps: list[PreviewStep] | None = Field(
+        default=None,
+        description="The derivation waterfall, one rung per selection rule. "
+                    "Null on a derived index, which narrows nothing.")
+    solve: PreviewSolve | None = Field(
+        default=None,
+        description="The optimisation at `as_of`. Null on a rule-driven index.")
     assets: list[PreviewAsset]
     weights: dict[str, float] = Field(
         description="Final weights as fractions, keyed by identifier.")
     total_weight: float = Field(
         description="Sum of the final weights; 1.0 for a non-empty index.")
     cap: float | None = Field(default=None,
-                              description="Cap applied, as a fraction, if any.")
+                              description="Cap applied, as a fraction, if any. "
+                                          "Always null on a derived preview, "
+                                          "whose limits are constraints.")
     cap_redistributed: float = Field(
         default=0.0, description="Weight moved off capped names onto the rest.")
+
+    @model_validator(mode="after")
+    def _exactly_one_face(self) -> "PreviewResponse":
+        """Refuse a response that is neither face, or both.
+
+        The same discipline `IndexDocument` applies to `pipeline`/`derivation`,
+        and for the same reason: a client discriminates on which one is
+        present, so a response carrying both or neither is one it cannot read.
+        Enforced on the response rather than trusted because the two faces are
+        built by two different functions, and nothing else would notice a
+        future third one that forgot to fill either in.
+        """
+        if (self.steps is None) == (self.solve is None):
+            carried = "both" if self.steps is not None else "neither"
+
+            raise ValueError(
+                f"a preview carries either the rule waterfall (`steps`) or the "
+                f"optimisation (`solve`), never both; this one carries "
+                f"{carried}")
+
+        return self
 
 
 BENCHMARK_INDEX = "index"

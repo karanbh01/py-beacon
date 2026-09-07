@@ -50,6 +50,7 @@ from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
 from ..optimise.config import MIN_TRACKING_ERROR, OptimisationConfig
 from ..optimise.constraints import Constraint
+from ..optimise.result import OptimisationResult
 from ..optimise.solver import minimise_tracking_error
 from ..risk.model import RiskModel
 from .calculation import IndexCalculator
@@ -230,16 +231,11 @@ def calculate_derived_index(definition: OptimisedIndexDefinition,
             solver's own message names the binding conflict.
         ValueError: If no window end is available to calculate the parent.
     """
-    if definition.objective not in OBJECTIVES:
-        raise CalculationError(
-            "DerivedIndex",
-            f"unknown objective '{definition.objective}' on index "
-            f"'{definition.index_id}'. Accepted objectives: "
-            f"{', '.join(OBJECTIVES)}.")
+    check_objective(definition)
 
     parent = (parent_result if parent_result is not None
-              else _calculated_source(definition.source, data_provider,
-                                      start_date, end_date, price_column))
+              else calculate_source(definition.source, data_provider,
+                                    start_date, end_date, price_column))
 
     if not parent.weight_snapshots:
         raise CalculationError(
@@ -254,12 +250,46 @@ def calculate_derived_index(definition: OptimisedIndexDefinition,
                          data_provider, price_column).with_data(data_provider)
 
 
-def _calculated_source(source: AnyIndexDefinition,
-                       data_provider: DataFetcher,
-                       start_date: str | None,
-                       end_date: str | None,
-                       price_column: str) -> IndexResult:
-    """The parent's calculation — recursive when the parent is itself derived."""
+def check_objective(definition: OptimisedIndexDefinition) -> None:
+    """Refuse an objective this module cannot solve, naming the accepted set.
+
+    Checked before anything expensive happens — a full parent calculation, in
+    the usual case — so a typo in a stored derivation fails in the time it
+    takes to read the document rather than after a minute of arithmetic.
+
+    Raises:
+        CalculationError: If the objective is not one of :data:`OBJECTIVES`.
+    """
+    if definition.objective not in OBJECTIVES:
+        raise CalculationError(
+            "DerivedIndex",
+            f"unknown objective '{definition.objective}' on index "
+            f"'{definition.index_id}'. Accepted objectives: "
+            f"{', '.join(OBJECTIVES)}.")
+
+
+def calculate_source(source: AnyIndexDefinition,
+                     data_provider: DataFetcher,
+                     start_date: str | None = None,
+                     end_date: str | None = None,
+                     price_column: str = "CLOSE") -> IndexResult:
+    """The parent's calculation — recursive when the parent is itself derived.
+
+    Public because the parent's published weights are what a derivation *is*
+    defined against, so anything reasoning about a derivation — the
+    calculation below, the server's preview — needs them, and needs them from
+    one place. A chain resolves here rather than at each caller.
+
+    Args:
+        source: The parent definition: rule-driven, or another derivation.
+        data_provider: Data source for prices, reference data and FX.
+        start_date: First date (YYYY-MM-DD). None uses the source's base date.
+        end_date: Last date (YYYY-MM-DD). Required by the calculator.
+        price_column: Market-data column read as the price.
+
+    Returns:
+        IndexResult: The source's own calculation over that window.
+    """
     if isinstance(source, OptimisedIndexDefinition):
         return calculate_derived_index(source, data_provider,
                                        start_date=start_date,
@@ -271,21 +301,47 @@ def _calculated_source(source: AnyIndexDefinition,
                                                           end_date=end_date)
 
 
-def _solved_schedule(definition: OptimisedIndexDefinition,
-                     parent: IndexResult) -> dict[pd.Timestamp, dict[str, float]]:
-    """The parent's snapshots, each solved under the derivation's constraints.
+def solve_snapshot(definition: OptimisedIndexDefinition,
+                   source_weights: dict[str, float]) -> OptimisationResult:
+    """Solve one of the parent's snapshots under the derivation's constraints.
+
+    The single solve of this module, so the schedule below and any caller
+    asking "what would this derivation do at that date" — the server's preview
+    — cannot disagree about what the answer is. The whole
+    :class:`~beacon.optimise.result.OptimisationResult` is returned rather than
+    only its weights, because which constraints bound and how much room the
+    rest had left is the interesting half of the answer, and re-deriving it
+    from the weights afterwards would be a second implementation of the rules.
 
     scipy is required inside the solve (BN-166); an infeasible constraint set
     raises there with a message naming the binding conflict, which is exactly
     the loud failure the design demands — nothing is caught here.
+
+    Args:
+        definition: The derivation supplying the objective and constraints.
+        source_weights: The parent's published weights at one rebalance.
+
+    Returns:
+        OptimisationResult: Solved weights, binding constraints, every
+        constraint's slack, and the solver's diagnostics.
+
+    Raises:
+        CalculationError: If the objective is unknown, or the solve is
+            infeasible or fails to converge.
     """
+    check_objective(definition)
+
+    return minimise_tracking_error(source_weights,
+                                   constraints=list(definition.constraints))
+
+
+def _solved_schedule(definition: OptimisedIndexDefinition,
+                     parent: IndexResult) -> dict[pd.Timestamp, dict[str, float]]:
+    """The parent's snapshots, each solved under the derivation's constraints."""
     schedule: dict[pd.Timestamp, dict[str, float]] = {}
 
     for date in sorted(parent.weight_snapshots):
-        weights = parent.weight_snapshots[date]
-
-        result = minimise_tracking_error(weights,
-                                         constraints=list(definition.constraints))
+        result = solve_snapshot(definition, parent.weight_snapshots[date])
         schedule[date] = {str(asset): float(value)
                           for asset, value in result.weights.items()}
 
