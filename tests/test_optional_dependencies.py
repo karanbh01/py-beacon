@@ -103,7 +103,9 @@ CORE_MODULES = [
     "beacon.fund",
     "beacon.index",
     # The derived-index calculation (BN-167) solves with scipy at solve time
-    # only; the module itself must import on the core install.
+    # only; the module itself must import on the core install. Its level
+    # chaining (BN-171) is pure pandas and must stay that way.
+    "beacon.index.chaining",
     "beacon.index.derived",
     # The optimise package imports scipy-free (BN-166): constraints, configs
     # and results are descriptions, and only an actual solve needs scipy. The
