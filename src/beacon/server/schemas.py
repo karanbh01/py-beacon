@@ -16,7 +16,10 @@ from pydantic import (
     AfterValidator,
     BaseModel,
     Field,
+    RootModel,
+    SerializerFunctionWrapHandler,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -28,6 +31,7 @@ from ..data.corporate_actions import (
     status_of,
 )
 from ..exceptions import CalculationError
+from ..expressions.core import COMPARISONS
 from ..index.derived import OBJECTIVES
 from ..index.result import IndexResult
 from ..optimise.config import MIN_TRACKING_ERROR
@@ -980,6 +984,13 @@ class RuleSpec(BaseModel):
                     min_length=1)
     type: str = Field(description="Rule class name, e.g. 'MarketCapRule'.",
                       min_length=1)
+    # The other place an expression tree crosses the wire: an `ExpressionRule`
+    # carries its tree as `params["expression"]`. Left untyped on purpose
+    # (BN-175) — `params` is the constructor arguments of whichever rule `type`
+    # names, so a per-rule shape cannot be declared here without one field per
+    # rule type. What describes it instead is the catalogue: `/indices/rule-types`
+    # gives that parameter a `ref` naming `ExpressionNode`, which is the whole
+    # reason `ParameterSpec.ref` exists rather than a `type: "expression"`.
     params: dict[str, Any] = Field(default_factory=dict,
                                    description="Constructor arguments for the rule.")
 
@@ -1693,6 +1704,24 @@ class ParameterSpec(BaseModel):
                     "means any value of `type` is allowed.")
     help: str | None = Field(default=None,
                              description="One line of guidance for the field.")
+    # BN-175. `type` describes a scalar — number, integer, boolean, string, or
+    # `json` for everything else — so the catalogue could not say that a
+    # parameter takes an expression tree, and a client's only recourse was to
+    # special-case the parameter NAME. That makes the catalogue stop being
+    # self-describing at exactly the rule that needs it most.
+    #
+    # A `ref` rather than a new `type` value (`type: "expression"`) because a
+    # client resolving a ref generically needs no change for the next
+    # structured parameter, where one keying on a closed list of magic types
+    # needs one every time. Declared on the class, never inferred from the
+    # parameter's name: an inferred ref is the special-casing moved server-side.
+    ref: str | None = Field(
+        default=None,
+        description="Component schema this parameter's value must conform to, "
+                    "e.g. 'ExpressionNode' — resolve it under "
+                    "`components.schemas` in this document. Null for a scalar "
+                    "parameter. `type` stays the coarse render hint, so a "
+                    "client that ignores this still renders a JSON editor.")
 
 
 class TypeSpec(BaseModel):
@@ -1897,6 +1926,174 @@ MODE_FROZEN = FROZEN
 MODE_LIVE = LIVE
 
 
+# --- the expression grammar (BN-175) -----------------------------------------
+#
+# A filter used to cross the wire as `dict[str, Any]`, which a client reads as
+# `object` with `additionalProperties: true`: the tree was there and its shape
+# was not, so an editor had to guess the grammar from our source and would
+# diverge silently the day the grammar moved.
+#
+# What follows is a *description* of the shape `expressions.core.to_dict`
+# already writes and `from_dict` already reads. Nothing about the grammar
+# changed to publish it — no node kind, no comparison, no evaluation — and a
+# filter stored from the wire stays byte-identical to one stored from Python,
+# which is what keeps a definition built in the editor and one built in a
+# notebook the same document on disk.
+#
+# ## Why a real `discriminator` here, when `AnyJobStatus` deliberately emits
+# ## none
+#
+# The two decisions turn on one fact about the discriminating value, and they
+# are not inconsistent. A job `kind` carries its subject — `backtest:TECH10`,
+# `sync:market` — so no `mapping` can be written, and a bare `discriminator`
+# would claim the value names a schema when it names an index. Here `node` is a
+# plain closed literal, so every arm can pin it with `Literal`, pydantic can
+# narrow on it, and the emitted `mapping` is complete and true. A generator
+# that acts on it gets a correct narrowing rather than one that fails at
+# runtime on the payloads it was meant to handle.
+#
+# ## `node` is required on every arm, with no default
+#
+# Deliberate and load-bearing, not an oversight: a default makes the field
+# optional on input and required on output, which is one of the two ways these
+# models split into an `-Input`/`-Output` pair and hand a client two parallel
+# type trees. The other is the recursion itself; see
+# `separate_input_output_schemas` on the app factory.
+
+
+def _known_comparison(value: str) -> str:
+    """Refuse a comparison the library does not implement."""
+    if value not in COMPARISONS:
+        raise ValueError(f"'{value}' is not a comparison; expected one of "
+                         f"{', '.join(COMPARISONS)}")
+
+    return value
+
+
+# The operator set, read off the library tuple rather than restated — the same
+# discipline as the objective values (BN-168) and the constraint units
+# (BN-170). A comparison added to `COMPARISONS` is published by this line and
+# by nothing else, and "in" versus "between" is exactly the distinction a
+# client gets wrong once and then ships.
+ComparisonOperator = Annotated[
+    str,
+    AfterValidator(_known_comparison),
+    Field(json_schema_extra={"enum": list(COMPARISONS)},
+          description="How the field is compared to the value, spelled as "
+                      "the stored document spells it: "
+                      f"{', '.join(COMPARISONS)}.")]
+
+
+class FieldNode(BaseModel):
+    """A named datapoint: `expressions.core.Field`.
+
+    `namespace` is the surface the value comes from and `dataset` narrows a
+    feature to one vendor's `TYPE`, so two sources can both ship a `revenue`
+    without collision.
+    """
+    node: Literal["field"] = Field(
+        description="Discriminator. Always 'field'.")
+    namespace: str = Field(
+        min_length=1,
+        description="The surface the datapoint comes from: 'reference', "
+                    "'market' or 'features'. `GET /data/fields` lists what "
+                    "each one holds.")
+    name: str = Field(min_length=1, description="The datapoint's name.")
+    dataset: str | None = Field(
+        default=None,
+        description="Narrows a feature to one dataset. Null on a reference or "
+                    "market field, which have no dataset to narrow.")
+
+    @model_serializer(mode="wrap")
+    def _omit_an_absent_dataset(self,
+                                handler: SerializerFunctionWrapHandler
+                                ) -> dict[str, Any]:
+        """Serialise exactly as `Field.to_dict` does.
+
+        `Field.to_dict` omits `dataset` when there is none, and a plain
+        `model_dump` would write `null` instead. The difference is invisible to
+        `from_dict` and very visible on disk: a filter saved through the API
+        and the same filter saved from Python would stop being the same
+        document, which is the one promise publishing this shape must not cost.
+        """
+        serialised: dict[str, Any] = handler(self)
+
+        if serialised.get("dataset") is None:
+            serialised.pop("dataset", None)
+
+        return serialised
+
+
+class ComparisonNode(BaseModel):
+    """A field, an operator and a value: `expressions.core.Comparison`."""
+    node: Literal["comparison"] = Field(
+        description="Discriminator. Always 'comparison'.")
+    field: FieldNode = Field(description="The datapoint being compared.")
+    comparison: ComparisonOperator
+    # Required, and the default is *omitted* rather than written as
+    # `Field(...)`: pydantic already treats a bare `Any` as required, so there
+    # is nothing to defend against. `Comparison.__init__` takes `value` with no
+    # default, and a spike that gave this one let a generated client construct
+    # a comparison that type-checked and then 422'd on submit.
+    value: Any
+
+
+class AllNode(BaseModel):
+    """Every operand must pass: `expressions.core.All`."""
+    node: Literal["all"] = Field(description="Discriminator. Always 'all'.")
+    # At least one operand, because `_Group` refuses an empty group. Published
+    # rather than left to be discovered: the refusal is a 422 either way, and a
+    # client that can read the bound can stop the user before the round trip.
+    operands: list["ExpressionNode"] = Field(
+        min_length=1, description="The expressions that must all pass.")
+
+
+class AnyNode(BaseModel):
+    """At least one operand must pass: `expressions.core.Any_`."""
+    node: Literal["any"] = Field(description="Discriminator. Always 'any'.")
+    operands: list["ExpressionNode"] = Field(
+        min_length=1, description="The expressions, any of which may pass.")
+
+
+class NotNode(BaseModel):
+    """The negation of an expression: `expressions.core.Not`."""
+    node: Literal["not"] = Field(description="Discriminator. Always 'not'.")
+    # No `description=` on this one, which looks like an omission and is not.
+    # A description beside a `$ref` is emitted as a sibling of the reference,
+    # and pydantic reuses that one object for every later reference to the same
+    # schema — so "The expression to negate" turned up inside `Universe.filter`,
+    # describing a universe's screen as a negation. A wrong description is worse
+    # than none; `ExpressionNode`'s own docstring says what an operand is.
+    operand: "ExpressionNode"
+
+
+class ExpressionNode(RootModel[Annotated[FieldNode
+                                         | ComparisonNode
+                                         | AllNode
+                                         | AnyNode
+                                         | NotNode,
+                                         Field(discriminator="node")]]):
+    """One node of a serialised expression, discriminated on `node`.
+
+    The grammar a screen is written in: a field, a comparison over one, or a
+    boolean composition of either. Recursive — `all`, `any` and `not` carry
+    nodes of this same union — so an arbitrarily nested screen is one type.
+
+    A `RootModel` rather than a bare union so the union is a *named* schema in
+    this document: a recursive `$ref` needs a name to point at, and so does
+    `ParameterSpec.ref`.
+    """
+
+
+# The operand lists above name this union before it exists, which is the only
+# way to write a recursive type. Rebuilt explicitly rather than left to
+# pydantic's lazy retry, so an unresolvable reference fails at import instead
+# of at the first request.
+AllNode.model_rebuild()
+AnyNode.model_rebuild()
+NotNode.model_rebuild()
+
+
 class Universe(BaseModel):
     """A named set of instrument identifiers."""
     id: str = Field(description="Stable identifier.", min_length=1, max_length=64)
@@ -1909,7 +2106,7 @@ class Universe(BaseModel):
         description=f"'{SOURCE_USER}' for one somebody created, "
                     f"'{SOURCE_SEEDED}' for one the generator wrote. A seeded "
                     f"universe cannot be edited or deleted.")
-    filter: dict[str, Any] | None = Field(
+    filter: ExpressionNode | None = Field(
         default=None,
         description="The expression this universe was built from, when it was "
                     "built by filtering. Null for a curated list.")
@@ -1946,7 +2143,7 @@ class UniverseCreate(BaseModel):
         description="Members. Every one must exist in the loaded reference "
                     "data. Required unless a filter is given.")
     description: str | None = Field(default=None)
-    filter: dict[str, Any] | None = Field(
+    filter: ExpressionNode | None = Field(
         default=None,
         description="A serialised expression to build the membership from, "
                     "instead of naming it. Mutually exclusive with a "

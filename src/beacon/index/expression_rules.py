@@ -40,7 +40,7 @@ that comes out too small prompts a question where one quietly full of
 uncovered names does not.
 """
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 import pandas as pd
 
@@ -70,6 +70,18 @@ logger = logging.getLogger(__name__)
           })
 class ExpressionRule(EligibilityRuleBase):
     """Select instruments that satisfy an expression."""
+
+    # Which published schema each parameter's value conforms to (BN-175).
+    #
+    # Declared here the way a constraint declares `UNIT`, and read by the
+    # catalogue adapter that serves `/indices/rule-types`. `expression` is a
+    # tree, and `ParameterSpec.type` can only say `json`: without this a client
+    # meeting this rule learns that a parameter called `expression` exists and
+    # is not a number, and has to special-case the NAME to render anything
+    # better. The schema name is the one the server publishes the grammar
+    # under — it is a contract, not an implementation detail, so it is written
+    # where the parameter is defined rather than guessed at the edge.
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"expression": "ExpressionNode"}
 
     def __init__(self,
                  expression: dict[str, Any],

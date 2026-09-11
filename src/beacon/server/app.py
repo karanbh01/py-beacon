@@ -124,8 +124,23 @@ def create_app(config: ServerConfig) -> FastAPI:
     # than routing through a custom class. Every handler here is annotated, so
     # that fast path applies. orjson stays in the server extra for the manual
     # serialisation the WebSocket events will need.
+    #
+    # separate_input_output_schemas=False because the expression grammar
+    # (BN-175) is recursive. FastAPI splits a model into an `-Input`/`-Output`
+    # pair whenever it cannot prove the validation and serialisation schemas
+    # match, and recursion defeats that proof — so `AllNode`, `AnyNode`,
+    # `NotNode` and everything containing a tree would each be published twice,
+    # the pair differing only in which siblings it references. That is
+    # duplication rather than disagreement, but a client generator turns it into
+    # two parallel type trees.
+    #
+    # Measured before setting it: the app emitted NO split schemas, so this is a
+    # no-op for everything already published and changes only the new models. A
+    # contract test asserts no schema name ends in `-Input` or `-Output`, so a
+    # future recursive model cannot silently double.
     app = FastAPI(title="Beacon API",
-                  version=__version__)
+                  version=__version__,
+                  separate_input_output_schemas=False)
 
     # Handlers reach these through request.app.state rather than a closure,
     # so the app remains introspectable and testable without rebuilding it.

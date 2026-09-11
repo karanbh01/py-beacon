@@ -46,6 +46,7 @@ from ..schemas import (
     MODE_LIVE,
     SOURCE_SEEDED,
     SOURCE_USER,
+    ExpressionNode,
     Finding,
     Identifier,
     Universe,
@@ -247,13 +248,25 @@ def _standing(request: Request) -> pd.Timestamp:
 
 
 def _evaluate(request: Request,
-              stored: dict[str, Any],
+              stored: ExpressionNode,
               date: str | None = None) -> list[str]:
-    """Resolve a stored filter against the loaded data."""
+    """Resolve a validated filter against the loaded data.
+
+    The model is dumped back to the library's serialised form rather than
+    resolved from its own fields: `from_dict` is what the calculator, the
+    screen and a stored definition all go through, and one rebuild path is the
+    reason a filter resolves the same wherever it came from. The wire model
+    describes that form (BN-175); it does not replace it.
+    """
     fetcher = _data_fetcher(request)
 
+    # Kept as a backstop rather than because it is still reachable: since the
+    # filter became a validated model (BN-175), an unknown node kind or
+    # comparison is refused at the edge with a 422 before it gets here. Removing
+    # it would turn any future divergence between the wire model and `from_dict`
+    # into a 500, which is the wrong answer to a bad request.
     try:
-        expression = from_dict(stored)
+        expression = from_dict(stored.model_dump())
     except ExpressionError as error:
         raise _rejected([Finding(
             path="filter", severity="error", code="MALFORMED_FILTER",
