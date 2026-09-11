@@ -26,6 +26,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from beacon.server import ServerConfig, create_app
+from beacon.server.schemas import BacktestRunResult
 from beacon.testing import dataset
 
 TOKEN = "test-token-value"
@@ -45,6 +46,16 @@ PUBLIC_PATHS: set[str] = set()
 ERROR_CODES = {"UNAUTHORIZED", "DATA_NOT_FOUND", "VALIDATION_ERROR",
                "CONFIGURATION_ERROR", "CALCULATION_ERROR", "REPORTING_ERROR",
                "MISSING_DEPENDENCY", "NOT_IMPLEMENTED", "INVALID_RULE"}
+
+# The backtest run payload's fields, written out rather than read off the model
+# (BN-172). This list is the contract: changing `BacktestRunResult` without
+# changing it here fails the build, which is what was missing when the payload
+# went unpublished in the first place.
+BACKTEST_RUN_FIELDS = {"level", "returns", "drawdown", "annual_returns",
+                       "index_level", "metrics", "benchmark", "rebalances",
+                       "total_costs", "initial_capital"}
+BACKTEST_RUN_REQUIRED = {"level", "returns", "drawdown", "annual_returns",
+                         "index_level", "metrics"}
 
 
 def auth() -> dict[str, str]:
@@ -488,6 +499,104 @@ class TestSpecExport:
         _run_export(destination)
 
         assert destination.exists()
+
+
+class TestJobResultPayloadsArePublished:
+    """BN-172: every job kind's result payload is a named schema.
+
+    The gap this closes: `JobStatus.result` was `Any`, so the whole backtest
+    run payload — the largest body the API serves — crossed the wire with no
+    schema at all. A client could not generate a type for it, and because
+    nothing here checked, a spec refresh could not tell them it had changed
+    either. These assert the published shape against names written out in full
+    rather than read back off the same models, which is the only version of
+    this test that fails when a field is added or renamed.
+    """
+
+    def test_the_backtest_run_payload_is_published(self,
+                                                   exported):
+        spec, _ = exported
+
+        assert "BacktestRunResult" in spec["components"]["schemas"]
+
+    def test_its_properties_are_the_ones_the_client_was_promised(self,
+                                                                exported):
+        """Pinned literally. Derived from the model it describes, this test
+        would agree with itself forever and catch nothing."""
+        spec, _ = exported
+        published = spec["components"]["schemas"]["BacktestRunResult"]
+
+        assert set(published["properties"]) == BACKTEST_RUN_FIELDS
+        assert set(published["required"]) == BACKTEST_RUN_REQUIRED
+
+    def test_the_model_and_the_pinned_list_agree(self):
+        """The other half: a field added to the model without being added
+        above fails here, naming both sides rather than only the spec."""
+        assert set(BacktestRunResult.model_fields) == BACKTEST_RUN_FIELDS
+
+    def test_the_nested_payloads_are_named_too(self,
+                                              exported):
+        """A published parent whose children are inlined is only half a type:
+        a generator cannot name the rebalance row the views endpoints are all
+        derived from."""
+        spec, _ = exported
+        schemas = spec["components"]["schemas"]
+
+        for name in ("RebalanceSnapshot", "ConstituentRow", "BacktestMetrics",
+                     "SeriesPayload", "RelativeMetricsPayload"):
+            assert name in schemas, name
+
+    def test_the_backtest_job_status_references_the_payload(self,
+                                                           exported):
+        """By `$ref`, not inlined: the point of the per-kind generic is that
+        `BacktestJobStatus['result']` resolves to a named type."""
+        spec, _ = exported
+        result = spec["components"]["schemas"]["BacktestJobStatus"]["properties"]
+
+        assert {"$ref": "#/components/schemas/BacktestRunResult"} in \
+            result["result"]["anyOf"]
+
+    def test_submitting_a_backtest_declares_the_typed_status(self,
+                                                            exported):
+        spec, _ = exported
+        responses = spec["paths"]["/beacon/{index_id}/backtest"]["post"]["responses"]
+        schema = responses["202"]["content"]["application/json"]["schema"]
+
+        assert schema == {"$ref": "#/components/schemas/BacktestJobStatus"}
+
+    def test_reading_a_job_declares_every_kind(self,
+                                               exported):
+        """One arm per job kind. A plain union rather than a pydantic
+        discriminated one because a kind carries its subject —
+        `backtest:my-index` — so the discriminating value is the prefix, which
+        pydantic cannot pin to a `Literal`. `JobStatus` last is the fallback
+        for a kind nothing models yet."""
+        spec, _ = exported
+        schema = (spec["paths"]["/jobs/{job_id}"]["get"]["responses"]["200"]
+                  ["content"]["application/json"]["schema"])
+
+        assert [arm["$ref"].rsplit("/", 1)[-1] for arm in schema["anyOf"]] == [
+            "BacktestJobStatus", "OptimisationJobStatus", "RenderJobStatus",
+            "RiskModelJobStatus", "SyncJobStatus", "JobStatus"]
+
+    def test_the_served_payload_is_the_declared_one(self,
+                                                   client):
+        """Declared and served, checked against each other over HTTP. A schema
+        that is published but not what the endpoint actually sends is worse
+        than no schema, because a client would trust it."""
+        jobs = client.get("/jobs", headers=auth()).json()["jobs"]
+        backtests = [job for job in jobs
+                     if job["kind"].startswith("backtest:")
+                     and job["status"] == "succeeded"]
+
+        assert backtests, "the module fixture runs one backtest"
+
+        served = client.get(f"/jobs/{backtests[0]['job_id']}",
+                            headers=auth()).json()
+
+        assert set(served["result"]) == BACKTEST_RUN_FIELDS
+        assert set(served) == {"job_id", "kind", "status", "progress",
+                               "message", "result", "error"}
 
 
 class TestFuzzStore:

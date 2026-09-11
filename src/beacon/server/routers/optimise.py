@@ -44,7 +44,7 @@ from ..schemas import (
     ExposuresView,
     FrontierView,
     Identifier,
-    JobStatus,
+    OptimisationJobStatus,
     OptimisationRunRequest,
     SavedConstraintSet,
     ValidationReport,
@@ -169,10 +169,10 @@ def build_optimise_router() -> APIRouter:
     # worker thread, where there is no running event loop for the registry to
     # attach a task to.
     @router.post("/runs",
-                 response_model=JobStatus,
+                 response_model=OptimisationJobStatus,
                  status_code=status.HTTP_202_ACCEPTED)
     async def submit_run(request: Request,
-                         body: OptimisationRunRequest) -> JobStatus:
+                         body: OptimisationRunRequest) -> OptimisationJobStatus:
         # Everything resolvable is resolved before the job is submitted, so a
         # bad request fails immediately with a proper error rather than
         # becoming a job that fails a moment later for the client to discover.
@@ -199,7 +199,7 @@ def build_optimise_router() -> APIRouter:
                                    label_map(constraint_set),
                                    _data_fetcher(request)))
 
-        return JobStatus(**job.snapshot())
+        return OptimisationJobStatus(**job.snapshot())
 
     @router.get("/runs/{run_id}/frontier", response_model=FrontierView)
     def frontier(request: Request,

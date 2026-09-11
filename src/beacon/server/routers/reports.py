@@ -30,7 +30,7 @@ from ..reports import (
 )
 from ..schemas import (
     Identifier,
-    JobStatus,
+    RenderJobStatus,
     RenderRequest,
     ReportTemplateCollection,
     ReportTemplateDocument,
@@ -151,10 +151,10 @@ def build_reports_router() -> APIRouter:
     # worker thread, where there is no running event loop for the registry to
     # attach a task to.
     @router.post("/render",
-                 response_model=JobStatus,
+                 response_model=RenderJobStatus,
                  status_code=status.HTTP_202_ACCEPTED)
     async def submit_render(request: Request,
-                            body: RenderRequest) -> JobStatus:
+                            body: RenderRequest) -> RenderJobStatus:
         # The template is resolved and checked before the job is submitted, so
         # an unknown id or a missing run fails immediately rather than becoming
         # a job that fails a moment later for the client to discover.
@@ -167,7 +167,7 @@ def build_reports_router() -> APIRouter:
             f"render:{render_id}",
             build_render_job(render_id, body, template, _render_directory(request)))
 
-        return JobStatus(**job.snapshot())
+        return RenderJobStatus(**job.snapshot())
 
     @router.get("/renders/{render_id}")
     def download(request: Request,

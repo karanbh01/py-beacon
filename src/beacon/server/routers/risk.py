@@ -20,8 +20,8 @@ from ..jobs import JobRegistry
 from ..risk import build_estimation_job
 from ..schemas import (
     Identifier,
-    JobStatus,
     RiskModelCollection,
+    RiskModelJobStatus,
     RiskModelRequest,
     RiskModelSummary,
     RiskModelView,
@@ -128,11 +128,11 @@ def build_risk_router() -> APIRouter:
     # worker thread, where there is no running event loop for the registry to
     # attach a task to.
     @router.post("/{model_id}/estimate",
-                 response_model=JobStatus,
+                 response_model=RiskModelJobStatus,
                  status_code=status.HTTP_202_ACCEPTED)
     async def estimate(request: Request,
                        model_id: Identifier,
-                       body: RiskModelRequest | None = None) -> JobStatus:
+                       body: RiskModelRequest | None = None) -> RiskModelJobStatus:
         # The universe and the data source are resolved before the job is
         # submitted, so a bad request fails immediately rather than becoming a
         # job that fails a moment later for the client to discover.
@@ -145,6 +145,6 @@ def build_risk_router() -> APIRouter:
             f"{KIND}:{model_id}",
             build_estimation_job(model_id, settings, identifiers, fetcher))
 
-        return JobStatus(**job.snapshot())
+        return RiskModelJobStatus(**job.snapshot())
 
     return router

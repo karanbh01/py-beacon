@@ -18,7 +18,7 @@ import hmac
 from ..._optional import require
 from ...exceptions import DataNotFoundError
 from ..jobs import JobRegistry
-from ..schemas import Identifier, JobCollection, JobStatus
+from ..schemas import AnyJobStatus, Identifier, JobCollection, JobStatus
 
 require("fastapi", "The Beacon API server")
 
@@ -70,7 +70,11 @@ def build_jobs_router() -> APIRouter:
             jobs=[JobStatus(**snapshot)
                   for snapshot in live + registry.stored_snapshots()])
 
-    @router.get("/jobs/{job_id}", response_model=JobStatus)
+    # The per-kind union (BN-172): the result payload is declared here, which
+    # is the endpoint a client reads it from. Constructed as a plain JobStatus
+    # either way — the response model is what narrows it, so a kind nothing
+    # models yet still answers exactly as it did.
+    @router.get("/jobs/{job_id}", response_model=AnyJobStatus)
     def get_job(request: Request,
                 job_id: Identifier) -> JobStatus:
         snapshot = _registry(request).snapshot(job_id)
@@ -79,7 +83,7 @@ def build_jobs_router() -> APIRouter:
 
         return JobStatus(**snapshot)
 
-    @router.delete("/jobs/{job_id}", response_model=JobStatus)
+    @router.delete("/jobs/{job_id}", response_model=AnyJobStatus)
     def cancel_job(request: Request,
                    job_id: Identifier) -> JobStatus:
         registry = _registry(request)

@@ -31,13 +31,13 @@ from ..runs import snapshot_at, snapshots_from
 from ..schemas import (
     AssetView,
     AttributionView,
+    BacktestJobStatus,
     BacktestRecordRow,
     BacktestRequest,
     BacktestResultSummary,
     CompareView,
     Identifier,
     IndexDocument,
-    JobStatus,
     OverviewView,
     WeightsView,
 )
@@ -134,11 +134,12 @@ def build_beacon_router() -> APIRouter:
     # worker thread, where there is no running event loop for the registry's
     # asyncio.create_task to attach to.
     @router.post("/{index_id}/backtest",
-                 response_model=JobStatus,
+                 response_model=BacktestJobStatus,
                  status_code=status.HTTP_202_ACCEPTED)
     async def submit_backtest(request: Request,
                               index_id: Identifier,
-                              body: BacktestRequest | None = None) -> JobStatus:
+                              body: BacktestRequest | None = None
+                              ) -> BacktestJobStatus:
         # The definition and the data source are resolved here, before the job
         # is submitted, so an unknown index or an unconfigured server fails
         # immediately with a proper error instead of becoming a job that fails
@@ -155,7 +156,7 @@ def build_beacon_router() -> APIRouter:
             build_backtest_job(document, fetcher, settings, store,
                                record_store=records))
 
-        return JobStatus(**job.snapshot())
+        return BacktestJobStatus(**job.snapshot())
 
     # Compare is declared before the parameterised routes so that a request for
     # /beacon/compare is not captured by /beacon/{index_id}/... — FastAPI
@@ -222,11 +223,11 @@ def build_beacon_router() -> APIRouter:
                         index_id: Identifier) -> dict[str, Any]:
         """The latest run's books, nested: the record, not the derived view.
 
-        `JobStatus.result` carries the run payload — rebased level, returns,
-        drawdown — which is what a chart wants. This is the other half BN-155
-        shaped and BN-158 finally serves: the portfolio book with its
-        day-zero NAV, bounded positions and weights with true totals, and the
-        comparator books, null when the run had none.
+        `BacktestJobStatus.result` carries the run payload — rebased level,
+        returns, drawdown — which is what a chart wants. This is the other
+        half BN-155 shaped and BN-158 finally serves: the portfolio book with
+        its day-zero NAV, bounded positions and weights with true totals, and
+        the comparator books, null when the run had none.
 
         Raises:
             DataNotFoundError: If the index has never been backtested

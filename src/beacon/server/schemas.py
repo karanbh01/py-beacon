@@ -9,7 +9,7 @@ declared here, so OpenAPI describes it and a library refactor cannot silently
 reshape a response.
 """
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
 import pandas as pd
 from pydantic import (
@@ -2400,8 +2400,42 @@ class BacktestRunResult(BaseModel):
         default=0.0, description="Capital the simulation started with.")
 
 
-class JobStatus(BaseModel):
-    """State of one background job."""
+class SyncJobResult(BaseModel):
+    """Result payload of a completed data sync.
+
+    The narrowest honest description of what the sync job returns (BN-172):
+    `IngestResult.summary()` plus the two fields the job adds. Deliberately a
+    count-and-identifier summary rather than the data — the rows went into the
+    fetcher, and a client reads them back through the data endpoints.
+    """
+    dataset: str = Field(description="Which dataset was synced: market or reference.")
+    fetched: int = Field(description="Identifiers that returned data.")
+    failed: int = Field(description="Identifiers that did not.")
+    rows: int = Field(description="Market-data rows fetched.")
+    rows_added: int = Field(
+        description="Rows actually merged in, which is fewer than `rows` "
+                    "whenever the fetch overlapped data already held.")
+    identifiers: list[str] = Field(
+        default_factory=list, description="The identifiers that succeeded.")
+    errors: dict[str, str] = Field(
+        default_factory=dict,
+        description="Identifier to the reason it did not come back.")
+
+
+ResultT = TypeVar("ResultT")
+
+
+class JobStatusOf(BaseModel, Generic[ResultT]):
+    """State of one background job, generic over its result payload.
+
+    Generic so that every kind of job can publish the shape of the thing it
+    returns (BN-172). Before this, `result` was `Any` and the whole backtest
+    run payload crossed the wire undeclared: no client could generate a type
+    for it and no spec refresh could tell them it had changed.
+
+    Not used as a response model directly — the parametrisations below are,
+    and `JobStatus` is the untyped one that existing callers keep using.
+    """
     job_id: str
     kind: str = Field(description="What the job is, e.g. 'backtest'.")
     status: str = Field(
@@ -2409,15 +2443,71 @@ class JobStatus(BaseModel):
                     "last three are terminal.")
     progress: float = Field(description="Fraction complete, 0.0 to 1.0.")
     message: str = Field(default="", description="Latest progress message.")
-    result: Any = Field(
+    result: ResultT | None = Field(
         default=None,
         description="Present only once the job has succeeded; null otherwise.")
     error: str | None = Field(default=None,
                               description="Failure reason, when status is failed.")
 
 
+class JobStatus(JobStatusOf[Any]):
+    """State of one background job, with an untyped result.
+
+    The name and the shape are unchanged from before BN-172, deliberately:
+    `JobStatus` is already a published schema a client generates from, so the
+    generic arrived as a new base rather than by renaming this to
+    `JobStatus_Any_`. Still the right answer for a listing, which mixes kinds,
+    and the fallback arm of `AnyJobStatus` for a kind nothing models yet.
+    """
+
+
+class BacktestJobStatus(JobStatusOf[BacktestRunResult]):
+    """A `backtest:{index_id}` job. `result` is the run payload."""
+
+
+class OptimisationJobStatus(JobStatusOf[OptimisationRunResult]):
+    """An `optimise:{run_id}` job. `result` is the solved portfolio."""
+
+
+class RenderJobStatus(JobStatusOf[RenderResult]):
+    """A `render:{render_id}` job. `result` describes the rendered document."""
+
+
+class RiskModelJobStatus(JobStatusOf[RiskModelView]):
+    """A `risk:{model_id}` job. `result` is the estimated model."""
+
+
+class SyncJobStatus(JobStatusOf[SyncJobResult]):
+    """A `sync:{dataset}` job. `result` summarises what was fetched."""
+
+
+# The response of `GET /jobs/{job_id}`: one arm per job kind, so a client reads
+# a real type off `result` instead of casting against nothing.
+#
+# A plain union rather than a pydantic discriminated one, and that is forced
+# rather than chosen: `Field(discriminator="kind")` needs each arm to pin the
+# field to a `Literal`, but a kind carries its subject — `backtest:my-index`,
+# `sync:market` — so the discriminating value is the *prefix*, which pydantic
+# cannot express. Reshaping the kind strings would break a public contract
+# that clients already read, so the union discriminates by shape: the arms
+# have disjoint required fields, every modelled payload is exactly its model's
+# dump, and `JobStatus` last catches any kind not yet modelled with its result
+# passed through verbatim.
+AnyJobStatus = (BacktestJobStatus
+                | OptimisationJobStatus
+                | RenderJobStatus
+                | RiskModelJobStatus
+                | SyncJobStatus
+                | JobStatus)
+
+
 class JobCollection(BaseModel):
-    """Response of `GET /jobs`."""
+    """Response of `GET /jobs`.
+
+    Untyped results on purpose: a listing spans every kind at once, so the
+    per-kind arms buy a client nothing it can use without reading `kind`
+    anyway. `GET /jobs/{job_id}` is where the typed result lives.
+    """
     jobs: list[JobStatus]
 
 

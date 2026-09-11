@@ -37,7 +37,12 @@ from ...data.ingest import (
 )
 from ..config import ServerConfig
 from ..jobs import JobRegistry, ProgressReporter
-from ..schemas import CoverageResponse, DatasetCoverage, JobStatus, SyncRequest
+from ..schemas import (
+    CoverageResponse,
+    DatasetCoverage,
+    SyncJobStatus,
+    SyncRequest,
+)
 
 require("fastapi", "The Beacon API server")
 
@@ -278,11 +283,11 @@ def build_coverage_router() -> APIRouter:
     # worker thread, where there is no running event loop for the registry to
     # attach a task to.
     @router.post("/{dataset}/sync",
-                 response_model=JobStatus,
+                 response_model=SyncJobStatus,
                  status_code=status.HTTP_202_ACCEPTED)
     async def sync(request: Request,
                    dataset: str,
-                   body: SyncRequest | None = None) -> JobStatus:
+                   body: SyncRequest | None = None) -> SyncJobStatus:
         # Dataset, data source and identifier list are all resolved before the
         # job is submitted, so a bad request fails immediately with a proper
         # error rather than becoming a job that fails a moment later for the
@@ -314,7 +319,7 @@ def build_coverage_router() -> APIRouter:
             build_sync_job(dataset, identifiers, settings, fetcher, registry,
                            config.market_downloader))
 
-        return JobStatus(**job.snapshot())
+        return SyncJobStatus(**job.snapshot())
 
     return router
 
