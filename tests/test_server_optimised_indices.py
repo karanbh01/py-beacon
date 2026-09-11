@@ -738,6 +738,44 @@ class TestBacktestingAnOptimisedIndex:
         for weight in weights["weights"].values():
             assert weight <= POSITION_CAP + 1e-6
 
+    def test_both_books_carry_their_own_decided_weights(self,
+                                                        backtested):
+        """BN-173: the record publishes what each rebalance decided, per book.
+        The optimised book's are the SOLVED weights and the target book's are
+        the parent's own, so "what did the constraints cost?" is answerable
+        from the durable record — at every rebalance, as preview answers it for
+        one date."""
+        record = backtested.get(f"/beacon/{CHILD_ID}/record",
+                                headers=auth()).json()
+
+        target = record["index"]["target"]["rebalances"]
+        optimised = record["index"]["optimised"]["rebalances"]
+
+        assert target, "the pre-optimisation book decided nothing"
+        assert optimised, "the solved book decided nothing"
+        assert [entry["date"] for entry in target] == \
+            [entry["date"] for entry in optimised]
+        assert [entry["weights"] for entry in target] != \
+            [entry["weights"] for entry in optimised]
+
+    def test_the_solved_decisions_are_the_run_payload_s(self,
+                                                        backtested):
+        """One fact, two representations: the run payload's `rebalances[]` come
+        from the book the engine traded — the optimised one — and the record's
+        copy of them must be the same rows."""
+        jobs = backtested.get("/jobs", headers=auth()).json()["jobs"]
+        child = [job for job in jobs
+                 if job["kind"] == f"backtest:{CHILD_ID}"
+                 and job["status"] == "succeeded"]
+        assert child, "the module fixture backtests the child"
+
+        payload = backtested.get(f"/jobs/{child[0]['job_id']}",
+                                 headers=auth()).json()["result"]
+        record = backtested.get(f"/beacon/{CHILD_ID}/record",
+                                headers=auth()).json()
+
+        assert record["index"]["optimised"]["rebalances"] == payload["rebalances"]
+
     def test_the_parent_backtests_independently(self,
                                                 backtested):
         """The parent stays first-class: it is referenced, not consumed."""

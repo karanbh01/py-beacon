@@ -26,7 +26,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from beacon.server import ServerConfig, create_app
-from beacon.server.schemas import BacktestRunResult
+from beacon.server.schemas import BacktestRunResult, BookPayload
 from beacon.testing import dataset
 
 TOKEN = "test-token-value"
@@ -56,6 +56,12 @@ BACKTEST_RUN_FIELDS = {"level", "returns", "drawdown", "annual_returns",
                        "total_costs", "initial_capital"}
 BACKTEST_RUN_REQUIRED = {"level", "returns", "drawdown", "annual_returns",
                          "index_level", "metrics"}
+
+# The record's per-book fields (BN-173): the daily panel — what was HELD — and
+# the rebalance snapshots — what was DECIDED — side by side. Written out for the
+# same reason as the list above.
+RECORD_BOOK_FIELDS = {"levels", "weights", "weights_dates_total",
+                      "rebalances", "rebalances_total"}
 
 
 def auth() -> dict[str, str]:
@@ -597,6 +603,41 @@ class TestJobResultPayloadsArePublished:
         assert set(served["result"]) == BACKTEST_RUN_FIELDS
         assert set(served) == {"job_id", "kind", "status", "progress",
                                "message", "result", "error"}
+
+
+class TestTheRecordBookIsPublished:
+    """BN-173: the record's books carry the decided weights, by name.
+
+    Pinned literally for the same reason as the run payload above: the record is
+    the DURABLE artefact, so `rebalances` appearing — or being renamed later — is
+    a migration for every client that reads decided weights out of it.
+    """
+
+    def test_the_book_publishes_both_faces_of_weights(self,
+                                                      exported):
+        spec, _ = exported
+        published = spec["components"]["schemas"]["BookPayload"]
+
+        assert set(published["properties"]) == RECORD_BOOK_FIELDS
+        # The daily panel stays required; the snapshots default, so a record
+        # written before this existed still validates rather than 500ing.
+        assert set(published["required"]) == {"levels", "weights",
+                                              "weights_dates_total"}
+
+    def test_the_model_and_the_pinned_list_agree(self):
+        assert set(BookPayload.model_fields) == RECORD_BOOK_FIELDS
+
+    def test_the_snapshot_row_is_the_run_payload_s_own_schema(self,
+                                                              exported):
+        """By `$ref` to the same `RebalanceSnapshot` the run payload uses, not
+        an inlined twin: one wire shape for one fact, because two shapes for
+        the decided weights is how the two drift apart."""
+        spec, _ = exported
+        rebalances = (spec["components"]["schemas"]["BookPayload"]
+                      ["properties"]["rebalances"])
+
+        assert rebalances["items"] == {
+            "$ref": "#/components/schemas/RebalanceSnapshot"}
 
 
 class TestFuzzStore:

@@ -15,6 +15,8 @@ from ..analysis.relative import align_on_common_window, relative_metrics
 from ..backtest.main import Backtest
 from ..backtest.result import BacktestResult
 from ..data.fetcher import DataFetcher
+from ..index.constructor import IndexDefinition
+from ..index.derived import AnyIndexDefinition, OptimisedIndexDefinition
 from ..index.result import IndexResult
 from .benchmarks import resolve_benchmark
 from .definitions import build_definition
@@ -26,9 +28,9 @@ from .schemas import (
     BacktestRunResult,
     BenchmarkRef,
     IndexDocument,
-    RebalanceSnapshot,
     RelativeMetricsPayload,
     SeriesPayload,
+    rebalance_snapshots,
 )
 from .store import DocumentStore
 
@@ -134,44 +136,24 @@ def assemble_result(result: BacktestResult,
         initial_capital=result.portfolio.initial_capital)
 
 
-def rebalance_snapshots(index_result: IndexResult,
-                        cap: float | None = None) -> list[RebalanceSnapshot]:
-    """Composition at each rebalance, in date order.
+def target_cap(definition: AnyIndexDefinition) -> float | None:
+    """The cap that applies to the run's `index.target` book, if any.
 
-    Carries the uncapped weights alongside the applied ones. On an uncapped
-    index the two are identical and the duplication costs a little space; on a
-    capped one the difference is the only record of what the cap did, and it
-    cannot be recovered from the applied weights afterwards.
-
-    The *cap itself* comes from the definition rather than from the cap report,
-    because the calculator only files a report on dates where the cap actually
-    bound. "A 20% cap applies and nothing reached it" and "no cap applies" are
-    different statements about a methodology, and a client asking what the
-    rules are should get the same answer on both dates.
+    Read off the built definition rather than the document because an optimised
+    document has no pipeline of its own to read one from, while its target book
+    is its *parent's* calculation and the parent's cap is the one that shaped
+    those weights. A chain whose immediate parent is itself derived has no cap
+    at that level, and says so.
 
     Args:
-        index_result: The calculated index.
-        cap: The definition's maximum constituent weight, if it has one.
+        definition: The definition the run calculated.
     """
-    snapshots = []
+    source = (definition.source
+              if isinstance(definition, OptimisedIndexDefinition)
+              else definition)
 
-    for date in sorted(index_result.weight_snapshots):
-        weights = index_result.weight_snapshots[date]
-        report = index_result.cap_reports.get(date)
-
-        announced = index_result.announcement_dates.get(date)
-
-        snapshots.append(RebalanceSnapshot(
-            date=date.strftime("%Y-%m-%d"),
-            announced=announced.strftime("%Y-%m-%d") if announced else None,
-            weights=dict(weights),
-            uncapped_weights=dict(report.uncapped_weights) if report and
-            report.uncapped_weights else dict(weights),
-            capped=sorted(report.capped) if report else [],
-            cap=cap,
-            redistributed=report.redistributed if report else 0.0))
-
-    return snapshots
+    return (source.max_constituent_weight
+            if isinstance(source, IndexDefinition) else None)
 
 
 def _total_costs(result: BacktestResult) -> float:
@@ -297,8 +279,12 @@ def build_backtest_job(document: IndexDocument,
         # exists only inside this job, and the run payload the job returns is
         # a derived view of it, not the books (BN-158). Latest run wins,
         # matching latest_result semantics.
+        # A different cap from the payload's: that one stamps the *tracked*
+        # book's snapshots, this one the record's *target* book, which on an
+        # optimised run is the parent's calculation under the parent's cap.
         if record_store is not None:
-            record = BacktestResultSummary.from_result(backtest)
+            record = BacktestResultSummary.from_result(backtest,
+                                                       cap=target_cap(definition))
             record_store.write(document.id, record.model_dump(mode="json"))
 
         await report(1.0, "Complete.")

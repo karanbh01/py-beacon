@@ -206,6 +206,91 @@ def _metric(summary: dict[str, float | None],
     return 0.0 if value is None else float(value)
 
 
+class RebalanceSnapshot(BaseModel):
+    """The index's composition at one rebalance.
+
+    Both weight sets are carried. `weights` is what the index applied;
+    `uncapped_weights` is what the weighting scheme produced before any cap.
+    They are equal on an uncapped index, and the difference is the only way to
+    answer what capping cost — a question that cannot be reconstructed from the
+    applied weights alone.
+
+    Declared here, above the book payloads, because since BN-173 it is carried
+    by both: the transient run payload publishes the snapshots as
+    `rebalances[]`, and the durable record publishes the same rows on each
+    index book. One shape for one fact — a second model for the decided
+    weights would be free to drift from this one.
+    """
+    date: str = Field(
+        description="Date these weights took effect, YYYY-MM-DD. Snapshots "
+                    "are keyed by the effective date because that is when the "
+                    "composition is in force.")
+    announced: str | None = Field(
+        default=None,
+        description="When this composition was published, if earlier than "
+                    "`date`. Null when the index has no effective-date lag "
+                    "and the two coincide, so its presence is itself the "
+                    "signal that a lag applies.")
+    weights: dict[str, float] = Field(description="Applied weights, summing to 1.")
+    uncapped_weights: dict[str, float] = Field(
+        default_factory=dict,
+        description="Weights before capping. Equal to `weights` when no cap "
+                    "was applied.")
+    capped: list[str] = Field(
+        default_factory=list,
+        description="Constituents held at the cap on this date.")
+    cap: float | None = Field(default=None,
+                              description="Maximum single weight, if one applies.")
+    redistributed: float = Field(
+        default=0.0,
+        description="Weight moved off capped names onto the rest.")
+
+
+def rebalance_snapshots(index_result: IndexResult,
+                        cap: float | None = None) -> list[RebalanceSnapshot]:
+    """Composition at each rebalance, in date order.
+
+    Carries the uncapped weights alongside the applied ones. On an uncapped
+    index the two are identical and the duplication costs a little space; on a
+    capped one the difference is the only record of what the cap did, and it
+    cannot be recovered from the applied weights afterwards.
+
+    The *cap itself* comes from the definition rather than from the cap report,
+    because the calculator only files a report on dates where the cap actually
+    bound. "A 20% cap applies and nothing reached it" and "no cap applies" are
+    different statements about a methodology, and a client asking what the
+    rules are should get the same answer on both dates.
+
+    Lives here rather than beside the job that first needed it (BN-173): the
+    record's books are built in this module and publish the same rows, and a
+    payload builder imported *from* the job module would have made the two
+    directions circular.
+
+    Args:
+        index_result: The calculated index.
+        cap: The definition's maximum constituent weight, if it has one.
+    """
+    snapshots = []
+
+    for date in sorted(index_result.weight_snapshots):
+        weights = index_result.weight_snapshots[date]
+        report = index_result.cap_reports.get(date)
+
+        announced = index_result.announcement_dates.get(date)
+
+        snapshots.append(RebalanceSnapshot(
+            date=date.strftime("%Y-%m-%d"),
+            announced=announced.strftime("%Y-%m-%d") if announced else None,
+            weights=dict(weights),
+            uncapped_weights=dict(report.uncapped_weights) if report and
+            report.uncapped_weights else dict(weights),
+            capped=sorted(report.capped) if report else [],
+            cap=cap,
+            redistributed=report.redistributed if report else 0.0))
+
+    return snapshots
+
+
 # The record payload is bounded, matching the table endpoint's stance: an
 # unbounded panel is not something a client can render or an engine should
 # assemble. When a panel exceeds the bound, the MOST RECENT rows are kept and
@@ -213,10 +298,24 @@ def _metric(summary: dict[str, float | None],
 # last N of M" instead of guessing.
 MAX_POSITION_ROWS = 50_000
 MAX_WEIGHT_DATES = 1_000
+# Its own bound, a quarter of the daily one, because rebalances are a different
+# density of fact: a quarterly index decides four times a year and a monthly one
+# twelve, so 250 snapshots is 20 years of monthly rebalances or 62 of quarterly
+# — further back than any record here reaches. Each entry also carries two full
+# weight vectors rather than one row of a panel, so the served slice costs about
+# what the 1,000-date daily panel does. Reusing MAX_WEIGHT_DATES would have
+# bounded nothing in practice while quadrupling the worst case.
+MAX_REBALANCES = 250
 
 
 class PortfolioBookPayload(BaseModel):
-    """The portfolio's books on the wire."""
+    """The portfolio's books on the wire.
+
+    No `rebalances` here, unlike the index books (BN-173): a portfolio makes no
+    rebalance decision of its own — it trades toward one — so decided weights
+    would be a field with nothing honest to put in it. Its own model rather than
+    a shared base with `BookPayload`, which is what keeps that omission simple.
+    """
     portfolio_id: str
     initial_capital: float
     nav: SeriesPayload = Field(
@@ -243,13 +342,34 @@ class PortfolioBookPayload(BaseModel):
 
 
 class BookPayload(BaseModel):
-    """One comparator's record on the wire."""
+    """One comparator's record on the wire.
+
+    Two different facts about weights, not two copies of one (BN-173):
+    `weights` is the daily panel — what the book actually HELD each day, drift
+    included — and `rebalances` is what each rebalance DECIDED. They agree only
+    on a rebalance date; everywhere else prices have moved the held weights
+    away from the decided ones. A client wanting decided weights reads
+    `rebalances` rather than resampling the panel, which cannot answer what
+    capping cost whatever it is resampled onto.
+    """
     levels: SeriesPayload
     weights: TableFrame = Field(
         description="Daily weights, dates by identifier; most recent "
                     "MAX_WEIGHT_DATES dates at most. Empty for a comparator "
                     "supplied as a bare level series.")
     weights_dates_total: int
+    rebalances: list[RebalanceSnapshot] = Field(
+        default_factory=list,
+        description="What each rebalance decided — applied weights, their "
+                    "uncapped counterparts and the announcement date — in date "
+                    "order; most recent MAX_REBALANCES at most. The same rows "
+                    "the run payload publishes, kept here because the record "
+                    "is what survives the job result. Empty for a comparator "
+                    "supplied as a bare level series, which decided nothing.")
+    rebalances_total: int = Field(
+        default=0,
+        description="Rebalances the index actually had; larger than the rows "
+                    "served when the list was truncated.")
 
 
 class IndexBooksPayload(BaseModel):
@@ -295,8 +415,18 @@ class BacktestResultSummary(BaseModel):
 
     @classmethod
     def from_result(cls,
-                    result: BacktestResult) -> "BacktestResultSummary":
-        """Build from a library `BacktestResult`."""
+                    result: BacktestResult,
+                    cap: float | None = None) -> "BacktestResultSummary":
+        """Build from a library `BacktestResult`.
+
+        Args:
+            result: The finished run.
+            cap: The maximum constituent weight declared by the definition
+                whose rules produced the **target** book — the document's own
+                on a passive run, its parent's on an optimised one. Stamped on
+                that book's rebalance snapshots only: a solved index has no cap
+                of its own, since its constraints are what shaped its weights.
+        """
         summary = result.summary()
         metrics = BacktestMetrics(
             total_return=_metric(summary, "total_return"),
@@ -309,7 +439,7 @@ class BacktestResultSummary(BaseModel):
 
         return cls(portfolio=_portfolio_payload(result.portfolio),
                    index=IndexBooksPayload(
-                       target=_book_payload(result.index.target),
+                       target=_book_payload(result.index.target, cap),
                        optimised=_book_payload(result.index.optimised)),
                    benchmark=_book_payload(result.benchmark),
                    unfilled=[UnfilledOrderPayload(
@@ -357,15 +487,33 @@ def _portfolio_payload(portfolio: Any) -> PortfolioBookPayload:
         transactions=TableFrame.from_dataframe(frame))
 
 
-def _book_payload(book: Any) -> BookPayload | None:
-    """One comparator's record, or None when the run had none."""
+def _book_payload(book: Any,
+                  cap: float | None = None) -> BookPayload | None:
+    """One comparator's record, or None when the run had none.
+
+    The decided weights come off the book's `source` — the `IndexResult` a
+    calculated book keeps precisely because its snapshots are a different fact
+    from the daily panel. A book built from a bare level series has no source
+    and so decides nothing.
+
+    Args:
+        book: The library `Book`, or None.
+        cap: The maximum constituent weight the definition behind this book
+            declares, if it has one. Carried rather than read off the cap
+            reports, which exist only on the dates a cap actually bound.
+    """
     if book is None:
         return None
+
+    snapshots = ([] if book.source is None
+                 else rebalance_snapshots(book.source, cap))
 
     return BookPayload(
         levels=SeriesPayload.from_series(book.levels),
         weights=TableFrame.from_dataframe(book.weights.tail(MAX_WEIGHT_DATES)),
-        weights_dates_total=len(book.weights))
+        weights_dates_total=len(book.weights),
+        rebalances=snapshots[-MAX_REBALANCES:],
+        rebalances_total=len(snapshots))
 
 
 class BacktestRecordRow(BaseModel):
@@ -2068,40 +2216,6 @@ class BacktestRequest(BaseModel):
                     "reported separately; this adds a second comparison.")
 
 
-class RebalanceSnapshot(BaseModel):
-    """The index's composition at one rebalance.
-
-    Both weight sets are carried. `weights` is what the index applied;
-    `uncapped_weights` is what the weighting scheme produced before any cap.
-    They are equal on an uncapped index, and the difference is the only way to
-    answer what capping cost — a question that cannot be reconstructed from the
-    applied weights alone.
-    """
-    date: str = Field(
-        description="Date these weights took effect, YYYY-MM-DD. Snapshots "
-                    "are keyed by the effective date because that is when the "
-                    "composition is in force.")
-    announced: str | None = Field(
-        default=None,
-        description="When this composition was published, if earlier than "
-                    "`date`. Null when the index has no effective-date lag "
-                    "and the two coincide, so its presence is itself the "
-                    "signal that a lag applies.")
-    weights: dict[str, float] = Field(description="Applied weights, summing to 1.")
-    uncapped_weights: dict[str, float] = Field(
-        default_factory=dict,
-        description="Weights before capping. Equal to `weights` when no cap "
-                    "was applied.")
-    capped: list[str] = Field(
-        default_factory=list,
-        description="Constituents held at the cap on this date.")
-    cap: float | None = Field(default=None,
-                              description="Maximum single weight, if one applies.")
-    redistributed: float = Field(
-        default=0.0,
-        description="Weight moved off capped names onto the rest.")
-
-
 class ConcentrationPayload(BaseModel):
     """How concentrated a weight vector is."""
     herfindahl: float = Field(description="Sum of squared weights.")
@@ -2493,6 +2607,14 @@ class SyncJobStatus(JobStatusOf[SyncJobResult]):
 # have disjoint required fields, every modelled payload is exactly its model's
 # dump, and `JobStatus` last catches any kind not yet modelled with its result
 # passed through verbatim.
+#
+# No OpenAPI `discriminator` keyword is emitted either, which is a separate
+# decision from the one above and a deliberate one: a `discriminator` without a
+# `mapping` means "the value names the schema", and `backtest:TECH10` names no
+# schema. Generators that act on the keyword emit a narrowing that then fails
+# at runtime on exactly the payloads it was meant to handle — a lie that costs
+# a client more than the silence does. Do not add it without a `mapping`, and a
+# `mapping` cannot be written while the value carries a subject.
 AnyJobStatus = (BacktestJobStatus
                 | OptimisationJobStatus
                 | RenderJobStatus

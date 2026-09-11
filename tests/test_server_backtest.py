@@ -7,11 +7,15 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from beacon.backtest.result import BacktestResult, Book, IndexBooks
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
+from beacon.index.result import IndexResult
+from beacon.portfolio.base import Portfolio
 from beacon.server import ServerConfig, create_app
 from beacon.server.backtests import annual_returns
 from beacon.server.jobs import SUCCEEDED
+from beacon.server.schemas import MAX_REBALANCES, BacktestResultSummary
 
 TOKEN = "test-token-value"
 # Spans a calendar-year boundary so the annual-return identity is exercised,
@@ -452,6 +456,162 @@ class TestTheRecord:
         response = module_client.get("/beacon/DOOMED/record", headers=auth())
 
         assert response.status_code == 404
+
+
+SNAPSHOT_FIELDS = {"date", "announced", "weights", "uncapped_weights",
+                   "capped", "cap", "redistributed"}
+
+
+def built_record(snapshot_dates,
+                 announcements=None,
+                 cap=None,
+                 levels_only_benchmark=False) -> dict:
+    """A record built from a hand-made result, not a calculation.
+
+    The only way to reach the snapshot bound: 250 quarterly rebalances is 62
+    years of index, and the calculator walks every business day of it.
+    """
+    days = pd.bdate_range(START, periods=2)
+    index_result = IndexResult(
+        index_id="HAND",
+        index_levels=pd.Series([1000.0, 1010.0], index=days),
+        divisor_history=pd.Series(1.0, index=days),
+        constituent_snapshots={date: list(GROWTH) for date in snapshot_dates},
+        weight_snapshots={date: {"AAA": 0.6, "BBB": 0.4}
+                          for date in snapshot_dates},
+        announcement_dates=dict(announcements or {}))
+
+    portfolio = Portfolio(portfolio_id="hand", initial_cash=1000.0,
+                          inception=days[0] - pd.tseries.offsets.BDay(1))
+    for day in days:
+        portfolio._history.record(day, {}, 1000.0)
+
+    benchmark = (Book.from_levels(pd.Series([100.0, 101.0], index=days))
+                 if levels_only_benchmark else None)
+    result = BacktestResult(
+        portfolio=portfolio,
+        index=IndexBooks(target=Book.from_index(index_result)),
+        benchmark=benchmark)
+
+    return BacktestResultSummary.from_result(
+        result, cap=cap).model_dump(mode="json")
+
+
+class TestTheDecidedWeights:
+    """BN-173: what each rebalance DECIDED, in the record that survives.
+
+    The daily panel is what the index HELD — drift included — and the two agree
+    only on a rebalance date. The decided weights used to reach the wire only
+    through the transient run payload, so the question `uncapped_weights` exists
+    to answer ("what did capping cost?") died with the job result.
+
+    Bounded like the panel beside it, with its own constant: snapshots are a
+    far sparser fact, and MAX_REBALANCES is reached here with a hand-made
+    result rather than 60 years of calculation.
+    """
+
+    def test_the_target_book_carries_them(self,
+                                          record):
+        book = record["index"]["target"]
+
+        assert book["rebalances"], "the record published no decided weights"
+        assert book["rebalances_total"] == len(book["rebalances"])
+        for entry in book["rebalances"]:
+            assert set(entry) == SNAPSHOT_FIELDS
+            assert sum(entry["weights"].values()) == pytest.approx(1.0)
+
+    def test_they_are_the_rows_the_run_payload_published(self,
+                                                         record,
+                                                         result):
+        """The property that matters most: two representations of one fact,
+        from one run, must agree row for row. If they can disagree, a client
+        reading the record instead of the job result is reading something
+        else."""
+        assert record["index"]["target"]["rebalances"] == result["rebalances"]
+
+    def test_the_held_weights_are_a_different_fact(self,
+                                                   record):
+        """Not two copies of one: by the last day prices have moved the held
+        weights off the last decision, which is why resampling the panel
+        cannot answer what was decided."""
+        book = record["index"]["target"]
+        decided = book["rebalances"][-1]["weights"]
+        columns = book["weights"]["columns"]
+        held = dict(zip(columns, book["weights"]["data"][-1], strict=True))
+
+        assert set(held) == set(decided)
+        assert held != pytest.approx(decided)
+
+    def test_every_rebalance_is_served_below_the_bound(self):
+        dates = pd.date_range("2024-01-01", periods=5, freq="MS")
+
+        book = built_record(dates)["index"]["target"]
+
+        assert len(book["rebalances"]) == 5
+        assert book["rebalances_total"] == 5
+
+    def test_over_the_bound_the_total_is_still_true(self):
+        """Never silent truncation: the served slice shrinks, the total does
+        not, so a client says "last 250 of 260" instead of believing it saw
+        the whole methodology."""
+        dates = pd.date_range("2000-01-01", periods=MAX_REBALANCES + 10,
+                              freq="MS")
+
+        book = built_record(dates)["index"]["target"]
+
+        assert len(book["rebalances"]) == MAX_REBALANCES
+        assert book["rebalances_total"] == MAX_REBALANCES + 10
+
+    def test_the_most_recent_rebalances_are_the_kept_ones(self):
+        """The daily panel's stance, for the same reason: the tail is what a
+        client is looking at."""
+        dates = pd.date_range("2000-01-01", periods=MAX_REBALANCES + 10,
+                              freq="MS")
+
+        served = [entry["date"]
+                  for entry in built_record(dates)["index"]["target"]["rebalances"]]
+
+        assert served[0] == dates[10].strftime("%Y-%m-%d")
+        assert served[-1] == dates[-1].strftime("%Y-%m-%d")
+
+    def test_the_announcement_date_survives(self):
+        """Carried rather than dropped: its presence is itself the signal that
+        an effective-date lag applies, which is a fact about the index and not
+        about the job that happened to publish it."""
+        effective = pd.Timestamp("2024-01-02")
+
+        record = built_record([effective],
+                             announcements={effective: pd.Timestamp("2023-12-28")})
+        entry = record["index"]["target"]["rebalances"][0]
+
+        assert entry["date"] == "2024-01-02"
+        assert entry["announced"] == "2023-12-28"
+
+    def test_an_unlagged_index_announces_nothing(self,
+                                                 record):
+        """Null rather than a repeat of the effective date, so the lag reads
+        as absent instead of as zero."""
+        assert all(entry["announced"] is None
+                   for entry in record["index"]["target"]["rebalances"])
+
+    def test_the_cap_is_stamped_from_the_definition(self):
+        """Not read off the cap reports, which the calculator files only where
+        the cap actually bound: "a 35% cap applies and nothing reached it" and
+        "no cap applies" are different answers."""
+        book = built_record([pd.Timestamp("2024-01-02")],
+                            cap=0.35)["index"]["target"]
+
+        assert book["rebalances"][0]["cap"] == 0.35
+        assert book["rebalances"][0]["capped"] == []
+
+    def test_a_book_of_bare_levels_decided_nothing(self):
+        """A comparator given as a level series has no snapshots to publish —
+        empty, because there is nothing to truncate."""
+        book = built_record([pd.Timestamp("2024-01-02")],
+                            levels_only_benchmark=True)["benchmark"]
+
+        assert book["rebalances"] == []
+        assert book["rebalances_total"] == 0
 
 
 class TestTheListing:
