@@ -22,11 +22,22 @@ import json
 import tempfile
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from beacon.backtest.result import BacktestResult, Book, IndexBooks
+from beacon.exceptions import CalculationError
+from beacon.index.result import IndexResult
+from beacon.portfolio.base import Portfolio
 from beacon.server import ServerConfig, create_app
-from beacon.server.schemas import BacktestRunResult, BookPayload
+from beacon.server.backtests import _metrics as run_metrics
+from beacon.server.schemas import (
+    BacktestMetrics,
+    BacktestResultSummary,
+    BacktestRunResult,
+    BookPayload,
+)
 from beacon.testing import dataset
 
 TOKEN = "test-token-value"
@@ -62,6 +73,18 @@ BACKTEST_RUN_REQUIRED = {"level", "returns", "drawdown", "annual_returns",
 # same reason as the list above.
 RECORD_BOOK_FIELDS = {"levels", "weights", "weights_dates_total",
                       "rebalances", "rebalances_total"}
+
+# The metric keys `BacktestResult.summary()` produces, which `BacktestMetrics`
+# mirrors by string literal (BN-176). Written out here for the same reason as
+# the lists above, and load-bearing in both directions: a key renamed or
+# dropped in `summary()` stops being published, and a key ADDED there without
+# a field to carry it is computed and then thrown away, which is the quieter
+# miss. The split is the wire's own — the five are always populated and cross
+# as required floats, the two tracking figures are absent on a run with no
+# comparator and cross as null.
+SUMMARY_HEADLINE_METRICS = {"total_return", "annualised_return", "volatility",
+                            "sharpe_ratio", "max_drawdown"}
+SUMMARY_TRACKING_METRICS = {"tracking_error", "tracking_difference"}
 
 
 def auth() -> dict[str, str]:
@@ -603,6 +626,109 @@ class TestJobResultPayloadsArePublished:
         assert set(served["result"]) == BACKTEST_RUN_FIELDS
         assert set(served) == {"job_id", "kind", "status", "progress",
                                "message", "result", "error"}
+
+
+def _run_with_a_tracked_index() -> BacktestResult:
+    """A finished run whose summary carries every metric key.
+
+    Both tracking figures need a tracked index to exist at all, so a result
+    without one would pin only five of the seven. Built through the public
+    write paths — a buy, then a mark per day — rather than a mock, because the
+    keys under test are produced by the real `summary()`.
+    """
+    dates = pd.bdate_range(start=START, periods=4)
+    portfolio = Portfolio(portfolio_id="mirror",
+                          initial_cash=10_000.0,
+                          inception=dates[0] - pd.tseries.offsets.BDay(1))
+    portfolio.execute_buy("AAA", 100.0, 100.0, date=dates[0])
+
+    for step, date in enumerate(dates):
+        portfolio.update_prices({"AAA": 100.0 + step}, date=date)
+
+    index = IndexResult(index_id="mirror_idx",
+                        index_levels=pd.Series([1000.0, 1005.0, 1012.0, 1010.0],
+                                               index=dates),
+                        divisor_history=pd.Series(1.0, index=dates),
+                        constituent_snapshots={},
+                        weight_snapshots={})
+
+    return BacktestResult(portfolio=portfolio,
+                          index=IndexBooks(target=Book.from_index(index)))
+
+
+class TestTheMetricsMirrorIsPinned:
+    """BN-176: `BacktestMetrics` mirrors `summary()` by string literal.
+
+    Unlike the rest of the wire models, this one is not the contract itself —
+    it restates a library dict's keys, and nothing made the two agree. The
+    drift was silent in the worst direction: `_metric` returned 0.0 for a
+    missing key, so a rename published a Sharpe ratio of zero, which a client
+    renders and charts like any real number. These pin both key sets against
+    the literals above, which is the only version that fails on a rename, a
+    drop, or an addition nobody surfaced.
+    """
+
+    def test_the_model_and_the_pinned_lists_agree(self):
+        """The wire half. A field added to `BacktestMetrics` without being
+        added above fails here, naming both sides."""
+        assert set(BacktestMetrics.model_fields) == (SUMMARY_HEADLINE_METRICS
+                                                    | SUMMARY_TRACKING_METRICS)
+
+    def test_summary_produces_exactly_the_keys_the_payload_reads(self):
+        """The library half, and the direction that catches an addition: a
+        metric `summary()` computes and no field carries is work thrown away
+        between the calculation and the client."""
+        assert set(_run_with_a_tracked_index().summary()) == (
+            SUMMARY_HEADLINE_METRICS | SUMMARY_TRACKING_METRICS)
+
+    def test_a_run_with_no_comparator_still_produces_the_headline_five(self):
+        """Which is what makes the tracking pair — and only that pair —
+        legitimately absent, rather than a break in the mirror."""
+        result = _run_with_a_tracked_index()
+        result.index = IndexBooks()
+
+        assert set(result.summary()) == SUMMARY_HEADLINE_METRICS
+
+    def test_the_published_schema_requires_five_and_nulls_two(self,
+                                                             exported):
+        """The same split as the constants, as a client generator sees it."""
+        spec, _ = exported
+        published = spec["components"]["schemas"]["BacktestMetrics"]
+
+        assert set(published["properties"]) == (SUMMARY_HEADLINE_METRICS
+                                                | SUMMARY_TRACKING_METRICS)
+        assert set(published["required"]) == SUMMARY_HEADLINE_METRICS
+
+    def test_the_payload_carries_every_metric_of_a_tracked_run(self):
+        result = _run_with_a_tracked_index()
+
+        metrics = BacktestResultSummary.from_result(result).metrics
+
+        assert metrics.tracking_error is not None
+        assert metrics.tracking_difference is not None
+
+    def test_a_missing_headline_metric_raises_rather_than_publishing_zero(self):
+        """The behaviour change BN-176 made. 0.0 is the one answer that cannot
+        be told apart from a measurement; a 500 naming the key can."""
+        result = _run_with_a_tracked_index()
+        summary = result.summary()
+        del summary["sharpe_ratio"]
+        result.summary = lambda: summary  # type: ignore[method-assign]
+
+        with pytest.raises(CalculationError, match="sharpe_ratio"):
+            BacktestResultSummary.from_result(result)
+
+    def test_the_run_payload_reads_through_the_same_checked_reader(self):
+        """`backtests._metrics` is a second mirror of the same five literals,
+        and it carried its own 0.0 fallback — so the run endpoint would have
+        gone on publishing a plausible zero after the record stopped."""
+        result = _run_with_a_tracked_index()
+        summary = result.summary()
+        del summary["volatility"]
+        result.summary = lambda: summary  # type: ignore[method-assign]
+
+        with pytest.raises(CalculationError, match="volatility"):
+            run_metrics(result)
 
 
 class TestTheRecordBookIsPublished:

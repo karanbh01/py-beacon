@@ -30,6 +30,7 @@ from .schemas import (
     IndexDocument,
     RelativeMetricsPayload,
     SeriesPayload,
+    headline_metric,
     rebalance_snapshots,
 )
 from .store import DocumentStore
@@ -88,18 +89,20 @@ def annual_returns(level: pd.Series) -> dict[str, float]:
 
 
 def _metrics(result: BacktestResult) -> BacktestMetrics:
-    """Headline metrics, read from the library's own summary."""
+    """Headline metrics, read from the library's own summary.
+
+    Through the same reader as the record payload (BN-176), which raises on a
+    missing headline key: this is the second mirror of `summary()`'s literals
+    and it had its own 0.0 fallback, so the run endpoint would have kept
+    publishing a plausible zero after the record endpoint stopped.
+    """
     summary = result.summary()
 
-    def value(key: str) -> float:
-        raw = summary.get(key)
-        return 0.0 if raw is None else float(raw)
-
-    return BacktestMetrics(total_return=value("total_return"),
-                           annualised_return=value("annualised_return"),
-                           volatility=value("volatility"),
-                           sharpe_ratio=value("sharpe_ratio"),
-                           max_drawdown=value("max_drawdown"),
+    return BacktestMetrics(total_return=headline_metric(summary, "total_return"),
+                           annualised_return=headline_metric(summary, "annualised_return"),
+                           volatility=headline_metric(summary, "volatility"),
+                           sharpe_ratio=headline_metric(summary, "sharpe_ratio"),
+                           max_drawdown=headline_metric(summary, "max_drawdown"),
                            tracking_error=summary.get("tracking_error"),
                            tracking_difference=summary.get("tracking_difference"))
 

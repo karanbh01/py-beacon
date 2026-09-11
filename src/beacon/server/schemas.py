@@ -27,6 +27,7 @@ from ..data.corporate_actions import (
     kind_of,
     status_of,
 )
+from ..exceptions import CalculationError
 from ..index.derived import OBJECTIVES
 from ..index.result import IndexResult
 from ..optimise.config import MIN_TRACKING_ERROR
@@ -192,18 +193,29 @@ class BacktestMetrics(BaseModel):
     tracking_difference: Pct | None = None
 
 
-def _metric(summary: dict[str, float | None],
+def headline_metric(summary: dict[str, float | None],
             key: str) -> float:
     """Read a core metric, which `BacktestResult.summary()` always populates.
 
-    Its return type is `float | None` because the tracking figures are
-    optional; the five headline metrics are not. Falls back to 0.0 rather
-    than raising, so a summary shape change degrades a number instead of
-    failing the request.
+    The summary's value type is `float | None` because the tracking figures
+    are optional; the five headline metrics are not. A missing one is a break
+    in the mirror between `summary()` and `BacktestMetrics`, not a degraded
+    run, so it raises (BN-176). The previous 0.0 fallback was the one answer
+    indistinguishable from a real measurement: a client renders, charts and
+    compares a Sharpe ratio of zero without ever learning it was absent,
+    whereas a 500 naming the key is discoverable. `TestTheMetricsMirror...`
+    in `tests/test_api_contract.py` pins the two key sets against each other,
+    which is what keeps this raise unreachable in practice.
     """
     value = summary.get(key)
 
-    return 0.0 if value is None else float(value)
+    if value is None:
+        raise CalculationError(
+            "BacktestResult.summary",
+            f"missing the headline metric {key!r}; it provided "
+            f"{sorted(summary)}")
+
+    return float(value)
 
 
 class RebalanceSnapshot(BaseModel):
@@ -429,11 +441,11 @@ class BacktestResultSummary(BaseModel):
         """
         summary = result.summary()
         metrics = BacktestMetrics(
-            total_return=_metric(summary, "total_return"),
-            annualised_return=_metric(summary, "annualised_return"),
-            volatility=_metric(summary, "volatility"),
-            sharpe_ratio=_metric(summary, "sharpe_ratio"),
-            max_drawdown=_metric(summary, "max_drawdown"),
+            total_return=headline_metric(summary, "total_return"),
+            annualised_return=headline_metric(summary, "annualised_return"),
+            volatility=headline_metric(summary, "volatility"),
+            sharpe_ratio=headline_metric(summary, "sharpe_ratio"),
+            max_drawdown=headline_metric(summary, "max_drawdown"),
             tracking_error=summary.get("tracking_error"),
             tracking_difference=summary.get("tracking_difference"))
 
