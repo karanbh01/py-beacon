@@ -35,6 +35,19 @@ from ..report.blocks import BLOCK_TYPES
 from ..universe import FROZEN, LIVE
 from .serialisation import dataframe_to_payload, series_to_payload
 
+# What every listing says about the documents it could not read (BN-174).
+#
+# A listing skips a document it cannot parse or validate rather than failing
+# whole, so one bad file cannot blank a picker. The count is the other half of
+# that: a listing silently short by three is indistinguishable from a correct
+# one, and the server is the only side that knows. Same field name on every
+# collection, so a client handles it once.
+SKIPPED_DESCRIPTION = ("Stored documents the server could not read, and so "
+                       "left out of this listing. Non-zero means the "
+                       "collection is incomplete: the fault is logged "
+                       "server-side, and each skipped document answers 404 "
+                       "on its own route.")
+
 # A rate or proportion expressed as a fraction: 0.0523 is 5.23%. Kept as a
 # bare float rather than an object because it is arithmetic, not a quantity
 # with a unit — clients format it for display.
@@ -540,6 +553,18 @@ class BacktestRecordRow(BaseModel):
         default=None,
         description="ISO-8601 UTC capture time; null on records written "
                     "before they were stamped.")
+
+
+class BacktestRecordCollection(BaseModel):
+    """Response of `GET /beacon/backtests`.
+
+    An envelope rather than the bare array this used to return (BN-174). The
+    rows could not carry the skip count, and a listing that leaves documents
+    out without saying how many is making the same class of false statement as
+    a listing that 500s: the client is told something complete that is not.
+    """
+    backtests: list[BacktestRecordRow]
+    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class PricesResponse(BaseModel):
@@ -1210,6 +1235,7 @@ class ValidationReport(BaseModel):
 class IndexCollection(BaseModel):
     """Response of `GET /indices`."""
     indices: list[IndexDocument]
+    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class OptimiseRequest(BaseModel):
@@ -1629,6 +1655,7 @@ class ConstraintSet(BaseModel):
 class ConstraintSetCollection(BaseModel):
     """Response of `GET /optimise/constraint-sets`."""
     constraint_sets: list[ConstraintSet]
+    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class SavedConstraintSet(BaseModel):
@@ -1934,6 +1961,7 @@ class UniverseCreate(BaseModel):
 class UniverseCollection(BaseModel):
     """Response of `GET /universes`."""
     universes: list[Universe]
+    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class UniverseMembers(BaseModel):

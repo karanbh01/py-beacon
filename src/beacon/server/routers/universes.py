@@ -40,6 +40,7 @@ from ...exceptions import (
 from ...expressions.core import from_dict
 from ...universe import where
 from ..config import ServerConfig
+from ..documents import load_document, read_collection, validated
 from ..schemas import (
     MODE_FROZEN,
     MODE_LIVE,
@@ -97,20 +98,16 @@ def _store(request: Request) -> DocumentStore:
     return store
 
 
-def _to_universe(document: dict[str, Any]) -> Universe:
-    """Build the response model from a stored document.
-
-    `source` defaults to "user" for documents written before it existed:
-    absent means somebody created it, because nothing else could have.
-    """
-    return Universe(id=document["id"],
-                    name=document["name"],
-                    identifiers=document.get("identifiers", []),
-                    description=document.get("description"),
-                    source=document.get("source", SOURCE_USER),
-                    filter=document.get("filter"),
-                    mode=document.get("mode", MODE_FROZEN),
-                    as_of=document.get("as_of"))
+# Build the response model from a stored document.
+#
+# Through the model's own validation rather than field by field, so a document
+# missing `id` or `name` raises a `ValidationError` like every other unreadable
+# document instead of a `KeyError` (BN-174): the listing skips it and the detail
+# route answers 404 only because the failure has the shape they both recognise.
+# The defaults the model carries cover documents written before a field existed
+# — an absent `source` means somebody created it, because nothing else could
+# have.
+_universe = validated(Universe)
 
 
 def slug(name: str) -> str:
@@ -324,13 +321,14 @@ def load_universe(request: Request,
         Universe: The stored universe.
 
     Raises:
-        DataNotFoundError: If no such universe exists.
+        DataNotFoundError: If no such universe exists, or the stored document
+            cannot be parsed or validated (BN-174) — the listing skips exactly
+            those, so the two surfaces agree by construction.
     """
-    document = _store(request).read(universe_id)
-    if document is None:
-        raise DataNotFoundError(f"universe '{universe_id}'", source="DocumentStore")
-
-    return _to_universe(document)
+    return load_document(_store(request),
+                         universe_id,
+                         _universe,
+                         f"universe '{universe_id}'")
 
 
 def seed_global_universe(store: DocumentStore,
@@ -385,8 +383,14 @@ def build_universes_router() -> APIRouter:
 
     @router.get("", response_model=UniverseCollection)
     def list_universes(request: Request) -> UniverseCollection:
-        return UniverseCollection(
-            universes=[_to_universe(doc) for doc in _store(request).read_all()])
+        # One unreadable document used to 500 the whole listing, which on a
+        # REQUIRED input reads to the client as "you own no universes"
+        # (BN-174). Skipped and counted instead.
+        universes, skipped = read_collection(_store(request),
+                                             _universe,
+                                             "universe")
+
+        return UniverseCollection(universes=universes, skipped=skipped)
 
     @router.get("/{universe_id}", response_model=Universe)
     def get_universe(request: Request,

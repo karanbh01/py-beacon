@@ -18,7 +18,6 @@ moment apart should describe the same run.
 Every read is a 404 until a backtest has been run, which is the honest answer:
 there is no view of an index nobody has calculated.
 """
-import logging
 from typing import Annotated, Any
 
 from ..._optional import require
@@ -26,12 +25,14 @@ from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError, DataNotFoundError
 from ..backtests import build_backtest_job
 from ..config import ServerConfig
+from ..documents import load_document, read_collection, validated
 from ..jobs import JobRegistry
 from ..runs import snapshot_at, snapshots_from
 from ..schemas import (
     AssetView,
     AttributionView,
     BacktestJobStatus,
+    BacktestRecordCollection,
     BacktestRecordRow,
     BacktestRequest,
     BacktestResultSummary,
@@ -53,8 +54,6 @@ from ..weights import build_weights
 require("fastapi", "The Beacon API server")
 
 from fastapi import APIRouter, Query, Request, status  # noqa: E402
-
-logger = logging.getLogger(__name__)
 
 BenchmarkQuery = Annotated[
     str | None,
@@ -103,11 +102,31 @@ def _index_document(request: Request,
                     index_id: Identifier) -> IndexDocument:
     """Load a stored index definition, or fail with a mapped error."""
     store: DocumentStore = request.app.state.index_store
-    document = store.read(index_id)
-    if document is None:
-        raise DataNotFoundError(f"index '{index_id}'", source="DocumentStore")
 
-    return IndexDocument.model_validate(document)
+    return load_document(store,
+                         index_id,
+                         validated(IndexDocument),
+                         f"index '{index_id}'")
+
+
+# The pointer a record that cannot be served carries. One constant for the
+# absent case and the unreadable one: a client can act on neither differently,
+# and the advice is the same in both.
+RECORD_SOURCE = "run POST /beacon/{index_id}/backtest first"
+
+
+def _record_row(index_id: str,
+                document: dict[str, Any]) -> BacktestRecordRow:
+    """The listing row for one stored record.
+
+    The row is thin — id and capture time — but the *whole* record is validated
+    to produce it (BN-174). Reading only `run_at` is what made the two surfaces
+    disagree: a record missing a required field satisfied the listing and then
+    500d on `/record`, so a client was offered a row it could not open.
+    """
+    record = BacktestResultSummary.model_validate(document)
+
+    return BacktestRecordRow(index_id=index_id, run_at=record.run_at)
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
@@ -179,8 +198,8 @@ def build_beacon_router() -> APIRouter:
         return build_compare({index_id: _latest_run(request, index_id)
                               for index_id in ids})
 
-    @router.get("/backtests", response_model=list[BacktestRecordRow])
-    def backtest_records(request: Request) -> list[BacktestRecordRow]:
+    @router.get("/backtests", response_model=BacktestRecordCollection)
+    def backtest_records(request: Request) -> BacktestRecordCollection:
         """Every stored backtest record, newest first (BN-162).
 
         The enumeration Beacon View's search bar needs: which indices HAVE a
@@ -189,27 +208,20 @@ def build_beacon_router() -> APIRouter:
         `/beacon/{index_id}/record` serves the books.
 
         A record that cannot be read is skipped with a warning rather than
-        failing the listing: one bad file must not hide every good one.
+        failing the listing: one bad file must not hide every good one. Since
+        BN-174 "cannot be read" means the same thing here as at `/record`, and
+        the count of what was skipped is published beside the rows — a listing
+        silently short is indistinguishable from a complete one.
         """
         records: DocumentStore = request.app.state.backtest_record_store
-
-        rows = []
-        for index_id in records.list_ids():
-            try:
-                record = records.read(index_id)
-            except ConfigurationError as error:
-                logger.warning("Skipping unreadable backtest record '%s': %s",
-                               index_id, error)
-                continue
-
-            if record is not None:
-                rows.append(BacktestRecordRow(index_id=index_id,
-                                              run_at=record.get("run_at")))
+        rows, skipped = read_collection(records, _record_row, "backtest record")
 
         # Newest first; unstamped records (pre-BN-162) sort to the end.
-        return sorted(rows,
-                      key=lambda row: row.run_at or "",
-                      reverse=True)
+        return BacktestRecordCollection(
+            backtests=sorted(rows,
+                             key=lambda row: row.run_at or "",
+                             reverse=True),
+            skipped=skipped)
 
     @router.get("/{index_id}/overview", response_model=OverviewView)
     def overview(request: Request,
@@ -220,7 +232,7 @@ def build_beacon_router() -> APIRouter:
 
     @router.get("/{index_id}/record", response_model=BacktestResultSummary)
     def backtest_record(request: Request,
-                        index_id: Identifier) -> dict[str, Any]:
+                        index_id: Identifier) -> BacktestResultSummary:
         """The latest run's books, nested: the record, not the derived view.
 
         `BacktestJobStatus.result` carries the run payload — rebased level,
@@ -232,17 +244,19 @@ def build_beacon_router() -> APIRouter:
         Raises:
             DataNotFoundError: If the index has never been backtested
                 successfully — the same answer, and the same pointer, as the
-                overview.
+                overview. Since BN-174 a record that cannot be parsed or
+                validated answers the same way rather than 500ing: it is the
+                document the listing skips, and a stored artefact the server
+                cannot interpret is indistinguishable, from here, from one that
+                was never written. The fault is logged at WARNING.
         """
         records: DocumentStore = request.app.state.backtest_record_store
-        record = records.read(index_id)
 
-        if record is None:
-            raise DataNotFoundError(
-                f"a backtest record for index '{index_id}'",
-                source="run POST /beacon/{index_id}/backtest first")
-
-        return record
+        return load_document(records,
+                             index_id,
+                             validated(BacktestResultSummary),
+                             f"a backtest record for index '{index_id}'",
+                             source=RECORD_SOURCE)
 
     @router.get("/{index_id}/weights", response_model=WeightsView)
     def weights(request: Request,

@@ -30,6 +30,7 @@ from ..constraints import (
     label_map,
     validate_constraint_set,
 )
+from ..documents import load_document, read_collection, validated
 from ..jobs import JobRegistry
 from ..optimisation import (
     build_exposures,
@@ -80,13 +81,15 @@ def _data_fetcher(request: Request) -> DataFetcher:
 
 def _constraint_set(request: Request,
                     set_id: Identifier) -> ConstraintSet:
-    """Load a stored constraint set, or fail with a mapped error."""
-    document = _store(request).read(set_id)
-    if document is None:
-        raise DataNotFoundError(f"constraint set '{set_id}'",
-                                source="DocumentStore")
+    """Load a stored constraint set, or fail with a mapped error.
 
-    return ConstraintSet.model_validate(document)
+    Not-found also covers a document that cannot be parsed or validated
+    (BN-174), which is what the listing beside it skips.
+    """
+    return load_document(_store(request),
+                         set_id,
+                         validated(ConstraintSet),
+                         f"constraint set '{set_id}'")
 
 
 def _run(request: Request,
@@ -122,9 +125,13 @@ def build_optimise_router() -> APIRouter:
 
     @router.get("/constraint-sets", response_model=ConstraintSetCollection)
     def list_sets(request: Request) -> ConstraintSetCollection:
-        return ConstraintSetCollection(
-            constraint_sets=[ConstraintSet.model_validate(document)
-                             for document in _store(request).read_all()])
+        # Skipped and counted rather than failing whole (BN-174): one bad file
+        # used to make every other constraint set unreachable from the picker.
+        sets, skipped = read_collection(_store(request),
+                                        validated(ConstraintSet),
+                                        "constraint set")
+
+        return ConstraintSetCollection(constraint_sets=sets, skipped=skipped)
 
     @router.post("/constraint-sets/validate", response_model=ValidationReport)
     def validate(body: ConstraintSet) -> ValidationReport:

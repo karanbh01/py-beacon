@@ -23,6 +23,7 @@ from ..definitions import (
     has_errors,
     validate_document,
 )
+from ..documents import load_document, read_collection, validated
 from ..jobs import JobRegistry
 from ..preview import build_preview
 from ..schemas import (
@@ -62,6 +63,32 @@ def _store(request: Request) -> DocumentStore:
     store: DocumentStore = request.app.state.index_store
 
     return store
+
+
+def load_index(request: Request,
+               index_id: Identifier) -> IndexDocument:
+    """Read an index definition, or answer not-found.
+
+    Not-found covers a definition that is absent, one that is not valid JSON,
+    and one that no longer satisfies `IndexDocument` (BN-174) — the third being
+    what every stored document hits the day a required field is added to the
+    model. The listing skips exactly the same documents, so the two cannot
+    disagree about what exists.
+
+    Args:
+        request: The incoming request.
+        index_id: Identifier of the definition.
+
+    Returns:
+        IndexDocument: The stored definition.
+
+    Raises:
+        DataNotFoundError: If it cannot be served.
+    """
+    return load_document(_store(request),
+                         index_id,
+                         validated(IndexDocument),
+                         f"index '{index_id}'")
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
@@ -109,12 +136,17 @@ def _children_by_source(store: DocumentStore) -> dict[str, list[str]]:
 
     Read off the stored documents rather than kept as an index of its own: the
     derivation *is* the link, so scanning cannot disagree with it. Raw dicts
-    rather than validated documents, because one unreadable document must not
-    stop a delete from finding the children of a readable one.
+    rather than validated documents, because one *invalid* document must not
+    stop a delete from finding the children of a readable one — and through the
+    tolerant reader, because `store.read_all()` raises on an unparseable file,
+    which made that promise false for the one case most likely to occur.
     """
     children: dict[str, list[str]] = {}
+    stored_documents, _ = read_collection(store,
+                                          lambda _, document: document,
+                                          "index definition")
 
-    for stored in store.read_all():
+    for stored in stored_documents:
         derivation = stored.get("derivation")
         document_id = stored.get("id")
 
@@ -236,9 +268,14 @@ def build_indices_router() -> APIRouter:
 
     @router.get("", response_model=IndexCollection)
     def list_indices(request: Request) -> IndexCollection:
-        return IndexCollection(
-            indices=[IndexDocument.model_validate(doc)
-                     for doc in _store(request).read_all()])
+        # A definition the server cannot read is skipped rather than failing
+        # the listing (BN-174): one bad file used to take out every index, so
+        # the picker went blank and nothing else was reachable through the UI.
+        indices, skipped = read_collection(_store(request),
+                                           validated(IndexDocument),
+                                           "index definition")
+
+        return IndexCollection(indices=indices, skipped=skipped)
 
     # Declared before the "/{index_id}" routes so the literal path is not
     # swallowed as an index id. Static segments are matched first regardless,
@@ -300,13 +337,10 @@ def build_indices_router() -> APIRouter:
         # Kept alongside the body route: a saved-index view has an id and no
         # document in hand, and making it send one back would mean fetching the
         # definition purely to post it again.
-        document = _store(request).read(index_id)
-        if document is None:
-            raise DataNotFoundError(f"index '{index_id}'", source="DocumentStore")
-
+        document = load_index(request, index_id)
         as_of = body.as_of if body is not None else None
 
-        return build_preview(IndexDocument.model_validate(document),
+        return build_preview(document,
                              _data_fetcher(request),
                              _store(request),
                              as_of)
@@ -315,20 +349,12 @@ def build_indices_router() -> APIRouter:
     def schedule(request: Request,
                  index_id: Identifier,
                  asof: AsOfQuery = None) -> ScheduleView:
-        stored = _store(request).read(index_id)
-        if stored is None:
-            raise DataNotFoundError(f"index '{index_id}'", source="DocumentStore")
-
-        return build_schedule(IndexDocument.model_validate(stored), asof)
+        return build_schedule(load_index(request, index_id), asof)
 
     @router.get("/{index_id}", response_model=IndexDocument)
     def get_index(request: Request,
                   index_id: Identifier) -> IndexDocument:
-        document = _store(request).read(index_id)
-        if document is None:
-            raise DataNotFoundError(f"index '{index_id}'", source="DocumentStore")
-
-        return IndexDocument.model_validate(document)
+        return load_index(request, index_id)
 
     @router.delete("/{index_id}", response_model=IndexDeletion)
     def delete_index(request: Request,
@@ -395,19 +421,13 @@ def build_indices_router() -> APIRouter:
         and a cadence of its own would have no parent weights at the extra
         dates (design record, default 2).
         """
-        stored = _store(request).read(index_id)
-
-        if stored is None:
-            raise DataNotFoundError(f"index '{index_id}'",
-                                    source="DocumentStore")
+        parent = load_index(request, index_id)
 
         if _store(request).exists(body.id):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"An index with id '{body.id}' already exists. Choose "
                        f"another id, or delete that index first.")
-
-        parent = IndexDocument.model_validate(stored)
 
         return _save(request, body.id, _derived_document(parent, body))
 

@@ -614,6 +614,18 @@ class TestTheDecidedWeights:
         assert book["rebalances_total"] == 0
 
 
+def stamped_record(run_at) -> dict:
+    """A complete record, captured at a given moment.
+
+    Complete rather than skeletal, which the seeded records here used to be.
+    Since BN-174 the listing validates the whole record against the same model
+    `/record` serves — that is what stops a row being offered and then refused —
+    so a stub carrying only `run_at` is now a record the listing is right to
+    leave out.
+    """
+    return {**built_record([pd.Timestamp(START)]), "run_at": run_at}
+
+
 class TestTheListing:
     """BN-162: `GET /beacon/backtests` — which indices HAVE a record.
 
@@ -622,6 +634,10 @@ class TestTheListing:
     deliberately thin — id and capture time — because everything else is one
     `/record` call away, and names live in the catalogue the client already
     holds.
+
+    BN-174 turned the bare array into `{backtests, skipped}`: the rows had
+    nowhere to carry the count of what was skipped, and a listing short by
+    three is otherwise indistinguishable from a complete one.
     """
 
     def test_an_empty_store_lists_nothing(self,
@@ -629,7 +645,7 @@ class TestTheListing:
         response = client.get("/beacon/backtests", headers=auth())
 
         assert response.status_code == 200
-        assert response.json() == []
+        assert response.json() == {"backtests": [], "skipped": 0}
 
     def test_a_run_appears_with_a_parseable_utc_stamp(self,
                                                       module_client,
@@ -638,8 +654,8 @@ class TestTheListing:
         3 days ago" is a row someone can judge, a flag is not."""
         from datetime import datetime
 
-        rows = module_client.get("/beacon/backtests", headers=auth()).json()
-        ours = [row for row in rows if row["index_id"] == "BT"]
+        body = module_client.get("/beacon/backtests", headers=auth()).json()
+        ours = [row for row in body["backtests"] if row["index_id"] == "BT"]
 
         assert len(ours) == 1
         stamp = datetime.fromisoformat(ours[0]["run_at"])
@@ -648,18 +664,20 @@ class TestTheListing:
     def test_newest_first_and_unstamped_last(self,
                                              client):
         """Records written before BN-162 carry no stamp; they sort after
-        every dated row rather than lying about when they ran. Seeded
-        skeletally in a function-scoped store: ordering is the subject, so
-        the rows are arranged, not raced."""
+        every dated row rather than lying about when they ran. Seeded into a
+        function-scoped store: ordering is the subject, so the rows are
+        arranged, not raced."""
         records = client.app.state.backtest_record_store
-        records.write("OLD", {"run_at": "2020-01-01T00:00:00+00:00"})
-        records.write("NEW", {"run_at": "2030-01-01T00:00:00+00:00"})
-        records.write("UNSTAMPED", {})
+        records.write("OLD", stamped_record("2020-01-01T00:00:00+00:00"))
+        records.write("NEW", stamped_record("2030-01-01T00:00:00+00:00"))
+        records.write("UNSTAMPED", stamped_record(None))
 
-        rows = client.get("/beacon/backtests", headers=auth()).json()
+        body = client.get("/beacon/backtests", headers=auth()).json()
+        rows = body["backtests"]
 
         assert [row["index_id"] for row in rows] == ["NEW", "OLD", "UNSTAMPED"]
         assert rows[-1]["run_at"] is None
+        assert body["skipped"] == 0
 
     def test_a_corrupt_record_is_skipped_not_a_500(self,
                                                    client):
@@ -667,24 +685,26 @@ class TestTheListing:
         all its backtest rows to a single truncated write would report the
         store empty when it is merely imperfect."""
         records = client.app.state.backtest_record_store
-        records.write("GOOD", {"run_at": "2025-01-01T00:00:00+00:00"})
+        records.write("GOOD", stamped_record("2025-01-01T00:00:00+00:00"))
         (records.directory / "BAD.json").write_text("{not json",
                                                     encoding="utf-8")
 
-        rows = client.get("/beacon/backtests", headers=auth()).json()
+        body = client.get("/beacon/backtests", headers=auth()).json()
 
-        assert [row["index_id"] for row in rows] == ["GOOD"]
+        assert [row["index_id"] for row in body["backtests"]] == ["GOOD"]
+        assert body["skipped"] == 1
 
     def test_deleting_the_index_removes_the_row(self,
                                                 client):
         """The acceptance case: the BN-157 cascade reaches the listing."""
         records = client.app.state.backtest_record_store
-        records.write("BT", {"run_at": "2025-01-01T00:00:00+00:00"})
+        records.write("BT", stamped_record("2025-01-01T00:00:00+00:00"))
 
         deleted = client.delete("/indices/BT", headers=auth())
         assert deleted.status_code == 200
 
-        assert client.get("/beacon/backtests", headers=auth()).json() == []
+        assert client.get("/beacon/backtests",
+                          headers=auth()).json()["backtests"] == []
 
     def test_it_requires_authentication(self,
                                         client):
