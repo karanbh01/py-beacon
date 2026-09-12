@@ -25,6 +25,18 @@ has only half of it diverges — which is the bug this module exists to make
 impossible: the listing and the detail now share the same definition of
 "unreadable", so they cannot disagree about what exists.
 
+**Write paths need the two questions apart (BN-177).** A read asks "can you give
+me this", and a document it cannot parse is answered as absent. A *write* asks
+something else, and which something depends on the verb: a delete needs the file
+to be PRESENT, not valid, and a PUT needs to know whether a guard that inspects
+the predecessor can run at all. Conflating the two is what left a corrupt
+universe undeletable *and* unrepairable — 404 on read, 500 on delete, 500 on
+overwrite, with the id occupied forever and only a manual file deletion on the
+server to clear it. `stored` is the vocabulary for asking explicitly: it hands
+back the document when it reads and records the fault when it does not, so
+`present` and `readable` are separate properties of one answer and a route
+cannot accidentally ask one while meaning the other.
+
 **Why here rather than on `DocumentStore`.** The store deals in dicts: it knows
 about JSON and schema versions, and nothing about pydantic models or HTTP. But
 most of the documents this guards against are perfectly good JSON — the failure
@@ -36,7 +48,8 @@ tolerance is applied where the model is known.
 """
 import logging
 from collections.abc import Callable
-from typing import Any, TypeVar
+from dataclasses import dataclass
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -75,6 +88,111 @@ def validated(model: type[ModelT]) -> Callable[[str, dict[str, Any]], ModelT]:
         return model.model_validate(document)
 
     return build
+
+
+def raw(document_id: str,
+        document: dict[str, Any]) -> dict[str, Any]:
+    """A build function that hands back the stored dict unchanged.
+
+    For a caller that wants the document as stored rather than as a model: the
+    delete cascade reads derivations off raw dicts, and a guard that only reads
+    one key has no reason to hold the whole document to a model.
+    """
+    return document
+
+
+@dataclass(frozen=True)
+class Stored(Generic[T]):
+    """What a collection holds under one id: both questions, answered once.
+
+    Three states, and every write path branches on some pair of them: absent
+    (nothing stored), present-but-unreadable (a file is there and the server
+    cannot interpret it), and readable (here is the document). A bool alone
+    cannot express the middle one, which is precisely the state that made a
+    corrupt document undeletable.
+
+    Built from a single `store.read`, so `present` cannot contradict the
+    document the same call returned -- an `exists` followed by a `read` can.
+
+    Attributes:
+        document: The built document, or None when absent or unreadable.
+        fault: Why it could not be read; None when it read, and also None when
+            nothing is stored. `fault is not None` *is* "present but
+            unreadable".
+    """
+
+    document: T | None = None
+    fault: Exception | None = None
+
+    @property
+    def present(self) -> bool:
+        """Whether something is stored under this id, readable or not."""
+        return self.document is not None or self.fault is not None
+
+    @property
+    def readable(self) -> bool:
+        """Whether the stored document could be read and built."""
+        return self.document is not None
+
+    def warn_guard_skipped(self,
+                           guard: str,
+                           describe: str) -> None:
+        """Log a guard that this document's fault made impossible to run.
+
+        A no-op when the document is absent or readable: there is no guard to
+        skip in either case.
+
+        The log line is the only record, and it has to name both halves -- which
+        check did not run, and why -- because the request succeeds and the
+        response says nothing about it. Skipping is the lesser evil (a guard
+        that cannot run must not make a document permanently unfixable), but it
+        is still a guard that did not run.
+
+        Args:
+            guard: The check that was skipped, as a noun phrase.
+            describe: The document it would have guarded, e.g. ``"universe
+                'tech'"``.
+        """
+        if self.fault is None:
+            return
+
+        logger.warning("Skipped %s for %s: the stored document cannot be read "
+                       "(%s). Proceeding, because a document the server cannot "
+                       "read would otherwise be impossible to delete or "
+                       "replace through the API.",
+                       guard, describe, self.fault)
+
+
+def stored(store: DocumentStore,
+           document_id: str,
+           build: Callable[[str, dict[str, Any]], T]) -> Stored[T]:
+    """Ask what a collection holds under an id, without conflating the answers.
+
+    The write-path counterpart to `load_document`: where a read turns an
+    unreadable document into a not-found, a write needs the distinction kept,
+    so this one refuses nothing and reports.
+
+    Args:
+        store: The collection to look in.
+        document_id: Identifier of the document.
+        build: Turns ``(document_id, document)`` into whatever the caller needs
+            -- `raw` for the stored dict, `validated(Model)` for a model.
+
+    Returns:
+        Stored: The document, or the fault that stopped it being read.
+    """
+    try:
+        document = store.read(document_id)
+    except UNREADABLE as error:
+        return Stored(fault=error)
+
+    if document is None:
+        return Stored()
+
+    try:
+        return Stored(document=build(document_id, document))
+    except UNREADABLE as error:
+        return Stored(fault=error)
 
 
 def read_collection(store: DocumentStore,

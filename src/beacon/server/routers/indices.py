@@ -23,7 +23,7 @@ from ..definitions import (
     has_errors,
     validate_document,
 )
-from ..documents import load_document, read_collection, validated
+from ..documents import load_document, raw, read_collection, stored, validated
 from ..jobs import JobRegistry
 from ..preview import build_preview
 from ..schemas import (
@@ -142,13 +142,11 @@ def _children_by_source(store: DocumentStore) -> dict[str, list[str]]:
     which made that promise false for the one case most likely to occur.
     """
     children: dict[str, list[str]] = {}
-    stored_documents, _ = read_collection(store,
-                                          lambda _, document: document,
-                                          "index definition")
+    stored_documents, _ = read_collection(store, raw, "index definition")
 
-    for stored in stored_documents:
-        derivation = stored.get("derivation")
-        document_id = stored.get("id")
+    for document in stored_documents:
+        derivation = document.get("derivation")
+        document_id = document.get("id")
 
         if not isinstance(derivation, dict) or not isinstance(document_id, str):
             continue
@@ -422,12 +420,11 @@ def build_indices_router() -> APIRouter:
         dates (design record, default 2).
         """
         parent = load_index(request, index_id)
+        taken = stored(_store(request), body.id, validated(IndexDocument))
 
-        if _store(request).exists(body.id):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"An index with id '{body.id}' already exists. Choose "
-                       f"another id, or delete that index first.")
+        if taken.present:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail=_taken(body.id, taken.readable))
 
         return _save(request, body.id, _derived_document(parent, body))
 
@@ -457,13 +454,23 @@ def build_indices_router() -> APIRouter:
         The objective and the constraints are ordinary rule edits — they
         re-fingerprint and recalculate exactly as a pipeline change does — and
         stay editable.
-        """
-        stored = _store(request).read(index_id)
 
-        if stored is None:
+        Skipped, with a warning, when the stored document cannot be read: the
+        check is a comparison against a predecessor, and there is nothing to
+        compare against. Refusing instead would make an unreadable definition
+        unrepairable through the API (BN-177), and a PUT is exactly the repair —
+        it supplies a complete valid replacement. A document that reads is held
+        to the check as before.
+        """
+        held = stored(_store(request), index_id, validated(IndexDocument))
+
+        if held.document is None:
+            held.warn_guard_skipped("the re-pointed-derivation check",
+                                    f"index '{index_id}'")
+
             return
 
-        current = IndexDocument.model_validate(stored).derivation
+        current = held.document.derivation
 
         if current is None:
             return
@@ -506,6 +513,37 @@ def build_indices_router() -> APIRouter:
         return SavedIndex(index=resolved, findings=findings)
 
     return router
+
+
+def _taken(index_id: str,
+           readable: bool) -> str:
+    """The 409 an occupied id earns, which depends on why it is occupied.
+
+    Two states, and "already exists" is only honest about one of them. An id
+    held by an *unreadable* document is refused here while `GET` answers
+    not-found for it (BN-174), so a client hears that the index does not exist
+    and that its id is taken — both true of different things, and together
+    unactionable unless the message says which. Delete is the way out of that
+    state, and the reader cannot guess it.
+
+    **Prose only, deliberately — no new error code and no flag on the envelope
+    (BN-177).** Explaining is free: a client that renders the server's refusal
+    shows this with no change at all. *Offering* means a button, which a client
+    cannot build from prose without matching on message text — the worst
+    available coupling between the two repos — and a button that deletes a
+    document its user cannot inspect is a bad button: one click, irreversible,
+    on contents that are by definition unknown to whoever clicks. The state
+    needs a corrupt file to reach, so it is rare, and the recovery is
+    destructive. Add the machine-readable bit if this stops being rare, or if a
+    non-interactive client ever needs to resolve the state rather than relay it.
+    """
+    if readable:
+        return (f"An index with id '{index_id}' already exists. Choose another "
+                f"id, or delete that index first.")
+
+    return (f"An index with id '{index_id}' is stored but cannot be read, "
+            f"which is why reading it answers not-found. Nothing can be saved "
+            f"over it here: delete it (DELETE /indices/{index_id}) and retry.")
 
 
 def _derived_document(parent: IndexDocument,

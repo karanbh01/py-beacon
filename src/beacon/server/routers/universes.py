@@ -40,7 +40,7 @@ from ...exceptions import (
 from ...expressions.core import from_dict
 from ...universe import where
 from ..config import ServerConfig
-from ..documents import load_document, read_collection, validated
+from ..documents import load_document, raw, read_collection, stored, validated
 from ..schemas import (
     MODE_FROZEN,
     MODE_LIVE,
@@ -469,11 +469,23 @@ def build_universes_router() -> APIRouter:
     def put_universe(request: Request,
                      universe_id: Identifier,
                      body: UniverseUpsert) -> Universe:
-        store = _store(request)
-        existing = store.read(universe_id)
+        """Replace a universe, repairing an unreadable one if that is what it is.
 
-        if existing is not None:
-            _refuse_if_seeded(existing, universe_id)
+        A PUT carries a complete valid replacement, so over an unreadable
+        document it is a repair — and the read-only check cannot run, because
+        `source` is one of the fields the server cannot read. Refusing would
+        leave the document unfixable through the API, the same trap the delete
+        had (BN-177), so the check is skipped and logged. It is *not* skipped
+        for a document that reads: that is the whole point of it.
+        """
+        store = _store(request)
+        held = stored(store, universe_id, raw)
+
+        if held.document is not None:
+            _refuse_if_seeded(held.document, universe_id)
+        else:
+            held.warn_guard_skipped("the read-only (seeded) check",
+                                    f"universe '{universe_id}'")
 
         # Validated on update as well as create. PUT predates the loaded data,
         # so it accepted any list at all -- meaning a universe could be edited
@@ -493,11 +505,27 @@ def build_universes_router() -> APIRouter:
     @router.delete("/{universe_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_universe(request: Request,
                         universe_id: Identifier) -> Response:
-        store = _store(request)
-        existing = store.read(universe_id)
+        """Remove a universe, whether or not the server can read it.
 
-        if existing is not None:
-            _refuse_if_seeded(existing, universe_id)
+        Removal needs the file to be PRESENT, not valid, so this asks existence
+        and not readability (BN-177). Going through a strict read made an
+        unreadable universe 500 here, which left the id occupied forever — only
+        deleting the file on the server could clear it.
+
+        The read-only check is skipped when the document cannot be read: you
+        cannot protect the contents of a file you cannot read, and refusing
+        would leave it permanently undeletable, which is strictly worse than the
+        risk it guards against. A seeded universe can be regenerated; a stuck id
+        cannot be cleared through the API at all.
+        """
+        store = _store(request)
+        held = stored(store, universe_id, raw)
+
+        if held.document is not None:
+            _refuse_if_seeded(held.document, universe_id)
+        else:
+            held.warn_guard_skipped("the read-only (seeded) check",
+                                    f"universe '{universe_id}'")
 
         if not store.delete(universe_id):
             raise DataNotFoundError(f"universe '{universe_id}'", source="DocumentStore")

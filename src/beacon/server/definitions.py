@@ -30,6 +30,7 @@ from ..index.derived import (
 )
 from ..index.schedule import DAY_RULES, is_known_calendar
 from .constraints import build_constraint_rows, validate_constraint_rows
+from .documents import stored, validated
 from .schemas import (
     DerivationPayload,
     Finding,
@@ -553,15 +554,20 @@ def _built_definition(document: IndexDocument,
             f"indices deep ({' -> '.join(chain)}), which is deeper than this "
             f"server will resolve")
 
-    stored = documents.read(derivation.source_index_id)
+    # Existence is not enough: a source that is stored and unreadable is a
+    # source this document can never be calculated from, and reading it answers
+    # not-found (BN-174), so saying so here keeps one story. It went through a
+    # strict read and a bare `model_validate` before, which made a corrupt
+    # parent a 500 on every save of a child (BN-177).
+    held = stored(documents, derivation.source_index_id, validated(IndexDocument))
 
-    if stored is None:
+    if held.document is None:
         raise DataNotFoundError(
             f"source index '{derivation.source_index_id}', which "
             f"'{document.id}' is derived from",
             source="DocumentStore")
 
-    source = _built_definition(IndexDocument.model_validate(stored),
+    source = _built_definition(held.document,
                                documents,
                                (*chain, document.id))
 

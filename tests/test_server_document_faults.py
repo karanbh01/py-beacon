@@ -426,6 +426,220 @@ class TestTheStoreStaysStrict:
         assert store.read("partial")["id"] == "partial"
 
 
+UNIVERSES = PAIRS[1].values[0]
+INDICES = PAIRS[0].values[0]
+
+
+def derived_document(document_id: str,
+                     source_index_id: str) -> dict:
+    """A stored index definition whose methodology is a derivation."""
+    document = index_document(document_id)
+    document.pop("universe")
+    document["pipeline"] = None
+    document["derivation"] = {"source_index_id": source_index_id,
+                              "objective": "min_tracking_error",
+                              "constraints": []}
+
+    return document
+
+
+class TestAWriteCanFixWhatAReadCannotServe:
+    """BN-177: the write paths BN-174 deliberately left alone.
+
+    BN-174 made a read answer not-found for a document it cannot interpret,
+    which is right for a read and left every *write* path going through the same
+    strict read for its guards. The result, measured on a corrupt universe: 404
+    on read, 500 on delete, 500 on overwrite. Three answers, no action available,
+    and the id occupied until somebody deletes the file on the server.
+
+    The fix is to stop conflating two questions. A delete needs the file to be
+    PRESENT, not valid. A PUT needs to know whether a guard on the predecessor
+    can run at all — and when it cannot, running it is impossible and refusing
+    makes the document permanently unfixable, so it is skipped and logged. A
+    guard that *can* run still runs, which the last two tests here pin down:
+    weakening it for readable documents would trade one bug for a worse one.
+    """
+
+    def test_a_corrupt_universe_can_be_deleted_and_its_id_reused(self,
+                                                                 client):
+        """The actual point is freeing the id, so this asserts the reuse.
+
+        A 204 that left the name taken would fix nothing a client can see.
+        """
+        write_unparseable(client, UNIVERSES)
+
+        removed = client.delete(f"/universes/{UNPARSEABLE}", headers=HEADERS)
+
+        assert removed.status_code == 204, removed.text
+
+        recreated = client.post("/universes",
+                                json={"name": UNPARSEABLE,
+                                      "identifiers": ["AAA"]},
+                                headers=HEADERS)
+
+        assert recreated.status_code == 201, recreated.text
+        assert recreated.json()["id"] == UNPARSEABLE
+        assert client.get(f"/universes/{UNPARSEABLE}",
+                          headers=HEADERS).status_code == 200
+
+    def test_a_universe_missing_a_required_field_can_be_deleted(self,
+                                                               client):
+        """The forward-compatibility shape, not only a truncated file: a model
+        that gains a required field makes every older document land here."""
+        store_of(client, UNIVERSES).write(INVALID, UNIVERSES["invalid"])
+
+        response = client.delete(f"/universes/{INVALID}", headers=HEADERS)
+
+        assert response.status_code == 204, response.text
+        assert not store_of(client, UNIVERSES).exists(INVALID)
+
+    def test_deleting_an_absent_universe_is_still_404(self,
+                                                      client):
+        """Existence is the question the delete now asks, so it still has to
+        answer it: "present" must not quietly become "anything at all"."""
+        response = client.delete(f"/universes/{ABSENT}", headers=HEADERS)
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "DATA_NOT_FOUND"
+
+    def test_a_corrupt_universe_can_be_replaced_and_reads_back(self,
+                                                              client):
+        """A PUT over an unreadable document is a repair: it carries a complete
+        valid replacement, so the result has to be readable afterwards."""
+        write_unparseable(client, UNIVERSES)
+
+        replaced = client.put(f"/universes/{UNPARSEABLE}",
+                              json={"name": "Repaired",
+                                    "identifiers": ["AAA", "BBB"]},
+                              headers=HEADERS)
+
+        assert replaced.status_code == 200, replaced.text
+
+        served = client.get(f"/universes/{UNPARSEABLE}", headers=HEADERS)
+
+        assert served.status_code == 200
+        assert served.json()["name"] == "Repaired"
+        assert served.json()["identifiers"] == ["AAA", "BBB"]
+
+    def test_skipping_the_read_only_check_is_logged_with_the_reason(self,
+                                                                    client,
+                                                                    caplog):
+        """The request succeeds and says nothing about the guard that did not
+        run, so the log is the only record that one was skipped."""
+        write_unparseable(client, UNIVERSES)
+
+        with caplog.at_level("WARNING"):
+            client.delete(f"/universes/{UNPARSEABLE}", headers=HEADERS)
+
+        warnings = [record.getMessage() for record in caplog.records
+                    if record.levelname == "WARNING"]
+
+        assert any("seeded" in message and UNPARSEABLE in message
+                   for message in warnings), caplog.text
+
+    def test_a_readable_seeded_universe_is_still_refused(self,
+                                                         client):
+        """The guard is skipped only because it cannot run. A document that
+        reads is held to it exactly as before — otherwise this issue would have
+        made every generator-written universe editable."""
+        store_of(client, UNIVERSES).write("seeded-one",
+                                          {**universe_document("seeded-one"),
+                                           "source": "seeded"})
+
+        removed = client.delete("/universes/seeded-one", headers=HEADERS)
+        replaced = client.put("/universes/seeded-one",
+                              json={"name": "Hijacked", "identifiers": ["AAA"]},
+                              headers=HEADERS)
+
+        assert removed.status_code == 422, removed.text
+        assert "read-only" in removed.json()["error"]["message"]
+        assert replaced.status_code == 422, replaced.text
+        assert "read-only" in replaced.json()["error"]["message"]
+        assert store_of(client, UNIVERSES).read("seeded-one")["source"] == "seeded"
+
+    def test_a_corrupt_index_can_be_replaced_and_reads_back(self,
+                                                            client):
+        """`PUT /indices/{id}` held `derivation.source_index_id` still by
+        reading the stored document, so an unreadable predecessor 500d."""
+        write_unparseable(client, INDICES)
+
+        replaced = client.put(f"/indices/{UNPARSEABLE}",
+                              json=index_document(UNPARSEABLE),
+                              headers=HEADERS)
+
+        assert replaced.status_code == 200, replaced.text
+
+        served = client.get(f"/indices/{UNPARSEABLE}", headers=HEADERS)
+
+        assert served.status_code == 200
+        assert served.json()["name"] == "Valid index"
+
+    def test_a_readable_derivation_still_cannot_be_repointed(self,
+                                                            client):
+        """The other half of the same claim, for the index guard."""
+        store_of(client, INDICES).write("child", derived_document("child", "one"))
+
+        response = client.put("/indices/child",
+                              json=derived_document("child", "two"),
+                              headers=HEADERS)
+
+        assert response.status_code == 422, response.text
+        assert "re-pointing" in response.json()["error"]["message"]
+
+    def test_a_taken_and_readable_id_still_reads_as_a_name_clash(self,
+                                                                client):
+        """The ordinary collision is unchanged: this is the message every
+        client has been rendering, and nothing about it was wrong."""
+        store_of(client, INDICES).write("parent", index_document("parent"))
+
+        response = client.post("/indices/parent/optimise",
+                               json={"id": "parent", "name": "Optimised"},
+                               headers=HEADERS)
+
+        assert response.status_code == 409, response.text
+        assert "already exists" in response.json()["error"]["message"]
+
+    def test_a_taken_but_unreadable_id_says_so_and_names_the_way_out(self,
+                                                                     client):
+        """The 409 and the 404 are each correct and together unactionable: the
+        client is told the index does not exist AND that its id is taken. Only
+        the message can say which, and delete is the way out.
+
+        Prose, deliberately — no new code and no flag on the envelope, so this
+        asserts the wording and the unchanged code rather than a machine-
+        readable bit (see `_taken` for why).
+        """
+        store_of(client, INDICES).write("parent", index_document("parent"))
+        write_unparseable(client, INDICES, "wreckage")
+
+        response = client.post("/indices/parent/optimise",
+                               json={"id": "wreckage", "name": "Optimised"},
+                               headers=HEADERS)
+        message = response.json()["error"]["message"]
+
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "CONFLICT"
+        assert "cannot be read" in message
+        assert "DELETE /indices/wreckage" in message
+        assert client.get("/indices/wreckage",
+                          headers=HEADERS).status_code == 404
+
+    def test_an_unreadable_derivation_source_is_404_not_500(self,
+                                                            client):
+        """The one other write path with the same fault: saving a child reads
+        its parent to resolve the derivation, and did that strictly. An
+        unreadable parent is a child that can never be calculated, so it is a
+        refusal — but the same refusal an absent parent earns, not a 500."""
+        write_unparseable(client, INDICES, "ancestor")
+
+        response = client.put("/indices/child",
+                              json=derived_document("child", "ancestor"),
+                              headers=HEADERS)
+
+        assert response.status_code == 404, response.text
+        assert "ancestor" in response.json()["error"]["message"]
+
+
 class TestTheDeleteCascadeSurvivesABadFile:
     """A delete reads every index definition to find what derives from the one
     being removed, and did that through the strict reader — so one unparseable
