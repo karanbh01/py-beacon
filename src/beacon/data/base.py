@@ -99,6 +99,23 @@ class MarketData:
         dates = self._df.index.get_level_values("DATE")
         return dates.min(), dates.max()
 
+    def last_session_on_or_before(self,
+                                  date: str | pd.Timestamp) -> pd.Timestamp | None:
+        """The latest date the dataset carries at or before *date*.
+
+        A date inside the coverage that has no rows is an ordinary closed
+        market, and this is the session that was in force through it. None
+        when the dataset begins after *date*, since then there is no earlier
+        session to be in force.
+        """
+        dates = self._df.index.get_level_values("DATE")
+        applicable = dates[dates <= pd.Timestamp(date)]
+
+        if not len(applicable):
+            return None
+
+        return pd.Timestamp(applicable.max())
+
     # -- query ---------------------------------------------------------------
 
     def get(self,

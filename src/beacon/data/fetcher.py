@@ -195,6 +195,34 @@ class DataFetcher:
         """(earliest, latest) timestamps in the market data."""
         return self._market.date_range
 
+    def resolve_session(self,
+                        date: str | pd.Timestamp) -> pd.Timestamp | None:
+        """The market session *date* resolves to, backfilling inside the data.
+
+        A date the data has no bar for but which sits inside its coverage is a
+        day the market was shut. The last session on or before it is the one
+        that was actually in force through the closure — reading it is not an
+        approximation, it is what the day was. Past the last bar nothing is
+        known, so that answers None rather than a stale print wearing a
+        current date; the bound is the data's own coverage rather than a day
+        count, because no day count can tell a long closure from the unknown
+        future.
+
+        Args:
+            date: The date asked about.
+
+        Returns:
+            pd.Timestamp | None: The session, or None when *date* falls
+            outside the data's coverage on either side.
+        """
+        as_of = pd.Timestamp(date)
+        first, last = self.date_range
+
+        if pd.isna(first) or as_of < first or as_of > last:
+            return None
+
+        return self._market.last_session_on_or_before(as_of)
+
     @property
     def corporate_actions(self) -> CorporateActions:
         """The action history. Empty rather than None when none was loaded."""

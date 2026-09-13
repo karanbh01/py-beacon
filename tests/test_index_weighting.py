@@ -1,11 +1,22 @@
 # tests/test_index_weighting.py
-"""BN-103: the weighting scheme must actually drive the index level."""
+"""BN-103: the weighting scheme must actually drive the index level.
+
+BN-179 adds the classes at the foot of the file: a market-cap scheme resolves
+its date backwards into the data or refuses, and never quietly answers with a
+different methodology.
+"""
+import ast
+import inspect
+import textwrap
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from beacon.asset.equity import Equity
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
+from beacon.exceptions import CalculationError
 from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted, MarketCapWeighted
@@ -221,3 +232,175 @@ class TestDivisorContinuityStillHolds:
                                  build_fetcher()).run(start_date=START, end_date=END)
 
         assert (result.divisor_history > 0).all()
+
+
+# ---------------------------------------------------------------------------
+# BN-179: the scheme resolves into the data or refuses -- it never substitutes
+# ---------------------------------------------------------------------------
+
+SATURDAY = pd.Timestamp("2024-03-16")
+THE_FRIDAY_BEFORE = pd.Timestamp("2024-03-15")
+ONE_DAY_PAST_THE_LAST_BAR = pd.Timestamp("2024-06-29")
+
+
+def constituents() -> list[Equity]:
+    """The two names as Equity objects, for calling a scheme directly."""
+    return [Equity(name=name, currency="USD", ticker=name, exchange="NYSE")
+            for name in BASE_PRICE]
+
+
+def fetcher_without_shares() -> DataFetcher:
+    """The same store with no SHARES_OUTSTANDING column at all.
+
+    The issue's first reproduction: a store that predates the column. It used
+    to return {'AAA': 0.5, 'BBB': 0.5}.
+    """
+    frame = build_fetcher().fetch_market_data(list(BASE_PRICE)).reset_index()
+    reference = pd.DataFrame([
+        {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
+         "CURRENCY": "USD", "EXCHANGE": "NYSE"}
+        for name in BASE_PRICE
+    ])
+
+    return DataFetcher(
+        MarketData.from_dataframe(frame.drop(columns=["SHARES_OUTSTANDING"])),
+        ReferenceData.from_dataframe(reference))
+
+
+def expected_cap_weights(fetcher: DataFetcher,
+                         date: pd.Timestamp) -> dict[str, float]:
+    """Cap weights built independently from the frame, on a real session."""
+    day = str(date.date())
+    caps = {
+        name: float(fetcher.fetch_market_data(name, day, day)["CLOSE"].iloc[0]) * SHARES
+        for name in BASE_PRICE
+    }
+    total = sum(caps.values())
+
+    return {name: cap / total for name, cap in caps.items()}
+
+
+class TestADateInsideTheDataResolvesBackwards:
+    """A gap inside the coverage is a shut market, not an absent price.
+
+    The index genuinely held the previous session's composition through the
+    weekend, so reading it is what the index *was* rather than an
+    approximation of it.
+    """
+
+    def test_a_weekend_weights_by_the_previous_session(self):
+        fetcher = build_fetcher()
+
+        weights = MarketCapWeighted().calculate_weights(
+            constituents(), SATURDAY, fetcher)
+
+        by_ticker = {asset.ticker: weight for asset, weight in weights.items()}
+
+        assert by_ticker == pytest.approx(
+            expected_cap_weights(fetcher, THE_FRIDAY_BEFORE))
+
+    def test_the_weekend_is_not_equal_weighted(self):
+        """The defect itself: a Saturday used to come back 0.5/0.5."""
+        weights = MarketCapWeighted().calculate_weights(
+            constituents(), SATURDAY, build_fetcher())
+
+        assert abs(max(weights.values()) - min(weights.values())) > 0.1
+
+    def test_it_matches_the_session_it_resolved_to(self):
+        fetcher = build_fetcher()
+        scheme = MarketCapWeighted()
+
+        saturday = scheme.calculate_weights(constituents(), SATURDAY, fetcher)
+        friday = scheme.calculate_weights(constituents(), THE_FRIDAY_BEFORE, fetcher)
+
+        assert ({a.ticker: w for a, w in saturday.items()}
+                == pytest.approx({a.ticker: w for a, w in friday.items()}))
+
+
+class TestPastTheLastBarRefuses:
+    """Beyond the data nothing is known, and a carried price would say it was."""
+
+    def test_it_raises(self):
+        with pytest.raises(CalculationError):
+            MarketCapWeighted().calculate_weights(
+                constituents(), ONE_DAY_PAST_THE_LAST_BAR, build_fetcher())
+
+    def test_the_message_names_the_date_asked_for_and_the_data_s_end(self):
+        with pytest.raises(CalculationError) as raised:
+            MarketCapWeighted().calculate_weights(
+                constituents(), ONE_DAY_PAST_THE_LAST_BAR, build_fetcher())
+
+        message = str(raised.value)
+
+        assert "2024-06-29" in message, "the requested date is not named"
+        assert "2024-06-28" in message, "the data's actual end is not named"
+
+    def test_the_calculator_surfaces_it_rather_than_publishing_an_index(self):
+        """A rebalance past the data must break the run, not weight it away."""
+        calculator = IndexCalculator(definition(MarketCapWeighted(), "MONTHLY"),
+                                     build_fetcher())
+
+        with pytest.raises(CalculationError):
+            calculator.run(start_date=START, end_date="2024-07-31")
+
+
+class TestAnUnpriceableNameRefuses:
+    """One name silently carrying the index is the same fault in miniature."""
+
+    def test_a_name_with_no_bar_anywhere_raises(self):
+        missing = Equity(name="CCC", currency="USD", ticker="CCC", exchange="NYSE")
+
+        with pytest.raises(CalculationError, match="CCC"):
+            MarketCapWeighted().calculate_weights(
+                [*constituents(), missing], THE_FRIDAY_BEFORE, build_fetcher())
+
+    def test_it_does_not_weight_the_rest_and_call_that_the_index(self):
+        missing = Equity(name="CCC", currency="USD", ticker="CCC", exchange="NYSE")
+
+        with pytest.raises(CalculationError) as raised:
+            MarketCapWeighted().calculate_weights(
+                [*constituents(), missing], THE_FRIDAY_BEFORE, build_fetcher())
+
+        assert "subset" in str(raised.value)
+
+
+class TestTheEqualWeightFallbackIsGone:
+    """Not merely unreached: no branch is left that could reach it."""
+
+    def test_a_store_with_no_shares_column_refuses(self):
+        """The issue's own reproduction, which returned {'AAA': 0.5, ...}."""
+        with pytest.raises(CalculationError, match="SHARES_OUTSTANDING"):
+            MarketCapWeighted().calculate_weights(
+                constituents(), THE_FRIDAY_BEFORE, fetcher_without_shares())
+
+    def test_one_name_missing_shares_refuses_rather_than_carrying_the_index(self):
+        fetcher = build_fetcher(shares={"AAA": SHARES, "BBB": 0})
+
+        with pytest.raises(CalculationError, match="BBB"):
+            MarketCapWeighted().calculate_weights(
+                constituents(), THE_FRIDAY_BEFORE, fetcher)
+
+    def test_the_scheme_never_warns_and_substitutes(self):
+        """The pattern, not the instance: a substitution announced in a log.
+
+        Every failure in this scheme now raises, so there is nothing left for
+        it to warn about -- and no `logger.warning` for a future branch to
+        hide behind.
+        """
+        source = inspect.getsource(MarketCapWeighted)
+
+        assert "logger.warning" not in source
+        assert "logger.error" not in source
+
+    def test_calculate_weights_has_only_two_exits(self):
+        """An empty universe, and weights proportional to real caps.
+
+        A third `return` is how the fallback got in: a branch that answers
+        something rather than refusing. Counted structurally so that adding
+        one back is a deliberate act rather than an oversight.
+        """
+        tree = ast.parse(textwrap.dedent(
+            inspect.getsource(MarketCapWeighted.calculate_weights)))
+        returns = [node for node in ast.walk(tree) if isinstance(node, ast.Return)]
+
+        assert len(returns) == 2, "a new exit from calculate_weights needs review"

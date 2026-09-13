@@ -18,12 +18,19 @@ from ..catalogue import (
     register,
 )
 from ..data.fetcher import DataFetcher
+from ..exceptions import CalculationError
 
 logger = logging.getLogger(__name__)
 
 # Market-data column names read by the rules/schemes below.
 _PRICE_COLUMN = "CLOSE"
 _VOLUME_COLUMN = "VOLUME"
+
+
+def _has_close(frame: pd.DataFrame) -> bool:
+    """Whether *frame*'s first row carries a usable close."""
+    return not (frame.empty or _PRICE_COLUMN not in frame.columns
+                or pd.isna(frame[_PRICE_COLUMN].iloc[0]))
 
 class EligibilityRuleBase(ABC):
     """
@@ -275,102 +282,192 @@ class WeightingSchemeBase(ABC):
                                              "rather than by full market cap."),
           })
 class MarketCapWeighted(WeightingSchemeBase):
-    """
-    Market capitalization weighting scheme.
-    Optionally supports free-float adjustment.
+    """Market capitalization weighting, optionally free-float adjusted.
+
+    **Every path either weights by real market caps or refuses (BN-179).**
+    There is no equal-weight fallback: an index that comes out equal-weighted
+    because the caps could not be read is not a degraded market-cap index, it
+    is a different index published under the same heading, and nothing
+    downstream looks wrong enough for anyone to ask — the levels are right,
+    the weights sum, the backtest tracks.
+
+    **Dates resolve backwards into the data.** A request for a weekend, a
+    holiday, or any date inside the data's coverage that carries no bar reads
+    the last session on or before it, because that is the composition the
+    index actually held through the closure rather than an approximation of
+    one. Past the last bar it refuses, since there the same read would be a
+    stale print presented as the current one. The bound is the data's own
+    coverage, not a day count, which cannot tell those two apart.
     """
     def __init__(self,
                  use_free_float: bool = False):
         super().__init__(scheme_name="MarketCapWeighted")
         self.use_free_float = use_free_float
 
+    def _session_for(self,
+                     current_date: pd.Timestamp,
+                     market_data_provider: DataFetcher) -> pd.Timestamp:
+        """The session this rebalance reads from.
+
+        Raises:
+            CalculationError: If *current_date* falls outside the data's
+                coverage. The message names both the date that was asked for
+                and the data's actual end, because "ask for an earlier date
+                or refresh the store" is the action and neither half of it is
+                discoverable from "market cap is zero".
+        """
+        session = market_data_provider.resolve_session(current_date)
+
+        if session is not None:
+            return session
+
+        requested = current_date.strftime('%Y-%m-%d')
+        first, last = market_data_provider.date_range
+
+        raise CalculationError(
+            calculation_name=self.scheme_name,
+            details=(f"cannot weight at {requested}: the market data runs "
+                     f"{first:%Y-%m-%d} to {last:%Y-%m-%d}, so that date lies "
+                     f"outside it. Inside the range a date with no bar is a "
+                     f"closed market and resolves back to the last session on "
+                     f"or before it; outside it nothing is known, and carrying "
+                     f"a price forward would answer a different question in "
+                     f"this one's date. Ask for a date on or before "
+                     f"{last:%Y-%m-%d}, or refresh the store."))
+
+    def _asset_price(self,
+                     asset: Equity,
+                     session: pd.Timestamp,
+                     market_data_provider: DataFetcher) -> tuple[pd.Timestamp, float]:
+        """*asset*'s last close at or before *session*, and the day it traded.
+
+        Walked back per name rather than taken from *session* alone, since a
+        name can be quiet on a day the market was open.
+
+        Raises:
+            CalculationError: If the data carries no close for the name on or
+                before *session*. Refusing rather than returning 0.0 is
+                deliberate: a zero cap is not a small weight, it is the rest
+                of the universe absorbing this name's share, and a cap
+                weighting computed over part of its universe is a different
+                index — the same fault as the fallback, in miniature.
+        """
+        session_str = session.strftime('%Y-%m-%d')
+        same_day = market_data_provider.fetch_market_data(
+            asset.ticker, session_str, session_str)
+
+        if _has_close(same_day):
+            return session, float(same_day[_PRICE_COLUMN].iloc[0])
+
+        history = market_data_provider.fetch_market_data(
+            asset.ticker, None, session_str)
+
+        closes = (history[_PRICE_COLUMN].dropna().sort_index()
+                  if not history.empty and _PRICE_COLUMN in history.columns
+                  else pd.Series(dtype=float))
+
+        if closes.empty:
+            raise CalculationError(
+                calculation_name=self.scheme_name,
+                details=(f"{asset.ticker} has no {_PRICE_COLUMN} on or before "
+                         f"{session_str}, so it cannot be priced. Weighting the "
+                         f"rest of the universe without it would publish a "
+                         f"cap-weighted index over a subset of its own "
+                         f"constituents. Load the name's prices, or remove it "
+                         f"from the universe."))
+
+        return pd.Timestamp(closes.index[-1]), float(closes.iloc[-1])
+
     def _asset_market_cap(self,
                           asset: Equity,
-                          current_date: pd.Timestamp,
+                          session: pd.Timestamp,
                           market_data_provider: DataFetcher) -> float:
+        """One constituent's market cap, read from the day it last traded.
+
+        Shares outstanding and the free-float factor are read on that same
+        day rather than on the requested one, so the cap is one coherent
+        observation rather than a current share count against an older price.
+
+        Raises:
+            CalculationError: If the name cannot be priced, has no positive
+                shares outstanding, or — on a free-float index — has no
+                usable free-float factor.
         """
-        Computes a single asset's market cap (price * shares outstanding),
-        applying the free-float adjustment when enabled. Returns 0.0 and
-        logs a warning when required price/shares data is missing or invalid.
+        priced_on, price = self._asset_price(asset, session, market_data_provider)
+        priced_str = priced_on.strftime('%Y-%m-%d')
 
-        Only equities are priced this way; :meth:`calculate_weights` filters
-        non-equity constituents out before calling this helper.
-        """
-        date_str = current_date.strftime('%Y-%m-%d')
-        price_df = market_data_provider.fetch_market_data(asset.ticker, date_str, date_str)
-        if (price_df.empty or _PRICE_COLUMN not in price_df.columns
-                or pd.isna(price_df[_PRICE_COLUMN].iloc[0])):
-            logger.warning(
-                f"MarketCapWeighted: No price for {asset.ticker} on {date_str}. "
-                "Market cap will be 0.")
-            return 0.0
-        current_price = float(price_df[_PRICE_COLUMN].iloc[0])
+        shares_outstanding = market_data_provider.fetch_shares_outstanding(
+            asset.ticker, priced_str)
 
-        shares_outstanding = market_data_provider.fetch_shares_outstanding(asset.ticker, date_str)
-        if shares_outstanding is None or shares_outstanding <=0:
-            logger.warning(
-                f"MarketCapWeighted: No shares for {asset.ticker} on {date_str}. "
-                "Market cap will be 0.")
-            return 0.0
+        if shares_outstanding is None or shares_outstanding <= 0:
+            raise CalculationError(
+                calculation_name=self.scheme_name,
+                details=(f"{asset.ticker} has no positive SHARES_OUTSTANDING on "
+                         f"{priced_str}, so its market cap is unknown. That "
+                         f"column is what this scheme weights by; without it "
+                         f"there is no market-cap index to publish."))
 
-        asset_market_cap = current_price * shares_outstanding
+        asset_market_cap = price * shares_outstanding
 
         if not self.use_free_float:
             return asset_market_cap
 
-        free_float_factor = market_data_provider.fetch_free_float_factor(asset.ticker, date_str)
-        if free_float_factor is not None and 0.0 <= free_float_factor <= 1.0:
-            return asset_market_cap * free_float_factor
+        free_float_factor = market_data_provider.fetch_free_float_factor(
+            asset.ticker, priced_str)
 
-        logger.warning(
-            f"MarketCapWeighted: Invalid or missing free-float for {asset.ticker} "
-            f"on {date_str}. Using full market cap.")
-        return asset_market_cap
+        if free_float_factor is None or not 0.0 <= free_float_factor <= 1.0:
+            raise CalculationError(
+                calculation_name=self.scheme_name,
+                details=(f"{asset.ticker} has no usable FREE_FLOAT on "
+                         f"{priced_str}, and this index is free-float adjusted. "
+                         f"Using its full market cap instead would weight one "
+                         f"name on a different basis from the rest."))
+
+        return asset_market_cap * free_float_factor
 
     def calculate_weights(self,
                           constituents: list[Asset],
                           current_date: pd.Timestamp,
                           market_data_provider: DataFetcher,
                           context: dict[str, Any] | None = None) -> dict[Asset, float]:
-        weights: dict[Asset, float] = {}
+        """Weights proportional to market cap, or a refusal.
+
+        Raises:
+            CalculationError: If *current_date* lies outside the data's
+                coverage, if any constituent is unpriceable or is not an
+                equity, or if the caps sum to nothing. Nothing here falls
+                back to another methodology — see the class docstring.
+        """
+        if not constituents:
+            return {}
+
+        session = self._session_for(current_date, market_data_provider)
         market_caps: dict[Asset, float] = {}
-        total_market_cap = 0.0
 
         for asset in constituents:
             if not isinstance(asset, Equity):
-                logger.warning(
-                    f"MarketCapWeighted: Asset {asset.asset_id} is not Equity. Skipping.")
-                continue
+                raise CalculationError(
+                    calculation_name=self.scheme_name,
+                    details=(f"constituent '{asset.asset_id}' is not an equity, "
+                             f"so it has no market cap to weight by. Skipping it "
+                             f"would publish a cap-weighted index over a subset "
+                             f"of its own constituents."))
 
-            try:
-                market_caps[asset] = self._asset_market_cap(
-                    asset, current_date, market_data_provider)
-                total_market_cap += market_caps[asset]
-            except Exception as e:
-                logger.error(
-                    f"MarketCapWeighted: Error calculating market cap for {asset.ticker}: "
-                    f"{e}. Market cap will be 0.")
-                market_caps[asset] = 0.0
+            market_caps[asset] = self._asset_market_cap(
+                asset, session, market_data_provider)
 
-        if total_market_cap > 0:
-            for asset, cap in market_caps.items():
-                weights[asset] = cap / total_market_cap
-            return weights
+        total_market_cap = sum(market_caps.values())
 
-        # Handle case with no valid market caps (e.g. assign equal weight if any
-        # assets, or empty if none)
-        if not constituents:
-            # else weights remains empty
-            return weights
+        if total_market_cap <= 0:
+            raise CalculationError(
+                calculation_name=self.scheme_name,
+                details=(f"the {len(market_caps)} constituents priced at "
+                         f"{session:%Y-%m-%d} have a total market cap of "
+                         f"{total_market_cap}, so there is nothing to weight "
+                         f"by."))
 
-        logger.warning(
-            "MarketCapWeighted: Total market cap is zero. Assigning equal weights as fallback.")
-        equal_weight = 1.0 / len(constituents) if constituents else 0.0
-        for asset in constituents:
-             if isinstance(asset, Equity): # Only for those processed
-                weights[asset] = equal_weight
-
-        return weights
+        return {asset: cap / total_market_cap
+                for asset, cap in market_caps.items()}
 
 
 @register(WEIGHTING, "Equal weighted")

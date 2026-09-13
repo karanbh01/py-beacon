@@ -368,3 +368,107 @@ class TestEndpointBehaviour:
         paths = client.app.openapi()["paths"]
 
         assert "/indices/{index_id}/preview" in paths
+
+
+# ---------------------------------------------------------------------------
+# BN-179: request and resolution are two dates, and only one was published
+# ---------------------------------------------------------------------------
+
+def unfiltered_document() -> dict:
+    """The same index with no selection rules.
+
+    The eligibility rules still read prices on the exact date asked for, so on
+    a closed day they exclude every name and the weighting never runs. That is
+    the same defect one layer up (see BN-179's report) and is not this fix's
+    to correct; removing the rules isolates the weighting, which is what these
+    tests are about.
+    """
+    return definition_document(id="OPENUNIVERSE",
+                               pipeline={"selection": [],
+                                         "weighting": {"id": "weighting",
+                                                       "scheme": "MarketCapWeighted",
+                                                       "params": {},
+                                                       "max_weight": None},
+                                         "treatment": {
+                                             "corporate_actions": "ADJUST_DIVISOR"}})
+
+
+@pytest.fixture
+def open_client(tmp_path) -> TestClient:
+    """A client holding the rule-free index, so weighting is what is tested."""
+    config = ServerConfig(auth_token=TOKEN,
+                          data_fetcher=build_fetcher(),
+                          storage_root=tmp_path)
+    client = TestClient(create_app(config), raise_server_exceptions=False)
+    created = client.post("/indices", json=unfiltered_document(), headers=auth())
+    assert created.status_code == 200, created.json()
+
+    return client
+
+
+def open_preview(client,
+                 **body) -> dict:
+    """Preview the rule-free index and return its payload."""
+    response = client.post("/indices/OPENUNIVERSE/preview",
+                           json=body or {}, headers=auth())
+    assert response.status_code == 200, response.json()
+
+    return response.json()
+
+
+class TestRequestAndResolution:
+    """`as_of` is what was asked for; `resolved_date` is what was read.
+
+    The two coincide on a trading day, which is why nothing revealed the
+    difference until a preview was asked for a day the market was shut.
+    """
+
+    def test_a_trading_day_resolves_to_itself(self,
+                                              open_client):
+        payload = open_preview(open_client, as_of="2025-01-02")
+
+        assert payload["as_of"] == "2025-01-02"
+        assert payload["resolved_date"] == "2025-01-02"
+
+    def test_a_weekend_restates_the_date_asked_for(self,
+                                                   open_client):
+        assert open_preview(open_client, as_of="2025-01-04")["as_of"] == "2025-01-04"
+
+    def test_a_weekend_names_the_session_it_read(self,
+                                                 open_client):
+        """Saturday the 4th; the market last traded on Friday the 3rd."""
+        payload = open_preview(open_client, as_of="2025-01-04")
+
+        assert payload["resolved_date"] == "2025-01-03"
+
+    def test_a_weekend_weights_by_market_cap_not_equally(self,
+                                                         open_client):
+        """The composition in force on Saturday is Friday's, not an equal one."""
+        weights = open_preview(open_client, as_of="2025-01-04")["weights"]
+
+        assert len(weights) == len(PRICES)
+        assert len({round(weight, 9) for weight in weights.values()}) == len(PRICES)
+
+    def test_a_weekend_matches_the_session_it_resolved_to(self,
+                                                          open_client):
+        saturday = open_preview(open_client, as_of="2025-01-04")["weights"]
+        friday = open_preview(open_client, as_of="2025-01-03")["weights"]
+
+        assert saturday == pytest.approx(friday)
+
+    def test_past_the_last_bar_is_refused_rather_than_backfilled(self,
+                                                                 open_client):
+        response = open_client.post("/indices/OPENUNIVERSE/preview",
+                                    json={"as_of": "2025-03-03"}, headers=auth())
+
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == "CALCULATION_ERROR"
+
+    def test_the_refusal_names_both_dates(self,
+                                          open_client):
+        response = open_client.post("/indices/OPENUNIVERSE/preview",
+                                    json={"as_of": "2025-03-03"}, headers=auth())
+        message = response.json()["error"]["message"]
+
+        assert "2025-03-03" in message
+        assert "2025-01-31" in message

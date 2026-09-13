@@ -2356,7 +2356,20 @@ class PreviewResponse(BaseModel):
     total, and one row per name.
     """
     index_id: str
-    as_of: str
+    as_of: str = Field(
+        description="The date the preview was asked for, YYYY-MM-DD, echoed "
+                    "back unchanged. What the data was actually read from is "
+                    "`resolved_date`, which is earlier whenever `as_of` fell "
+                    "on a day the market was shut.")
+    resolved_date: str | None = Field(
+        default=None,
+        description="The market session `as_of` resolved to, YYYY-MM-DD: the "
+                    "latest one the data carries on or before it. A request "
+                    "for a weekend or a holiday resolves back to the session "
+                    "before it, which is the composition the index actually "
+                    "held that day rather than an approximation of one. Equal "
+                    "to `as_of` on a day the data has, and null only when "
+                    "`as_of` falls outside the data's coverage altogether.")
     steps: list[PreviewStep] | None = Field(
         default=None,
         description="The derivation waterfall, one rung per selection rule. "

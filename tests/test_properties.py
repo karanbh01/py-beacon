@@ -97,14 +97,23 @@ class _FakeMarketDataProvider:
     Exposes only the methods ``MarketCapWeighted.calculate_weights`` calls,
     mirroring the shapes documented on ``beacon.data.fetcher.DataFetcher``:
     ``fetch_market_data`` returns a single-identifier, date-indexed frame
-    with a ``CLOSE`` column, and ``fetch_shares_outstanding`` returns a raw
-    float. ``EqualWeighted`` never calls the provider at all.
+    with a ``CLOSE`` column, ``fetch_shares_outstanding`` returns a raw
+    float, and ``resolve_session``/``date_range`` describe a store holding
+    exactly one session. ``EqualWeighted`` never calls the provider at all.
     """
     def __init__(self,
                  prices: dict[str, float],
                  shares: dict[str, float]):
         self._prices = prices
         self._shares = shares
+
+    @property
+    def date_range(self) -> tuple[pd.Timestamp, pd.Timestamp]:
+        return _AS_OF, _AS_OF
+
+    def resolve_session(self,
+                        date: str | pd.Timestamp) -> pd.Timestamp | None:
+        return _AS_OF if pd.Timestamp(date) == _AS_OF else None
 
     def fetch_market_data(self,
                           identifier: str,

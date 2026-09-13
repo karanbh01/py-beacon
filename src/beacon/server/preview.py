@@ -56,6 +56,20 @@ from .schemas import (
 from .store import DocumentStore
 
 
+def _resolved_date(fetcher: DataFetcher,
+                   date: pd.Timestamp) -> str | None:
+    """The session the data was read from, for the date asked about.
+
+    The same resolution the weighting scheme performs, published so a client
+    can tell request from resolution. Without it a preview of a Sunday shows
+    Friday's prices under Sunday's heading — a true statement about the wrong
+    thing.
+    """
+    session = fetcher.resolve_session(date)
+
+    return session.strftime("%Y-%m-%d") if session is not None else None
+
+
 def _as_preview_step(step: SelectionStep,
                      rule_ids: list[str]) -> PreviewStep:
     """Render one core rung as the wire shape, attaching the document's rule id.
@@ -143,6 +157,7 @@ def _pipeline_preview(document: IndexDocument,
 
     return PreviewResponse(index_id=document.id,
                            as_of=date.strftime("%Y-%m-%d"),
+                           resolved_date=_resolved_date(fetcher, date),
                            steps=steps,
                            assets=assets,
                            weights=by_id,
@@ -215,6 +230,7 @@ def _derived_preview(document: IndexDocument,
     return PreviewResponse(
         index_id=document.id,
         as_of=date.strftime("%Y-%m-%d"),
+        resolved_date=_resolved_date(fetcher, date),
         solve=_solve_block(definition, rebalance, result),
         assets=_derived_asset_rows(source_weights, solved),
         weights=solved,
