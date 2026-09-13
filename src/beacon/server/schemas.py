@@ -976,6 +976,7 @@ class WatchlistUpsert(BaseModel):
 class WatchlistCollection(BaseModel):
     """Response of `GET /data/watchlists`."""
     watchlists: list[Watchlist]
+    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class RuleSpec(BaseModel):
@@ -1352,6 +1353,7 @@ class ReportTemplateCollection(BaseModel):
         description="Templates generated from a run rather than stored. These "
                     "can be rendered but not edited: they are code, not "
                     "documents.")
+    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class RenderRequest(BaseModel):
@@ -2868,6 +2870,7 @@ class JobCollection(BaseModel):
     anyway. `GET /jobs/{job_id}` is where the typed result lives.
     """
     jobs: list[JobStatus]
+    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class DatasetCoverage(BaseModel):

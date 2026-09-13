@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from .documents import Stored, raw, read_collection, stored
 from .store import DocumentStore
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,18 @@ PERSISTED_FIELDS = ("job_id", "kind", "status", "progress", "message",
 # returns whatever should become the job's result.
 ProgressReporter = Callable[[float, str], Awaitable[None]]
 JobBody = Callable[[ProgressReporter], Awaitable[Any]]
+
+
+def _completed_at(held: Stored[dict[str, Any]]) -> str:
+    """When a stored result finished, or "" when it cannot be read.
+
+    Empty sorts before every ISO timestamp, which is the ordering retention
+    wants: a result nothing can read is the first one to give up.
+    """
+    if held.document is None:
+        return ""
+
+    return str(held.document.get("completed_at", ""))
 
 
 @dataclass
@@ -105,6 +118,23 @@ class JobRegistry:
         self._jobs: dict[str, Job] = {}
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self._results = result_store
+
+    @property
+    def results(self) -> DocumentStore | None:
+        """Where completed results are persisted, or None when nowhere is.
+
+        Read-only, and exposed for exactly one caller: `GET /jobs` reads this
+        collection through `documents.read_collection` the way every other
+        listing reads its own (BN-178). The model half of "unreadable" has to
+        be applied where the model is known, and `JobStatus` is a wire model —
+        the registry is deliberately free of the wire layer, so the listing
+        cannot be assembled in here without dragging `schemas` down with it.
+
+        What stays in here is the bookkeeping the registry owns and no route
+        can express: retention, the cascade delete, and the latest-result
+        queries. Those decide skip-or-see for themselves; see `_prune`.
+        """
+        return self._results
 
     # -- subscriptions -------------------------------------------------------
 
@@ -182,26 +212,43 @@ class JobRegistry:
 
     def _stored(self,
                 job_id: str) -> dict[str, Any] | None:
-        """Read a persisted result, keeping only the API's job fields."""
+        """Read a persisted result, keeping only the API's job fields.
+
+        A result the server cannot read is answered as absent, so `GET
+        /jobs/{job_id}` says not-found rather than 500ing on a file left
+        truncated by an interrupted write.
+        """
         if self._results is None:
             return None
 
-        document = self._results.read(job_id)
-        if document is None:
+        held = stored(self._results, job_id, raw)
+
+        if held.fault is not None:
+            logger.warning("Answering not-found for unreadable job result "
+                           "'%s': %s", job_id, held.fault)
+
+        if held.document is None:
             return None
 
-        return {field: document.get(field) for field in PERSISTED_FIELDS}
+        return {field: held.document.get(field) for field in PERSISTED_FIELDS}
 
-    def stored_snapshots(self) -> list[dict[str, Any]]:
-        """Every persisted result, for jobs this process did not run."""
+    def _readable_results(self) -> list[dict[str, Any]]:
+        """Every persisted result the server can read, skipping the rest.
+
+        The *query* half of this registry's store access (BN-178).
+        `latest_result` and `latest_results_by_kind` answer read endpoints —
+        `/beacon/{id}/overview` and the risk views — so one corrupt result must
+        cost those endpoints that result, not the endpoint. Before this, a
+        single truncated file in the results collection 500d every one of them.
+
+        Retention deliberately does not come through here: see `_prune`.
+        """
         if self._results is None:
             return []
 
-        return [
-            {field: document.get(field) for field in PERSISTED_FIELDS}
-            for document in self._results.read_all()
-            if document.get("job_id") not in self._jobs
-        ]
+        documents, _ = read_collection(self._results, raw, "job result")
+
+        return documents
 
     def latest_result(self,
                       kind: str) -> dict[str, Any] | None:
@@ -222,7 +269,7 @@ class JobRegistry:
         if self._results is None:
             return None
 
-        matching = [document for document in self._results.read_all()
+        matching = [document for document in self._readable_results()
                     if document.get("kind") == kind
                     and document.get("status") == SUCCEEDED
                     and document.get("result") is not None]
@@ -261,7 +308,12 @@ class JobRegistry:
             forgotten += 1
 
         if self._results is not None:
-            for document in self._results.read_all():
+            # Tolerant, and the skipped results are deliberately left behind:
+            # a document the server cannot read carries no `kind`, so it cannot
+            # be attributed to the one being forgotten, and deleting a file on
+            # the chance it belonged would be a cascade guessing. It is not
+            # stranded — retention reaps unreadable results first (`_prune`).
+            for document in self._readable_results():
                 if document.get("kind") != kind:
                     continue
 
@@ -280,8 +332,8 @@ class JobRegistry:
         """The newest successful result for every kind under a prefix.
 
         Reads the store, which holds every terminal job including the ones this
-        process ran. `stored_snapshots()` deliberately excludes those so a
-        listing does not show a job twice, and using it here would hide every
+        process ran. The `/jobs` listing deliberately excludes those so a job
+        does not appear twice, and filtering the same way here would hide every
         model the running process had just estimated — which is most of them.
 
         Args:
@@ -296,7 +348,7 @@ class JobRegistry:
         newest: dict[str, dict[str, Any]] = {}
         stamps: dict[str, str] = {}
 
-        for document in self._results.read_all():
+        for document in self._readable_results():
             kind = str(document.get("kind", ""))
             if not kind.startswith(prefix):
                 continue
@@ -330,23 +382,39 @@ class JobRegistry:
             logger.error(f"Could not persist result for job {job.id}: {exc}")
 
     def _prune(self) -> None:
-        """Keep only the most recent MAX_STORED_RESULTS results."""
+        """Keep only the most recent MAX_STORED_RESULTS results.
+
+        The one caller here that must SEE a result it cannot read (BN-178),
+        rather than skip it. Retention is a bound on files, not on readable
+        documents: counting only what parses would let corrupt results
+        accumulate past the limit forever and never be reaped, and they are
+        the results least worth keeping — nothing can serve them.
+
+        So this walks ids and reads each through `stored`, which reports the
+        fault instead of raising it, and deletes by *filename*. A document the
+        server cannot read has no `job_id` field to address it by, and the
+        filename is that id anyway: it is what `_persist` wrote it under.
+
+        An unreadable result sorts oldest, because it has no readable
+        `completed_at`, so retention clears those first — including any orphan
+        the cascade delete had to leave behind.
+        """
         if self._results is None:
             return
 
-        documents = self._results.read_all()
-        excess = len(documents) - MAX_STORED_RESULTS
+        held = [(document_id, stored(self._results, document_id, raw))
+                for document_id in self._results.list_ids()]
+
+        excess = len(held) - MAX_STORED_RESULTS
         if excess <= 0:
             return
 
         # Oldest first by completion time. Ids are UUIDs, so name order says
         # nothing about age.
-        oldest = sorted(documents, key=lambda doc: str(doc.get("completed_at", "")))
+        oldest = sorted(held, key=lambda entry: _completed_at(entry[1]))
 
-        for document in oldest[:excess]:
-            job_id = document.get("job_id")
-            if isinstance(job_id, str):
-                self._results.delete(job_id)
+        for document_id, _ in oldest[:excess]:
+            self._results.delete(document_id)
 
         logger.info(f"Pruned {excess} stored job result(s) beyond the retention limit.")
 

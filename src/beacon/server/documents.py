@@ -43,8 +43,9 @@ most of the documents this guards against are perfectly good JSON — the failur
 is that they do not satisfy the response model, which is a fact about the API
 layer and is where the forward-compatibility hazard lives (the day a required
 field is added to a model, every document stored before it lands on exactly
-this path). `store.read_all()` stays strict and keeps its raw-dict callers; the
-tolerance is applied where the model is known.
+this path). `store.read_all()` stays strict, and since BN-178 nothing in the
+server calls it — the tolerance is applied here, where the model is known, and
+a test asserts that no server code reads a collection strictly again.
 """
 import logging
 from collections.abc import Callable

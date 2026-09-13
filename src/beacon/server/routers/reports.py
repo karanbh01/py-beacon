@@ -18,6 +18,7 @@ from typing import Any
 from ..._optional import require
 from ...exceptions import DataNotFoundError
 from ...report.blocks import ReportTemplate
+from ..documents import load_document, read_collection
 from ..jobs import JobRegistry
 from ..reports import (
     BUILT_IN,
@@ -57,15 +58,35 @@ def _render_directory(request: Request) -> Path:
     return directory
 
 
+def _template_document(document_id: str,
+                       document: dict[str, Any]) -> ReportTemplateDocument:
+    """A stored template as the wire model, or a ValidationError.
+
+    The build function both the listing and the detail route read through, so
+    they cannot disagree about which stored templates exist (BN-174). It
+    replaces the `if "template_id" in entry` filter the listing used to carry:
+    a document without one was dropped silently and uncounted, which is the
+    same skip the tolerant reader performs -- except now it is counted, it is
+    logged, and every other required field is held to the same standard.
+    """
+    return ReportTemplateDocument.model_validate(_as_document(document))
+
+
 def _stored_template(request: Request,
                      template_id: Identifier) -> ReportTemplate:
-    """Load a stored template, or fail with a mapped error."""
-    document = _store(request).read(template_id)
-    if document is None:
-        raise DataNotFoundError(f"report template '{template_id}'",
-                                source="DocumentStore")
+    """Load a stored template, or fail with a mapped error.
 
-    return ReportTemplate.from_dict(document)
+    Validated before it is rebuilt: `ReportTemplate.from_dict` raises KeyError
+    for a document with no `template_id`, and `UNREADABLE` deliberately does
+    not catch that, so the model is what turns "this file is not a template"
+    into the not-found every other unreadable document answers.
+    """
+    document = load_document(_store(request),
+                             template_id,
+                             _template_document,
+                             f"report template '{template_id}'")
+
+    return ReportTemplate.from_dict(document.model_dump())
 
 
 def _resolve(request: Request,
@@ -108,11 +129,16 @@ def build_reports_router() -> APIRouter:
 
     @router.get("/templates", response_model=ReportTemplateCollection)
     def list_templates(request: Request) -> ReportTemplateCollection:
-        return ReportTemplateCollection(
-            templates=[ReportTemplateDocument.model_validate(_as_document(entry))
-                       for entry in _store(request).read_all()
-                       if "template_id" in entry],
-            built_in=list(BUILT_IN))
+        # Through the tolerant reader (BN-178): one unparseable file used to
+        # 500 the whole listing, which on a picker reads as "you have designed
+        # no templates" rather than as a fault.
+        templates, skipped = read_collection(_store(request),
+                                             _template_document,
+                                             "report template")
+
+        return ReportTemplateCollection(templates=templates,
+                                        built_in=list(BUILT_IN),
+                                        skipped=skipped)
 
     @router.get("/templates/{template_id}", response_model=ReportTemplateDocument)
     def get_template(request: Request,

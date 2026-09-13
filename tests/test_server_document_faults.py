@@ -1,16 +1,23 @@
 # tests/test_server_document_faults.py
 """BN-174: what a listing and its detail route say about a document neither can read.
 
-Four pairs read four document stores, and before this they disagreed in two
-different ways. `/beacon/backtests` skipped what it could not read while
-`/beacon/{id}/record` 500d on the same file, so a record could be listed and
-then refused. `/indices`, `/universes` and `/optimise/constraint-sets` were
-consistent and brittle instead: one unreadable document 500d the ENTIRE listing,
-so the picker went blank and every other document became unreachable through the
-UI because of one bad file.
+Six pairs read six document stores. Four arrived with BN-174, which found them
+disagreeing in two different ways. `/beacon/backtests` skipped what it could not
+read while `/beacon/{id}/record` 500d on the same file, so a record could be
+listed and then refused. `/indices`, `/universes` and `/optimise/constraint-sets`
+were consistent and brittle instead: one unreadable document 500d the ENTIRE
+listing, so the picker went blank and every other document became unreachable
+through the UI because of one bad file.
 
-The fix is one pattern applied to all four, so this is one parameterised matrix
-rather than four sets of near-identical tests — if a pair ever drifts, a row
+`/data/watchlists` and `/reports/templates` are the pairs BN-178 added, and they
+are here rather than in a file of their own for the reason this matrix exists:
+they were brittle in exactly the same way, and were missed twice because the
+property lived in a list of endpoints somebody had thought of. Where the
+*property* now lives so that a seventh pair cannot be missed is
+`test_server_listing_discovery.py`.
+
+The fix is one pattern applied to all six, so this is one parameterised matrix
+rather than six sets of near-identical tests — if a pair ever drifts, a row
 here fails for that pair alone:
 
 | document state             | listing            | detail |
@@ -43,9 +50,11 @@ from beacon.server.schemas import (
     BacktestResultSummary,
     ConstraintSet,
     PortfolioBookPayload,
+    ReportTemplateDocument,
     SeriesPayload,
     TableFrame,
     Universe,
+    Watchlist,
 )
 
 TOKEN = "faults-token"
@@ -92,6 +101,22 @@ def universe_document(document_id: str = GOOD) -> dict:
 def constraint_set_document(document_id: str = GOOD) -> dict:
     """A valid stored constraint set."""
     return ConstraintSet(id=document_id, name="Valid set").model_dump()
+
+
+def watchlist_document(document_id: str = GOOD) -> dict:
+    """A valid stored watchlist."""
+    return Watchlist(id=document_id,
+                     name="Valid watchlist",
+                     identifiers=["AAA", "BBB"]).model_dump()
+
+
+def template_document(document_id: str = GOOD) -> dict:
+    """A valid stored report template."""
+    return ReportTemplateDocument(
+        template_id=document_id,
+        name="Valid template",
+        page={},
+        blocks=[{"kind": "text", "body": "Hello."}]).model_dump()
 
 
 def record_document(document_id: str = GOOD) -> dict:
@@ -159,7 +184,37 @@ PAIRS = [
                   # store, and nothing the record endpoint can serve.
                   "invalid": {"run_at": "2025-01-01T00:00:00+00:00"}},
                  id="backtest-records"),
+    # BN-178. The listing built its rows field by field off raw dicts, so a
+    # document missing `name` raised KeyError -- which `UNREADABLE` does not
+    # catch and could not have skipped. The row is built through the model now.
+    pytest.param({"store": "watchlist_store",
+                  "listing": "/data/watchlists",
+                  "rows": "watchlists",
+                  "detail": "/data/watchlists/{id}",
+                  "row_id": "id",
+                  "valid": watchlist_document,
+                  "invalid": {"id": INVALID}},
+                 id="watchlists"),
+    # BN-178. The listing filtered on `"template_id" in entry`, which dropped a
+    # document without one silently and uncounted, and 500d on everything else.
+    pytest.param({"store": "template_store",
+                  "listing": "/reports/templates",
+                  "rows": "templates",
+                  "detail": "/reports/templates/{id}",
+                  "row_id": "template_id",
+                  "valid": template_document,
+                  "invalid": {"template_id": INVALID}},
+                 id="report-templates"),
 ]
+
+
+def pair_named(name: str) -> dict:
+    """One row of the matrix, by its parametrisation id.
+
+    By name rather than by position: a pair appended to PAIRS used to silently
+    re-point `PAIRS[-1]` at a different collection.
+    """
+    return next(param.values[0] for param in PAIRS if param.id == name)
 
 
 @pytest.fixture
@@ -360,7 +415,7 @@ class TestTheRecordPairInParticular:
     than the 500 it replaced.
     """
 
-    PAIR = PAIRS[-1].values[0]
+    PAIR = pair_named("backtest-records")
 
     def test_an_unreadable_record_keeps_the_run_a_backtest_pointer(self,
                                                                    client):
@@ -395,6 +450,102 @@ class TestTheRecordPairInParticular:
         assert detail(client, self.PAIR, "skeletal").status_code == 404
 
 
+class TestTheJobsPair:
+    """BN-178's third broken listing, which is not shaped like the other five.
+
+    `GET /jobs` reads a collection nothing calls a document store from outside:
+    it belongs to the `JobRegistry`, and the rows are a merge of this process's
+    live jobs with results persisted by earlier ones. So it is not a row of the
+    matrix — but it answers the same three questions, and the answers have to
+    match, which is what this pins down.
+
+    The registry's *other* readers of that same collection are audited in
+    `test_job_persistence.py`: they are not listings, and two of them
+    deliberately answer differently.
+    """
+
+    @staticmethod
+    def results(client):
+        """The collection persisted job results live in."""
+        return client.app.state.jobs.results
+
+    @staticmethod
+    def result_document(job_id: str) -> dict:
+        """A complete persisted result, as `_persist` writes one."""
+        return {"job_id": job_id,
+                "kind": "backtest:tech",
+                "status": "succeeded",
+                "progress": 1.0,
+                "message": "",
+                "result": {"value": 1},
+                "error": None,
+                "completed_at": "2025-01-01T00:00:00+00:00"}
+
+    def test_a_complete_result_is_listed_and_served(self,
+                                                    client):
+        self.results(client).write(GOOD, self.result_document(GOOD))
+
+        body = client.get("/jobs", headers=HEADERS).json()
+
+        assert [job["job_id"] for job in body["jobs"]] == [GOOD]
+        assert body["skipped"] == 0
+        assert client.get(f"/jobs/{GOOD}", headers=HEADERS).status_code == 200
+
+    def test_an_unparseable_result_is_skipped_and_404s(self,
+                                                       client):
+        """The brittleness case: one truncated file used to 500 `GET /jobs`,
+        which is the view a client watches its own work through."""
+        self.results(client).write(GOOD, self.result_document(GOOD))
+        (self.results(client).directory / f"{UNPARSEABLE}.json").write_text(
+            '{"job_id": "' + UNPARSEABLE + '", "kin', encoding="utf-8")
+
+        body = client.get("/jobs", headers=HEADERS).json()
+
+        assert [job["job_id"] for job in body["jobs"]] == [GOOD]
+        assert body["skipped"] == 1
+
+        response = client.get(f"/jobs/{UNPARSEABLE}", headers=HEADERS)
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "DATA_NOT_FOUND"
+
+    def test_a_result_missing_a_required_field_is_skipped(self,
+                                                          client):
+        """The forward-compatibility row, and the reason the listing's tolerance
+        sits at the route rather than in the registry: this document is perfectly
+        good JSON and the fault is against `JobStatus`, which is a wire model the
+        registry deliberately knows nothing about."""
+        self.results(client).write(GOOD, self.result_document(GOOD))
+        self.results(client).write(INVALID, {"kind": "backtest:tech",
+                                             "status": "succeeded"})
+
+        body = client.get("/jobs", headers=HEADERS).json()
+
+        assert [job["job_id"] for job in body["jobs"]] == [GOOD]
+        assert body["skipped"] == 1
+
+    def test_an_absent_job_is_not_listed_and_404s(self,
+                                                  client):
+        body = client.get("/jobs", headers=HEADERS).json()
+
+        assert body["jobs"] == []
+        assert body["skipped"] == 0
+        assert client.get(f"/jobs/{ABSENT}", headers=HEADERS).status_code == 404
+
+    def test_an_unreadable_result_does_not_take_out_the_overview(self,
+                                                                 client):
+        """`latest_result` is the caller that matters most: it backs
+        `/beacon/{id}/overview` and its siblings, so an unreadable result there
+        used to 500 read endpoints that have nothing to do with jobs."""
+        self.results(client).write("run", self.result_document("run"))
+        (self.results(client).directory / "wreckage.json").write_text(
+            "{", encoding="utf-8")
+
+        registry = client.app.state.jobs
+
+        assert registry.latest_result("backtest:tech") == {"value": 1}
+
+
 class TestTheStoreStaysStrict:
     """The tolerance lives beside the routers, not in `DocumentStore`.
 
@@ -426,8 +577,8 @@ class TestTheStoreStaysStrict:
         assert store.read("partial")["id"] == "partial"
 
 
-UNIVERSES = PAIRS[1].values[0]
-INDICES = PAIRS[0].values[0]
+UNIVERSES = pair_named("universes")
+INDICES = pair_named("indices")
 
 
 def derived_document(document_id: str,

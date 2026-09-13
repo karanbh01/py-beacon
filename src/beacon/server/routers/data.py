@@ -36,6 +36,7 @@ from ...exceptions import (
 from ...expressions.catalogue import describe_fields
 from ...expressions.namespaces import NAMESPACES
 from ..config import ServerConfig
+from ..documents import read_collection, validated
 from ..reference import MAX_BATCH, build_entries, parse_identifiers, parse_list
 from ..schemas import (
     SOURCE_USER,
@@ -57,6 +58,7 @@ from ..schemas import (
     PricesResponse,
     ReferenceResponse,
     TablePage,
+    Universe,
     UniverseMembership,
 )
 from ..serialisation import dataframe_to_payload
@@ -340,18 +342,32 @@ def _memberships(request: Request,
     Returns an empty list when the store is absent, so an endpoint that could
     always answer this question keeps working on a server configured without
     document storage.
+
+    Read through the tolerant reader (BN-178). This scan is not a listing, but
+    it is a listing's read hidden inside a *detail* route: one unparseable
+    universe document used to 500 `GET /data/reference/{identifier}` outright,
+    so a bad file in a collection this endpoint does not even serve took out
+    reference data for every instrument. A universe the server cannot read
+    contains nothing it can answer for, so it is skipped -- the same answer
+    `GET /universes` gives, which is what stops the two disagreeing about
+    which universes exist. No count crosses the wire here: this is a derived
+    field on an instrument's record rather than a collection response, and a
+    fifth shape for the same fact would cost a client more than the WARNING in
+    the log is worth.
     """
     store = getattr(request.app.state, "universe_store", None)
 
     if store is None:
         return []
 
+    universes, _ = read_collection(store, validated(Universe), "universe")
+
     memberships = [
-        UniverseMembership(id=document["id"],
-                           name=document.get("name", document["id"]),
-                           source=document.get("source", SOURCE_USER))
-        for document in store.read_all()
-        if identifier in document.get("identifiers", ())
+        UniverseMembership(id=universe.id,
+                           name=universe.name or universe.id,
+                           source=universe.source or SOURCE_USER)
+        for universe in universes
+        if identifier in universe.identifiers
     ]
 
     # Sorted so the order does not depend on how the filesystem listed the

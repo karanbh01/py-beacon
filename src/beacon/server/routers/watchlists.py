@@ -7,6 +7,7 @@ rather than to application state.
 """
 from ..._optional import require
 from ...exceptions import DataNotFoundError
+from ..documents import load_document, read_collection, validated
 from ..schemas import Identifier, Watchlist, WatchlistCollection, WatchlistUpsert
 from ..store import DocumentStore
 
@@ -34,24 +35,32 @@ def build_watchlists_router() -> APIRouter:
 
     @router.get("", response_model=WatchlistCollection)
     def list_watchlists(request: Request) -> WatchlistCollection:
-        documents = _store(request).read_all()
+        # Through the tolerant reader (BN-178): one unparseable file used to
+        # 500 the whole listing, so every other watchlist went with it.
+        #
+        # `validated(Watchlist)` rather than the field-by-field build this
+        # carried, and that is the substantive half of the change: reading
+        # `doc["name"]` off a raw dict raises KeyError, which `UNREADABLE`
+        # deliberately does not catch, so a document missing a field could not
+        # have been skipped at all. The model produces exactly the same row for
+        # every document that has the fields -- id, name and identifiers, with
+        # the same defaults -- and a ValidationError for the ones that do not.
+        watchlists, skipped = read_collection(_store(request),
+                                              validated(Watchlist),
+                                              "watchlist")
 
-        return WatchlistCollection(
-            watchlists=[Watchlist(id=doc["id"],
-                                  name=doc["name"],
-                                  identifiers=doc.get("identifiers", []))
-                        for doc in documents])
+        return WatchlistCollection(watchlists=watchlists, skipped=skipped)
 
     @router.get("/{watchlist_id}", response_model=Watchlist)
     def get_watchlist(request: Request,
                       watchlist_id: Identifier) -> Watchlist:
-        document = _store(request).read(watchlist_id)
-        if document is None:
-            raise DataNotFoundError(f"watchlist '{watchlist_id}'", source="DocumentStore")
-
-        return Watchlist(id=document["id"],
-                         name=document["name"],
-                         identifiers=document.get("identifiers", []))
+        # The detail half of the same pattern: a document the server cannot
+        # read answers exactly as one that was never written, so the listing
+        # and this route cannot disagree about what exists.
+        return load_document(_store(request),
+                             watchlist_id,
+                             validated(Watchlist),
+                             f"watchlist '{watchlist_id}'")
 
     @router.put("/{watchlist_id}", response_model=Watchlist)
     def put_watchlist(request: Request,

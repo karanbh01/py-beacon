@@ -14,10 +14,12 @@ work with no purpose.
 """
 import asyncio
 import hmac
+from typing import Any
 
 from ..._optional import require
 from ...exceptions import DataNotFoundError
-from ..jobs import JobRegistry
+from ..documents import read_collection
+from ..jobs import PERSISTED_FIELDS, JobRegistry
 from ..schemas import AnyJobStatus, Identifier, JobCollection, JobStatus
 
 require("fastapi", "The Beacon API server")
@@ -35,6 +37,41 @@ def _registry(request: Request) -> JobRegistry:
     registry: JobRegistry = request.app.state.jobs
 
     return registry
+
+
+def _job_row(document_id: str,
+             document: dict[str, Any]) -> JobStatus:
+    """A persisted job result as the listing's row, or a ValidationError.
+
+    Trimmed to `PERSISTED_FIELDS` first, because everything else in the stored
+    document is the registry's bookkeeping and not part of the API's job shape.
+    """
+    return JobStatus.model_validate({field: document.get(field)
+                                     for field in PERSISTED_FIELDS})
+
+
+def _persisted(registry: JobRegistry) -> tuple[list[JobStatus], int]:
+    """Results persisted by an earlier process, skipping what cannot be read.
+
+    Read here rather than in the registry (BN-178). The registry owns the
+    collection but not the model: `JobStatus` is the wire shape, and a stored
+    result that is valid JSON and cannot satisfy it — the shape a model gaining
+    a required field produces — is exactly the fault a listing must skip, so
+    the skip has to happen where the model is known. What the registry keeps is
+    its bookkeeping over the same store, which answers a different question and
+    is audited separately there.
+
+    Jobs this process ran are excluded, so a listing does not show one twice:
+    the live snapshot is authoritative and is added by the caller.
+    """
+    store = registry.results
+
+    if store is None:
+        return [], 0
+
+    rows, skipped = read_collection(store, _job_row, "job result")
+
+    return [row for row in rows if registry.get(row.job_id) is None], skipped
 
 
 def _authorise_socket(websocket: WebSocket,
@@ -62,13 +99,15 @@ def build_jobs_router() -> APIRouter:
     @router.get("/jobs", response_model=JobCollection)
     def list_jobs(request: Request) -> JobCollection:
         registry = _registry(request)
-        live = [job.snapshot() for job in registry.list_jobs()]
+        live = [JobStatus(**job.snapshot()) for job in registry.list_jobs()]
 
         # Results persisted by an earlier process appear alongside this one's,
-        # so a restart does not make completed work vanish from the listing.
-        return JobCollection(
-            jobs=[JobStatus(**snapshot)
-                  for snapshot in live + registry.stored_snapshots()])
+        # so a restart does not make completed work vanish from the listing —
+        # and one it cannot read is skipped and counted rather than taking the
+        # listing with it, which is what every other collection does (BN-178).
+        stored, skipped = _persisted(registry)
+
+        return JobCollection(jobs=live + stored, skipped=skipped)
 
     # The per-kind union (BN-172): the result payload is declared here, which
     # is the endpoint a client reads it from. Constructed as a plain JobStatus
