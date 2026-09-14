@@ -135,6 +135,10 @@ def select_with_provenance(universe: list[Asset],
 
     Returns:
         SelectionResult: Survivors, the funnel, and per-asset provenance.
+
+    Raises:
+        Exception: Whatever a rule raises, unchanged. A failed rule is not an
+            exclusion — see :func:`_apply_rule`.
     """
     surviving = list(universe)
     steps = [SelectionStep(position=UNIVERSE_POSITION, remaining=len(surviving))]
@@ -161,40 +165,24 @@ def _apply_rule(rule: EligibilityRuleBase,
                 candidates: list[Asset],
                 current_date: pd.Timestamp,
                 data_fetcher: DataFetcher) -> tuple[list[Asset], list[str]]:
-    """Split candidates into those that pass a rule and those that do not."""
+    """Split candidates into those that pass a rule and those that do not.
+
+    A rule that raises is left to raise (BN-182). This used to catch every
+    exception and record the asset as excluded, which spelled "the rule
+    evaluated this name and said no" and "the rule could not run" the same
+    way — and once `MarketCapRule` began refusing dates outside the data's
+    coverage, that swallow turned each refusal back into an exclusion and
+    emptied the universe, which is the very failure the refusal exists to
+    stop.
+    """
     kept: list[Asset] = []
     removed: list[str] = []
 
     for asset in candidates:
-        if _is_eligible(rule, asset, current_date, data_fetcher):
+        if rule.is_eligible(asset, current_date, data_fetcher):
             kept.append(asset)
         else:
+            logger.debug(f"Asset {asset.asset_id} failed eligibility rule: {rule.rule_name}")
             removed.append(asset.asset_id)
 
     return kept, removed
-
-
-def _is_eligible(rule: EligibilityRuleBase,
-                 asset: Asset,
-                 current_date: pd.Timestamp,
-                 data_fetcher: DataFetcher) -> bool:
-    """Apply one rule to one asset, treating a raised error as exclusion.
-
-    A rule that throws has not said the asset is eligible, and defaulting to
-    inclusion would put a name into a live index on the strength of a bug. It
-    is logged at ERROR because it is a result-affecting failure rather than a
-    routine exclusion — the asset would very likely have qualified.
-    """
-    try:
-        if rule.is_eligible(asset, current_date, data_fetcher):
-            return True
-    except Exception as exc:
-        logger.error(
-            f"Error applying eligibility rule {rule.rule_name} to asset "
-            f"{asset.asset_id}: {exc}")
-
-        return False
-
-    logger.debug(f"Asset {asset.asset_id} failed eligibility rule: {rule.rule_name}")
-
-    return False

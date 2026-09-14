@@ -196,30 +196,29 @@ class TestProvenance:
 
 
 class TestRuleFailure:
+    """BN-182: a rule that throws is not a rule that says no.
 
-    def test_a_raising_rule_excludes_rather_than_admits(self):
-        """A rule that throws has not said the asset is eligible, and defaulting
-        to inclusion would put a name into a live index on the strength of a
-        bug."""
-        result = run([Explode("CCC")])
+    This used to catch every exception and record the asset as excluded, which
+    spelled "the rule evaluated this name and said no" exactly like "the rule
+    could not run". Once `MarketCapRule` began refusing dates outside the
+    data's coverage, that swallow turned each refusal straight back into an
+    exclusion — every name gone, an empty universe, a coherent index of
+    nothing — which is the failure the refusal exists to stop.
+    """
 
-        assert "CCC" not in result.survivor_ids
-        assert result.exclusions["CCC"] == 1
-
-    def test_the_other_assets_are_unaffected(self):
-        result = run([Explode("CCC")])
-
-        assert result.survivor_ids == ["AAA", "BBB", "DDD"]
-
-    def test_it_is_logged_as_an_error(self,
-                                     caplog):
-        """A result-affecting failure, not a routine exclusion — the asset
-        would very likely have qualified."""
-        with caplog.at_level("ERROR"):
+    def test_a_raising_rule_propagates(self):
+        with pytest.raises(RuntimeError, match="rule blew up"):
             run([Explode("CCC")])
 
-        assert "ExplodeRule" in caplog.text
-        assert "CCC" in caplog.text
+    def test_it_does_not_come_back_as_an_exclusion(self):
+        """Neither a survivor nor a name attributed to the rule: no result."""
+        with pytest.raises(RuntimeError):
+            run([Explode("CCC")])
+
+    def test_the_assets_before_the_failure_do_not_make_a_partial_answer(self):
+        """AAA and BBB cleared the rule, and that is not an index."""
+        with pytest.raises(RuntimeError):
+            run([Explode("CCC")])
 
     def test_a_routine_exclusion_is_only_debug(self,
                                                caplog):

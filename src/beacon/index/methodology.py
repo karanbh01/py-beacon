@@ -32,6 +32,55 @@ def _has_close(frame: pd.DataFrame) -> bool:
     return not (frame.empty or _PRICE_COLUMN not in frame.columns
                 or pd.isna(frame[_PRICE_COLUMN].iloc[0]))
 
+
+def _resolve_session(calculation_name: str,
+                     action: str,
+                     current_date: pd.Timestamp,
+                     market_data_provider: DataFetcher) -> pd.Timestamp:
+    """The session *current_date* reads from, or a refusal (BN-179, BN-182).
+
+    One primitive for every part of a methodology that has to turn a requested
+    date into the day the market was actually open. Selection and weighting
+    calling the same function is the point: an index whose rules resolve one
+    way and whose weights resolve another is two methodologies sharing a
+    heading, which is the fault this was built to end.
+
+    Args:
+        calculation_name: What is refusing — a rule or scheme name.
+        action: The verb phrase for the refusal message ("weight",
+            "assess eligibility"), so the message says what could not be done.
+        current_date: The date asked about.
+        market_data_provider: The data source to resolve against.
+
+    Returns:
+        pd.Timestamp: The last session on or before *current_date*.
+
+    Raises:
+        CalculationError: If *current_date* falls outside the data's coverage.
+            The message names both the date that was asked for and the data's
+            actual end, because "ask for an earlier date or refresh the store"
+            is the action and neither half of it is discoverable otherwise.
+    """
+    session = market_data_provider.resolve_session(current_date)
+
+    if session is not None:
+        return session
+
+    requested = current_date.strftime('%Y-%m-%d')
+    first, last = market_data_provider.date_range
+
+    raise CalculationError(
+        calculation_name=calculation_name,
+        details=(f"cannot {action} at {requested}: the market data runs "
+                 f"{first:%Y-%m-%d} to {last:%Y-%m-%d}, so that date lies "
+                 f"outside it. Inside the range a date with no bar is a "
+                 f"closed market and resolves back to the last session on "
+                 f"or before it; outside it nothing is known, and carrying "
+                 f"a price forward would answer a different question in "
+                 f"this one's date. Ask for a date on or before "
+                 f"{last:%Y-%m-%d}, or refresh the store."))
+
+
 class EligibilityRuleBase(ABC):
     """
     Abstract base class for an eligibility rule.
@@ -75,8 +124,24 @@ class EligibilityRuleBase(ABC):
                                         help="In the index currency. Blank for no ceiling."),
           })
 class MarketCapRule(EligibilityRuleBase):
-    """
-    Eligibility rule based on market capitalization.
+    """Eligibility by market capitalisation, read from a resolved session.
+
+    **Dates resolve backwards into the data (BN-182).** A weekend, a holiday
+    or any date inside the data's coverage that carries no bar is read at the
+    last session on or before it, because that is the universe the index
+    actually held through the closure. Reading the exact date instead
+    excluded *every* name on a closed day: the universe emptied, the weighting
+    was handed nothing, and an index of no constituents computed a coherent
+    level of zero.
+
+    That is the same resolution :class:`MarketCapWeighted` performs, through
+    the same primitive and by design. Selection running on one calendar and
+    weighting on another is two methodologies under one heading.
+
+    **Past the last bar it refuses rather than excluding.** A rule that cannot
+    evaluate has not found the asset ineligible, it has failed, and the two
+    must not share an answer — "not in the index" is a published fact about a
+    name, while "the data does not reach that date" is a fact about the store.
     """
     def __init__(self,
                  min_market_cap: float | None = None,
@@ -94,50 +159,59 @@ class MarketCapRule(EligibilityRuleBase):
                     current_date: pd.Timestamp,
                     market_data_provider: DataFetcher,
                     context: dict[str, Any] | None = None) -> bool:
-        # Requires fetching market cap data for the asset on current_date
-        # Market Cap = Price * Shares Outstanding
-        # This logic is simplified. Real market cap data might be directly available or
-        # need careful calculation.
+        """Whether *asset*'s market cap at the resolved session clears the bounds.
+
+        Raises:
+            CalculationError: If *current_date* lies outside the data's
+                coverage, so the rule cannot be evaluated at all. Nothing here
+                turns a failure into an exclusion — see the class docstring.
+        """
         if not isinstance(asset, Equity):
             logger.debug(f"MarketCapRule: Asset {asset.asset_id} is not Equity type, skipping.")
             return True # Or False, depending on how non-equities should be handled by this rule
 
-        date_str = current_date.strftime('%Y-%m-%d')
-        try:
-            price_df = market_data_provider.fetch_market_data(asset.ticker, date_str, date_str)
-            if (price_df.empty or _PRICE_COLUMN not in price_df.columns
-                    or pd.isna(price_df[_PRICE_COLUMN].iloc[0])):
-                logger.warning(
-                    f"MarketCapRule: Could not fetch price for {asset.ticker} "
-                    f"on {date_str}.")
-                return False
-            current_price = price_df[_PRICE_COLUMN].iloc[0]
+        session = _resolve_session(self.rule_name, "assess eligibility",
+                                   current_date, market_data_provider)
+        date_str = session.strftime('%Y-%m-%d')
 
-            shares_outstanding = market_data_provider.fetch_shares_outstanding(
-                asset.ticker, date_str)
-            if shares_outstanding is None or shares_outstanding <= 0:
-                logger.warning(
-                    f"MarketCapRule: Could not fetch valid shares outstanding for "
-                    f"{asset.ticker} on {date_str}.")
-                return False
+        price_df = market_data_provider.fetch_market_data(asset.ticker, date_str, date_str)
 
-            market_cap = current_price * shares_outstanding
-
-            if self.min_market_cap is not None and market_cap < self.min_market_cap:
-                logger.debug(
-                    f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) below "
-                    f"min_market_cap {self.min_market_cap:.2f}")
-                return False
-            if self.max_market_cap is not None and market_cap > self.max_market_cap:
-                logger.debug(
-                    f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) above "
-                    f"max_market_cap {self.max_market_cap:.2f}")
-                return False
-            logger.debug(f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) is eligible.")
-            return True
-        except Exception as e:
-            logger.error(f"MarketCapRule: Error checking eligibility for {asset.ticker}: {e}")
+        if not _has_close(price_df):
+            logger.warning(
+                f"MarketCapRule: Could not fetch price for {asset.ticker} "
+                f"on {date_str}.")
             return False
+
+        current_price = float(price_df[_PRICE_COLUMN].iloc[0])
+
+        # Read on the same session as the price, so the cap is one coherent
+        # observation rather than a current share count against an older close.
+        shares_outstanding = market_data_provider.fetch_shares_outstanding(
+            asset.ticker, date_str)
+
+        if shares_outstanding is None or shares_outstanding <= 0:
+            logger.warning(
+                f"MarketCapRule: Could not fetch valid shares outstanding for "
+                f"{asset.ticker} on {date_str}.")
+            return False
+
+        market_cap = current_price * shares_outstanding
+
+        if self.min_market_cap is not None and market_cap < self.min_market_cap:
+            logger.debug(
+                f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) below "
+                f"min_market_cap {self.min_market_cap:.2f}")
+            return False
+
+        if self.max_market_cap is not None and market_cap > self.max_market_cap:
+            logger.debug(
+                f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) above "
+                f"max_market_cap {self.max_market_cap:.2f}")
+            return False
+
+        logger.debug(f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) is eligible.")
+
+        return True
 
 
 @register(SELECTION, "Liquidity",
@@ -172,6 +246,15 @@ class LiquidityRule(EligibilityRuleBase):
                     current_date: pd.Timestamp,
                     market_data_provider: DataFetcher,
                     context: dict[str, Any] | None = None) -> bool:
+        """Whether *asset*'s traded volume and value over the lookback qualify.
+
+        No session resolution here, and none needed: this reads a *window*
+        ending at *current_date*, so a closed day is already spanned by the
+        days around it rather than being the single day everything hangs on.
+
+        Errors are not caught (BN-182). A rule that throws has not said the
+        asset is ineligible, and the two answers must not be spelled the same.
+        """
         if not isinstance(asset, Equity):
             return True # Or False
 
@@ -180,60 +263,58 @@ class LiquidityRule(EligibilityRuleBase):
             current_date - pd.Timedelta(days=self.lookback_days * 2)).strftime('%Y-%m-%d')
         end_lookback = current_date.strftime('%Y-%m-%d')
 
-        try:
-            price_df = market_data_provider.fetch_market_data(
-                asset.ticker, start_lookback, end_lookback)
-            if price_df.empty or price_df.shape[0] < (self.lookback_days / 2): # Ensure some data
-                 logger.warning(
-                     f"LiquidityRule: Insufficient historical price data for "
-                     f"{asset.ticker} for period ending {end_lookback}.")
-                 return False
+        price_df = market_data_provider.fetch_market_data(
+            asset.ticker, start_lookback, end_lookback)
 
-            # Ensure we have data up to current_date or shortly before
-            # (single-identifier market data is indexed by date).
-            price_df = price_df[price_df.index <= current_date].tail(self.lookback_days)
-            # Heuristic: need at least 80% of lookback days
-            if price_df.shape[0] < (self.lookback_days * 0.8):
-                logger.warning(
-                    f"LiquidityRule: Not enough trading days "
-                    f"({price_df.shape[0]}/{self.lookback_days}) for {asset.ticker} "
-                    f"for ADV calc.")
+        if price_df.empty or price_df.shape[0] < (self.lookback_days / 2): # Ensure some data
+            logger.warning(
+                f"LiquidityRule: Insufficient historical price data for "
+                f"{asset.ticker} for period ending {end_lookback}.")
+            return False
+
+        # Ensure we have data up to current_date or shortly before
+        # (single-identifier market data is indexed by date).
+        price_df = price_df[price_df.index <= current_date].tail(self.lookback_days)
+
+        # Heuristic: need at least 80% of lookback days
+        if price_df.shape[0] < (self.lookback_days * 0.8):
+            logger.warning(
+                f"LiquidityRule: Not enough trading days "
+                f"({price_df.shape[0]}/{self.lookback_days}) for {asset.ticker} "
+                f"for ADV calc.")
+            return False
+
+        if self.min_avg_daily_volume is not None:
+            if (_VOLUME_COLUMN not in price_df.columns
+                    or price_df[_VOLUME_COLUMN].isnull().all()):
+                logger.warning(f"LiquidityRule: Volume data missing for {asset.ticker}.")
+                return False
+            avg_daily_volume = price_df[_VOLUME_COLUMN].mean()
+            if avg_daily_volume < self.min_avg_daily_volume:
+                logger.debug(
+                    f"LiquidityRule: {asset.ticker} (ADV: {avg_daily_volume:.0f}) below "
+                    f"min volume {self.min_avg_daily_volume:.0f}")
                 return False
 
+        if self.min_avg_daily_value is not None:
+            if (_PRICE_COLUMN not in price_df.columns
+                    or _VOLUME_COLUMN not in price_df.columns
+                    or price_df[_PRICE_COLUMN].isnull().all()
+                    or price_df[_VOLUME_COLUMN].isnull().all()):
+                logger.warning(
+                    f"LiquidityRule: Price or Volume data missing for ADTV "
+                    f"calculation for {asset.ticker}.")
+                return False
+            avg_daily_value = (price_df[_PRICE_COLUMN] * price_df[_VOLUME_COLUMN]).mean()
+            if avg_daily_value < self.min_avg_daily_value:
+                logger.debug(
+                    f"LiquidityRule: {asset.ticker} (ADTV: {avg_daily_value:.2f}) below "
+                    f"min value {self.min_avg_daily_value:.2f}")
+                return False
 
-            if self.min_avg_daily_volume is not None:
-                if (_VOLUME_COLUMN not in price_df.columns
-                        or price_df[_VOLUME_COLUMN].isnull().all()):
-                    logger.warning(f"LiquidityRule: Volume data missing for {asset.ticker}.")
-                    return False
-                avg_daily_volume = price_df[_VOLUME_COLUMN].mean()
-                if avg_daily_volume < self.min_avg_daily_volume:
-                    logger.debug(
-                        f"LiquidityRule: {asset.ticker} (ADV: {avg_daily_volume:.0f}) below "
-                        f"min volume {self.min_avg_daily_volume:.0f}")
-                    return False
+        logger.debug(f"LiquidityRule: {asset.ticker} is eligible.")
 
-            if self.min_avg_daily_value is not None:
-                if (_PRICE_COLUMN not in price_df.columns
-                        or _VOLUME_COLUMN not in price_df.columns
-                        or price_df[_PRICE_COLUMN].isnull().all()
-                        or price_df[_VOLUME_COLUMN].isnull().all()):
-                    logger.warning(
-                        f"LiquidityRule: Price or Volume data missing for ADTV "
-                        f"calculation for {asset.ticker}.")
-                    return False
-                avg_daily_value = (price_df[_PRICE_COLUMN] * price_df[_VOLUME_COLUMN]).mean()
-                if avg_daily_value < self.min_avg_daily_value:
-                    logger.debug(
-                        f"LiquidityRule: {asset.ticker} (ADTV: {avg_daily_value:.2f}) below "
-                        f"min value {self.min_avg_daily_value:.2f}")
-                    return False
-
-            logger.debug(f"LiquidityRule: {asset.ticker} is eligible.")
-            return True
-        except Exception as e:
-            logger.error(f"LiquidityRule: Error checking eligibility for {asset.ticker}: {e}")
-            return False
+        return True
 
 # Other example stubs:
 # class FreeFloatRule(EligibilityRuleBase): ...
@@ -309,6 +390,10 @@ class MarketCapWeighted(WeightingSchemeBase):
                      market_data_provider: DataFetcher) -> pd.Timestamp:
         """The session this rebalance reads from.
 
+        The shared primitive, which `MarketCapRule` also calls: one definition
+        of the session in force, so selection and weighting cannot resolve a
+        closed day differently.
+
         Raises:
             CalculationError: If *current_date* falls outside the data's
                 coverage. The message names both the date that was asked for
@@ -316,24 +401,8 @@ class MarketCapWeighted(WeightingSchemeBase):
                 or refresh the store" is the action and neither half of it is
                 discoverable from "market cap is zero".
         """
-        session = market_data_provider.resolve_session(current_date)
-
-        if session is not None:
-            return session
-
-        requested = current_date.strftime('%Y-%m-%d')
-        first, last = market_data_provider.date_range
-
-        raise CalculationError(
-            calculation_name=self.scheme_name,
-            details=(f"cannot weight at {requested}: the market data runs "
-                     f"{first:%Y-%m-%d} to {last:%Y-%m-%d}, so that date lies "
-                     f"outside it. Inside the range a date with no bar is a "
-                     f"closed market and resolves back to the last session on "
-                     f"or before it; outside it nothing is known, and carrying "
-                     f"a price forward would answer a different question in "
-                     f"this one's date. Ask for a date on or before "
-                     f"{last:%Y-%m-%d}, or refresh the store."))
+        return _resolve_session(self.scheme_name, "weight",
+                                current_date, market_data_provider)
 
     def _asset_price(self,
                      asset: Equity,
