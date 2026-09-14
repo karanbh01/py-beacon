@@ -22,6 +22,7 @@ definition = IndexDefinition(
     eligibility_rules=[],
     weighting_scheme=EqualWeighted(),
     rebalancing_frequency="MONTHLY",
+    calendar="XNYS",
     universe_identifiers=["AAA", "BBB"],
 )
 ```

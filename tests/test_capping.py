@@ -170,6 +170,7 @@ class TestComposesWithSchemes:
                                      eligibility_rules=[],
                                      weighting_scheme=scheme,
                                      rebalancing_frequency="MONTHLY",
+                                     calendar="XNYS",
                                      universe_identifiers=["A", "B", "C"],
                                      max_constituent_weight=0.4)
 
@@ -187,6 +188,7 @@ class TestComposesWithSchemes:
                             eligibility_rules=[],
                             weighting_scheme=EqualWeighted(),
                             rebalancing_frequency="MONTHLY",
+                            calendar="XNYS",
                             universe_identifiers=["A", "B", "C"],
                             max_constituent_weight=cap)
 
@@ -199,6 +201,7 @@ class TestComposesWithSchemes:
                                      eligibility_rules=[],
                                      weighting_scheme=EqualWeighted(),
                                      rebalancing_frequency="MONTHLY",
+                                     calendar="XNYS",
                                      universe_identifiers=["A", "B", "C"])
 
         assert definition.max_constituent_weight is None
@@ -221,6 +224,7 @@ class TestCalculatorIntegration:
                                      eligibility_rules=[],
                                      weighting_scheme=EqualWeighted(),
                                      rebalancing_frequency="MONTHLY",
+                                     calendar="XNYS",
                                      universe_identifiers=["A", "B", "C"],
                                      max_constituent_weight=cap)
 

@@ -80,6 +80,7 @@ def index_document(document_id: str = GOOD) -> dict:
         "base_date": "2023-01-02",
         "base_value": 1000.0,
         "currency": "USD",
+        "calendar": "XNYS",
         "rebalancing_frequency": "QUARTERLY",
         "universe": {"universe_id": None, "identifiers": ["AAA", "BBB"]},
         "pipeline": {"selection": [],

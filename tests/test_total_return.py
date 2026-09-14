@@ -75,6 +75,7 @@ def run(fetcher: DataFetcher,
         index_id="IDX", index_name="Index", base_date=START, base_value=1000.0,
         currency="USD", eligibility_rules=[], weighting_scheme=EqualWeighted(),
         rebalancing_frequency="ANNUAL",
+        calendar="XNYS",
         universe_identifiers=universe or ["AAA", "BBB"],
         return_type=return_type, withholding_tax_rate=rate)
 
@@ -315,7 +316,8 @@ class TestDefinitionValidation:
                 index_id="I", index_name="I", base_date=START, base_value=1000.0,
                 currency="USD", eligibility_rules=[],
                 weighting_scheme=EqualWeighted(),
-                rebalancing_frequency="ANNUAL", return_type="GROSS_OF_FEES")
+                rebalancing_frequency="ANNUAL", calendar="XNYS",
+                return_type="GROSS_OF_FEES")
 
     @pytest.mark.parametrize("rate", [-0.1, 1.0, 1.5])
     def test_an_impossible_withholding_rate_is_refused(self, rate):
@@ -324,7 +326,8 @@ class TestDefinitionValidation:
                 index_id="I", index_name="I", base_date=START, base_value=1000.0,
                 currency="USD", eligibility_rules=[],
                 weighting_scheme=EqualWeighted(),
-                rebalancing_frequency="ANNUAL", withholding_tax_rate=rate)
+                rebalancing_frequency="ANNUAL", calendar="XNYS",
+                withholding_tax_rate=rate)
 
 
 class TestAgainstGeneratedData:
@@ -344,7 +347,8 @@ class TestAgainstGeneratedData:
                 index_id="I", index_name="I", base_date="2022-01-03",
                 base_value=1000.0, currency="USD", eligibility_rules=[],
                 weighting_scheme=EqualWeighted(),
-                rebalancing_frequency="QUARTERLY", universe_identifiers=names,
+                rebalancing_frequency="QUARTERLY", calendar="XNYS",
+                universe_identifiers=names,
                 return_type=return_type, withholding_tax_rate=rate)
 
             return IndexCalculator(definition, fetcher).run(

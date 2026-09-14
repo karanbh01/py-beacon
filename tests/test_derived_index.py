@@ -55,6 +55,7 @@ def build_parent(universe: list[str] | None = None) -> IndexDefinition:
         eligibility_rules=[],
         weighting_scheme=EqualWeighted(),
         rebalancing_frequency="MONTHLY",
+        calendar="XNYS",
         universe_identifiers=universe if universe is not None else UNIVERSE)
 
 

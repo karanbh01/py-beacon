@@ -1143,9 +1143,10 @@ class IndexDocument(BaseModel):
                     "client branches on.")
     description: str | None = None
 
-    # --- BN-121 metadata. All defaulted, so every stored document stays valid
-    # and no migration is needed; the defaults are the behaviour indices were
-    # defined against before these fields existed.
+    # --- BN-121 metadata. Defaulted when they landed, so every stored document
+    # stayed valid and no migration was needed. `calendar` stopped being one of
+    # those in BN-180: its default was the defect, so it is required here and
+    # backfilled in the store rather than defaulted in the model.
     return_type: Literal["PRICE", "TOTAL_RETURN", "NET_TOTAL_RETURN"] = Field(
         default="PRICE",
         description="How returns accumulate. PRICE ignores distributions; "
@@ -1163,13 +1164,18 @@ class IndexDocument(BaseModel):
                     "and an unpopulated one produces a number that looks "
                     "precise and is not. Ignored unless `return_type` is "
                     "NET_TOTAL_RETURN.")
-    calendar: str | None = Field(
-        default=None,
+    calendar: str = Field(
         description="Exchange MIC backing trading-day arithmetic, e.g. "
-                    "'XNYS'. Null means Monday to Friday, which is what every "
-                    "index defined before this field used. Naming one requires "
-                    "the `calendars` extra — an index that declares a calendar "
-                    "must never quietly compute against a different one.")
+                    "'XNYS'. **Required since BN-180**, and the one field on "
+                    "this model that changed from optional to required. It "
+                    "used to default to null, meaning Monday to Friday — which "
+                    "schedules rebalances on 1 January, 4 July and 25 "
+                    "December, days no exchange has a session for. Stored "
+                    "documents without one were migrated to 'XNYS' by schema "
+                    "version 2. `GET /indices/calendars` publishes every value "
+                    "this server accepts, read from the calendar package "
+                    "itself, so a client renders a closed list instead of "
+                    "guessing a MIC.")
     rebalance_day_rule: str = Field(
         default="FIRST_BUSINESS_DAY",
         description="Which day of a scheduled month the rebalance falls on: "
@@ -1756,6 +1762,69 @@ class RuleTypes(BaseModel):
         description="Weighting schemes available for the weighting stage.")
 
 
+class CalendarOption(BaseModel):
+    """One selectable trading calendar, as `GET /indices/calendars` serves it.
+
+    Every field is derived from `exchange_calendars` at request time except
+    `name`, which is curated and falls back to the code. Nothing here is a
+    hand-kept table of the calendar set itself, so the options a client offers
+    cannot drift from the calendars the schedule accepts.
+    """
+    code: str = Field(
+        description="The exchange MIC, e.g. 'XNYS'. This is the value to send "
+                    "as `IndexDocument.calendar`; everything else on this row "
+                    "is for display.")
+    name: str = Field(
+        description="Display name, e.g. 'New York Stock Exchange'. Curated for "
+                    "the major venues only and **falls back to `code`** for "
+                    "the rest — `exchange_calendars` carries no friendly "
+                    "names, so a partial list that degrades to the MIC is the "
+                    "honest option. A row where `name` equals `code` is an "
+                    "uncurated calendar, not a broken one.")
+    region: str = Field(
+        description="Derived, not curated: the first segment of the "
+                    "calendar's own IANA timezone, so 'Europe/Oslo' gives "
+                    "'Europe'. A noun as the tz database spells it — group "
+                    "headings are the client's wording, since 'Atlantic' and "
+                    "'Pacific' have no distinct adjective and a mapping to one "
+                    "would be the hand-kept table this field exists to avoid. "
+                    "Two calendars sit on bare UTC and so report 'UTC', which "
+                    "is not a region; that is deliberate rather than a gap, "
+                    "and whether it becomes an 'Other' heading is the client's "
+                    "call.")
+    tz: str = Field(
+        description="The calendar's full IANA timezone, e.g. "
+                    "'America/New_York'. Carried because `region` throws away "
+                    "the rest of it, and a client showing session times needs "
+                    "the whole zone.")
+
+
+class CalendarList(BaseModel):
+    """Response of `GET /indices/calendars`.
+
+    `IndexDocument.calendar` is required (BN-180), so a client that cannot see
+    the accepted set has two bad options: hard-code a hundred-odd MICs, or ship
+    a free-text box that now fails a 422 on a mandatory field. This publishes
+    what the engine accepts, the way `/indices/rule-types` and
+    `/optimise/constraint-types` do — read from `exchange_calendars` at request
+    time, never a hand-kept copy, so the wire set cannot drift from the set the
+    calculation schedules on.
+    """
+    calendars: list[CalendarOption] = Field(
+        description="Every exchange MIC this server can schedule against, "
+                    "sorted by code, each with what a picker needs to render "
+                    "it. Around a hundred entries; served whole rather than "
+                    "paged, because a picker wants all of them and the payload "
+                    "is a few kilobytes.")
+    default: str = Field(
+        description="The calendar code to preselect. The same value stored "
+                    "documents without a calendar were migrated to, so it is "
+                    "a reasonable default for a new index rather than an "
+                    "arbitrary one — but it is a suggestion for the form, not "
+                    "a server-side fallback: `IndexDocument.calendar` has no "
+                    "default and omitting it is a 422.")
+
+
 class ConstraintTypes(BaseModel):
     """Response of `GET /optimise/constraint-types`.
 
@@ -2178,8 +2247,9 @@ class ScheduleView(BaseModel):
     index_id: str
     rebalancing_frequency: str
     rebalance_day_rule: str
-    calendar: str | None = Field(
-        default=None, description="Null means business days.")
+    calendar: str = Field(
+        description="Exchange MIC the dates were computed on. Always present "
+                    "since BN-180 made the calendar required.")
     as_of: str = Field(description="Date the answer was computed from.")
     next_rebalance: str | None = Field(
         default=None,

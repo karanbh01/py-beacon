@@ -86,6 +86,7 @@ def run_index(fetcher: DataFetcher) -> IndexResult:
         currency="USD", eligibility_rules=[],
         weighting_scheme=EqualWeighted(),
         rebalancing_frequency="MONTHLY",
+        calendar="XNYS",
         universe_identifiers=list(NAMES))
 
     return IndexCalculator(definition, fetcher).run(start_date=START,

@@ -1014,6 +1014,7 @@ class TestRegionsAndCurrencies:
             eligibility_rules=[],
             weighting_scheme=MarketCapWeighted(use_free_float=True),
             rebalancing_frequency="QUARTERLY",
+            calendar="XNYS",
             universe_identifiers=list(dataset.universe.index),
             max_constituent_weight=0.10)
 

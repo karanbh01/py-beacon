@@ -62,6 +62,7 @@ def definition_document(**overrides) -> dict:
         "base_date": AS_OF,
         "base_value": 1000.0,
         "currency": "USD",
+        "calendar": "XNYS",
         "rebalancing_frequency": "QUARTERLY",
         "description": None,
         "universe": {"universe_id": None, "identifiers": list(PRICES)},

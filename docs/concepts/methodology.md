@@ -104,15 +104,27 @@ cadence. Two further fields decide the rest.
 existed used), `LAST_BUSINESS_DAY`, or `THIRD_FRIDAY` — the S&P and FTSE
 convention.
 
-**`calendar`** is an exchange MIC such as `XNYS`. Naming one backs the
-arithmetic with real holidays; leaving it null means Monday to Friday, which
-treats Christmas Day as a trading day. A rebalance landing on a holiday **rolls
-back** to the previous session, not forward, which is the convention and also
-the only choice that keeps a month-end rebalance inside its month.
+**`calendar`** is an exchange MIC such as `XNYS`, and is **required**. It was
+optional until BN-180, where null meant Monday to Friday — which treats 1
+January, 4 July and Christmas Day as trading days and schedules rebalances the
+data has no session for. Stored definitions without one were migrated to `XNYS`
+by schema version 2, which redates their January rebalances from the 1st to the
+2nd. A rebalance landing on a holiday **rolls back** to the previous session,
+not forward, which is the convention and also the only choice that keeps a
+month-end rebalance inside its month.
 
-Declaring a calendar requires the `calendars` extra. That is deliberately an
-error rather than a silent fallback: two installations must not compute
-different indices from the same definition.
+`IndexDefinition` requires it too, with no default: a default would let
+`IndexDefinition(currency="EUR")` schedule a European index on New York's
+holidays coherently and silently, which is the same failure in a different
+costume. `DEFAULT_CALENDAR` exists only as the value the migration writes.
+
+`exchange_calendars` is therefore a core dependency, not an extra: a required
+input cannot sit behind an optional install. `GET /indices/calendars` publishes
+every MIC this server accepts, read from the package at request time so the
+list cannot drift from what the calculation takes. Each row carries `code`,
+`name`, `tz` and `region` — the region being the first segment of the
+calendar's own timezone (`Europe/Oslo` → `Europe`), derived rather than
+curated, so a client can group its picker without a mapping that goes stale.
 
 **`effective_lag_sessions`** separates announcement from effect. Real indices
 publish a constituent list before it takes effect, which is what gives tracking

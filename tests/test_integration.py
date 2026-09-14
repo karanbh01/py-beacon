@@ -27,7 +27,10 @@ from beacon.portfolio.base import Transaction
 # Synthetic universe: 3 assets, ~6 months of daily prices, quarterly rebalance
 # ---------------------------------------------------------------------------
 ASSETS = ["AAA", "BBB", "CCC"]
-BASE_DATE = "2024-01-01"
+# The first *session* of 2024: 1 January is New Year's Day, and since BN-180
+# an index base-dated on it would take its first scheduled rebalance the day
+# after rather than on its own base date.
+BASE_DATE = "2024-01-02"
 END_DATE = "2024-06-28"
 BASE_VALUE = 1000.0
 INITIAL_CAPITAL = 1_000_000.0
@@ -108,6 +111,7 @@ def definition():
         eligibility_rules=[],
         weighting_scheme=EqualWeighted(),
         rebalancing_frequency="QUARTERLY",
+        calendar="XNYS",
         universe_identifiers=ASSETS,
     )
 

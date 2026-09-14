@@ -176,7 +176,8 @@ definition = IndexDefinition(
     index_id="DEMO", index_name="Demo Equal-Weight Index",
     base_date="2024-01-02", base_value=1000.0, currency="USD",
     eligibility_rules=[], weighting_scheme=EqualWeighted(),
-    rebalancing_frequency="MONTHLY", universe_identifiers=ASSETS,
+    rebalancing_frequency="MONTHLY", calendar="XNYS",
+    universe_identifiers=ASSETS,
 )
 
 # --- 3. Calculate the index ---

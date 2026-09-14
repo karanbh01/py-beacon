@@ -88,6 +88,7 @@ def _make_definition():
         eligibility_rules=[],
         weighting_scheme=EqualWeighted(),
         rebalancing_frequency="MONTHLY",
+        calendar="XNYS",
         universe_identifiers=ASSETS,
     )
 

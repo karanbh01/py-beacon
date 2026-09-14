@@ -112,6 +112,7 @@ def level_series(fetcher: DataFetcher) -> pd.Series:
         currency="USD", eligibility_rules=[],
         weighting_scheme=EqualWeighted(),
         rebalancing_frequency="QUARTERLY",
+        calendar="XNYS",
         universe_identifiers=["AAA", "BBB"])
 
     return IndexCalculator(definition, fetcher).run(start_date=START,
@@ -155,6 +156,7 @@ class TestTheMechanism:
             currency="USD", eligibility_rules=[],
             weighting_scheme=EqualWeighted(),
             rebalancing_frequency="QUARTERLY",
+            calendar="XNYS",
             universe_identifiers=["AAA", "BBB"])
 
         result = IndexCalculator(
@@ -174,6 +176,7 @@ class TestTheMechanism:
                 base_value=1000.0, currency="USD", eligibility_rules=[],
                 weighting_scheme=EqualWeighted(),
                 rebalancing_frequency="QUARTERLY",
+                calendar="XNYS",
                 universe_identifiers=["AAA", "BBB"]),
             build_fetcher(delist_on=None)).run(
                 start_date=START, end_date=END).divisor_history
@@ -390,6 +393,7 @@ class TestTheEngineConvertsCurrency:
             base_value=1000.0, currency="USD", eligibility_rules=[],
             weighting_scheme=MarketCapWeighted(use_free_float=True),
             rebalancing_frequency="QUARTERLY",
+            calendar="XNYS",
             universe_identifiers=list(dataset.universe.index),
             max_constituent_weight=0.10)
 

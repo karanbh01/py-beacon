@@ -20,7 +20,7 @@ from beacon.backtest.engine import BacktestEngine
 from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import MarketCapWeighted
-from beacon.index.schedule import effective_date
+from beacon.index.schedule import effective_date, sessions
 from beacon.testing import dataset
 
 START = "2023-01-02"
@@ -34,6 +34,7 @@ def build(lag: int = 0) -> IndexDefinition:
         currency="USD", eligibility_rules=[],
         weighting_scheme=MarketCapWeighted(),
         rebalancing_frequency="QUARTERLY",
+        calendar="XNYS",
         universe_identifiers=list(dataset.UNIVERSE),
         effective_lag_sessions=lag)
 
@@ -66,6 +67,7 @@ class TestZeroLagIsUnchanged:
                 base_value=1000.0, currency="USD", eligibility_rules=[],
                 weighting_scheme=MarketCapWeighted(),
                 rebalancing_frequency="QUARTERLY",
+                calendar="XNYS",
                 universe_identifiers=list(dataset.UNIVERSE)),
             dataset.data_fetcher()).run(start_date=START, end_date=END)
 
@@ -78,10 +80,16 @@ class TestZeroLagIsUnchanged:
         assert unlagged.announcement_dates == {}
 
     def test_the_rebalance_dates_are_the_schedule(self, unlagged):
+        """Plus the base date, which since BN-180 is not always a scheduled
+        one. The canonical dataset starts on 2023-01-02 — a Monday, and the day
+        NYSE observed New Year's Day, so the schedule's first January date is
+        the 3rd. The index still initialises on its own base date, so that is a
+        snapshot in its own right rather than a rebalance.
+        """
         dates = sorted(unlagged.weight_snapshots)
         scheduled = build(0).get_rebalance_dates(START, END)
 
-        assert dates == scheduled
+        assert dates == sorted({pd.Timestamp(START), *scheduled})
 
 
 class TestLaggedApplication:
@@ -98,8 +106,14 @@ class TestLaggedApplication:
             assert announced < effective
 
     def test_the_gap_is_the_configured_number_of_sessions(self, lagged):
+        """Counted in the index's own sessions, not in business days. The two
+        gave the same answer until BN-180, when the definition gained a real
+        calendar: a July rebalance announced on the 3rd is effective on the 7th
+        because 4 July is not a session, and a business-day ruler reads that as
+        four days rather than three.
+        """
         for effective, announced in lagged.announcement_dates.items():
-            between = pd.bdate_range(announced, effective)
+            between = sessions(announced, effective, build(3).calendar)
 
             assert len(between) - 1 == 3
 

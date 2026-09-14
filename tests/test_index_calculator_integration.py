@@ -101,6 +101,7 @@ def index_definition():
         eligibility_rules=[],  # pass-all
         weighting_scheme=EqualWeighted(),
         rebalancing_frequency="MONTHLY",
+        calendar="XNYS",
         universe_identifiers=["ASSET_A", "ASSET_B"],
     )
 

@@ -21,7 +21,10 @@ from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted, MarketCapWeighted
 
-START = "2024-01-01"
+# The first session of 2024 rather than 1 January, which is not one: an index
+# base-dated on a holiday schedules its first rebalance the next day, and
+# these tests need a window with no rebalance in it at all.
+START = "2024-01-02"
 END = "2024-06-28"
 DATES = pd.bdate_range(START, END)
 
@@ -67,6 +70,7 @@ def definition(scheme,
                            eligibility_rules=[],
                            weighting_scheme=scheme,
                            rebalancing_frequency=frequency,
+                           calendar="XNYS",
                            universe_identifiers=list(BASE_PRICE))
 
 

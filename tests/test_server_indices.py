@@ -21,6 +21,7 @@ TECH10 = {
     "base_date": "2024-01-02",
     "base_value": 1000.0,
     "currency": "USD",
+    "calendar": "XNYS",
     "rebalancing_frequency": "QUARTERLY",
     "description": "Ten large-cap technology names, market-cap weighted.",
     "universe": {

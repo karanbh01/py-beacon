@@ -79,6 +79,7 @@ def build_results() -> dict[str, object]:
         base_date=dataset.START, base_value=1000.0, currency="USD",
         eligibility_rules=[], weighting_scheme=MarketCapWeighted(),
         rebalancing_frequency="QUARTERLY",
+        calendar="XNYS",
         universe_identifiers=list(dataset.UNIVERSE),
         max_constituent_weight=CAP)
 

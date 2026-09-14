@@ -216,6 +216,7 @@ class TestEndToEnd:
             eligibility_rules=[FeatureRule("revenue", "gt", 500.0)],
             weighting_scheme=EqualWeighted(),
             rebalancing_frequency="QUARTERLY",
+            calendar="XNYS",
             universe_identifiers=["AAA", "BBB", "CCC"])
 
         result = IndexCalculator(definition, provider).run(start_date=START,

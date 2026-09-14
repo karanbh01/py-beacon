@@ -258,6 +258,7 @@ class TestCalculatorProjection:
                                Allow({"AAA", "BBB"})],
             weighting_scheme=EqualWeighted(),
             rebalancing_frequency="QUARTERLY",
+            calendar="XNYS",
             universe_identifiers=UNIVERSE_IDS)
 
         return IndexCalculator(definition, MagicMock())

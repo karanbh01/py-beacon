@@ -55,6 +55,7 @@ def build_definition(min_market_cap: float = 1.0,
                            else [MarketCapRule(min_market_cap=min_market_cap)]),
         weighting_scheme=EqualWeighted(),
         rebalancing_frequency="MONTHLY",
+        calendar="XNYS",
         universe_identifiers=UNIVERSE)
 
 

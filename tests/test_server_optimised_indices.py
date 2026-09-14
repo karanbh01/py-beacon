@@ -82,6 +82,7 @@ def parent_document(index_id: str = PARENT_ID) -> dict:
         "base_date": START,
         "base_value": 1000.0,
         "currency": "USD",
+        "calendar": "XNYS",
         "rebalancing_frequency": "QUARTERLY",
         "description": None,
         "universe": {"universe_id": None, "identifiers": list(GROWTH)},

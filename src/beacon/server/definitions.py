@@ -163,7 +163,7 @@ def _validate_schedule(document: IndexDocument) -> list[Finding]:
             message=f"'{document.rebalance_day_rule}' is not a known day rule. "
                     f"Available: {', '.join(sorted(DAY_RULES))}."))
 
-    if document.calendar is not None and not is_known_calendar(document.calendar):
+    if not is_known_calendar(document.calendar):
         # An error rather than a warning: falling back to business days would
         # make the index compute differently from the one that was defined,
         # with nothing on screen to say so.
@@ -173,8 +173,8 @@ def _validate_schedule(document: IndexDocument) -> list[Finding]:
             severity="error",
             code="UNKNOWN_CALENDAR",
             message=f"'{document.calendar}' is not a trading calendar this "
-                    f"server can use. Install the `calendars` extra, or use a "
-                    f"MIC such as XNYS or XLON."))
+                    f"server can use. `GET /indices/calendars` lists every "
+                    f"accepted MIC; XNYS and XLON are the common ones."))
 
     if (document.return_type == NET_TOTAL_RETURN
             and document.withholding_tax_rate == 0.0):

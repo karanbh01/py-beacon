@@ -30,6 +30,9 @@ def default_kwargs(mock_eligibility_rule,
         "eligibility_rules": [mock_eligibility_rule],
         "weighting_scheme": mock_weighting_scheme,
         "rebalancing_frequency": "QUARTERLY",
+        # Required since BN-180, and with no default in the constructor:
+        # these tests do not care which calendar, so they say which one.
+        "calendar": "XNYS",
     }
 
 
@@ -207,13 +210,24 @@ class TestGetRebalanceDates:
         with pytest.raises(ValueError, match="Unsupported rebalancing frequency"):
             idx.get_rebalance_dates("2025-01-01", "2025-12-31")
 
-    def test_same_start_end_date_on_business_day(self,
-                                                 default_kwargs):
+    def test_same_start_end_date_on_a_session(self,
+                                              default_kwargs):
         default_kwargs["rebalancing_frequency"] = "MONTHLY"
         idx = IndexDefinition(**default_kwargs)
-        # 2025-01-01 is a Wednesday and the first business day of Jan 2025
-        dates = idx.get_rebalance_dates("2025-01-01", "2025-01-01")
+        # 2025-01-02 is the first *session* of January 2025. This test used to
+        # ask for the 1st, on the reasoning that it is a Wednesday and so the
+        # first business day -- which is the BN-180 defect in miniature: it is
+        # New Year's Day, and no exchange has a session for it.
+        dates = idx.get_rebalance_dates("2025-01-02", "2025-01-02")
         assert len(dates) == 1
+
+    def test_a_one_day_range_on_a_holiday_is_empty(self,
+                                                   default_kwargs):
+        """The other half of the same statement: asking only about 1 January
+        finds no rebalance, because the index has no session that day."""
+        default_kwargs["rebalancing_frequency"] = "MONTHLY"
+        idx = IndexDefinition(**default_kwargs)
+        assert idx.get_rebalance_dates("2025-01-01", "2025-01-01") == []
 
     def test_no_dates_in_narrow_range(self,
                                       default_kwargs):

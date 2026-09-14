@@ -333,6 +333,7 @@ def _index_document() -> dict:
         "base_date": START,
         "base_value": 1000.0,
         "currency": "USD",
+        "calendar": "XNYS",
         "rebalancing_frequency": "QUARTERLY",
         "universe": {"universe_id": None, "identifiers": list(dataset.UNIVERSE)},
         "pipeline": {

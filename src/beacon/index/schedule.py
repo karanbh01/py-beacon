@@ -23,27 +23,53 @@ choice is visible — and the convention every index provider follows is back.
 Good Friday is the case that makes this concrete: the third Friday of April
 2025 is the 18th, which is not a session on any US exchange.
 
-## The default is exactly what it was
+## The calendar is required (BN-180)
 
-An index that names no calendar and no day rule gets business days and the
-first of the month, which is the behaviour every stored index was defined
-against. That is not a nicety: changing it would silently redate every existing
-backtest, so a test pins the old algorithm against the new one.
+It used to be optional, and the default was Monday to Friday. That default was
+chosen to keep every stored index producing exactly the dates it always had —
+which it did, and which was the wrong thing to preserve. A calendar-less index
+rebalancing on FIRST_BUSINESS_DAY schedules 1 January, 4 July and 25 December
+whenever they fall midweek, and over data that genuinely observes holidays
+there is no session on any of them. The schedule and the data held two
+different definitions of "a day the index trades", neither wrong alone.
 
-## Why the calendar is optional but not silently so
+So an `IndexDefinition` now always carries a calendar, `IndexDocument` requires
+one on the wire, and stored documents without one are migrated to
+`DEFAULT_CALENDAR` by schema version 2. `sessions()` still takes `None` — see
+below — but nothing a user stores can reach it.
 
-`exchange_calendars` is an extra, not a core dependency. But an index that
-*declares* a calendar and runs without the package must not quietly fall back
-to Monday-to-Friday: two installations would then compute different indices
-from the same definition, and nothing would say which was which. So declaring
-a calendar makes the package required, and its absence is an error naming the
-extra to install.
+## Why `exchange_calendars`, and why it is now a core dependency
+
+A required calendar cannot sit behind an extra: the core would import and then
+refuse to schedule. So `exchange_calendars` moved into the core dependency set.
+The alternatives were checked rather than assumed, and all failed:
+
+* `pandas.tseries.holiday.USFederalHolidayCalendar` is wrong in **both**
+  directions. Measured over 2025: it calls Columbus Day (10-13) and Veterans
+  Day (11-11) closed when NYSE traded, and calls Good Friday (04-18) and
+  01-09 open when NYSE was shut. Good Friday is a recurring exchange closure
+  no federal calendar will ever hold, and 01-09 was a one-off day of mourning
+  no rule-based calendar can predict.
+* `pandas_market_calendars` depends on `exchange-calendars` (verified from its
+  wheel metadata). It is a wrapper, not an alternative.
+* `holidays` and `workalendar` are national-holiday packages: the same
+  structural mismatch as pandas, for the same reason.
+
+The cost is small and was measured: 1.3 MB on disk, and non-core dependencies
+of `pyluach`, `toolz` and `korean_lunar_calendar`, all small and pure-Python.
+
+## The `None` calendar survives as a primitive, not as a default
+
+`sessions(start, end, None)` is still `pd.bdate_range`, because plain
+business-day arithmetic is a real thing for a library caller to want. What it
+no longer is, is reachable by *omission*: `calendar` is a required argument of
+`sessions`, `rebalance_dates` and `next_rebalance`, so Monday-to-Friday is
+something a caller asks for in writing, never something they get by forgetting.
 """
 import logging
 
+import exchange_calendars
 import pandas as pd
-
-from .._optional import require
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +91,11 @@ DAY_RULES = (FIRST_BUSINESS_DAY, LAST_BUSINESS_DAY, THIRD_FRIDAY)
 # The behaviour every index defined before this module was written.
 DEFAULT_DAY_RULE = FIRST_BUSINESS_DAY
 
+# The calendar an index gets when it names none: the one every index stored
+# before BN-180 was implicitly assumed to run on, and what the schema-version-2
+# migration writes into a document without one.
+DEFAULT_CALENDAR = "XNYS"
+
 FRIDAY = 4
 THIRD_OCCURRENCE = 3
 
@@ -76,29 +107,22 @@ _LOOKAHEAD_PERIODS = 2
 
 def sessions(start: pd.Timestamp,
              end: pd.Timestamp,
-             calendar: str | None = None) -> pd.DatetimeIndex:
+             calendar: str | None) -> pd.DatetimeIndex:
     """The days an index has a level on, over a range.
 
     Args:
         start: First date, inclusive.
         end: Last date, inclusive.
-        calendar: Exchange MIC, e.g. ``"XNYS"``. None means Monday to Friday,
-            which is what every index defined before calendars existed used.
+        calendar: Exchange MIC, e.g. ``"XNYS"``. Required — passing None asks
+            for Monday to Friday, holidays included, which no stored index can
+            do since BN-180 and which a library caller must therefore state
+            rather than fall into.
 
     Returns:
         pd.DatetimeIndex: Sessions in ascending order.
-
-    Raises:
-        MissingDependencyError: If a calendar is named and
-            ``exchange_calendars`` is not installed. Deliberately an error
-            rather than a fallback — see the module docstring.
     """
     if calendar is None:
         return pd.bdate_range(start, end)
-
-    require("exchange_calendars", f"The {calendar} trading calendar")
-
-    import exchange_calendars  # noqa: PLC0415
 
     schedule = exchange_calendars.get_calendar(calendar)
 
@@ -114,17 +138,66 @@ def sessions(start: pd.Timestamp,
     return pd.DatetimeIndex(schedule.sessions_in_range(first, last))
 
 
+# Display names for the venues a client is most likely to offer first. Every
+# other calendar falls back to its MIC, which is why this is allowed to be
+# partial: a name that is missing labels a calendar less well, and a name that
+# is wrong labels it falsely. `exchange_calendars` has no friendly names of its
+# own -- `.name` returns the MIC -- so the choice is a short curated list or
+# none at all.
+DISPLAY_NAMES = {
+    "XNYS": "New York Stock Exchange",
+    "XNAS": "Nasdaq",
+    "XLON": "London Stock Exchange",
+    "XETR": "Xetra (Frankfurt)",
+    "XPAR": "Euronext Paris",
+    "XAMS": "Euronext Amsterdam",
+    "XBRU": "Euronext Brussels",
+    "XMIL": "Borsa Italiana",
+    "XSWX": "SIX Swiss Exchange",
+    "XMAD": "Bolsa de Madrid",
+    "XSTO": "Nasdaq Stockholm",
+    "XTKS": "Tokyo Stock Exchange",
+    "XHKG": "Hong Kong Stock Exchange",
+    "XSHG": "Shanghai Stock Exchange",
+    "XSES": "Singapore Exchange",
+    "XASX": "Australian Securities Exchange",
+    "XTSE": "Toronto Stock Exchange",
+    "XBOM": "BSE (Bombay)",
+    "XKRX": "Korea Exchange",
+    "XJSE": "Johannesburg Stock Exchange",
+    "BVMF": "B3 (São Paulo)",
+}
+
+
+def known_calendars() -> list[str]:
+    """Every MIC this installation can schedule against, sorted.
+
+    Read from the package rather than listed here, so the set a client is told
+    about is the set the calculation actually accepts. A hand-kept copy of a
+    hundred-odd MICs would be wrong the first time the package gained one.
+    """
+    return sorted(exchange_calendars.get_calendar_names())
+
+
+def calendar_region(calendar: str) -> tuple[str, str]:
+    """A calendar's region and IANA timezone, e.g. ``("Europe", "Europe/Oslo")``.
+
+    Derived from the calendar's own timezone rather than from a table, for the
+    same reason the code list is: a mapping kept here would be one release
+    behind the package the schedule actually runs on. Checked across all 102
+    calendars this installation carries -- every one has a timezone, and every
+    one splits into a region: Europe 42, America 30, Asia 22, then Australia,
+    Atlantic, Africa, Pacific, and two on bare UTC, which report "UTC" as their
+    own region rather than being forced into a continent they do not have.
+    """
+    zone = str(exchange_calendars.get_calendar(calendar).tz)
+
+    return zone.split("/", maxsplit=1)[0], zone
+
+
 def is_known_calendar(calendar: str) -> bool:
     """Whether a MIC names a calendar this installation can use."""
-    try:
-        require("exchange_calendars", f"The {calendar} trading calendar")
-
-        import exchange_calendars  # noqa: PLC0415
-    except Exception:
-        return False
-
-    return bool(exchange_calendars.get_calendar_names()
-                and calendar in set(exchange_calendars.get_calendar_names()))
+    return calendar in set(exchange_calendars.get_calendar_names())
 
 
 def _roll_back(target: pd.Timestamp,
@@ -194,16 +267,17 @@ def day_in_month(year: int,
 def rebalance_dates(frequency: str,
                     start: str | pd.Timestamp,
                     end: str | pd.Timestamp,
-                    day_rule: str = DEFAULT_DAY_RULE,
-                    calendar: str | None = None) -> list[pd.Timestamp]:
+                    calendar: str | None,
+                    day_rule: str = DEFAULT_DAY_RULE) -> list[pd.Timestamp]:
     """Every rebalance date in a range.
 
     Args:
         frequency: One of FREQUENCIES.
         start: First date of the range, inclusive.
         end: Last date, inclusive.
+        calendar: Exchange MIC. Required; None asks explicitly for business
+            days, which no stored index does.
         day_rule: Which day within a scheduled month.
-        calendar: Exchange MIC, or None for business days.
 
     Returns:
         list: Dates in ascending order, empty when the range holds none.
@@ -311,8 +385,8 @@ def effective_date(announced: pd.Timestamp,
 def next_rebalance(frequency: str,
                    base_date: str | pd.Timestamp,
                    as_of: str | pd.Timestamp,
-                   day_rule: str = DEFAULT_DAY_RULE,
-                   calendar: str | None = None) -> pd.Timestamp | None:
+                   calendar: str | None,
+                   day_rule: str = DEFAULT_DAY_RULE) -> pd.Timestamp | None:
     """The first rebalance strictly after a date.
 
     Anchored on the base date, because that is what the calculator anchors on:
@@ -323,8 +397,9 @@ def next_rebalance(frequency: str,
         frequency: One of FREQUENCIES.
         base_date: The index's base date, which anchors the cadence.
         as_of: The date being asked from.
+        calendar: Exchange MIC. Required; None asks explicitly for business
+            days.
         day_rule: Which day within a scheduled month.
-        calendar: Exchange MIC, or None for business days.
 
     Returns:
         The next date, or None if none falls within the lookahead.
@@ -339,7 +414,7 @@ def next_rebalance(frequency: str,
         months=FREQUENCY_MONTHS[frequency] * _LOOKAHEAD_PERIODS + 1)
 
     upcoming = [date for date in rebalance_dates(frequency, anchor, horizon,
-                                                 day_rule, calendar)
+                                                 calendar, day_rule)
                 if date > today]
 
     if not upcoming:

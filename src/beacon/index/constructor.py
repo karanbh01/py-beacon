@@ -10,6 +10,7 @@ from .calculation.total_return import PRICE, RETURN_TYPES
 from .methodology import EligibilityRuleBase, WeightingSchemeBase
 from .schedule import (
     DAY_RULES,
+    DEFAULT_CALENDAR,
     DEFAULT_DAY_RULE,
     next_rebalance,
     rebalance_dates,
@@ -30,11 +31,11 @@ class IndexDefinition:
                  eligibility_rules: list[EligibilityRuleBase],
                  weighting_scheme: WeightingSchemeBase,
                  rebalancing_frequency: str, # e.g., 'QUARTERLY', 'MONTHLY', 'SEMI-ANNUAL', 'ANNUAL'
+                 calendar: str,
                  description: str | None = None,
                  universe_identifiers: list[str] | None = None,
                  max_constituent_weight: float | None = None,
                  rebalance_day_rule: str = DEFAULT_DAY_RULE,
-                 calendar: str | None = None,
                  return_type: str = PRICE,
                  withholding_tax_rate: float = 0.0,
                  effective_lag_sessions: int = 0):
@@ -55,6 +56,20 @@ class IndexDefinition:
                                    (e.g., 'QUARTERLY', 'MONTHLY', 'SEMI-ANNUAL', 'ANNUAL').
                                    More complex schedules (e.g. "Third Friday of March, June...")
                                    would require a more sophisticated scheduler.
+            calendar: Exchange MIC backing trading-day arithmetic, e.g.
+                                  ``"XNYS"``. **Required, and deliberately
+                                  without a default.** It had one briefly while
+                                  BN-180 was being written, and the default was
+                                  wrong for the same reason the old null was:
+                                  `IndexDefinition(currency="EUR")` would
+                                  silently schedule a European index on New
+                                  York's holidays, coherently, with nothing on
+                                  screen to say so. Choosing a calendar for an
+                                  index that already exists is repair, which is
+                                  what `DEFAULT_CALENDAR` and the schema-2
+                                  migration are for; choosing one for an index
+                                  being created is a guess, and the caller is
+                                  the only one who can make it.
             description: Optional textual description of the index.
             universe_identifiers: Optional list of string identifiers (e.g., tickers, ISINs)
                                   defining the asset universe from which constituents are selected.
@@ -67,12 +82,6 @@ class IndexDefinition:
                                   falls on. Defaults to the first business day,
                                   which is what every index defined before
                                   BN-121 used.
-            calendar: Exchange MIC backing trading-day arithmetic, e.g.
-                                  ``"XNYS"``. None means Monday to Friday, again
-                                  the previous behaviour. Naming one requires
-                                  the `calendars` extra — an index that declares
-                                  a calendar must not quietly compute against a
-                                  different one.
             return_type: PRICE, TOTAL_RETURN or NET_TOTAL_RETURN. PRICE is the
                                   default and the behaviour of every index
                                   defined before BN-125; the other two reinvest
@@ -92,6 +101,10 @@ class IndexDefinition:
             raise ValueError("index_name cannot be empty.")
         if not base_date:
             raise ValueError("base_date cannot be empty.")
+        if not calendar:
+            raise ValueError(
+                "calendar cannot be empty; every index schedules against a "
+                f"trading calendar (e.g. '{DEFAULT_CALENDAR}').")
         if rebalance_day_rule not in DAY_RULES:
             raise ValueError(
                 f"Unsupported day rule: '{rebalance_day_rule}'. "
@@ -140,7 +153,7 @@ class IndexDefinition:
         self.universe_identifiers: list[str] | None = universe_identifiers
         self.max_constituent_weight: float | None = max_constituent_weight
         self.rebalance_day_rule: str = rebalance_day_rule
-        self.calendar: str | None = calendar
+        self.calendar: str = calendar
         self.return_type: str = return_type
         self.withholding_tax_rate: float = withholding_tax_rate
         self.effective_lag_sessions: int = effective_lag_sessions
@@ -156,10 +169,10 @@ class IndexDefinition:
         the index's rebalancing frequency, day rule and calendar.
 
         Delegates to `beacon.index.schedule`, which replaced the first-business-
-        day-of-month assumption this method used to hard-code. An index that
-        names neither a day rule nor a calendar gets exactly the dates it always
-        did — pinned by a test, because changing them would silently redate
-        every stored backtest.
+        day-of-month assumption this method used to hard-code. Since BN-180 the
+        calendar is always a real one, so a date this returns is always a date
+        the exchange has a session for — an index that named none used to
+        schedule 1 January and 25 December.
 
         Args:
             start_date: Start of the range (YYYY-MM-DD), inclusive.
@@ -174,8 +187,8 @@ class IndexDefinition:
         return rebalance_dates(self.rebalancing_frequency,
                                start_date,
                                end_date,
-                               self.rebalance_day_rule,
-                               self.calendar)
+                               self.calendar,
+                               self.rebalance_day_rule)
 
     def next_rebalance(self,
                        as_of: str) -> pd.Timestamp | None:
@@ -193,8 +206,8 @@ class IndexDefinition:
         return next_rebalance(self.rebalancing_frequency,
                               self.base_date,
                               as_of,
-                              self.rebalance_day_rule,
-                              self.calendar)
+                              self.calendar,
+                              self.rebalance_day_rule)
 
     def __repr__(self) -> str:
         universe_size = len(self.universe_identifiers) if self.universe_identifiers else 0

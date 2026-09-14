@@ -211,6 +211,7 @@ class TestServedOnTheWeightsPane:
                 started.put(f"/indices/{INDEX_ID}", json={
                     "id": INDEX_ID, "name": "Risky", "base_date": START,
                     "base_value": 1000.0, "currency": "USD",
+                    "calendar": "XNYS",
                     "rebalancing_frequency": "QUARTERLY", "description": None,
                     "universe": {"universe_id": None,
                                  "identifiers": list(dataset.UNIVERSE)},
@@ -394,6 +395,7 @@ class TestActiveRiskOnThePane:
                     started.put(f"/indices/{index_id}", json={
                         "id": index_id, "name": index_id, "base_date": START,
                         "base_value": 1000.0, "currency": "USD",
+                        "calendar": "XNYS",
                         "rebalancing_frequency": "QUARTERLY",
                         "description": None,
                         "universe": {"universe_id": None,

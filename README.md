@@ -102,7 +102,6 @@ stays light:
 | `excel` | openpyxl | `ReportGenerator` Excel output |
 | `optimise` | scipy | Portfolio optimisation |
 | `plot` | matplotlib | Chart accessors on result objects |
-| `calendars` | exchange_calendars | Real trading calendars for rebalance schedules |
 | `plot-interactive` | plotly | Interactive charts (planned) |
 | `server` | fastapi, uvicorn, orjson, websockets | The local API server |
 | `dev` | pytest, ruff, mypy, pre-commit, hypothesis | Contributing |
@@ -201,11 +200,20 @@ date landing on one rolls back to the previous session.
 derived from the schedule and the calendar rather than stored — a stored date
 would silently expire.
 
-Both default to the previous behaviour: no calendar means Monday to Friday, and
-no day rule means the first business day of the month, so every index defined
-before these fields existed produces exactly the dates it always did. Naming a
-calendar **requires** the `calendars` extra rather than falling back, because
-two installations must not compute different indices from one definition.
+The calendar is **required** since BN-180 — on the wire and in
+`IndexDefinition`, which has no default for it — and `exchange_calendars` is a
+core dependency rather than an extra. It used to be optional, defaulting to
+Monday to Friday, which scheduled rebalances on 1 January, 4 July and 25
+December: days no exchange has a session for. There is deliberately no
+constructor default either, since one would let a European index schedule
+itself on New York's holidays without saying so. Definitions stored before this
+were migrated to `XNYS`, because choosing for an index that already exists is
+repair while choosing for a new one is a guess.
+
+`GET /indices/calendars` publishes every accepted MIC with a display name, an
+IANA timezone and a region derived from that timezone, so a client can group a
+picker without hard-coding anything. The day rule still defaults to the first
+business day of the month.
 
 ### Discovering what a methodology can contain
 

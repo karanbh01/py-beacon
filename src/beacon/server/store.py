@@ -18,6 +18,7 @@ from typing import Any
 
 from .._optional import require
 from ..exceptions import ConfigurationError, InvalidIdentifierError
+from ..index.schedule import DEFAULT_CALENDAR
 
 # Path segments that name an *endpoint*, and so cannot also name a document.
 #
@@ -39,6 +40,7 @@ RESERVED_IDENTIFIERS = frozenset({
     "preview",
     "validate",
     "rule-types",
+    "calendars",
 })
 
 require("platformdirs", "Document storage for the Beacon API server")
@@ -49,13 +51,43 @@ APP_NAME = "beacon"
 SCHEMA_VERSION_KEY = "schema_version"
 
 # Bump when a stored shape changes, and add the matching entry to MIGRATIONS.
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
+
+# The field an index document is discriminated by. One version chain covers
+# every collection — watchlists, indices, constraint sets — so a migration that
+# only concerns one of them has to say which documents it applies to. This is
+# the field no other collection has, and the one an index cannot be without.
+_INDEX_MARKER = "rebalancing_frequency"
+
+
+def _add_default_calendar(document: dict[str, Any]) -> dict[str, Any]:
+    """v1 -> v2: an index document without a calendar gets the default.
+
+    BN-180 made `IndexDocument.calendar` required, because null meant Monday to
+    Friday and so scheduled rebalances on 1 January, 4 July and 25 December.
+    Every index stored before that was implicitly assumed to run on the New
+    York calendar, so that is what it is given.
+
+    This redates those indices — a January rebalance moves from the 1st to the
+    2nd — which is the point rather than a side effect: the old dates were days
+    the data had no session for. A backtest result stored before the migration
+    keeps the old dates and will disagree with the index's schedule until it is
+    re-run.
+
+    Documents from other collections pass through untouched apart from the
+    version stamp: they have no calendar and never had a schedule.
+    """
+    if _INDEX_MARKER not in document or document.get("calendar"):
+        return document
+
+    return {**document, "calendar": DEFAULT_CALENDAR}
+
 
 # version -> function producing the next version's shape. Keyed by the version
-# being migrated FROM, so applying 1 turns a v1 document into a v2 one. Empty
-# while nothing has changed shape yet; the machinery is here so the first
-# change does not have to invent it under time pressure.
-MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
+# being migrated FROM, so applying 1 turns a v1 document into a v2 one.
+MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    1: _add_default_calendar,
+}
 
 
 class DocumentStore:

@@ -150,7 +150,22 @@ print("ok")
 
 
 class TestCoreImportsAreDependencyFree:
-    """The core pipeline must import with only pandas and numpy present."""
+    """The core pipeline must import with only its core dependencies present.
+
+    Those are pandas, numpy, pydantic and — since BN-180 — `exchange_calendars`,
+    which is no longer blocked here because it is no longer optional. Every
+    other optional package still is, so the test says exactly what it used to:
+    nothing in the core reaches for an extra.
+    """
+
+    def test_exchange_calendars_is_no_longer_optional(self):
+        """The guard's own registry is the statement of what is optional.
+
+        Left in `EXTRA_FOR_MODULE` it would keep promising an extra that
+        pyproject no longer declares, and `require()` would still be the way to
+        import it — which is the thing BN-180 stopped doing.
+        """
+        assert "exchange_calendars" not in EXTRA_FOR_MODULE
 
     def test_core_imports_without_any_optional_dependency(self):
         script = BARE_ENVIRONMENT_SCRIPT.format(
@@ -224,6 +239,27 @@ class TestExtrasAreDeclared:
             assert extra in declared, (
                 f"'{module_name}' maps to extra '{extra}', which pyproject.toml "
                 f"does not declare")
+
+    def test_the_calendar_package_is_declared_as_a_core_dependency(self):
+        """BN-180. The behaviour is proved elsewhere; this is the declaration.
+
+        An environment that happened to have `exchange_calendars` installed for
+        some other reason would hide a missing entry, and the first person to
+        hit it would be a user of a released wheel rather than this suite.
+        """
+        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        if not pyproject.exists():
+            pytest.skip("pyproject.toml not available (installed-only checkout)")
+
+        import tomllib
+
+        with pyproject.open("rb") as handle:
+            project = tomllib.load(handle)["project"]
+
+        assert "exchange_calendars" in project["dependencies"]
+        assert "calendars" not in project["optional-dependencies"], (
+            "the `calendars` extra was removed when the package became core; "
+            "leaving it declared would promise an install that means nothing")
 
 
 class TestTheServerExtraIsSelfSufficient:

@@ -3,8 +3,11 @@
 Import guards for Beacon's optional dependencies.
 
 The core pipeline — index, backtest, portfolio, fund, derivatives — runs on
-pandas and numpy alone. Everything beyond that (Excel reporting, plotting,
-optimisation, market-data downloads, the API server) lives behind an extra.
+pandas, numpy, pydantic and `exchange_calendars` alone. The last of those is
+core rather than an extra since BN-180: every index schedules against a real
+trading calendar, and a required input cannot sit behind an optional install.
+Everything beyond that (Excel reporting, plotting, optimisation, market-data
+downloads, the API server) lives behind an extra.
 Modules needing one import it through :func:`require`, so a missing package
 reports the extra to install instead of surfacing a bare ImportError.
 """
@@ -16,7 +19,6 @@ from .exceptions import MissingDependencyError
 # Optional module -> the pyproject.toml extra that provides it. Every module
 # passed to require() must appear here; a missing entry is a packaging bug.
 EXTRA_FOR_MODULE = {
-    "exchange_calendars": "calendars",
     "fastapi": "server",
     "matplotlib": "plot",
     "openpyxl": "excel",

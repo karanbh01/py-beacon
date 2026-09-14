@@ -43,6 +43,7 @@ def _definition(weighting) -> IndexDefinition:
         eligibility_rules=[],
         weighting_scheme=weighting,
         rebalancing_frequency="QUARTERLY",
+        calendar="XNYS",
         universe_identifiers=list(dataset.UNIVERSE),
     )
 

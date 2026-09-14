@@ -15,7 +15,15 @@ from ... import catalogue
 from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError, DataNotFoundError, InvalidRuleError
-from ...index.schedule import FREQUENCY_MONTHS, next_rebalance, rebalance_dates
+from ...index.schedule import (
+    DEFAULT_CALENDAR,
+    DISPLAY_NAMES,
+    FREQUENCY_MONTHS,
+    calendar_region,
+    known_calendars,
+    next_rebalance,
+    rebalance_dates,
+)
 from ..config import ServerConfig
 from ..definitions import (
     PipelineValidationError,
@@ -27,6 +35,8 @@ from ..documents import load_document, raw, read_collection, stored, validated
 from ..jobs import JobRegistry
 from ..preview import build_preview
 from ..schemas import (
+    CalendarList,
+    CalendarOption,
     DeletedIndex,
     DerivationPayload,
     ErrorEnvelope,
@@ -228,16 +238,16 @@ def build_schedule(document: IndexDocument,
     upcoming_date = next_rebalance(document.rebalancing_frequency,
                                    document.base_date,
                                    today,
-                                   document.rebalance_day_rule,
-                                   document.calendar)
+                                   document.calendar,
+                                   document.rebalance_day_rule)
 
     months = FREQUENCY_MONTHS[document.rebalancing_frequency]
     window = rebalance_dates(document.rebalancing_frequency,
                              document.base_date,
                              today + pd.DateOffset(
                                  months=months * SCHEDULE_HORIZON_PERIODS),
-                             document.rebalance_day_rule,
-                             document.calendar)
+                             document.calendar,
+                             document.rebalance_day_rule)
 
     return ScheduleView(
         index_id=document.id,
@@ -286,6 +296,28 @@ def build_indices_router() -> APIRouter:
         # on a process started with nothing configured.
         return RuleTypes(selection=specs_for(catalogue.SELECTION),
                          weighting=specs_for(catalogue.WEIGHTING))
+
+    @router.get("/calendars", response_model=CalendarList)
+    def calendars() -> CalendarList:
+        # `IndexDocument.calendar` is required, so the accepted set has to be
+        # published or every client guesses at a MIC and gets a 422. Every
+        # field on a row is read from the calendar package on each request
+        # rather than from a list kept here -- including `region`, which is the
+        # first segment of the calendar's own timezone and is sent as the tz
+        # database spells it. Adjectivising it ("European") would put back
+        # exactly the hand-kept mapping this derivation avoids, and would have
+        # to guess at Atlantic, Pacific and UTC; how a dropdown words its
+        # headings is the client's business. Same discipline as
+        # `/indices/rule-types`, and needs no data source either.
+        options = []
+        for code in known_calendars():
+            region, timezone = calendar_region(code)
+            options.append(CalendarOption(code=code,
+                                          name=DISPLAY_NAMES.get(code, code),
+                                          region=region,
+                                          tz=timezone))
+
+        return CalendarList(calendars=options, default=DEFAULT_CALENDAR)
 
     @router.post("/validate", response_model=ValidationReport)
     def validate(request: Request,

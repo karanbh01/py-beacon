@@ -28,15 +28,19 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3 :: Only",
 ]
-dependencies = ["pandas", "numpy", "pydantic>=2"]
+# `exchange_calendars` is core since BN-180, not an extra. Every index carries
+# a trading calendar, because one without a calendar schedules rebalances on 1
+# January and 25 December — days no exchange has a session for. A required
+# input cannot sit behind an extra: the core would import and then refuse to
+# schedule. The alternatives (pandas' USFederalHolidayCalendar,
+# pandas_market_calendars, holidays, workalendar) were measured and rejected;
+# beacon/index/schedule.py records why. Cost: 1.3 MB, plus pyluach, toolz and
+# korean_lunar_calendar, all small and pure-Python.
+dependencies = ["pandas", "numpy", "pydantic>=2", "exchange_calendars"]
 
 # Core stays importable without any of these. Modules that need one import it
 # through beacon._optional.require(), which names the extra when it is absent.
 [project.optional-dependencies]
-# Trading calendars for schedule arithmetic (BN-121). An index that names a
-# calendar needs this; one that does not gets business days and imports
-# nothing, so the core stays pandas-and-numpy only.
-calendars = ["exchange_calendars"]
 data = ["yfinance"]
 excel = ["openpyxl"]
 pdf = ["reportlab"]
@@ -53,7 +57,7 @@ plot-interactive = ["plotly"]         # placeholder extra; backend lands in BN-8
 # — mounting routers conditionally on what is installed — would make the API
 # surface vary by installation, and the client contract with it.
 server = ["fastapi", "uvicorn[standard]", "orjson", "websockets", "platformdirs",
-          "py-beacon[optimise]", "py-beacon[pdf]", "py-beacon[calendars]"]
+          "py-beacon[optimise]", "py-beacon[pdf]"]
 # The gallery renders the frontier and optimiser charts, so building the
 # docs needs the optimiser as well as matplotlib.
 docs = ["mkdocs-material", "mkdocstrings[python]", "py-beacon[plot]",
@@ -63,7 +67,6 @@ dev = [
   "py-beacon[optimise]", # and the optimiser tests solve real problems
   "py-beacon[pdf]",      # and the report tests render real documents
   "py-beacon[plot]",     # and the chart tests draw real figures
-  "py-beacon[calendars]", # and the schedule tests use real holidays
   "pytest-mpl",          # image regression over every chart
   "pytest",
   "pytest-asyncio",      # the job registry is driven on an event loop
