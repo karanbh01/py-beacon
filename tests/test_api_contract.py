@@ -52,6 +52,54 @@ END = "2024-06-28"
 # to it a visible act.
 PUBLIC_PATHS: set[str] = set()
 
+# Field names exempt from carrying a description of their own (BN-181). The
+# name is the whole statement and a sentence restating it would be noise. An
+# allow-list rather than a heuristic, for the same reason PUBLIC_PATHS is one:
+# every exemption is then a decision somebody made rather than an omission
+# nobody noticed.
+SELF_EVIDENT_FIELDS = {"index_id", "name"}
+
+# Published fields carrying no description, counted against the exported spec.
+#
+# **A CEILING TO BE LOWERED, NOT A TARGET.** 221 fields were silent when BN-181
+# measured them; describing the 26 date- and time-shaped ones left 180 outside
+# the allow-list, which is where this starts. Every issue that describes a batch
+# should drop the number; nothing should ever raise it.
+#
+# A ratchet rather than a gate because the backlog was too large to clear in one
+# pass, and a gate that cannot be satisfied gets deleted. What it forbids is the
+# case that made BN-181 worth filing: a NEW field shipping silent, where two
+# components can hold different meanings for it indefinitely and the divergence
+# surfaces only when behaviour changes underneath both.
+SILENT_FIELD_CEILING = 180
+
+# The date- and time-shaped fields BN-181 described, written out rather than
+# derived so that losing one is a failure rather than a number that still adds
+# up. Each of these carried no description while a client was already reading
+# it: `OverviewView.start` is the data's first date, and beacon-ui printed it
+# as the index's base date on one pane while the editor printed `base_date` on
+# another, for as long as the factsheet existed.
+DESCRIBED_DATE_FIELDS = {
+    ("ActiveRiskPayload", "window_start"), ("ActiveRiskPayload", "window_end"),
+    ("AttributionView", "start"), ("AttributionView", "end"),
+    ("BacktestResultSummary", "run_at"),
+    ("BookPayload", "weights_dates_total"),
+    ("CompareView", "start"), ("CompareView", "end"),
+    ("FeatureBatchResponse", "as_of"),
+    ("FuturesPriceResponse", "time_to_expiry"),
+    ("OptimisationRunResult", "start"), ("OptimisationRunResult", "end"),
+    ("OverviewView", "start"), ("OverviewView", "end"),
+    ("RelativeMetricsPayload", "start"), ("RelativeMetricsPayload", "end"),
+    ("RenderResult", "rendered_at"),
+    ("RiskModelView", "start"), ("RiskModelView", "end"),
+    ("RollResponse", "as_of"),
+    ("TermStructureEntry", "time_to_expiry"),
+    ("TermStructureResponse", "as_of"),
+    ("TrsAccrual", "start"), ("TrsAccrual", "end"),
+    ("TrsPriceRequest", "dividend_yield"),
+    ("UnfilledOrderPayload", "date"),
+}
+
 # The error codes the envelope promises. A response outside this set means an
 # exception escaped its handler.
 ERROR_CODES = {"UNAUTHORIZED", "DATA_NOT_FOUND", "VALIDATION_ERROR",
@@ -280,6 +328,66 @@ class TestSpec:
                                                   spec):
         """Anonymous schemas generate unusable client types."""
         assert len(spec["components"]["schemas"]) > 30
+
+
+def _silent_fields(spec: dict) -> list[str]:
+    """Published fields with no description, as `Model.field`, sorted.
+
+    A property that is nothing but a `$ref` is not silent: it inherits the
+    description of the schema it points at, so counting it would report a
+    field that reads perfectly well as a gap.
+    """
+    silent = []
+
+    for model, schema in sorted(spec["components"]["schemas"].items()):
+        for field, prop in (schema.get("properties") or {}).items():
+            if prop.get("description") or field in SELF_EVIDENT_FIELDS:
+                continue
+            if set(prop) == {"$ref"}:
+                continue
+
+            silent.append(f"{model}.{field}")
+
+    return silent
+
+
+class TestEveryPublishedFieldSaysWhatItIs:
+    """BN-181: a field with no description does not read as neutral.
+
+    Every reader supplies the meaning their own code needs, and the divergence
+    surfaces only when behaviour changes underneath both of them. These are the
+    two halves of that: a ratchet on the backlog, and a pin on the batch the
+    issue actually described.
+    """
+
+    def test_no_new_field_ships_without_a_description(self,
+                                                      spec):
+        """The ratchet. Failing high means a new field arrived silent; failing
+        low means somebody described a batch and should lower the ceiling."""
+        silent = _silent_fields(spec)
+
+        assert len(silent) <= SILENT_FIELD_CEILING, (
+            f"{len(silent)} published fields carry no description, above the "
+            f"ceiling of {SILENT_FIELD_CEILING}. Describe the new ones rather "
+            f"than raising it:\n  " + "\n  ".join(silent))
+
+        assert len(silent) == SILENT_FIELD_CEILING, (
+            f"Only {len(silent)} fields are silent now, below the ceiling of "
+            f"{SILENT_FIELD_CEILING}. Lower SILENT_FIELD_CEILING to "
+            f"{len(silent)} so the progress cannot be given back.")
+
+    def test_the_date_shaped_fields_stay_described(self,
+                                                   spec):
+        """A date is believed in a way a number is not: a return of 340%
+        invites scrutiny, a base date of 2023-01-02 invites none. These are
+        pinned individually so that losing one is a failure rather than a
+        count that still adds up."""
+        schemas = spec["components"]["schemas"]
+        undescribed = sorted(
+            f"{model}.{field}" for model, field in DESCRIBED_DATE_FIELDS
+            if not schemas[model]["properties"][field].get("description"))
+
+        assert undescribed == []
 
 
 class TestReconciliationIdentities:

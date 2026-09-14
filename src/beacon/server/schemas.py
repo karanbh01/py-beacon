@@ -386,7 +386,13 @@ class BookPayload(BaseModel):
         description="Daily weights, dates by identifier; most recent "
                     "MAX_WEIGHT_DATES dates at most. Empty for a comparator "
                     "supplied as a bare level series.")
-    weights_dates_total: int
+    weights_dates_total: int = Field(
+        description="Dates the book's daily weights panel actually covers — a "
+                    "count, not a date. Larger than the rows in `weights` "
+                    "whenever the panel was truncated to its most recent "
+                    "MAX_WEIGHT_DATES, and 0 for a comparator supplied as a "
+                    "bare level series. `rebalances_total` says the same thing "
+                    "for `rebalances`.")
     rebalances: list[RebalanceSnapshot] = Field(
         default_factory=list,
         description="What each rebalance decided — applied weights, their "
@@ -414,7 +420,12 @@ class IndexBooksPayload(BaseModel):
 
 class UnfilledOrderPayload(BaseModel):
     """A buy the simulation could not execute in full."""
-    date: str
+    date: str = Field(
+        description="The rebalance date on which the buy fell short, "
+                    "YYYY-MM-DD. A simulated trading day out of the backtest, "
+                    "not a wall-clock stamp: re-running the same backtest "
+                    "produces the same date. `BacktestResultSummary.run_at` is "
+                    "the wall-clock one.")
     asset_id: str
     requested_quantity: float
     filled_quantity: float
@@ -440,7 +451,16 @@ class BacktestResultSummary(BaseModel):
     metrics: BacktestMetrics
     # None only on records written before BN-162 stamped them: a listing row
     # without a date is honest about predating the stamp.
-    run_at: str | None = None
+    run_at: str | None = Field(
+        default=None,
+        description="When this record was captured, ISO-8601 UTC with an "
+                    "offset — wall-clock at the moment the finished run was "
+                    "serialised, within a second of the backtest completing. "
+                    "**Not a market date, and not the period the backtest "
+                    "covered**: that span is the index of `portfolio.nav`. "
+                    "`BacktestRecordRow.run_at` on `GET /beacon/backtests` is "
+                    "the same stamp. Null only on records written before "
+                    "BN-162 began stamping them.")
 
     @classmethod
     def from_result(cls,
@@ -620,7 +640,16 @@ class FeatureBatchEntry(BaseModel):
 
 class FeatureBatchResponse(BaseModel):
     """Response of `GET /data/features`."""
-    as_of: str
+    as_of: str = Field(
+        description="The cutoff the features were read at, YYYY-MM-DD: the "
+                    "`date` query echoed back unchanged, or the last date the "
+                    "loaded market data carries when none was given. Never "
+                    "resolved back — a request for a weekend stays a weekend — "
+                    "because each feature independently takes the latest row "
+                    "published on or before it. What was actually read is each "
+                    "`entries[].features[].date`, the announcement date of the "
+                    "row that answered, which is usually earlier than this and "
+                    "differs from feature to feature.")
     entries: list[FeatureBatchEntry]
 
 
@@ -1382,7 +1411,13 @@ class RenderResult(BaseModel):
     name: str
     blocks: int
     bytes: int = Field(description="Size of the rendered document.")
-    rendered_at: str
+    rendered_at: str = Field(
+        description="When the PDF was written, ISO-8601 UTC with an offset — "
+                    "wall-clock at render time. **Not the as-of date of "
+                    "anything printed inside it**: the figures come from the "
+                    "index's latest completed backtest, whose own dates this "
+                    "does not carry, so rendering the same template twice "
+                    "gives two `rendered_at` values over identical content.")
 
 
 class FuturesPriceRequest(BaseModel):
@@ -1452,7 +1487,14 @@ class CarryDecomposition(BaseModel):
 class FuturesPriceResponse(BaseModel):
     """Response of `POST /derivatives/futures/price`."""
     fair_value: float
-    time_to_expiry: float
+    time_to_expiry: float = Field(
+        description="Years the contract was priced over, ACT/365 — what the "
+                    "calculation used, which is not always what the request "
+                    "sent. Computed from `valuation_date` to `expiry` when "
+                    "both were given, dates being the less ambiguous "
+                    "statement; the request's own `time_to_expiry` is echoed "
+                    "back only when the dates were omitted. Nothing is "
+                    "resolved against market data — this endpoint reads none.")
     financing_rate: float = Field(description="Rate used, read off the curve.")
     carry: CarryDecomposition
     contract_value: float = Field(
@@ -1491,7 +1533,15 @@ class TrsPriceRequest(BaseModel):
     spot: float = Field(gt=0.0, description="Underlying level today.")
     initial_price: float = Field(
         gt=0.0, description="Level at inception or last reset.")
-    dividend_yield: float = Field(default=0.0)
+    dividend_yield: float = Field(
+        default=0.0,
+        description="Continuous dividend yield on the underlying, used **only** "
+                    "for the breakeven table, alongside `futures_prices` and "
+                    "`time_to_expiry`. `present_value`, both legs and "
+                    "`fair_spread_bps` ignore it: the total-return leg is "
+                    "`spot` against `initial_price`, and that ratio already "
+                    "carries whatever the underlying paid. Sending it without "
+                    "`futures_prices` changes nothing in the response.")
     time_to_expiry: float | None = Field(
         default=None, description="Needed for the breakeven table.")
     futures_prices: list[float] | None = Field(
@@ -1506,8 +1556,19 @@ class TrsPriceRequest(BaseModel):
 
 class TrsAccrual(BaseModel):
     """One financing period."""
-    start: str
-    end: str
+    start: str = Field(
+        description="First day of this financing period, YYYY-MM-DD. Derived "
+                    "from the request alone, never resolved against a calendar "
+                    "or market data: the schedule begins at `last_reset_date` "
+                    "— or `start_date` when no reset was given — and steps by "
+                    "`payment_frequency`. Business days are not observed, so a "
+                    "boundary can fall on a weekend. `end` is the other end.")
+    end: str = Field(
+        description="Day this financing period ends, YYYY-MM-DD: one "
+                    "`payment_frequency` step after `start`, which is the "
+                    "other end, except in the final period, which is truncated "
+                    "to the trade's `end_date`. `days` counts calendar days "
+                    "between the two.")
     days: int
     rate: float = Field(
         description="Reference rate for the period: the fixing for the current "
@@ -1547,7 +1608,12 @@ class TrsPriceResponse(BaseModel):
 class TermStructureEntry(BaseModel):
     """One expiry in a term structure."""
     expiry: str
-    time_to_expiry: float
+    time_to_expiry: float = Field(
+        description="Years from the response's `as_of` to `expiry`, ACT/365. "
+                    "Measured from the **resolved** session rather than the "
+                    "date asked for, so a request landing on a weekend or a "
+                    "holiday lengthens every tenor in the strip by however "
+                    "many days `as_of` resolved back.")
     financing_rate: float
     theoretical: float
 
@@ -1555,7 +1621,14 @@ class TermStructureEntry(BaseModel):
 class TermStructureResponse(BaseModel):
     """Response of `GET /derivatives/{index_id}/term-structure`."""
     index_id: str
-    as_of: str
+    as_of: str = Field(
+        description="The session `spot` was read from, YYYY-MM-DD: the latest "
+                    "date with a close on or before the `as_of` query, or the "
+                    "last date the store carries when none was given. Resolved "
+                    "rather than echoed — a request landing on a weekend or a "
+                    "holiday answers from the session before it — and the date "
+                    "asked for is not published anywhere. Every "
+                    "`entries[].time_to_expiry` is measured from this date.")
     spot: float
     entries: list[TermStructureEntry]
 
@@ -1567,7 +1640,15 @@ class RollResponse(BaseModel):
     the *carry* roll rather than a market one.
     """
     index_id: str
-    as_of: str
+    as_of: str = Field(
+        description="The session both legs were priced from, YYYY-MM-DD: the "
+                    "latest date with a close on or before the `as_of` query, "
+                    "or the last date the store carries when none was given. "
+                    "Resolved rather than echoed — a request landing on a "
+                    "weekend or a holiday answers from the session before it — "
+                    "and the date asked for is not published anywhere. Both "
+                    "expiries are measured from this date, so it also sets "
+                    "`annualised_roll`.")
     spot: float
     front_expiry: str
     back_expiry: str
@@ -1638,8 +1719,20 @@ class RiskModelView(BaseModel):
     """Response of `GET /risk-models/{model_id}`."""
     model_id: str
     asset_ids: list[str]
-    start: str | None = None
-    end: str | None = None
+    start: str | None = Field(
+        default=None,
+        description="The request's own `start`, echoed back unchanged — the "
+                    "bound the price fetch was given, not the first date "
+                    "prices were found on. Null when the request omitted it, "
+                    "which estimates over the whole stored history. No field "
+                    "here reports the dates the returns actually spanned; "
+                    "`diagnostics.observations` is the only measure of what "
+                    "survived. `end` is the other bound.")
+    end: str | None = Field(
+        default=None,
+        description="The request's own `end`, echoed back unchanged on the "
+                    "same terms as `start`, which is the other bound. Null "
+                    "when the request omitted it.")
     correlation: TableFrame = Field(
         description="Symmetric with a unit diagonal, by construction.")
     covariance: TableFrame = Field(description="Annualised.")
@@ -1874,8 +1967,18 @@ class OptimisationRunResult(BaseModel):
     run_id: str
     index_id: str
     constraint_set_id: str
-    start: str
-    end: str
+    start: str = Field(
+        description="First date the constituent price frame actually carries, "
+                    "YYYY-MM-DD — the window the risk model behind this solve "
+                    "was estimated over. Resolved rather than echoed: the "
+                    "request's `start` is a bound on the fetch, and this is "
+                    "later than it whenever the store does not reach back that "
+                    "far. `end` is the other end.")
+    end: str = Field(
+        description="Last date the constituent price frame carries, "
+                    "YYYY-MM-DD, resolved on the same terms as `start`, which "
+                    "is the other end: earlier than the requested `end` "
+                    "whenever the store stops short of it.")
     weights: list[WeightRow] = Field(
         description="Every name, largest active position first.")
     active_sum: float = Field(
@@ -2508,8 +2611,19 @@ class RelativeMetricsPayload(BaseModel):
     observations: int = Field(
         description="Aligned dates used, which may be fewer than either series "
                     "carried on its own.")
-    start: str
-    end: str
+    start: str = Field(
+        description="First date the portfolio and the benchmark **share**, as "
+                    "a full ISO-8601 timestamp. Resolved: the two level series "
+                    "are intersected before anything is measured, so this is "
+                    "later than the backtest's own start whenever the "
+                    "benchmark's history begins later. `observations` counts "
+                    "the shared dates and `end` is the other end; the window "
+                    "the backtest requested is not carried here.")
+    end: str = Field(
+        description="Last shared date, in the same full ISO-8601 form as "
+                    "`start`, which is the other end. Resolved by the same "
+                    "intersection: earlier than the backtest's own end "
+                    "whenever the benchmark series stops first.")
     total_return: Pct
     benchmark_return: Pct
     excess_return: Pct = Field(
@@ -2566,8 +2680,22 @@ class OverviewView(BaseModel):
     """Response of `GET /beacon/{index_id}/overview`."""
     index_id: str
     name: str
-    start: str
-    end: str
+    start: str = Field(
+        description="First date the stored run's level series covers, as a "
+                    "full ISO-8601 timestamp (`2023-01-02T00:00:00`, not "
+                    "`2023-01-02`). Resolved from the data rather than "
+                    "requested: it is **later than the index's `base_date`** "
+                    "whenever the price store does not reach back that far, so "
+                    "labelling it as the base date shows a different figure "
+                    "from the one the definition carries. `end` is the other "
+                    "end of the same series; the window the backtest was asked "
+                    "for is not published here.")
+    end: str = Field(
+        description="Last date the stored run's level series covers, in the "
+                    "same full ISO-8601 form as `start`. Resolved from the "
+                    "data: earlier than the end the backtest requested "
+                    "whenever the price store stops short of it. `start` is "
+                    "the other end.")
     observations: int
     rebalances: int
     last_rebalance: str
@@ -2671,8 +2799,22 @@ class ActiveRiskPayload(BaseModel):
                     "not hold. They have no row in the weights table but are "
                     "often the largest active positions there are, so omitting "
                     "them would hide the biggest sources of tracking error.")
-    window_start: str | None = Field(default=None)
-    window_end: str | None = Field(default=None)
+    window_start: str | None = Field(
+        default=None,
+        description="First date of the **run's own** level series, YYYY-MM-DD "
+                    "— the span the price fetch behind this estimate was given, "
+                    "not the dates prices came back on. It does not narrow: "
+                    "when the store covers less, the covariance is estimated "
+                    "from fewer observations and this still reports the run's "
+                    "span, so it is a bound rather than a measurement. Null "
+                    "when the run carries no level series. `window_end` is the "
+                    "other end.")
+    window_end: str | None = Field(
+        default=None,
+        description="Last date of the run's own level series, YYYY-MM-DD, on "
+                    "the same terms as `window_start`, which is the other end: "
+                    "a bound given to the price fetch, unchanged by what the "
+                    "store actually held.")
 
 
 class WeightsView(BaseModel):
@@ -2731,8 +2873,21 @@ class AttributionView(BaseModel):
     upstream, which is worth surfacing rather than rounding away.
     """
     index_id: str
-    start: str
-    end: str
+    start: str = Field(
+        description="First date a contribution was computed for, as a full "
+                    "ISO-8601 timestamp. Resolved, and **one trading day later "
+                    "than the window's own first date**: a period's return is "
+                    "earned by the weight held at its start, so the first date "
+                    "in the window has no complete period behind it and is "
+                    "dropped. The `start` query is not echoed back anywhere, "
+                    "and when it is omitted the window defaults to the run's "
+                    "own span. `end` is the other end.")
+    end: str = Field(
+        description="Last date a contribution was computed for, in the same "
+                    "full ISO-8601 form as `start`. Resolved: the latest date "
+                    "the run covers at or before the requested `end`, which "
+                    "defaults to the run's own last date. The `end` query is "
+                    "not echoed back. `start` is the other end.")
     periods: int
     total_return: float
     contributions: list[ContributionPayload]
@@ -2785,8 +2940,20 @@ class CompareEntry(BaseModel):
 class CompareView(BaseModel):
     """Response of `GET /beacon/compare`."""
     index_ids: list[str]
-    start: str
-    end: str
+    start: str = Field(
+        description="First date **every** index in `index_ids` covers, "
+                    "YYYY-MM-DD — the intersection of their level series, not "
+                    "the earliest start among them. Resolved: one index whose "
+                    "history begins later moves this forward for all of them, "
+                    "which is why each entry's level is rebased from here. "
+                    "Nothing was requested — `GET /beacon/compare` takes only "
+                    "`ids` — so there is no window to echo. `end` is the other "
+                    "end of the same shared span.")
+    end: str = Field(
+        description="Last date every index covers, YYYY-MM-DD. Resolved by the "
+                    "same intersection as `start`, which is the other end: one "
+                    "index whose run stops early pulls this back for all of "
+                    "them.")
     observations: int = Field(
         description="Dates every index covers. Fewer than any one of them "
                     "carries alone whenever their spans differ.")
