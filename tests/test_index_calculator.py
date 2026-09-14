@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from beacon.asset.bond import Bond
 from beacon.asset.equity import Equity
+from beacon.exceptions import CalculationError
 from beacon.index.calculation import IndexCalculator
 from beacon.index.result import IndexResult
 
@@ -600,3 +602,105 @@ class TestHandleCorporateAction:
         level_after = mv_after / new_divisor
 
         assert level_before == pytest.approx(level_after)
+
+
+class TestANonEquityIsRefusedInTheCalculation:
+    """BN-185: the market-value and corporate-action paths refuse, not absorb.
+
+    These three sites used to skip the constituent with a warning, value it at
+    0.0, and return the divisor unchanged in silence. Each answer computed a
+    coherent index over a subset of its own universe, which is why none of them
+    ever looked wrong from downstream.
+    """
+
+    @pytest.fixture
+    def bond(self):
+        return Bond(name="Treasury 10Y", currency="USD", asset_id="GOVT10Y",
+                    maturity_date="2035-01-01", issuer="US Treasury")
+
+    @pytest.fixture
+    def ca_calculator(self,
+                      mock_definition,
+                      mock_data):
+        mock_definition.weighting_scheme = MagicMock()
+        mock_definition.weighting_scheme.use_free_float = False
+        return IndexCalculator(mock_definition, mock_data)
+
+    def test_constituent_market_values_refuses_rather_than_skipping(self,
+                                                                    calculator,
+                                                                    bond):
+        with pytest.raises(CalculationError) as raised:
+            calculator._get_constituent_market_values(
+                {bond: 1.0}, pd.Timestamp("2025-03-03"))
+
+        message = str(raised.value)
+
+        assert "GOVT10Y" in message, "the refusal does not name the asset"
+        assert "Bond" in message, "the refusal does not name the actual type"
+
+    def test_a_skipped_constituent_no_longer_shrinks_the_aggregate(self,
+                                                                   calculator,
+                                                                   bond,
+                                                                   mock_data):
+        """The old answer: AAPL valued, the bond dropped, the total still summed."""
+        mock_data.fetch_market_data.return_value = pd.DataFrame(
+            {"CLOSE": [100.0]}, index=[pd.Timestamp("2025-03-03")])
+        mock_data.fetch_shares_outstanding.return_value = 1000
+
+        with pytest.raises(CalculationError, match="GOVT10Y"):
+            calculator._get_constituent_market_values(
+                {AAPL: 0.5, bond: 0.5}, pd.Timestamp("2025-03-03"))
+
+    def test_unit_value_refuses_rather_than_returning_zero(self,
+                                                           calculator,
+                                                           bond):
+        with pytest.raises(CalculationError) as raised:
+            calculator.asset_unit_value(bond, pd.Timestamp("2025-03-03"))
+
+        assert "GOVT10Y" in str(raised.value)
+
+    def test_a_missing_price_is_still_worth_zero(self,
+                                                 calculator,
+                                                 bond,
+                                                 mock_data):
+        """The two zeroes were spelled the same; only one of them was right.
+
+        A priceless equity is worth nothing *today* and the index carries the
+        previous level forward. A bond is not worth nothing — it is not a thing
+        this pipeline can value at all, and the refusal is raised before the
+        broad `except` below so the handler cannot turn it back into 0.0.
+        """
+        mock_data.fetch_market_data.return_value = pd.DataFrame()
+
+        assert calculator.asset_unit_value(AAPL, pd.Timestamp("2025-03-03")) == 0.0
+
+        with pytest.raises(CalculationError):
+            calculator.asset_unit_value(bond, pd.Timestamp("2025-03-03"))
+
+    def test_a_corporate_action_refuses_rather_than_passing_the_divisor_through(
+            self,
+            ca_calculator,
+            bond):
+        """Unchanged was also the no-op answer, so the two were indistinguishable."""
+        action = {"type": "SPECIAL_DIVIDEND", "asset": bond, "value": 2.0,
+                  "ex_date": "2025-03-01"}
+
+        with pytest.raises(CalculationError) as raised:
+            ca_calculator.handle_corporate_action(action, [bond], 100000.0, 10.0)
+
+        assert "GOVT10Y" in str(raised.value)
+
+    def test_a_non_constituent_still_returns_unchanged(self,
+                                                       ca_calculator,
+                                                       bond):
+        """The gate sits behind the constituency check, where it belongs.
+
+        An action on a name the index does not hold cannot move its divisor
+        whatever the name is, so that answer is about the index rather than
+        about the asset type — and it is still the right one.
+        """
+        action = {"type": "SPECIAL_DIVIDEND", "asset": bond, "value": 2.0,
+                  "ex_date": "2025-03-01"}
+
+        assert ca_calculator.handle_corporate_action(
+            action, [AAPL], 100000.0, 10.0) == 10.0

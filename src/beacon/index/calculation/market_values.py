@@ -8,7 +8,7 @@ import logging
 import pandas as pd
 
 from ...asset.base import Asset
-from ...asset.equity import Equity
+from ...asset.equity import Equity, require_equity
 from ...data.fetcher import DataFetcher
 from ...exceptions import CalculationError
 from ..constructor import IndexDefinition
@@ -74,16 +74,17 @@ class MarketValuesMixin:
 
         This method computes Sum(Price_t * Shares_t * [FF_t] * [FX_t])
         i.e. the "Adjusted Total Market Cap" of the index constituents.
+
+        Raises:
+            CalculationError: If any constituent is not an equity (BN-185).
+                This used to skip it with a warning, which quietly aggregated
+                the index over a subset of its own constituents.
         """
         constituent_market_values: dict[Asset, float] = {}
 
         for asset in constituents_with_weights:
-            if not isinstance(asset, Equity):
-                logger.warning(
-                    f"Asset {asset.asset_id} is not Equity. Skipping market value "
-                    "calculation.")
-                continue
-            constituent_market_values[asset] = self._asset_market_value(asset, current_date)
+            equity = require_equity(asset, "ConstituentMarketValues", "be valued")
+            constituent_market_values[asset] = self._asset_market_value(equity, current_date)
 
         return constituent_market_values
 
@@ -96,7 +97,8 @@ class MarketValuesMixin:
         FX data is missing or invalid, matching the previous inline behaviour.
 
         Only equities carry the ticker used for the market-data lookups;
-        :meth:`_get_constituent_market_values` filters non-equities out first.
+        :meth:`_get_constituent_market_values` refuses a non-equity before it
+        ever reaches here.
         """
         try:
             date_str = current_date.strftime('%Y-%m-%d')
@@ -166,23 +168,27 @@ class MarketValuesMixin:
         Returns:
             float: Price in index currency, or 0.0 when price or FX is
             missing — matching the behaviour of the market-value path.
+
+        Raises:
+            CalculationError: If *asset* is not an equity (BN-185). Refused
+                outside the try below, deliberately: valuing it at 0.0 made a
+                constituent the index still holds contribute nothing, which is
+                a silent restatement of the index rather than a missing price.
         """
-        if not isinstance(asset, Equity):
-            logger.warning(f"Asset {asset.asset_id} is not Equity. Unit value is 0.")
-            return 0.0
+        equity = require_equity(asset, "AssetUnitValue", "be valued")
 
         try:
             date_str = current_date.strftime('%Y-%m-%d')
-            price_df = self.data.fetch_market_data(asset.ticker, date_str, date_str)
+            price_df = self.data.fetch_market_data(equity.ticker, date_str, date_str)
 
             if (price_df.empty or self.price_column not in price_df.columns
                     or pd.isna(price_df[self.price_column].iloc[0])):
-                logger.warning(f"asset_unit_value: No price for {asset.ticker}. Value is 0.")
+                logger.warning(f"asset_unit_value: No price for {equity.ticker}. Value is 0.")
                 return 0.0
 
             price = float(price_df[self.price_column].iloc[0])
 
-            return price * self._fx_rate(asset, current_date, date_str)
+            return price * self._fx_rate(equity, current_date, date_str)
 
         except Exception as e:
             logger.error(f"Error calculating unit value for {asset.asset_id}: {e}")

@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 
 from ...asset.base import Asset
-from ...asset.equity import Equity
+from ...asset.equity import require_equity
 from ...data.fetcher import DataFetcher
 from ..constructor import IndexDefinition
 
@@ -58,6 +58,10 @@ class CorporateActionsMixin:
 
         Returns:
             The (possibly adjusted) divisor.
+
+        Raises:
+            CalculationError: If the affected asset is a constituent and is not
+                an equity (BN-185).
         """
         action_type = action.get('type', '').upper()
         asset_involved = action.get('asset')
@@ -121,18 +125,24 @@ class CorporateActionsMixin:
                                   divisor_before: float) -> float:
         """Compute the divisor adjustment for a SPECIAL_DIVIDEND corporate action.
 
-        Extracted from :meth:`handle_corporate_action` to keep nesting shallow;
-        behaviour (including all log messages) is unchanged.
+        Extracted from :meth:`handle_corporate_action` to keep nesting shallow.
+
+        Raises:
+            CalculationError: If *asset* is not an equity (BN-185). This used
+                to return the divisor unchanged, which is also what a no-op
+                action returns — so an unadjustable action and a harmless one
+                were spelled identically, and a divisor that should have moved
+                silently did not.
         """
-        if not isinstance(asset, Equity):
-            return divisor_before
+        equity = require_equity(asset, "CorporateActionDivisor",
+                                "carry a divisor adjustment")
 
         date_str = ex_date.strftime('%Y-%m-%d')
 
-        shares = self.data.fetch_shares_outstanding(asset.ticker, date_str)
+        shares = self.data.fetch_shares_outstanding(equity.ticker, date_str)
         if shares is None or shares <= 0:
             logger.warning(
-                f"CA Handle: No shares for {asset.ticker}. "
+                f"CA Handle: No shares for {equity.ticker}. "
                 "Cannot adjust divisor for special dividend."
             )
             return divisor_before
@@ -141,7 +151,7 @@ class CorporateActionsMixin:
 
         # Apply free-float factor if the weighting scheme uses it
         if getattr(self.definition.weighting_scheme, 'use_free_float', False):
-            ff = self.data.fetch_free_float_factor(asset.ticker, date_str)
+            ff = self.data.fetch_free_float_factor(equity.ticker, date_str)
             if ff is not None:
                 reduction_local *= ff
 

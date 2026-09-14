@@ -9,6 +9,10 @@ weight. An index of no constituents still computes.
 
 The dates here are the issue's own reproduction, kept verbatim so the file
 reads as the bug report it closes.
+
+BN-185 adds the asset-type axis of the same fault at the end of the file: a
+non-equity used to pass selection and fail four layers downstream in the
+weighting, which made a definition fault look like a calculation one.
 """
 import ast
 import inspect
@@ -18,12 +22,17 @@ import pandas as pd
 import pytest
 
 from beacon.asset.base import Asset
+from beacon.asset.bond import Bond
 from beacon.asset.equity import Equity
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 from beacon.exceptions import CalculationError
 from beacon.index.calculation.selection import select_with_provenance
-from beacon.index.methodology import LiquidityRule, MarketCapRule
+from beacon.index.methodology import (
+    LiquidityRule,
+    MarketCapRule,
+    MarketCapWeighted,
+)
 
 START = "2026-08-03"
 END = "2026-08-31"
@@ -235,3 +244,105 @@ class TestLiquidityRuleKeepsItsWindow:
         rule = LiquidityRule(min_avg_daily_value=1e15, lookback_days=10)
 
         assert not rule.is_eligible(equity("AAA"), LAST_BAR, build_fetcher())
+
+
+# ── BN-185: a non-equity is refused, at the layer that first meets it ──
+
+
+def government_bond() -> Bond:
+    """A hand-built non-equity — the only way one reaches the pipeline.
+
+    `IndexCalculator._get_universe` constructs `Equity` unconditionally, so no
+    generated universe contains one; a library caller assembling a universe by
+    hand is the sole route in, and was the reason six sites drifted to four
+    different answers about it.
+    """
+    return Bond(name="Treasury 10Y", currency="USD", asset_id="GOVT10Y",
+                maturity_date="2035-01-01", issuer="US Treasury")
+
+
+def mixed_universe() -> list[Asset]:
+    """One equity and one bond, the bond second so the rule reaches AAA first."""
+    return [equity("AAA"), government_bond()]
+
+
+class TestANonEquityIsRefusedAtSelection:
+    """Selection used to wave it through and let weighting raise four layers on."""
+
+    def test_the_market_cap_rule_refuses_rather_than_admitting(self):
+        with pytest.raises(CalculationError) as raised:
+            MarketCapRule(min_market_cap=50_000.0).is_eligible(
+                government_bond(), LAST_BAR, build_fetcher())
+
+        message = str(raised.value)
+
+        assert "GOVT10Y" in message, "the refusal does not name the asset"
+        assert "Bond" in message, "the refusal does not name the actual type"
+
+    def test_the_liquidity_rule_refuses_too(self):
+        with pytest.raises(CalculationError) as raised:
+            LiquidityRule(min_avg_daily_volume=1_000, lookback_days=10).is_eligible(
+                government_bond(), LAST_BAR, build_fetcher())
+
+        assert "GOVT10Y" in str(raised.value)
+
+    def test_selection_surfaces_it_rather_than_carrying_it_forward(self):
+        """The whole point: it fails here, not in the weighting downstream."""
+        with pytest.raises(CalculationError, match="GOVT10Y"):
+            select_with_provenance(mixed_universe(),
+                                   [MarketCapRule(min_market_cap=50_000.0)],
+                                   LAST_BAR,
+                                   build_fetcher())
+
+    def test_it_is_not_spelled_the_same_way_as_an_exclusion(self):
+        """A bond is not a name the rule assessed and turned down."""
+        fetcher = build_fetcher()
+        rule = MarketCapRule(min_market_cap=50_000.0)
+
+        assert rule.is_eligible(equity("ZZZ"), LAST_BAR, fetcher) is False
+
+        with pytest.raises(CalculationError):
+            rule.is_eligible(government_bond(), LAST_BAR, fetcher)
+
+    def test_an_all_equity_universe_is_untouched(self):
+        """The gate must not cost the case that actually happens."""
+        result = select_with_provenance(universe(),
+                                        [MarketCapRule(min_market_cap=50_000.0)],
+                                        LAST_BAR,
+                                        build_fetcher())
+
+        assert result.survivor_ids == ["AAA"]
+
+
+class TestSelectionAndWeightingGiveOneAnswer:
+    """Four sites gave four answers; one function now gives all of them."""
+
+    def test_weighting_still_refuses(self):
+        with pytest.raises(CalculationError) as raised:
+            MarketCapWeighted().calculate_weights(
+                [government_bond()], LAST_BAR, build_fetcher())
+
+        assert "GOVT10Y" in str(raised.value)
+
+    def test_the_two_layers_refuse_for_the_same_stated_reason(self):
+        fetcher = build_fetcher()
+
+        with pytest.raises(CalculationError) as from_selection:
+            MarketCapRule().is_eligible(government_bond(), LAST_BAR, fetcher)
+
+        with pytest.raises(CalculationError) as from_weighting:
+            MarketCapWeighted().calculate_weights(
+                [government_bond()], LAST_BAR, fetcher)
+
+        assert "not an equity" in from_selection.value.details
+        assert "not an equity" in from_weighting.value.details
+
+    def test_each_refusal_names_the_layer_that_made_it(self):
+        fetcher = build_fetcher()
+
+        with pytest.raises(CalculationError, match="MarketCapRule"):
+            MarketCapRule().is_eligible(government_bond(), LAST_BAR, fetcher)
+
+        with pytest.raises(CalculationError, match="MarketCapWeighted"):
+            MarketCapWeighted().calculate_weights(
+                [government_bond()], LAST_BAR, fetcher)

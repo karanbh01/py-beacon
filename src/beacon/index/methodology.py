@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 
 from ..asset.base import Asset
-from ..asset.equity import Equity
+from ..asset.equity import Equity, require_equity
 from ..catalogue import (
     SELECTION,
     WEIGHTING,
@@ -162,23 +162,23 @@ class MarketCapRule(EligibilityRuleBase):
         """Whether *asset*'s market cap at the resolved session clears the bounds.
 
         Raises:
-            CalculationError: If *current_date* lies outside the data's
-                coverage, so the rule cannot be evaluated at all. Nothing here
-                turns a failure into an exclusion — see the class docstring.
+            CalculationError: If *asset* is not an equity, or if *current_date*
+                lies outside the data's coverage, so the rule cannot be
+                evaluated at all. Nothing here turns a failure into an
+                exclusion — see the class docstring.
         """
-        if not isinstance(asset, Equity):
-            logger.debug(f"MarketCapRule: Asset {asset.asset_id} is not Equity type, skipping.")
-            return True # Or False, depending on how non-equities should be handled by this rule
+        equity = require_equity(asset, self.rule_name,
+                                "be assessed for market-cap eligibility")
 
         session = _resolve_session(self.rule_name, "assess eligibility",
                                    current_date, market_data_provider)
         date_str = session.strftime('%Y-%m-%d')
 
-        price_df = market_data_provider.fetch_market_data(asset.ticker, date_str, date_str)
+        price_df = market_data_provider.fetch_market_data(equity.ticker, date_str, date_str)
 
         if not _has_close(price_df):
             logger.warning(
-                f"MarketCapRule: Could not fetch price for {asset.ticker} "
+                f"MarketCapRule: Could not fetch price for {equity.ticker} "
                 f"on {date_str}.")
             return False
 
@@ -187,29 +187,29 @@ class MarketCapRule(EligibilityRuleBase):
         # Read on the same session as the price, so the cap is one coherent
         # observation rather than a current share count against an older close.
         shares_outstanding = market_data_provider.fetch_shares_outstanding(
-            asset.ticker, date_str)
+            equity.ticker, date_str)
 
         if shares_outstanding is None or shares_outstanding <= 0:
             logger.warning(
                 f"MarketCapRule: Could not fetch valid shares outstanding for "
-                f"{asset.ticker} on {date_str}.")
+                f"{equity.ticker} on {date_str}.")
             return False
 
         market_cap = current_price * shares_outstanding
 
         if self.min_market_cap is not None and market_cap < self.min_market_cap:
             logger.debug(
-                f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) below "
+                f"MarketCapRule: {equity.ticker} (MCap: {market_cap:.2f}) below "
                 f"min_market_cap {self.min_market_cap:.2f}")
             return False
 
         if self.max_market_cap is not None and market_cap > self.max_market_cap:
             logger.debug(
-                f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) above "
+                f"MarketCapRule: {equity.ticker} (MCap: {market_cap:.2f}) above "
                 f"max_market_cap {self.max_market_cap:.2f}")
             return False
 
-        logger.debug(f"MarketCapRule: {asset.ticker} (MCap: {market_cap:.2f}) is eligible.")
+        logger.debug(f"MarketCapRule: {equity.ticker} (MCap: {market_cap:.2f}) is eligible.")
 
         return True
 
@@ -254,9 +254,13 @@ class LiquidityRule(EligibilityRuleBase):
 
         Errors are not caught (BN-182). A rule that throws has not said the
         asset is ineligible, and the two answers must not be spelled the same.
+
+        Raises:
+            CalculationError: If *asset* is not an equity, so there is no
+                ticker to read volume against (BN-185).
         """
-        if not isinstance(asset, Equity):
-            return True # Or False
+        equity = require_equity(asset, self.rule_name,
+                                "be assessed for liquidity")
 
         # Fetch more to ensure enough trading days
         start_lookback = (
@@ -264,12 +268,12 @@ class LiquidityRule(EligibilityRuleBase):
         end_lookback = current_date.strftime('%Y-%m-%d')
 
         price_df = market_data_provider.fetch_market_data(
-            asset.ticker, start_lookback, end_lookback)
+            equity.ticker, start_lookback, end_lookback)
 
         if price_df.empty or price_df.shape[0] < (self.lookback_days / 2): # Ensure some data
             logger.warning(
                 f"LiquidityRule: Insufficient historical price data for "
-                f"{asset.ticker} for period ending {end_lookback}.")
+                f"{equity.ticker} for period ending {end_lookback}.")
             return False
 
         # Ensure we have data up to current_date or shortly before
@@ -280,19 +284,19 @@ class LiquidityRule(EligibilityRuleBase):
         if price_df.shape[0] < (self.lookback_days * 0.8):
             logger.warning(
                 f"LiquidityRule: Not enough trading days "
-                f"({price_df.shape[0]}/{self.lookback_days}) for {asset.ticker} "
+                f"({price_df.shape[0]}/{self.lookback_days}) for {equity.ticker} "
                 f"for ADV calc.")
             return False
 
         if self.min_avg_daily_volume is not None:
             if (_VOLUME_COLUMN not in price_df.columns
                     or price_df[_VOLUME_COLUMN].isnull().all()):
-                logger.warning(f"LiquidityRule: Volume data missing for {asset.ticker}.")
+                logger.warning(f"LiquidityRule: Volume data missing for {equity.ticker}.")
                 return False
             avg_daily_volume = price_df[_VOLUME_COLUMN].mean()
             if avg_daily_volume < self.min_avg_daily_volume:
                 logger.debug(
-                    f"LiquidityRule: {asset.ticker} (ADV: {avg_daily_volume:.0f}) below "
+                    f"LiquidityRule: {equity.ticker} (ADV: {avg_daily_volume:.0f}) below "
                     f"min volume {self.min_avg_daily_volume:.0f}")
                 return False
 
@@ -303,16 +307,16 @@ class LiquidityRule(EligibilityRuleBase):
                     or price_df[_VOLUME_COLUMN].isnull().all()):
                 logger.warning(
                     f"LiquidityRule: Price or Volume data missing for ADTV "
-                    f"calculation for {asset.ticker}.")
+                    f"calculation for {equity.ticker}.")
                 return False
             avg_daily_value = (price_df[_PRICE_COLUMN] * price_df[_VOLUME_COLUMN]).mean()
             if avg_daily_value < self.min_avg_daily_value:
                 logger.debug(
-                    f"LiquidityRule: {asset.ticker} (ADTV: {avg_daily_value:.2f}) below "
+                    f"LiquidityRule: {equity.ticker} (ADTV: {avg_daily_value:.2f}) below "
                     f"min value {self.min_avg_daily_value:.2f}")
                 return False
 
-        logger.debug(f"LiquidityRule: {asset.ticker} is eligible.")
+        logger.debug(f"LiquidityRule: {equity.ticker} is eligible.")
 
         return True
 
@@ -514,16 +518,11 @@ class MarketCapWeighted(WeightingSchemeBase):
         market_caps: dict[Asset, float] = {}
 
         for asset in constituents:
-            if not isinstance(asset, Equity):
-                raise CalculationError(
-                    calculation_name=self.scheme_name,
-                    details=(f"constituent '{asset.asset_id}' is not an equity, "
-                             f"so it has no market cap to weight by. Skipping it "
-                             f"would publish a cap-weighted index over a subset "
-                             f"of its own constituents."))
+            equity = require_equity(asset, self.scheme_name,
+                                    "be weighted by market cap, having none")
 
             market_caps[asset] = self._asset_market_cap(
-                asset, session, market_data_provider)
+                equity, session, market_data_provider)
 
         total_market_cap = sum(market_caps.values())
 
