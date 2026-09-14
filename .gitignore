@@ -91,3 +91,8 @@ fuzz-server.log
 
 # Fuzz run artefacts (BN-131)
 .schemathesis/
+
+# Local scratch data that is not part of the codebase. Listed because a
+# `git add -A` swept it into a commit once; an ignore rule is cheaper than
+# remembering.
+us_tickers.csv
