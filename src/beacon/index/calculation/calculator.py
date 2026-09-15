@@ -455,11 +455,13 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             end_date: str | None = None) -> IndexResult:
         """Run the full index calculation over a date range.
 
-        Iterates through business days from *start_date* to *end_date*,
-        handling three day types:
+        Iterates the index's own trading sessions from *start_date* to
+        *end_date* — the definition's calendar, not Monday to Friday (BN-186)
+        — handling three day types:
 
         1. **Base date** – resolve universe, select constituents, compute
-           weights, initialise divisor, set level = base_value.
+           weights, initialise divisor, set level = base_value. Rolled forward
+           to the first session when the base date itself was not one.
         2. **Rebalance date** – reconstitute (re-resolve universe, re-select,
            re-weight) and adjust divisor for continuity.
         3. **Regular day** – compute index level using current constituents
@@ -498,7 +500,11 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         if pd_start < base_date:
             pd_start = base_date
 
-        trading_days = pd.bdate_range(start=pd_start, end=pd_end)
+        # The index's own sessions, not Monday to Friday (BN-186). A level is
+        # a statement that the market traded and the constituents were worth
+        # something; on 25 December neither is true, and iterating business
+        # days published one anyway whenever the store happened to carry a bar.
+        trading_days = sessions(pd_start, pd_end, self.definition.calendar)
         if trading_days.empty:
             logger.warning("No trading days in the requested range.")
             return IndexResult(
@@ -508,6 +514,20 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 constituent_snapshots={},
                 weight_snapshots={},
             )
+
+        # A base date the market was shut on is initialised on the first
+        # session that follows it. Rolling forward is the only direction
+        # available -- there is no index before its base date to roll back to
+        # -- and refusing would make 1 January, the commonest base date there
+        # is, unusable. Only when the run starts at the base date: a run
+        # starting later never meets it, which is the behaviour it always had.
+        if pd_start <= base_date and base_date not in trading_days:
+            logger.warning(
+                "Base date %s is not a session on %s; the index is based on "
+                "%s, the first session after it.",
+                base_date.date(), self.definition.calendar,
+                trading_days[0].date())
+            base_date = pd.Timestamp(trading_days[0])
 
         # Pre-compute rebalance dates (excluding base date which is handled separately)
         rebalance_dates_list = self.definition.get_rebalance_dates(

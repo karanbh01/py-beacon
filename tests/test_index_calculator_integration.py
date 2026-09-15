@@ -10,6 +10,7 @@ from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
 from beacon.index.result import IndexResult
+from beacon.index.schedule import sessions
 
 # ---------------------------------------------------------------------------
 # Synthetic universe
@@ -17,8 +18,9 @@ from beacon.index.result import IndexResult
 ASSET_A = Equity(name="Asset A", currency="USD", ticker="ASSET_A", exchange="NYSE")
 ASSET_B = Equity(name="Asset B", currency="USD", ticker="ASSET_B", exchange="NYSE")
 
-BASE_DATE = "2024-01-02"  # First business day of Jan 2024
+BASE_DATE = "2024-01-02"  # First session of Jan 2024
 END_DATE = "2024-03-29"   # ~3 months of data
+CALENDAR = "XNYS"
 BASE_VALUE = 1000.0
 SHARES = 1000  # Fixed shares outstanding for both assets
 
@@ -233,9 +235,20 @@ class TestIntegrationRun:
 
     def test_covers_expected_trading_days(self,
                                           result):
-        """Result should span all business days from base to end."""
-        expected_days = pd.bdate_range(start=BASE_DATE, end=END_DATE)
+        """Every session from base to end, and only those.
+
+        Business days until BN-186, which over this span counted three days
+        NYSE was shut: Martin Luther King Day (2024-01-15), Presidents' Day
+        (2024-02-19) and Good Friday (2024-03-29). The data carries a bar on
+        each of them — the fixture is built from `bdate_range` — so before the
+        fix the index published a level on all three. 64 business days, 61
+        sessions.
+        """
+        expected_days = sessions(pd.Timestamp(BASE_DATE),
+                                 pd.Timestamp(END_DATE), CALENDAR)
+
         assert len(result.index_levels) == len(expected_days)
+        assert list(result.index_levels.index) == list(expected_days)
 
     def test_constituent_snapshots_contain_both_assets(self,
                                                        result):

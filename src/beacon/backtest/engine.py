@@ -8,6 +8,7 @@ import pandas as pd
 
 from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult
+from ..index.schedule import SESSION_UNIT, sessions
 from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 
 # TradeInstruction lives with the ledger that accepts it (BN-151). Imported
@@ -67,8 +68,9 @@ class BacktestEngine(PricingMixin):
             `index.optimised` and `index.target` respectively. Omitted on a
             plain run, whose own calculation fills the target book.
         calendar: The exchange MIC the traded index schedules on, which since
-            BN-180 every definition carries. It is what lets a missing bar be
-            read correctly (BN-183): on a day the calendar says was closed the
+            BN-180 every definition carries. It decides which days the run
+            steps onto at all (BN-186) and how a missing bar on one of them is
+            read (BN-183): on a day the calendar says was closed the
             market was shut and the previous session's price is what the
             position was worth, while on a day it says was open the data is
             missing something and the carried price is recorded as a gap.
@@ -229,6 +231,26 @@ class BacktestEngine(PricingMixin):
 
             logger.info("[%s] Settled %.4f of %s at %.4f after delisting.",
                         date, holding.quantity, asset_id, price)
+
+    def _scheduled_days(self) -> pd.DatetimeIndex:
+        """Rebalance dates inside the run window that are not sessions.
+
+        The engine steps onto its calendar's sessions (BN-186), and a schedule
+        naming a day that is not one still has to be executed. An index
+        calculated by Beacon can no longer produce such a date — its schedule
+        and the loop read the same calendar — so this covers the schedule
+        handed in from outside: a weight dict written by hand, or one built on
+        a different venue's calendar from the one the book is priced against.
+
+        Dropping the date would put back exactly the defect BN-183 fixed: a
+        rebalance in the record on which nothing moved. Executing it on the
+        day it names, at the price of the session in force, is what BN-183
+        already built the price read to do.
+        """
+        within = [date for date in self._weight_schedule
+                  if self.start_date <= date <= self.end_date]
+
+        return pd.DatetimeIndex(sorted(within)).as_unit(SESSION_UNIT)
 
     def _get_target_weights_for_date(self,
                                      date: pd.Timestamp) -> dict[str, float] | None:
@@ -510,7 +532,13 @@ class BacktestEngine(PricingMixin):
         self._gaps_seen.clear()
         self._rebalance_pricing.clear()
 
-        trading_days = pd.bdate_range(start=self.start_date, end=self.end_date, freq="B")
+        # The traded index's own sessions (BN-186), from the calendar BN-183
+        # already wired in for the price read -- one source of truth, so the
+        # day the engine steps onto is the day it can price. Without a
+        # calendar this is still Monday to Friday, which is all a caller
+        # assembling an engine by hand has told it.
+        trading_days = sessions(self.start_date, self.end_date,
+                                self.calendar).union(self._scheduled_days())
         if trading_days.empty:
             logger.warning("No trading days in the specified date range.")
             portfolio = Portfolio(portfolio_id="backtest_portfolio",

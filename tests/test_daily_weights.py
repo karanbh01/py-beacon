@@ -50,6 +50,12 @@ NAMES = {
 DELIST_ON = "2021-02-15"
 FIRST_MISSING = pd.Timestamp("2021-02-16")
 
+# The last session EEE is still held on. Not `FIRST_MISSING - BDay(1)`:
+# that is 2021-02-15, Presidents' Day, which BN-186 removed from the
+# calculator's loop. The previous business day and the previous session
+# stopped being the same date, and the panel is built from sessions.
+LAST_HELD = pd.Timestamp("2021-02-12")
+
 
 def build_fetcher(delist_on: str | None = None) -> DataFetcher:
     """Five names on closed-form price paths; one may stop being listed."""
@@ -244,7 +250,7 @@ class TestADeletionShows:
 
         assert FIRST_MISSING not in set(with_deletion.weight_snapshots), (
             "the deletion date is a rebalance, so this proves nothing")
-        assert held_on.max() == FIRST_MISSING - pd.offsets.BDay(1)
+        assert held_on.max() == LAST_HELD
         assert (held_on < FIRST_MISSING).all()
 
     def test_the_snapshot_still_carries_it(self,
@@ -260,7 +266,7 @@ class TestADeletionShows:
                                                 with_deletion):
         """Deleting a name lifts everyone else pro rata — it does not leave a
         hole where its weight used to be."""
-        before = with_deletion.weights_on(FIRST_MISSING - pd.offsets.BDay(1))
+        before = with_deletion.weights_on(LAST_HELD)
         after = with_deletion.weights_on(FIRST_MISSING)
 
         assert sum(after.values()) == pytest.approx(1.0, rel=1e-5)
@@ -273,8 +279,7 @@ class TestADeletionShows:
         exactly what they held the day before, and only their *share* moves.
         """
         panel = with_deletion.daily_weights
-        pair = panel[panel["DATE"].isin([FIRST_MISSING,
-                                         FIRST_MISSING - pd.offsets.BDay(1)])]
+        pair = panel[panel["DATE"].isin([FIRST_MISSING, LAST_HELD])]
         survivors = pair[pair["IDENTIFIER"] != "EEE"]
 
         spread = survivors.groupby("IDENTIFIER", observed=True)["AMOUNT"].nunique()

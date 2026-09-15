@@ -34,6 +34,7 @@ from ..data.base import MarketData, ReferenceData
 from ..data.corporate_actions import CorporateActions
 from ..data.features import FeatureData
 from ..data.fetcher import DataFetcher
+from ..index.schedule import DEFAULT_CALENDAR, is_known_calendar, sessions
 from . import features as features_module
 from . import fx, listings, prices, profiles, returns, universe
 
@@ -80,6 +81,20 @@ class SyntheticConfig:
             because a dataset with nothing to screen on cannot exercise a
             feature rule, and a store that silently lacks one is harder to
             diagnose than one that costs a few hundred thousand rows.
+        calendar: The exchange MIC whose sessions the panel has bars on.
+            Defaults to the same `DEFAULT_CALENDAR` the store migration
+            writes, so generated data and an index that took the default agree
+            **by construction** rather than by coincidence (BN-186). Until
+            then both said Monday to Friday, and a defect whose trigger was a
+            holiday was invisible to every test because generator and loop
+            shared one wrong assumption.
+
+            One calendar for the whole dataset, including the names quoted in
+            another currency: a universe whose venues genuinely disagree about
+            sessions is a real question and not this one's. A name whose own
+            exchange would have been shut still gets a bar, which is the
+            lesser of the two wrongs -- the alternative is a hole in the panel
+            that every consumer would have to tell apart from missing data.
     """
     assets: int = DEFAULT_ASSETS
     start: str = DEFAULT_START
@@ -91,6 +106,7 @@ class SyntheticConfig:
     delisting_rate: float = listings.ANNUAL_DELISTING_RATE
     listing_rate: float = listings.ANNUAL_LISTING_RATE
     features: bool = True
+    calendar: str = DEFAULT_CALENDAR
 
     def __post_init__(self) -> None:
         if self.assets < 1:
@@ -98,6 +114,10 @@ class SyntheticConfig:
         if pd.Timestamp(self.end) <= pd.Timestamp(self.start):
             raise ValueError(
                 f"end ({self.end}) must fall after start ({self.start}).")
+        if not is_known_calendar(self.calendar):
+            raise ValueError(
+                f"'{self.calendar}' is not a trading calendar this "
+                f"installation can use.")
 
 
 @dataclass(frozen=True)
@@ -147,7 +167,13 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
     # reproducible only by accident.
     rng = np.random.default_rng(settings.seed)
 
-    dates = pd.bdate_range(settings.start, settings.end)
+    dates = sessions(pd.Timestamp(settings.start), pd.Timestamp(settings.end),
+                     settings.calendar)
+    if dates.empty:
+        raise ValueError(
+            f"{settings.calendar} has no sessions between {settings.start} "
+            f"and {settings.end}.")
+
     names = universe.build(settings.assets, rng, dates=dates,
                            currency=settings.currency,
                            delisting_rate=settings.delisting_rate,
@@ -179,8 +205,8 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
     # and dividend frequency agrees with the dividends (BN-148).
     profile = profiles.build(names, rng, dates[-1])
 
-    logger.info("Generated %d identifier(s) over %d business days (seed %d).",
-                settings.assets, len(dates), settings.seed)
+    logger.info("Generated %d identifier(s) over %d %s session(s) (seed %d).",
+                settings.assets, len(dates), settings.calendar, settings.seed)
 
     return SyntheticDataset(
         market=MarketData.from_dataframe(

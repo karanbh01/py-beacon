@@ -22,6 +22,11 @@ CAPPED_ID = "canon-capped"
 START = "2023-01-02"
 END = "2024-06-28"
 
+# The index's first session. START is a Monday and the day NYSE observed
+# New Year's Day, so since BN-186 the index has no level on it and the base
+# date rolls onto the 3rd — which is also its first rebalance.
+BASE_SESSION = "2023-01-03"
+
 
 def auth() -> dict[str, str]:
     return {"Authorization": f"Bearer {TOKEN}"}
@@ -167,8 +172,9 @@ class TestWeights:
         """The weights were just set; reporting zeros would claim a
         measurement rather than the absence of one."""
         first = client.get(f"/beacon/{INDEX_ID}/weights",
-                           params={"asof": START}, headers=auth()).json()
+                           params={"asof": BASE_SESSION}, headers=auth()).json()
 
+        assert first["rebalance_date"] == BASE_SESSION
         assert first["drift"] is None
 
     def test_turnover_is_half_the_total_drift(self,

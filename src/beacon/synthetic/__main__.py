@@ -42,6 +42,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..data import store
+from ..index.schedule import DEFAULT_CALENDAR, sessions
 from .dataset import (
     DEFAULT_EQUITY_PREMIUM,
     DEFAULT_RISK_FREE_RATE,
@@ -166,6 +167,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--equity-premium", type=float,
                         default=DEFAULT_EQUITY_PREMIUM,
                         help=f"annualised (default: {DEFAULT_EQUITY_PREMIUM})")
+    parser.add_argument("--calendar", default=DEFAULT_CALENDAR,
+                        help=f"exchange MIC whose sessions the panel has bars "
+                             f"on (default: {DEFAULT_CALENDAR}); one calendar "
+                             f"for the whole dataset, whatever a name's own "
+                             f"venue would have done")
     parser.add_argument("--no-features", action="store_true",
                         help="skip the fundamental ratios and alternative "
                              "data (about 8%% of the rows)")
@@ -229,8 +235,6 @@ def main(argv: list[str] | None = None) -> int:
     start, end = resolve_window(args.start, args.end, args.long_history)
     assets = resolve_assets(args.assets, args.extended_universe)
 
-    _announce(assets, start, end)
-
     try:
         config = SyntheticConfig(assets=assets,
                                  start=start,
@@ -238,7 +242,14 @@ def main(argv: list[str] | None = None) -> int:
                                  seed=args.seed,
                                  risk_free_rate=args.risk_free_rate,
                                  equity_premium=args.equity_premium,
-                                 features=not args.no_features)
+                                 features=not args.no_features,
+                                 calendar=args.calendar)
+
+        # After the config rather than before it: the announcement counts the
+        # calendar's sessions, so an unusable calendar has to have been
+        # refused first or the estimate would raise instead of reporting.
+        _announce(assets, start, end, config.calendar)
+
         path = args.out if args.out is not None else store.default_path()
 
         written = write(config, path)
@@ -254,15 +265,21 @@ def main(argv: list[str] | None = None) -> int:
 
 def _announce(assets: int,
               start: str,
-              end: str) -> None:
+              end: str,
+              calendar: str) -> None:
     """Say what is about to happen, before it takes minutes to happen.
 
     A generator that prints nothing until it finishes is indistinguishable
     from one that has hung, and at the sizes the expansion flags open up the
     wait is long enough for somebody to reasonably conclude the second.
+
+    The row count is the calendar's sessions, not business days, for the same
+    reason the panel is (BN-186): an estimate built on a different day count
+    from the generator's is an estimate of a different run.
     """
     years = max((pd.Timestamp(end) - pd.Timestamp(start)).days / 365.25, 0.0)
-    rows = assets * len(pd.bdate_range(start, end))
+    rows = assets * len(sessions(pd.Timestamp(start), pd.Timestamp(end),
+                                 calendar))
     projected = rows / 1e6 * GIGABYTES_PER_MILLION_ROWS
 
     logger.info("Generating %s names over %.0f years (%s to %s): "

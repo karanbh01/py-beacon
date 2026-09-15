@@ -380,8 +380,35 @@ class TestTradingCalendar:
         assert not schedule.is_known_calendar("NOPE")
 
     def test_a_range_outside_the_calendar_is_empty_not_an_error(self):
-        """Asking past the published holidays is a normal thing to do."""
-        assert len(schedule.sessions("1700-01-01", "1700-12-31", "XNYS")) == 0
+        """Asking past the published holidays is a normal thing to do.
+
+        The date moved from 1700 to 2200 in BN-186, and the move is the point.
+        `get_calendar` builds twenty years back and one year forward, and this
+        used to pin *both* ends to that window. The forward end is a genuine
+        limit — a session in 2200 would be extrapolated from rules rather than
+        read from an exchange's notice — while the backward one was an
+        artefact of the default window, and clamping to it silently truncated
+        anything reaching further back than the package happened to build.
+        """
+        assert len(schedule.sessions("2200-01-01", "2200-12-31", "XNYS")) == 0
+
+    def test_history_before_the_default_window_is_answered(self):
+        """The near end is widened to reach the dates asked for (BN-186).
+
+        `--long-history` generates from 1999 so the panel covers the dot-com
+        unwind, and 1999 is outside the twenty years `get_calendar` builds by
+        default. Clamped, the flag would have delivered a panel starting in
+        the mid-2000s: not an error, not empty, just quietly missing the seven
+        years it exists to provide.
+
+        1999-01-01 was a Friday and a New Year's Day; the 4th is the first
+        session of that year.
+        """
+        found = schedule.sessions("1999-01-01", "1999-01-08", "XNYS")
+
+        assert pd.Timestamp("1999-01-01") not in found
+        assert pd.Timestamp("1999-01-04") in found
+        assert found[0] == pd.Timestamp("1999-01-04")
 
     def test_the_calendar_package_is_a_core_dependency(self):
         """BN-121 had the opposite test here: `exchange_calendars` was an

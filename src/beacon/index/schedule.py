@@ -99,10 +99,53 @@ DEFAULT_CALENDAR = "XNYS"
 FRIDAY = 4
 THIRD_OCCURRENCE = 3
 
+# The datetime resolution every session index is returned in: the one
+# `pd.bdate_range` uses, so a calendar's sessions and a business-day range are
+# interchangeable as the index of a series rather than only as a set of dates.
+SESSION_UNIT = pd.bdate_range("2024-01-01", periods=1).unit
+
 # How far past the as-of date to look when hunting the next rebalance. Two full
 # periods plus a month: enough that an annual schedule is always found, without
 # generating a decade of dates to return one of them.
 _LOOKAHEAD_PERIODS = 2
+
+
+def _calendar_covering(calendar: str,
+                       start: pd.Timestamp) -> exchange_calendars.ExchangeCalendar:
+    """A calendar whose history reaches back to *start*, where it can.
+
+    `get_calendar(code)` builds twenty years of history and one year ahead, and
+    the twenty years is the half that bites: `exchange_calendars` knows NYSE
+    back to 1885, but the default object starts two decades ago and
+    `sessions()` clamps to what the object holds. Before BN-186 nothing noticed
+    — only the rebalance schedule read sessions, and no index in this
+    repository has a base date that old. The generator does: `--long-history`
+    reaches back to 1999, and a silently truncated calendar would have it
+    produce seven fewer years than it was asked for.
+
+    Only the **near** end is widened. The far end stays where the package puts
+    it, because history is published and the future is extrapolated: a calendar
+    asked for 2030 would answer from rules rather than from an exchange's
+    notice, and clamping forward is the deliberate behaviour documented on
+    :func:`sessions`.
+
+    Falls back to the default bounds if the package refuses the earlier start,
+    which is what a calendar with a hard lower bound does.
+    """
+    schedule = exchange_calendars.get_calendar(calendar)
+
+    if start >= schedule.first_session:
+        return schedule
+
+    try:
+        return exchange_calendars.get_calendar(
+            calendar, start=start.strftime("%Y-%m-%d"))
+    except Exception:
+        logger.warning(
+            "%s cannot reach back to %s; sessions before %s are unavailable.",
+            calendar, start.date(), schedule.first_session.date())
+
+        return schedule
 
 
 def sessions(start: pd.Timestamp,
@@ -124,18 +167,26 @@ def sessions(start: pd.Timestamp,
     if calendar is None:
         return pd.bdate_range(start, end)
 
-    schedule = exchange_calendars.get_calendar(calendar)
+    schedule = _calendar_covering(calendar, pd.Timestamp(start))
 
     # Clamped to what the calendar knows: asking outside its bounds raises,
     # and a date range running past the published holidays is a normal thing
-    # for a caller to ask for rather than a mistake.
+    # for a caller to ask for rather than a mistake. Only the forward end
+    # actually clamps now -- `_calendar_covering` has already reached the
+    # start date back, where the package would let it.
     first = max(pd.Timestamp(start), schedule.first_session)
     last = min(pd.Timestamp(end), schedule.last_session)
 
     if first > last:
-        return pd.DatetimeIndex([])
+        return pd.DatetimeIndex([]).as_unit(SESSION_UNIT)
 
-    return pd.DatetimeIndex(schedule.sessions_in_range(first, last))
+    # Normalised to the unit `pd.bdate_range` produces. `exchange_calendars`
+    # hands back nanoseconds, and once these sessions became the index of a
+    # level series (BN-186) the difference stopped being cosmetic: a cached
+    # result reloaded from disk compares unequal to a freshly calculated one
+    # on dtype alone, every number in it identical.
+    return pd.DatetimeIndex(
+        schedule.sessions_in_range(first, last)).as_unit(SESSION_UNIT)
 
 
 def is_session(date: pd.Timestamp,

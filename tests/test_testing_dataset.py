@@ -13,12 +13,19 @@ import sys
 import pandas as pd
 import pytest
 
+from beacon.index.schedule import sessions
 from beacon.testing import dataset
 
-# The hash of the price frame as first generated. If this changes, every image
-# baseline and every recorded expectation built on the dataset has changed too,
-# so the failure is meant to be loud rather than a nuisance to update.
-PRICES_DIGEST = "6263faa7aab1c2ee"
+# The hash of the price frame. If this changes, every image baseline and every
+# recorded expectation built on the dataset has changed too, so the failure is
+# meant to be loud rather than a nuisance to update.
+#
+# It has moved once: BN-186 put the fixture on XNYS's sessions instead of
+# Monday to Friday, which drops 31 holidays from the span. The draws are
+# untouched -- same seed, same sequence -- so the frame is the first 752 rows
+# of the old one under different dates, and the 18 chart baselines were
+# regenerated with it.
+PRICES_DIGEST = "341eff1c1f94d980"
 
 
 def digest(frame: pd.DataFrame) -> str:
@@ -76,7 +83,7 @@ class TestDeterminism:
         index = dataset.prices().index
 
         assert (str(index[0].date()), str(index[-1].date()), len(index)) == (
-            "2023-01-02", "2025-12-31", 783)
+            "2023-01-03", "2025-12-31", 752)
 
     def test_callers_cannot_disturb_each_other(self):
         """Each caller gets a copy; one test's mutation is not another's bug."""
@@ -108,13 +115,32 @@ class TestShape:
         assert list(dataset.prices().columns) == list(dataset.UNIVERSE)
 
     def test_the_span_matches_the_declared_dates(self):
+        """Inside the declared span, starting on its first session.
+
+        Not on START itself since BN-186: 2023-01-02 is a Monday and the day
+        NYSE observed New Year's Day, so the fixture has no bar on it.
+        """
         prices = dataset.prices()
 
-        assert prices.index[0] == pd.Timestamp(dataset.START)
+        assert prices.index[0] >= pd.Timestamp(dataset.START)
         assert prices.index[-1] <= pd.Timestamp(dataset.END)
+        assert prices.index[0] == pd.Timestamp("2023-01-03")
 
-    def test_the_calendar_is_business_days_only(self):
-        assert (dataset.prices().index.dayofweek < 5).all()
+    def test_the_calendar_is_sessions_only(self):
+        """Weekends and holidays both. The weekend half was all this could
+        check while the fixture was built from `bdate_range`; the holidays are
+        what BN-186 added, and what makes the fixture able to express a defect
+        whose trigger is a closed market.
+        """
+        index = dataset.prices().index
+
+        assert (index.dayofweek < 5).all()
+        assert list(index) == list(
+            sessions(pd.Timestamp(dataset.START), pd.Timestamp(dataset.END),
+                     dataset.CALENDAR))
+        for holiday in ("2023-07-04", "2023-12-25", "2024-01-01",
+                        "2025-11-27"):
+            assert pd.Timestamp(holiday) not in index
 
     def test_prices_are_positive_throughout(self):
         """A path that crossed zero would break every return calculation."""

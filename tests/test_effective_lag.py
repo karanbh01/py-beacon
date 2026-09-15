@@ -26,6 +26,11 @@ from beacon.testing import dataset
 START = "2023-01-02"
 END = "2024-06-28"
 
+# The day the index is actually based on. START is a Monday and the day NYSE
+# observed New Year's Day, so it is not a session; BN-186 rolls the base date
+# forward onto the first one, which is also the first scheduled rebalance.
+BASE_SESSION = pd.Timestamp("2023-01-03")
+
 
 def build(lag: int = 0) -> IndexDefinition:
     """A market-cap index over the canonical universe, with a lag."""
@@ -80,16 +85,21 @@ class TestZeroLagIsUnchanged:
         assert unlagged.announcement_dates == {}
 
     def test_the_rebalance_dates_are_the_schedule(self, unlagged):
-        """Plus the base date, which since BN-180 is not always a scheduled
-        one. The canonical dataset starts on 2023-01-02 — a Monday, and the day
-        NYSE observed New Year's Day, so the schedule's first January date is
-        the 3rd. The index still initialises on its own base date, so that is a
-        snapshot in its own right rather than a rebalance.
+        """Exactly the schedule, with nothing extra alongside it.
+
+        BN-180 left this as "the schedule *plus* the base date": 2023-01-02 is
+        a Monday and the day NYSE observed New Year's Day, so the schedule's
+        first January date was the 3rd while the index still initialised on
+        the 2nd — a snapshot on a day the market was shut, because the loop
+        counted business days. BN-186 rolls the base date onto the first
+        session, which is the 3rd, so the two coincide and the extra snapshot
+        is gone.
         """
         dates = sorted(unlagged.weight_snapshots)
         scheduled = build(0).get_rebalance_dates(START, END)
 
-        assert dates == sorted({pd.Timestamp(START), *scheduled})
+        assert dates == sorted(scheduled)
+        assert dates[0] == BASE_SESSION
 
 
 class TestLaggedApplication:
@@ -97,7 +107,7 @@ class TestLaggedApplication:
 
     def test_every_rebalance_records_its_announcement(self, lagged):
         rebalances = [date for date in sorted(lagged.weight_snapshots)
-                      if date != pd.Timestamp(START)]
+                      if date != BASE_SESSION]
 
         assert len(lagged.announcement_dates) == len(rebalances)
 
@@ -122,7 +132,7 @@ class TestLaggedApplication:
         decided — so the announcements are the ordinary schedule."""
         announced = sorted(lagged.announcement_dates.values())
         scheduled = [date for date in build(0).get_rebalance_dates(START, END)
-                     if date != pd.Timestamp(START)]
+                     if date != BASE_SESSION]
 
         assert announced == scheduled
 

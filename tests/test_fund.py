@@ -19,6 +19,7 @@ from beacon.fund.etf import ETF
 from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
+from beacon.index.schedule import sessions
 from beacon.portfolio.base import Portfolio
 
 # ---------------------------------------------------------------------------
@@ -29,8 +30,15 @@ BASE_DATE = "2024-01-02"
 END_DATE = "2024-03-29"
 BASE_VALUE = 1000.0
 INITIAL_CAPITAL = 1000.0
+CALENDAR = "XNYS"
 
-TRADING_DAYS = pd.bdate_range(start=BASE_DATE, end=END_DATE, freq="B")
+# The days the index has a level on, which since BN-186 are the calendar's
+# sessions rather than Monday to Friday. Over this window that is 61 days
+# against 64: Martin Luther King Day, Presidents' Day and Good Friday.
+# The fixture is built from the same index, so the prices exist on exactly
+# the days the fund is valued on.
+TRADING_DAYS = sessions(pd.Timestamp(BASE_DATE), pd.Timestamp(END_DATE),
+                        CALENDAR)
 N_DAYS = len(TRADING_DAYS)
 
 

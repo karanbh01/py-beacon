@@ -411,15 +411,22 @@ class TestReconciliationIdentities:
 
     def test_the_index_total_return_is_what_it_was(self,
                                                    client):
-        """Golden: the canonical dataset over this window returns 43.25%.
+        """Golden: the canonical dataset over this window returns 41.49%.
 
         Recorded rather than derived, so a change that preserves the
         reconciliation identity while moving the number still shows up.
+
+        43.25% until BN-186. The fixture's draws are unchanged — the same
+        seed, the same sequence — but it now holds 752 XNYS sessions where it
+        held 783 business days, so the index compounds 31 fewer daily returns
+        over the same span. The number moved because a level stopped being
+        published on days the market was shut, which is the point of the
+        change rather than a casualty of it.
         """
         payload = client.get(f"/beacon/{INDEX_ID}/attribution",
                              headers=auth()).json()
 
-        assert payload["total_return"] == pytest.approx(0.4325, abs=5e-4)
+        assert payload["total_return"] == pytest.approx(0.4149, abs=5e-4)
 
     def test_attribution_defaults_to_the_run_window(self,
                                                     client):

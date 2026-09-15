@@ -30,10 +30,19 @@ from beacon.index.calculation.total_return import (
 )
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
+from beacon.index.schedule import sessions
 
 START = "2025-01-01"
 END = "2025-03-31"
-DATES = pd.bdate_range(START, END)
+CALENDAR = "XNYS"
+
+# The index's sessions, which is what the level series is indexed by since
+# BN-186. The tests below address it positionally, so the dates the prices
+# and the dividends are stamped with have to be the same list the loop
+# walks: over this window 60 sessions against 64 business days, the four being
+# New Year's Day (the 1st, which is also START), 9 January — the one-off day
+# of mourning no rule predicts — Martin Luther King Day and Presidents' Day.
+DATES = sessions(pd.Timestamp(START), pd.Timestamp(END), CALENDAR)
 
 
 def build_fetcher(actions: list[dict] | None = None,

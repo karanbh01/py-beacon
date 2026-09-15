@@ -21,6 +21,7 @@ from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
 from beacon.index.result import IndexResult
+from beacon.index.schedule import sessions
 from beacon.portfolio.base import Transaction
 
 # ---------------------------------------------------------------------------
@@ -34,8 +35,16 @@ BASE_DATE = "2024-01-02"
 END_DATE = "2024-06-28"
 BASE_VALUE = 1000.0
 INITIAL_CAPITAL = 1_000_000.0
+CALENDAR = "XNYS"
 
-TRADING_DAYS = pd.bdate_range(start=BASE_DATE, end=END_DATE)
+# The index's own sessions since BN-186, not Monday to Friday: over this
+# window 124 days rather than 129, the five being Martin Luther King Day,
+# Presidents' Day, Good Friday, Memorial Day and Juneteenth. Every one is a
+# weekday, so no weekend rule reaches them. The prices are generated on exactly
+# days the index and the backtest step onto, which is the coherence this
+# whole file is checking.
+TRADING_DAYS = sessions(pd.Timestamp(BASE_DATE), pd.Timestamp(END_DATE),
+                        CALENDAR)
 N_DAYS = len(TRADING_DAYS)
 
 # Base prices and modest, divergent total returns over the window (so the
@@ -132,6 +141,10 @@ def _backtest(index_result,
         data_provider=fetcher,
         index_result=index_result,
         transaction_cost_bps=cost_bps,
+        # The calendar the index was calculated on. Optional while the
+        # engine's loop was Monday to Friday whatever it said (BN-186),
+        # which is why this file used to agree with itself without it.
+        calendar=CALENDAR,
     ).run()
 
 

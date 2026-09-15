@@ -53,12 +53,18 @@ import pandas as pd
 
 from ..data.base import MarketData, ReferenceData
 from ..data.fetcher import DataFetcher
+from ..index.schedule import DEFAULT_CALENDAR, sessions
 
 # Changing any of these changes every baseline built on this dataset. That is
 # the point of naming them here: it should be a deliberate, visible act.
 SEED = 20240101
 START = "2023-01-02"
 END = "2025-12-31"
+
+# The venue whose sessions the panel has bars on, and the same default an
+# index that names no calendar is migrated onto — so the fixture and an index
+# calculated over it agree by construction rather than by coincidence.
+CALENDAR = DEFAULT_CALENDAR
 
 BASE_CURRENCY = "USD"
 FX_PAIR = "GBPUSD"
@@ -119,8 +125,23 @@ UNIVERSE = tuple(constituent.identifier for constituent in CONSTITUENTS)
 
 
 def trading_days() -> pd.DatetimeIndex:
-    """The dataset's business-day calendar."""
-    return pd.bdate_range(START, END)
+    """The dataset's sessions: the days XNYS was open, inside the span.
+
+    Business days until BN-186, which is why the fixture carried bars on 4
+    July and 25 December and why an index calculated over it computed a level
+    on both. The generator and the daily loop agreed only because they shared
+    that assumption, so a holiday could never be the thing that broke a test.
+
+    The span is unchanged and the first date is not: 2 January 2023 is a
+    Monday, and the day NYSE observed New Year's Day. The panel now starts on
+    the 3rd, and 783 business days become 752 sessions.
+
+    FFF is quoted in GBP and listed on the LSE, and gets a bar on every XNYS
+    session regardless -- one calendar for the dataset. A universe whose
+    venues genuinely disagree about sessions is a real modelling question and
+    deliberately not this fixture's.
+    """
+    return sessions(pd.Timestamp(START), pd.Timestamp(END), CALENDAR)
 
 
 @lru_cache(maxsize=1)

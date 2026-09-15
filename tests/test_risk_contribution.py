@@ -32,6 +32,10 @@ INDEX_ID = "risky"
 START = "2023-01-02"
 END = "2024-06-28"
 
+# The first session on or after START. 2023-01-02 is a Monday and the day NYSE
+# observed New Year's Day, so the index is based on the 3rd (BN-186).
+BASE_SESSION = "2023-01-03"
+
 # Two assets: 20% and 10% annualised volatility, correlated 0.5.
 COVARIANCE = pd.DataFrame([[0.04, 0.01], [0.01, 0.01]],
                           index=["AAA", "BBB"], columns=["AAA", "BBB"])
@@ -267,10 +271,16 @@ class TestServedOnTheWeightsPane:
 
     def test_the_estimation_window_is_the_run(self, client):
         """A decomposition of this index's risk estimated over some other
-        period would describe a different history from the levels beside it."""
+        period would describe a different history from the levels beside it.
+
+        The window starts on the run's first *session*, which since BN-186 is
+        the 3rd rather than the requested 2nd: 2023-01-02 is the day NYSE
+        observed New Year's Day, so the index has no level on it to estimate
+        from.
+        """
         body = self.weights(client, risk="true")
 
-        assert body["risk"]["window_start"] == START
+        assert body["risk"]["window_start"] == BASE_SESSION
         assert body["risk"]["window_end"] == END
 
     def test_the_whole_index_is_covered(self, client):

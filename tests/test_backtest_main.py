@@ -343,7 +343,15 @@ class TestEquivalence:
                                      initial_capital=CAPITAL,
                                      data_provider=disk_fetcher,
                                      index_result=index_result,
-                                     transaction_cost_bps=5.0).run()
+                                     transaction_cost_bps=5.0,
+                                     # What the front door passes, so the two
+                                     # step onto the same days (BN-186). The
+                                     # argument was optional to this test
+                                     # while the loop was Monday to Friday
+                                     # whatever the calendar said; the
+                                     # equivalence held because neither side
+                                     # used it.
+                                     calendar=definition.calendar).run()
         finally:
             logging.disable(logging.NOTSET)
 

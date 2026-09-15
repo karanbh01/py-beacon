@@ -137,12 +137,17 @@ from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
 from beacon.index.calculation import IndexCalculator
 from beacon.backtest.engine import BacktestEngine
+from beacon.index.schedule import sessions
 
 logging.getLogger("beacon").setLevel(logging.ERROR)  # keep the demo output clean
 
-# --- 1. Synthetic market data: two assets over ~3 months of business days ---
+# --- 1. Synthetic market data: two assets over ~3 months of sessions ---
 ASSETS = ["AAA", "BBB"]
-DAYS = pd.bdate_range("2024-01-02", "2024-03-29")
+# The index's own sessions, which is what the calculator walks: XNYS is
+# shut on three weekdays in this window, so a business-day range would
+# hold days the index has no level on.
+DAYS = sessions(pd.Timestamp("2024-01-02"), pd.Timestamp("2024-03-29"),
+                "XNYS")
 
 def price(asset,
           day):
@@ -168,6 +173,8 @@ class QuickData:
                                  ticker,
                                  date):
         return 1_000
+    def delisting_dates(self):
+        return {}  # nothing in this universe stops being listed
 
 data = QuickData()
 
@@ -188,7 +195,7 @@ print("Final index level:", round(index_result.index_levels.iloc[-1], 2))
 backtest = BacktestEngine(
     start_date="2024-01-02", end_date="2024-03-29",
     initial_capital=1_000_000.0, data_provider=data,
-    index_result=index_result,
+    index_result=index_result, calendar="XNYS",
 ).run()
 
 # --- 5. View results ---

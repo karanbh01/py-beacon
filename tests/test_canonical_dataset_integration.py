@@ -81,10 +81,19 @@ class TestIndexConstruction:
 
     def test_the_index_runs_over_the_whole_span(self,
                                                 index_result):
+        """Every session of the fixture, starting on the first one.
+
+        Not on `dataset.START`: 2023-01-02 is a Monday and the day NYSE
+        observed New Year's Day, so the index has no level on it and the
+        fixture has no bar on it (BN-186). The base date rolls forward onto
+        the first session, which is the only direction available — there is
+        no index before its base date to roll back to.
+        """
         levels = index_result.index_levels
 
-        assert len(levels) > 700
-        assert levels.index[0] == pd.Timestamp(dataset.START)
+        assert len(levels) == len(dataset.trading_days())
+        assert levels.index[0] == dataset.trading_days()[0]
+        assert levels.index[0] == pd.Timestamp("2023-01-03")
 
     def test_it_starts_at_the_base_value(self,
                                          index_result):
