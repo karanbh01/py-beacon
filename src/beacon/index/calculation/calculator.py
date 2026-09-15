@@ -4,6 +4,7 @@ Module for the IndexCalculator, responsible for the logic of
 constituent selection, weighting, index level calculation, and corporate action adjustments.
 """
 import logging
+from typing import Any
 
 import pandas as pd
 
@@ -110,20 +111,66 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         logger.info(f"IndexCalculator initialized for index '{self.definition.index_name}'.")
 
 
+    def _reference_rows(self,
+                        identifiers: list[str],
+                        date_str: str) -> dict[str, dict[str, Any]]:
+        """The reference record in force on *date_str*, keyed by identifier.
+
+        One read for the whole universe rather than one per name (BN-192).
+        ``fetch_reference_data`` has always taken a list, and the point-in-time
+        filter it applies is per row — ``DATE_FROM <= date`` and ``DATE_TO``
+        open or on/after it — so a batch answers each name with the record that
+        was valid for *that* name on that date, exactly as the per-name read
+        did. Nothing here narrows by position.
+
+        The join back is by identifier, for the reason BN-190 batched the
+        market reads that way: a frame holding many names in one block is one
+        ordering assumption away from attaching one company's currency to
+        another, and since BN-188 a currency decides an FX conversion, so a
+        misattributed one is a wrong weight rather than a cosmetic error.
+
+        Args:
+            identifiers: Every name the definition asks for.
+            date_str: The point-in-time date, ``YYYY-MM-DD``.
+
+        Returns:
+            dict: identifier -> its row as a plain mapping. A name the
+            reference data does not know is simply absent, which is what the
+            caller reports. Where a name carries several valid records the
+            first is kept, which is the record the per-name read's ``iloc[0]``
+            took.
+        """
+        frame = self.data.fetch_reference_data(list(identifiers), date_str)
+
+        if frame.empty:
+            return {}
+
+        rows: dict[str, dict[str, Any]] = {}
+
+        # One pass over the frame rather than a slice per name: `iloc` per row
+        # costs what a frame read costs, which is the shape being removed.
+        for label, row in zip(frame.index, frame.to_dict("records"),
+                              strict=True):
+            rows.setdefault(str(label), row)
+
+        return rows
+
     def _get_universe(self,
                       date: pd.Timestamp) -> list[Asset]:
         """Resolve universe_identifiers from the IndexDefinition into Asset objects.
 
-        Uses ``self.data.fetch_reference_data`` to look up metadata for each
-        identifier and constructs :class:`Equity` objects.  An identifier the
-        reference data does not know is skipped with a warning; a lookup that
-        *fails* is left to fail (BN-184).
+        Reads ``self.data.fetch_reference_data`` **once** for the whole
+        universe and constructs an :class:`Equity` per identifier from that
+        name's own row (BN-192). An identifier the reference data does not know
+        is skipped with a warning; a lookup that *fails* is left to fail
+        (BN-184).
 
         Args:
             date: Point-in-time date for reference data lookup.
 
         Returns:
-            A list of Asset objects corresponding to resolvable identifiers.
+            A list of Asset objects corresponding to resolvable identifiers,
+            in the order the definition names them.
 
         Raises:
             CalculationError: If the definition names no universe at all. This
@@ -143,9 +190,10 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
 
         assets: list[Asset] = []
         date_str = date.strftime('%Y-%m-%d')
+        rows = self._reference_rows(identifiers, date_str)
 
         for identifier in identifiers:
-            ref_df = self.data.fetch_reference_data(identifier, date_str)
+            row = rows.get(identifier)
 
             # BN-184, triaged as report-not-refuse: a universe naming a name
             # the reference data has never heard of is ordinary, and skipping
@@ -153,13 +201,17 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             # says nothing about having computed over fewer names than the
             # definition asked for. The count below reaches a log and nobody
             # else; carrying it on IndexResult is the open half of #197.
-            if ref_df.empty:
+            #
+            # Batching the read (BN-192) moved where this is decided, not what
+            # it decides: a name absent from the batch is a name the read
+            # returned nothing for, which is the empty frame the per-name read
+            # produced.
+            if row is None:
                 logger.warning(
                     f"_get_universe: No reference data for '{identifier}' on "
                     f"{date_str}. Skipping.")
                 continue
 
-            row = ref_df.iloc[0]
             asset = Equity(
                 name=row.get("NAME", identifier),
                 currency=row.get("CURRENCY", self.definition.currency),

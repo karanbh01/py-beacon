@@ -70,12 +70,20 @@ def _make_data_provider():
     def fetch_reference_data(identifier,
                              date=None,
                              columns=None):
-        if identifier in ASSETS:
-            return pd.DataFrame(
-                {"NAME": [identifier], "CURRENCY": ["USD"], "EXCHANGE": ["NYSE"]},
-                index=pd.Index([identifier], name="IDENTIFIER"),
-            )
-        return pd.DataFrame()
+        # One name or a list of them, as the real fetcher takes (BN-192).
+        wanted = [name for name
+                  in ([identifier] if isinstance(identifier, str) else identifier)
+                  if name in ASSETS]
+
+        if not wanted:
+            return pd.DataFrame()
+
+        return pd.DataFrame(
+            {"NAME": wanted,
+             "CURRENCY": ["USD"] * len(wanted),
+             "EXCHANGE": ["NYSE"] * len(wanted)},
+            index=pd.Index(wanted, name="IDENTIFIER"),
+        )
 
     provider.fetch_reference_data.side_effect = fetch_reference_data
     provider.fetch_market_data.side_effect = (

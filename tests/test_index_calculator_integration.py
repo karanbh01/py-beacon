@@ -55,19 +55,24 @@ def _make_mock_data():
     """Create a MagicMock DataFetcher wired to synthetic data."""
     data = MagicMock()
 
+    known = {"ASSET_A": "Asset A", "ASSET_B": "Asset B"}
+
     def fetch_reference_data(identifier,
                              date_str):
-        if identifier == "ASSET_A":
-            return pd.DataFrame(
-                {"NAME": ["Asset A"], "CURRENCY": ["USD"], "EXCHANGE": ["NYSE"]},
-                index=pd.Index(["ASSET_A"], name="IDENTIFIER"),
-            )
-        elif identifier == "ASSET_B":
-            return pd.DataFrame(
-                {"NAME": ["Asset B"], "CURRENCY": ["USD"], "EXCHANGE": ["NYSE"]},
-                index=pd.Index(["ASSET_B"], name="IDENTIFIER"),
-            )
-        return pd.DataFrame()
+        # One name or a list of them, as the real fetcher takes (BN-192).
+        wanted = [name for name
+                  in ([identifier] if isinstance(identifier, str) else identifier)
+                  if name in known]
+
+        if not wanted:
+            return pd.DataFrame()
+
+        return pd.DataFrame(
+            {"NAME": [known[name] for name in wanted],
+             "CURRENCY": ["USD"] * len(wanted),
+             "EXCHANGE": ["NYSE"] * len(wanted)},
+            index=pd.Index(wanted, name="IDENTIFIER"),
+        )
 
     def fetch_market_data(ticker,
                           start,

@@ -53,12 +53,18 @@ def calculator(mock_definition,
     return IndexCalculator(mock_definition, mock_data)
 
 
-def _make_ref_df(name,
-                 currency,
-                 exchange):
+def _make_ref_df(rows):
+    """A reference frame for ``{identifier: (name, currency, exchange)}``.
+
+    Indexed by identifier and carrying every requested name at once, which is
+    the shape the real fetcher returns for the batch read `_get_universe` makes
+    (BN-192).
+    """
     return pd.DataFrame(
-        {"NAME": [name], "CURRENCY": [currency], "EXCHANGE": [exchange]},
-        index=pd.Index(["ID"], name="IDENTIFIER"),
+        {"NAME": [name for name, _, _ in rows.values()],
+         "CURRENCY": [currency for _, currency, _ in rows.values()],
+         "EXCHANGE": [exchange for _, _, exchange in rows.values()]},
+        index=pd.Index(list(rows), name="IDENTIFIER"),
     )
 
 
@@ -66,11 +72,11 @@ class TestGetUniverse:
     def test_resolves_all_identifiers(self,
                                       calculator,
                                       mock_data):
-        mock_data.fetch_reference_data.side_effect = [
-            _make_ref_df("Apple Inc", "USD", "NASDAQ"),
-            _make_ref_df("Microsoft", "USD", "NASDAQ"),
-            _make_ref_df("Alphabet", "USD", "NASDAQ"),
-        ]
+        mock_data.fetch_reference_data.return_value = _make_ref_df({
+            "AAPL": ("Apple Inc", "USD", "NASDAQ"),
+            "MSFT": ("Microsoft", "USD", "NASDAQ"),
+            "GOOG": ("Alphabet", "USD", "NASDAQ"),
+        })
         assets = calculator._get_universe(pd.Timestamp("2025-01-01"))
         assert len(assets) == 3
         assert all(isinstance(a, Equity) for a in assets)
@@ -106,11 +112,12 @@ class TestGetUniverse:
                                             calculator,
                                             mock_data,
                                             caplog):
-        mock_data.fetch_reference_data.side_effect = [
-            _make_ref_df("Apple Inc", "USD", "NASDAQ"),
-            pd.DataFrame(),  # MSFT not found
-            _make_ref_df("Alphabet", "USD", "NASDAQ"),
-        ]
+        # MSFT is simply absent from the batch, which is what the reference
+        # data returns for a name it has never heard of.
+        mock_data.fetch_reference_data.return_value = _make_ref_df({
+            "AAPL": ("Apple Inc", "USD", "NASDAQ"),
+            "GOOG": ("Alphabet", "USD", "NASDAQ"),
+        })
         with caplog.at_level("WARNING"):
             assets = calculator._get_universe(pd.Timestamp("2025-01-01"))
         assert len(assets) == 2
@@ -128,11 +135,8 @@ class TestGetUniverse:
         data layer raised would have been converted back into a smaller
         universe here (BN-184).
         """
-        mock_data.fetch_reference_data.side_effect = [
-            _make_ref_df("Apple Inc", "USD", "NASDAQ"),
-            ConnectionError("connection error"),
-            _make_ref_df("Alphabet", "USD", "NASDAQ"),
-        ]
+        mock_data.fetch_reference_data.side_effect = ConnectionError(
+            "connection error")
 
         with pytest.raises(ConnectionError, match="connection error"):
             calculator._get_universe(pd.Timestamp("2025-01-01"))
@@ -164,10 +168,13 @@ class TestGetUniverse:
     def test_passes_date_to_fetcher(self,
                                     calculator,
                                     mock_data):
-        mock_data.fetch_reference_data.return_value = _make_ref_df("Apple", "USD", "NASDAQ")
+        mock_data.fetch_reference_data.return_value = _make_ref_df(
+            {"AAPL": ("Apple", "USD", "NASDAQ")})
         calculator.definition.universe_identifiers = ["AAPL"]
         calculator._get_universe(pd.Timestamp("2025-06-15"))
-        mock_data.fetch_reference_data.assert_called_once_with("AAPL", "2025-06-15")
+        # One read for the whole universe, not one per name (BN-192).
+        mock_data.fetch_reference_data.assert_called_once_with(["AAPL"],
+                                                               "2025-06-15")
 
 
 # ---------------------------------------------------------------------------
