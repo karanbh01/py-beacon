@@ -385,7 +385,15 @@ class TestTheEmptyUniverseError:
 
     def test_an_unresolvable_universe_raises(self):
         """Identifiers the data source has never heard of resolve to nothing,
-        which used to yield a flat level and zero trades with no error."""
+        which used to yield a flat level and zero trades with no error.
+
+        BN-184 moved where this is caught. The calculation now refuses on its
+        base date rather than returning a dead result for `_rejecting_empty`
+        to diagnose afterwards, so the message names the counts directly: how
+        many identifiers were given, how many resolved, how many survived. The
+        guard below still stands for results that reach the backtest empty by
+        some other route.
+        """
         with pytest.raises(CalculationError) as raised:
             quiet_run(Backtest(initial_capital=CAPITAL,
                                data_provider=dataset.data_fetcher()),
@@ -394,7 +402,8 @@ class TestTheEmptyUniverseError:
         message = str(raised.value)
 
         assert "universe_identifiers" in message
-        assert "nothing to simulate" in message
+        assert "2 universe_identifiers" in message, "the count of names given"
+        assert "0 resolved" in message, "the count that resolved"
 
     def test_an_empty_level_series_is_rejected_directly(self):
         """The guard itself, on the barest empty result: an empty window is

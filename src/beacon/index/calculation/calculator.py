@@ -115,45 +115,58 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         """Resolve universe_identifiers from the IndexDefinition into Asset objects.
 
         Uses ``self.data.fetch_reference_data`` to look up metadata for each
-        identifier and constructs :class:`Equity` objects.  Identifiers that
-        cannot be resolved are logged as warnings and skipped.
+        identifier and constructs :class:`Equity` objects.  An identifier the
+        reference data does not know is skipped with a warning; a lookup that
+        *fails* is left to fail (BN-184).
 
         Args:
             date: Point-in-time date for reference data lookup.
 
         Returns:
             A list of Asset objects corresponding to resolvable identifiers.
+
+        Raises:
+            CalculationError: If the definition names no universe at all. This
+                used to return an empty universe, which calculates an index
+                over nothing and publishes it — a definition missing its
+                universe and one whose names all fell away were spelled the
+                same way (BN-184).
         """
         identifiers = self.definition.universe_identifiers
         if identifiers is None:
-            logger.warning(
-                f"universe_identifiers is None for index '{self.definition.index_name}'. "
-                "Returning empty universe."
-            )
-            return []
+            raise CalculationError(
+                calculation_name="UniverseResolution",
+                details=(f"index '{self.definition.index_name}' has no "
+                         f"universe_identifiers, so there is nothing to select "
+                         f"constituents from. An index cannot be calculated "
+                         f"over an unspecified universe."))
 
         assets: list[Asset] = []
         date_str = date.strftime('%Y-%m-%d')
 
         for identifier in identifiers:
-            try:
-                ref_df = self.data.fetch_reference_data(identifier, date_str)
-                if ref_df.empty:
-                    logger.warning(
-                        f"_get_universe: No reference data for '{identifier}' on "
-                        f"{date_str}. Skipping.")
-                    continue
+            ref_df = self.data.fetch_reference_data(identifier, date_str)
 
-                row = ref_df.iloc[0]
-                asset = Equity(
-                    name=row.get("NAME", identifier),
-                    currency=row.get("CURRENCY", self.definition.currency),
-                    ticker=identifier,
-                    exchange=row.get("EXCHANGE", "UNKNOWN"),
-                )
-                assets.append(asset)
-            except Exception as e:
-                logger.warning(f"_get_universe: Failed to resolve '{identifier}': {e}. Skipping.")
+            # BN-184, triaged as report-not-refuse: a universe naming a name
+            # the reference data has never heard of is ordinary, and skipping
+            # it is the right arithmetic. What is missing is that the result
+            # says nothing about having computed over fewer names than the
+            # definition asked for. The count below reaches a log and nobody
+            # else; carrying it on IndexResult is the open half of #197.
+            if ref_df.empty:
+                logger.warning(
+                    f"_get_universe: No reference data for '{identifier}' on "
+                    f"{date_str}. Skipping.")
+                continue
+
+            row = ref_df.iloc[0]
+            asset = Equity(
+                name=row.get("NAME", identifier),
+                currency=row.get("CURRENCY", self.definition.currency),
+                ticker=identifier,
+                exchange=row.get("EXCHANGE", "UNKNOWN"),
+            )
+            assets.append(asset)
 
         logger.info(
             f"_get_universe: Resolved {len(assets)}/{len(identifiers)} identifiers "
@@ -216,6 +229,11 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             f"[{current_date.strftime('%Y-%m-%d')}] Selecting constituents for "
             f"'{self.definition.index_name}'. Universe size: {len(universe)}")
 
+        # BN-184, triaged as leave. No universe means no survivors, which is
+        # the arithmetic rather than a stand-in for it, and the provenance
+        # record says so explicitly: a universe step of zero remaining. The
+        # condition is not lost downstream either — `run` refuses a base date
+        # with no constituents outright, in `_require_a_base_composition`.
         if not universe:
             logger.warning("Constituent selection called with an empty universe.")
 
@@ -247,6 +265,12 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
 
         Returns:
             A dictionary mapping each Asset to its float weight. Sum of weights should be 1.0.
+
+        Raises:
+            CalculationError: If the scheme fails, or if its weights do not sum
+                to 1. The second used to be silently renormalised with a
+                warning — and a scheme's own output rescaled is the scheme not
+                being applied, which is the BN-179 argument exactly (BN-184).
         """
         date_str = current_date.strftime('%Y-%m-%d')
         if not constituents:
@@ -271,19 +295,22 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 calculation_name=f"WeightingScheme-{self.definition.weighting_scheme.scheme_name}",
                 details=str(e)) from e
 
-        # Normalize weights to sum to 1, if not already
-        #todo: check if normalisation is needed based on the weighting scheme's
-        # output. Some schemes may guarantee this.
+        # A scheme that does not return weights summing to 1 has not produced
+        # the weighting it names. Rescaling them here published a *different*
+        # allocation under the scheme's name and said so only in a log, which
+        # is the same substitution BN-179 removed from the market-cap path.
+        # Raised outside the try above so it reaches the caller rather than
+        # being re-wrapped as a scheme failure.
         weight_sum = sum(weights.values())
-        if abs(weight_sum - 1.0) > 1e-9 and weight_sum != 0:
-            logger.warning(
-                f"Weights from scheme {self.definition.weighting_scheme.scheme_name} "
-                f"sum to {weight_sum}. Normalizing.")
-            weights = {asset: w / weight_sum for asset, w in weights.items()}
-        elif weight_sum == 0 and weights:
-             logger.error(
-                 f"Calculated weights sum to zero for {len(weights)} "
-                 f"constituents. Cannot normalize.")
+
+        if weights and abs(weight_sum - 1.0) > 1e-9:
+            raise CalculationError(
+                calculation_name=(f"WeightingScheme-"
+                                  f"{self.definition.weighting_scheme.scheme_name}"),
+                details=(f"the {len(weights)} weights it returned for "
+                         f"{date_str} sum to {weight_sum!r}, not 1. Rescaling "
+                         f"them would publish an allocation the scheme did "
+                         f"not produce under the scheme's own name."))
 
         logger.info(f"Weights calculated for '{self.definition.index_name}'.")
         return weights
@@ -315,6 +342,39 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
 
         return {asset: capped[asset.asset_id] for asset in weights}, report
 
+    def _require_a_base_composition(self,
+                                    resolved: list[Asset],
+                                    constituents: list[Asset],
+                                    base_date: pd.Timestamp) -> None:
+        """Refuse a base date on which the index would hold nothing.
+
+        `initialize_divisor` refuses this too, one step later, by way of a
+        zero market value — but it can only say the aggregate was zero, which
+        is the symptom. Here the cause is still in hand: how many identifiers
+        the definition named, how many the data resolved, and how many
+        survived the rules. BN-178's discipline is that a refusal names what
+        to fix, and an empty index is almost always a universe that did not
+        resolve rather than a market genuinely worth nothing.
+
+        Raises:
+            CalculationError: If *constituents* is empty.
+        """
+        if constituents:
+            return
+
+        named = self.definition.universe_identifiers or []
+
+        raise CalculationError(
+            calculation_name="BaseDateComposition",
+            details=(f"index '{self.definition.index_name}' holds nothing on "
+                     f"its base date {base_date:%Y-%m-%d}, so there is no "
+                     f"composition to anchor a level to. Of the "
+                     f"{len(named)} universe_identifiers the definition "
+                     f"names, {len(resolved)} resolved against the reference "
+                     f"data and {len(constituents)} passed the eligibility "
+                     f"rules. Calculating on would publish a level series "
+                     f"for an index with no constituents."))
+
     def initialize_divisor(self,
                            initial_total_market_value: float) -> float:
         """
@@ -331,8 +391,12 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         """
         if initial_total_market_value <= 0:
             logger.error("Initial total market value must be positive to initialize divisor.")
-            raise CalculationError("DivisorInitialization",
-                                    "Initial total market value is non-positive.")
+            raise CalculationError(
+                "DivisorInitialization",
+                f"the base constituents are worth {initial_total_market_value} "
+                f"on the base date, so there is no scale to anchor the index "
+                f"to. Any divisor chosen here would produce a level series "
+                f"that is coherent and means nothing.")
         if self.definition.base_value <= 0:
             logger.error("Base index value must be positive to initialize divisor.")
             raise CalculationError("DivisorInitialization", "Base index value is non-positive.")
@@ -528,6 +592,10 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 # --- Base date initialisation ---
                 constituents_raw = self._get_universe(date)
                 constituents = self.select_constituents(constituents_raw, date)
+
+                self._require_a_base_composition(constituents_raw,
+                                                 constituents, date)
+
                 weights = self.calculate_constituent_weights(constituents, date)
                 weights, cap_report = self.cap_weights(weights)
                 if cap_report.was_capped:
@@ -543,14 +611,13 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 units = self.index_units(weights, total_mv, date)
                 values = self.holding_values(units, date)
 
-                if total_mv > 0:
-                    divisor = self.initialize_divisor(total_mv)
-                else:
-                    logger.warning(
-                        f"Zero market value on base date {date.strftime('%Y-%m-%d')}. "
-                        "Setting divisor to 1.0."
-                    )
-                    divisor = 1.0
+                # Straight through to `initialize_divisor`, which refuses a
+                # non-positive aggregate. A zero market value used to be
+                # caught here and turned into a divisor of 1.0, which
+                # bypassed that refusal and published a level series scaled
+                # by an arbitrary constant: internally coherent, and a
+                # measure of nothing (BN-184).
+                divisor = self.initialize_divisor(total_mv)
 
                 level = self.definition.base_value
 

@@ -34,6 +34,11 @@ def mock_definition():
     defn.return_type = "PRICE"
     defn.withholding_tax_rate = 0.0
     defn.effective_lag_sessions = 0
+    # Same again, and now load-bearing: a truthy mock here makes the
+    # market-value path float-adjusted, and BN-184 refuses a float-adjusted
+    # index whose free-float factor is a mock rather than a number. Real
+    # schemes default this to False.
+    defn.weighting_scheme.use_free_float = False
     return defn
 
 
@@ -74,13 +79,28 @@ class TestGetUniverse:
         assert assets[1].ticker == "MSFT"
         assert assets[2].ticker == "GOOG"
 
-    def test_none_universe_returns_empty(self,
-                                         calculator,
-                                         mock_data):
+    def test_none_universe_is_refused(self,
+                                      calculator,
+                                      mock_data):
+        """A definition with no universe is refused, not calculated over nothing.
+
+        This used to return an empty universe, which runs the whole
+        calculation and publishes an index over no names (BN-184).
+        """
         calculator.definition.universe_identifiers = None
-        assets = calculator._get_universe(pd.Timestamp("2025-01-01"))
-        assert assets == []
+
+        with pytest.raises(CalculationError, match="no universe_identifiers"):
+            calculator._get_universe(pd.Timestamp("2025-01-01"))
+
         mock_data.fetch_reference_data.assert_not_called()
+
+    def test_the_refusal_reaches_run(self,
+                                     calculator):
+        """And it is not absorbed on the way out of `run` (BN-184)."""
+        calculator.definition.universe_identifiers = None
+
+        with pytest.raises(CalculationError, match="no universe_identifiers"):
+            calculator.run(end_date="2025-01-03")
 
     def test_skips_unresolvable_identifiers(self,
                                             calculator,
@@ -98,19 +118,33 @@ class TestGetUniverse:
         assert assets[1].ticker == "GOOG"
         assert "No reference data for 'MSFT'" in caplog.text
 
-    def test_skips_on_exception(self,
-                                calculator,
-                                mock_data,
-                                caplog):
+    def test_a_failing_lookup_propagates(self,
+                                         calculator,
+                                         mock_data):
+        """A lookup that fails is not a name the universe does not contain.
+
+        This used to be caught and recorded as a skip, so a broken fetcher and
+        an unknown identifier were spelled the same way — and any refusal the
+        data layer raised would have been converted back into a smaller
+        universe here (BN-184).
+        """
         mock_data.fetch_reference_data.side_effect = [
             _make_ref_df("Apple Inc", "USD", "NASDAQ"),
-            Exception("connection error"),
+            ConnectionError("connection error"),
             _make_ref_df("Alphabet", "USD", "NASDAQ"),
         ]
-        with caplog.at_level("WARNING"):
-            assets = calculator._get_universe(pd.Timestamp("2025-01-01"))
-        assert len(assets) == 2
-        assert "Failed to resolve 'MSFT'" in caplog.text
+
+        with pytest.raises(ConnectionError, match="connection error"):
+            calculator._get_universe(pd.Timestamp("2025-01-01"))
+
+    def test_a_failing_lookup_reaches_run(self,
+                                          calculator,
+                                          mock_data):
+        """And it is not absorbed between `_get_universe` and `run` (BN-184)."""
+        mock_data.fetch_reference_data.side_effect = ConnectionError("no route")
+
+        with pytest.raises(ConnectionError, match="no route"):
+            calculator.run(end_date="2025-01-03")
 
     def test_uses_defaults_for_missing_columns(self,
                                                calculator,
@@ -340,9 +374,14 @@ class TestRun:
         assert len(result.divisor_history) == len(result.index_levels)
         assert all(d > 0 for d in result.divisor_history.values)
 
-    def test_zero_market_value_base_date(self,
-                                         calculator):
-        """When base date MV is zero, divisor defaults to 1.0."""
+    def test_zero_market_value_base_date_is_refused(self,
+                                                    calculator):
+        """A base date worth nothing has no scale to anchor an index to.
+
+        This used to fall back to a divisor of 1.0, which publishes a level
+        series that is internally coherent and measures nothing. The refusal
+        reaches the caller of `run`, not just `initialize_divisor` (BN-184).
+        """
         with (
             patch.object(calculator, '_get_universe', return_value=[AAPL]),
             patch.object(calculator, 'select_constituents', return_value=[AAPL]),
@@ -350,10 +389,9 @@ class TestRun:
                          return_value={AAPL: 1.0}),
             patch.object(calculator, '_get_constituent_market_values',
                          return_value={AAPL: 0.0}),
+            pytest.raises(CalculationError, match="no scale to anchor"),
         ):
-            result = calculator.run(end_date="2025-01-02")
-
-        assert result.divisor_history.iloc[0] == 1.0
+            calculator.run(end_date="2025-01-02")
 
 
 class TestAdjustDivisorForRebalance:
@@ -502,86 +540,116 @@ class TestHandleCorporateAction:
         )
         assert result == 10.0
 
-    def test_missing_asset_returns_unchanged(self,
-                                             ca_calculator):
+    def test_missing_asset_is_refused(self,
+                                      ca_calculator):
+        """A malformed action is not an action with no effect (BN-184)."""
         action = self._make_action(asset=None)
-        result = ca_calculator.handle_corporate_action(
-            action, [AAPL], 100000.0, 10.0
-        )
-        assert result == 10.0
 
-    def test_missing_ex_date_returns_unchanged(self,
-                                               ca_calculator):
+        with pytest.raises(CalculationError, match="missing its asset"):
+            ca_calculator.handle_corporate_action(action, [AAPL], 100000.0, 10.0)
+
+    def test_missing_ex_date_is_refused(self,
+                                        ca_calculator):
+        """No ex_date means no day to apply the action on (BN-184)."""
         action = {"type": "SPECIAL_DIVIDEND", "asset": AAPL, "value": 2.0, "ex_date": None}
-        result = ca_calculator.handle_corporate_action(
-            action, [AAPL], 100000.0, 10.0
-        )
-        assert result == 10.0
 
-    def test_rights_issue_stub_returns_unchanged(self,
-                                                 ca_calculator,
-                                                 caplog):
-        action = self._make_action(action_type="RIGHTS_ISSUE", asset=AAPL)
-        with caplog.at_level("WARNING"):
-            result = ca_calculator.handle_corporate_action(
-                action, [AAPL], 100000.0, 10.0
-            )
-        assert result == 10.0
-        assert "not yet implemented" in caplog.text
+        with pytest.raises(CalculationError, match="no ex_date"):
+            ca_calculator.handle_corporate_action(action, [AAPL], 100000.0, 10.0)
 
-    def test_spin_off_stub_returns_unchanged(self,
+    @pytest.mark.parametrize("action_type",
+                             ["RIGHTS_ISSUE", "SPIN_OFF", "STOCK_DIVIDEND", "MERGER"])
+    def test_unimplemented_types_are_refused(self,
                                              ca_calculator,
-                                             caplog):
-        action = self._make_action(action_type="SPIN_OFF", asset=AAPL)
-        with caplog.at_level("WARNING"):
-            result = ca_calculator.handle_corporate_action(
-                action, [AAPL], 100000.0, 10.0
-            )
-        assert result == 10.0
-        assert "not yet implemented" in caplog.text
+                                             action_type):
+        """Unimplemented and no-effect must not share an answer (BN-184).
 
-    def test_stock_dividend_stub_returns_unchanged(self,
-                                                   ca_calculator,
-                                                   caplog):
-        action = self._make_action(action_type="STOCK_DIVIDEND", asset=AAPL)
-        with caplog.at_level("WARNING"):
-            result = ca_calculator.handle_corporate_action(
-                action, [AAPL], 100000.0, 10.0
-            )
-        assert result == 10.0
-        assert "not yet implemented" in caplog.text
+        These four used to return the divisor unchanged, which is exactly what
+        an action on a non-constituent returns — so "Beacon cannot adjust for
+        this" was indistinguishable from "this does not move the index", and
+        the level stayed wrong from the ex-date onward.
+        """
+        action = self._make_action(action_type=action_type, asset=AAPL)
 
-    def test_merger_stub_returns_unchanged(self,
-                                           ca_calculator,
-                                           caplog):
-        action = self._make_action(action_type="MERGER", asset=AAPL)
-        with caplog.at_level("WARNING"):
-            result = ca_calculator.handle_corporate_action(
-                action, [AAPL], 100000.0, 10.0
-            )
-        assert result == 10.0
-        assert "not yet implemented" in caplog.text
+        with pytest.raises(CalculationError, match="is not implemented"):
+            ca_calculator.handle_corporate_action(action, [AAPL], 100000.0, 10.0)
 
-    def test_unknown_action_type_returns_unchanged(self,
-                                                   ca_calculator,
-                                                   caplog):
+    def test_a_no_effect_action_still_returns_unchanged(self,
+                                                        ca_calculator):
+        """The refusals above did not swallow the genuine no-op (BN-184).
+
+        An action on a name the index does not hold moves none of its market
+        value, so the divisor that preserves continuity is the one in force.
+        That is the one case "unchanged" still means.
+        """
+        for action_type in ("RIGHTS_ISSUE", "SPIN_OFF", "BIZARRE_EVENT"):
+            action = self._make_action(action_type=action_type, asset=AAPL)
+
+            assert ca_calculator.handle_corporate_action(
+                action, [MSFT], 100000.0, 10.0) == 10.0
+
+    def test_unknown_action_type_is_refused(self,
+                                            ca_calculator):
+        """An unknown action is not a no-effect action (BN-184)."""
         action = self._make_action(action_type="BIZARRE_EVENT", asset=AAPL)
-        with caplog.at_level("WARNING"):
-            result = ca_calculator.handle_corporate_action(
-                action, [AAPL], 100000.0, 10.0
-            )
-        assert result == 10.0
-        assert "Unrecognised" in caplog.text
 
-    def test_no_shares_returns_unchanged(self,
-                                         ca_calculator,
-                                         mock_data):
+        with pytest.raises(CalculationError, match="is not recognised"):
+            ca_calculator.handle_corporate_action(action, [AAPL], 100000.0, 10.0)
+
+    def test_no_shares_is_refused(self,
+                                  ca_calculator,
+                                  mock_data):
+        """An unsizeable dividend leaves the level overstated forever (BN-184)."""
         mock_data.fetch_shares_outstanding.return_value = 0
         action = self._make_action(asset=AAPL)
-        result = ca_calculator.handle_corporate_action(
-            action, [AAPL], 100000.0, 10.0
-        )
-        assert result == 10.0
+
+        with pytest.raises(CalculationError, match="no shares outstanding"):
+            ca_calculator.handle_corporate_action(action, [AAPL], 100000.0, 10.0)
+
+    def test_missing_fx_is_refused(self,
+                                   ca_calculator,
+                                   mock_data):
+        """BN-188's gap, on the corporate-action path (BN-184)."""
+        gbp_asset = Equity(name="BP", currency="GBP", ticker="BP", exchange="LSE")
+        mock_data.fetch_shares_outstanding.return_value = 500
+        mock_data.fetch_fx_rates.return_value = pd.Series(dtype=float)
+        action = self._make_action(asset=gbp_asset, value=4.0)
+
+        with pytest.raises(CalculationError, match="no GBP/USD rate"):
+            ca_calculator.handle_corporate_action(action, [gbp_asset], 50000.0, 5.0)
+
+    def test_non_positive_market_value_is_refused(self,
+                                                  ca_calculator,
+                                                  mock_data):
+        """The continuity ratio is undefined, and was stepped around (BN-184)."""
+        mock_data.fetch_shares_outstanding.return_value = 500
+        action = self._make_action(asset=AAPL, value=2.0)
+
+        with pytest.raises(CalculationError, match=r"is worth 0\.0 before"):
+            ca_calculator.handle_corporate_action(action, [AAPL], 0.0, 10.0)
+
+    def test_an_action_consuming_the_whole_index_is_refused(self,
+                                                            ca_calculator,
+                                                            mock_data):
+        """Either the dividend or the market value is wrong (BN-184)."""
+        mock_data.fetch_shares_outstanding.return_value = 1000
+        action = self._make_action(asset=AAPL, value=50.0)  # reduction 50,000
+
+        with pytest.raises(CalculationError, match="consumes the whole index"):
+            ca_calculator.handle_corporate_action(action, [AAPL], 1000.0, 10.0)
+
+    def test_a_negligible_reduction_still_returns_unchanged(self,
+                                                            ca_calculator,
+                                                            mock_data):
+        """The one arithmetic no-op inside the dividend path survives (BN-184).
+
+        `divisor * (mv - 0) / mv` is the divisor; returning it unchanged is the
+        continuity adjustment, not a stand-in for one.
+        """
+        mock_data.fetch_shares_outstanding.return_value = 1000
+        action = self._make_action(asset=AAPL, value=0.0)
+
+        assert ca_calculator.handle_corporate_action(
+            action, [AAPL], 100000.0, 10.0) == 10.0
 
     def test_level_continuity_after_special_dividend(self,
                                                      ca_calculator,
@@ -704,3 +772,107 @@ class TestANonEquityIsRefusedInTheCalculation:
 
         assert ca_calculator.handle_corporate_action(
             action, [AAPL], 100000.0, 10.0) == 10.0
+
+
+class TestASubstitutedWeightingIsRefused:
+    """BN-184: the calculator applies the scheme it was given, or says so.
+
+    Two sites in the catalogue of #197 rescaled or back-filled a methodology's
+    own output and reported it in a log. Each produced an index that is
+    internally consistent, fully plausible, and not the one that was
+    specified — the failure #192 demonstrated, one layer up.
+    """
+
+    def test_weights_not_summing_to_one_are_refused(self,
+                                                    calculator,
+                                                    mock_definition):
+        """Rescaling a scheme's output is the scheme not being applied.
+
+        The old answer renormalised in silence, so a scheme with a bug — or
+        one whose data went missing for half its names — published a different
+        allocation under its own name.
+        """
+        mock_definition.weighting_scheme.scheme_name = "Lopsided"
+        mock_definition.weighting_scheme.calculate_weights.return_value = {
+            AAPL: 0.3, MSFT: 0.3}
+
+        with pytest.raises(CalculationError, match="sum to"):
+            calculator.calculate_constituent_weights(
+                [AAPL, MSFT], pd.Timestamp("2025-03-03"))
+
+    def test_the_refusal_is_not_rewrapped_as_a_scheme_failure(self,
+                                                              calculator,
+                                                              mock_definition):
+        """It is raised outside the `except Exception` around the scheme call.
+
+        That handler converts anything the scheme raises into a
+        `WeightingScheme-…` CalculationError. Renormalising inside it would
+        have reported the calculator's own refusal as the scheme's failure.
+        """
+        mock_definition.weighting_scheme.scheme_name = "Lopsided"
+        mock_definition.weighting_scheme.calculate_weights.return_value = {AAPL: 0.5}
+
+        with pytest.raises(CalculationError) as raised:
+            calculator.calculate_constituent_weights([AAPL],
+                                                     pd.Timestamp("2025-03-03"))
+
+        assert "would publish an allocation the scheme did not produce" in str(raised.value)
+
+    def test_weights_already_summing_to_one_pass_through(self,
+                                                         calculator,
+                                                         mock_definition):
+        """The refusal did not swallow the ordinary case."""
+        mock_definition.weighting_scheme.calculate_weights.return_value = {
+            AAPL: 0.5, MSFT: 0.5}
+
+        weights = calculator.calculate_constituent_weights(
+            [AAPL, MSFT], pd.Timestamp("2025-03-03"))
+
+        assert weights == {AAPL: 0.5, MSFT: 0.5}
+
+    def test_a_missing_free_float_is_refused(self,
+                                             calculator,
+                                             mock_definition,
+                                             mock_data):
+        """The twin of the fallback BN-179 removed from the weighting.
+
+        A float-adjusted scheme falling back to the full market cap weights the
+        name as though every share were freely traded — a different index, not
+        a rounding error.
+        """
+        mock_definition.weighting_scheme.use_free_float = True
+        mock_definition.weighting_scheme.scheme_name = "FloatAdjustedMarketCap"
+        mock_data.fetch_market_data.return_value = pd.DataFrame(
+            {"CLOSE": [100.0]}, index=[pd.Timestamp("2025-03-03")])
+        mock_data.fetch_shares_outstanding.return_value = 1000
+        mock_data.fetch_free_float_factor.return_value = None
+
+        with pytest.raises(CalculationError, match="no usable free-float factor"):
+            calculator._get_constituent_market_values(
+                {AAPL: 1.0}, pd.Timestamp("2025-03-03"))
+
+    def test_the_free_float_refusal_reaches_run(self,
+                                                calculator,
+                                                mock_definition,
+                                                mock_data):
+        """And is not absorbed by the handlers between it and `run` (BN-184).
+
+        `_asset_market_value` used to sit under a bare `except Exception` that
+        logged and returned 0.0, which would have converted this refusal into a
+        constituent worth nothing and carried on.
+        """
+        mock_definition.weighting_scheme.use_free_float = True
+        mock_definition.weighting_scheme.scheme_name = "FloatAdjustedMarketCap"
+        mock_data.fetch_free_float_factor.return_value = None
+        mock_data.fetch_market_data.return_value = pd.DataFrame(
+            {"CLOSE": [100.0]}, index=[pd.Timestamp("2025-01-02")])
+        mock_data.fetch_shares_outstanding.return_value = 1000
+
+        with (
+            patch.object(calculator, '_get_universe', return_value=[AAPL]),
+            patch.object(calculator, 'select_constituents', return_value=[AAPL]),
+            patch.object(calculator, 'calculate_constituent_weights',
+                         return_value={AAPL: 1.0}),
+            pytest.raises(CalculationError, match="no usable free-float factor"),
+        ):
+            calculator.run(end_date="2025-01-03")

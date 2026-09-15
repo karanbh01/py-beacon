@@ -29,6 +29,7 @@ import logging
 import pandas as pd
 
 from ..data.fetcher import DataFetcher
+from ..exceptions import CalculationError
 from .result import IndexResult, daily_weights_frame
 
 logger = logging.getLogger(__name__)
@@ -128,8 +129,21 @@ def _unit_value_panel(currency: str,
     the drift in the rate a foreign holding actually experiences. Prices and
     rates are carried forward over gaps; a name with no price yet is NaN and
     is treated as unvaluable (zero units, zero value) until one appears.
+
+    Raises:
+        CalculationError: If a name the schedule actually allocates to has no
+            prices anywhere in the window (BN-184).
     """
     assets = sorted({asset for weights in solved.values() for asset in weights})
+
+    # Names the schedule actually allocates to. A name carried at a weight of
+    # zero throughout is never held, so its prices are not needed and their
+    # absence is not a failure.
+    held = {asset
+            for weights in solved.values()
+            for asset, weight in weights.items()
+            if weight != 0.0}
+
     start = days[0].strftime("%Y-%m-%d")
     end = days[-1].strftime("%Y-%m-%d")
 
@@ -138,32 +152,72 @@ def _unit_value_panel(currency: str,
 
     for asset in assets:
         prices = _price_series(data_provider, asset, start, end,
-                               price_column).reindex(days).ffill()
+                               price_column, asset in held)
 
-        currency = _currency_of(data_provider, asset, currency)
-        if currency != currency:
-            if currency not in rates:
-                rates[currency] = _rate_series(data_provider, currency,
-                                               currency, days)
-
-            prices = prices * rates[currency]
-
-        columns[asset] = prices
+        columns[asset] = _converted(prices.reindex(days).ffill(),
+                                    _currency_of(data_provider, asset, currency),
+                                    currency, days, data_provider, rates)
 
     return pd.DataFrame(columns, index=days)
+
+
+def _converted(prices: pd.Series,
+               quoted_in: str,
+               index_currency: str,
+               days: pd.Index,
+               data_provider: DataFetcher,
+               rates: dict[str, pd.Series]) -> pd.Series:
+    """*prices*, converted into the index currency, caching the rate series.
+
+    Split out of :func:`_unit_value_panel`, where the conversion used to rebind
+    the index-currency argument to the name's own currency and then compare it
+    against itself — so the test was always false, no rate was ever applied,
+    and every later name was compared against the previous one's currency
+    (BN-184). A chained index over foreign names added its prices as though
+    every currency's unit were the same size, which is precisely the defect
+    BN-188 removed from the market-cap weighting.
+    """
+    if quoted_in == index_currency:
+        return prices
+
+    if quoted_in not in rates:
+        rates[quoted_in] = _rate_series(data_provider, quoted_in,
+                                        index_currency, days)
+
+    return prices * rates[quoted_in]
 
 
 def _price_series(data_provider: DataFetcher,
                   asset: str,
                   start: str,
                   end: str,
-                  price_column: str) -> pd.Series:
-    """One name's price series over the window, or an empty series."""
+                  price_column: str,
+                  held: bool) -> pd.Series:
+    """One name's price series over the window, or an empty series.
+
+    Raises:
+        CalculationError: If *held* and the window holds no prices at all. A
+            name the schedule allocates to and the data has never priced
+            cannot be held: it used to take zero units, which leaves the
+            chained index short by that name's whole weight and the level
+            correspondingly low, with only a log saying so (BN-184). A name
+            carried at zero weight throughout is not held, so its absence is
+            allowed through as an all-NaN column.
+    """
     frame = data_provider.fetch_market_data(asset, start, end)
 
     if frame.empty or price_column not in frame.columns:
-        logger.warning("No '%s' prices for %s over %s..%s; it will hold zero "
-                       "units.", price_column, asset, start, end)
+        if held:
+            raise CalculationError(
+                calculation_name="ChainedLevels",
+                details=(f"no '{price_column}' prices for {asset} over "
+                         f"{start}..{end}, but the schedule allocates to it. "
+                         f"Holding zero units of it would leave the index "
+                         f"short by its whole weight and publish the "
+                         f"resulting level as the index's own."))
+
+        logger.warning("No '%s' prices for %s over %s..%s; it is never held, "
+                       "so it stays unvalued.", price_column, asset, start, end)
 
         return pd.Series(dtype=float)
 
@@ -173,18 +227,29 @@ def _price_series(data_provider: DataFetcher,
 def _currency_of(data_provider: DataFetcher,
                  asset: str,
                  default: str) -> str:
-    """The currency a name is quoted in, defaulting to the index's own."""
-    try:
-        frame = data_provider.fetch_reference_data(asset)
+    """The currency a name is quoted in, defaulting to the index's own.
 
-        if not frame.empty and "CURRENCY" in frame.columns:
-            value = frame["CURRENCY"].iloc[0]
+    BN-184, triaged as leave. The default is not a substitute for a value the
+    data has: it is what reference data that does not model currency at all
+    means. A dataset with no CURRENCY column is single-currency by
+    construction, and reading its names as quoted in the index's own currency
+    is the only coherent interpretation available — refusing would reject
+    every such dataset over a distinction it does not draw. The case that
+    *does* matter, a name known to be quoted elsewhere with no rate to convert
+    it, is caught downstream in :func:`_rate_series`, which yields NaN rather
+    than an unconverted price.
 
-            if pd.notna(value):
-                return str(value).upper()
-    except Exception as error:
-        logger.warning("Could not resolve the currency of %s: %s.",
-                       asset, error)
+    The former bare ``except Exception`` around this is gone (BN-184): a
+    reference lookup that fails is not a name quoted in the index currency,
+    and swallowing it here would absorb any refusal the data layer raises.
+    """
+    frame = data_provider.fetch_reference_data(asset)
+
+    if not frame.empty and "CURRENCY" in frame.columns:
+        value = frame["CURRENCY"].iloc[0]
+
+        if pd.notna(value):
+            return str(value).upper()
 
     return default
 
@@ -214,6 +279,13 @@ def _units_for(weights: dict[str, float],
     The calculator's `index_units`, restated: a name with no usable unit value
     holds zero units and contributes nothing, rather than an infinite
     position.
+
+    BN-184, triaged as report-not-refuse, and deliberately left alone here.
+    This is the twin of `MarketValuesMixin.index_units`, whose identical
+    substitution is filed with a demonstrated wrong output as #204; the two
+    must move together or the chained and calculated paths will disagree about
+    what an unvaluable name means. What is missing either way is that the
+    result does not say the index ran under-invested on those days.
     """
     units: dict[str, float] = {}
 

@@ -73,63 +73,102 @@ class MarketValuesMixin:
                             current_date: pd.Timestamp) -> float:
         """Compute the FX/free-float-adjusted market value for a single Equity asset.
 
-        Returns 0.0 (with a warning/error logged) whenever price, shares, or
-        FX data is missing or invalid, matching the previous inline behaviour.
+        Returns 0.0 (with a warning logged) whenever price, shares, or FX data
+        is missing, matching the previous inline behaviour.
 
         Only equities carry the ticker used for the market-data lookups;
         :meth:`_get_constituent_market_values` refuses a non-equity before it
         ever reaches here.
+
+        Errors are not caught (BN-184). This used to sit under a bare
+        ``except Exception`` that logged and returned 0.0, so a fetcher that
+        *failed* and a name that is genuinely worth nothing were spelled the
+        same — and any refusal raised beneath it, including the free-float one
+        below, would have been absorbed here and never reached a caller.
+
+        Raises:
+            CalculationError: If the weighting scheme is float-adjusted and no
+                usable free-float factor exists for *asset* (BN-184).
         """
-        try:
-            date_str = current_date.strftime('%Y-%m-%d')
-            price_df = self.data.fetch_market_data(asset.ticker, date_str, date_str)
-            if price_df.empty or self.price_column not in price_df.columns \
-                    or pd.isna(price_df[self.price_column].iloc[0]):
-                logger.warning(
-                    f"_get_constituent_market_values: No price for {asset.ticker}. "
-                    "Value is 0.")
-                return 0.0
-            current_price = float(price_df[self.price_column].iloc[0])
+        date_str = current_date.strftime('%Y-%m-%d')
+        price_df = self.data.fetch_market_data(asset.ticker, date_str, date_str)
 
-            shares = self.data.fetch_shares_outstanding(asset.ticker, date_str)
-            if shares is None or shares <= 0:
-                logger.warning(
-                    f"_get_constituent_market_values: No shares for {asset.ticker}. "
-                    "Value is 0.")
-                return 0.0
-
-            market_value_local_ccy = current_price * shares
-
-            # Apply Free Float if used by weighting scheme
-            if hasattr(self.definition.weighting_scheme, 'use_free_float') and \
-               self.definition.weighting_scheme.use_free_float:
-                ff_factor = self.data.fetch_free_float_factor(asset.ticker, date_str)
-                if ff_factor is not None and 0.0 <= ff_factor <= 1.0:
-                    market_value_local_ccy *= ff_factor
-                else:
-                    logger.warning(
-                        f"Missing or invalid free-float for {asset.ticker}, not "
-                        "applying to market value.")
-
-            # FX Conversion to Index Currency
-            fx_rate = 1.0
-            if asset.currency.upper() != self.definition.currency.upper():
-                rate = self.rate_on(asset.currency,
-                                    self.definition.currency, current_date)
-                if rate is not None:
-                    fx_rate = rate
-                else:
-                    logger.warning(
-                        f"No FX rate found for {asset.currency}/{self.definition.currency} "
-                        f"on {current_date}. Using 1.0.")
-                    return 0.0
-
-            adj_market_value_index_ccy = market_value_local_ccy * fx_rate
-            return adj_market_value_index_ccy
-
-        except Exception as e:
-            logger.error(f"Error calculating market value for {asset.ticker}: {e}")
+        # The two zero-value branches below, and the FX one further down, are
+        # left as they are on purpose: they are the chain demonstrated with a
+        # live wrong output in #204 (an exact-date read, so a market holiday
+        # zeroes the whole book) and they are fixed there, together with
+        # `_fx_rate` and `index_units`. Fixing one of them here would leave
+        # the others producing the same wrong answer by a different route.
+        if price_df.empty or self.price_column not in price_df.columns \
+                or pd.isna(price_df[self.price_column].iloc[0]):
+            logger.warning(
+                f"_get_constituent_market_values: No price for {asset.ticker}. "
+                "Value is 0.")
             return 0.0
+
+        current_price = float(price_df[self.price_column].iloc[0])
+
+        shares = self.data.fetch_shares_outstanding(asset.ticker, date_str)
+
+        if shares is None or shares <= 0:
+            logger.warning(
+                f"_get_constituent_market_values: No shares for {asset.ticker}. "
+                "Value is 0.")
+            return 0.0
+
+        market_value_local_ccy = current_price * shares
+        market_value_local_ccy *= self._free_float(asset, date_str)
+
+        # FX Conversion to Index Currency
+        fx_rate = 1.0
+        if asset.currency.upper() != self.definition.currency.upper():
+            rate = self.rate_on(asset.currency,
+                                self.definition.currency, current_date)
+            if rate is not None:
+                fx_rate = rate
+            else:
+                logger.warning(
+                    f"No FX rate found for {asset.currency}/{self.definition.currency} "
+                    f"on {current_date}. Using 1.0.")
+                return 0.0
+
+        return market_value_local_ccy * fx_rate
+
+    def _free_float(self,
+                    asset: Equity,
+                    date_str: str) -> float:
+        """The free-float factor to scale *asset*'s market cap by.
+
+        1.0 when the weighting scheme is not float-adjusted, and otherwise the
+        factor the data carries. A missing or out-of-range factor used to fall
+        back to 1.0 with a warning — the full market cap, which is the twin of
+        the fallback BN-179 removed from the weighting and still live on this
+        path until BN-184. ``use_free_float`` is a statement about *what index
+        this is*: an index weighted by full market cap where a float-adjusted
+        one was specified is a different index, not a rounding error.
+
+        Raises:
+            CalculationError: If the scheme is float-adjusted and no usable
+                factor exists.
+        """
+        scheme = self.definition.weighting_scheme
+
+        if not getattr(scheme, "use_free_float", False):
+            return 1.0
+
+        factor = self.data.fetch_free_float_factor(asset.ticker, date_str)
+
+        if factor is None or not 0.0 <= factor <= 1.0:
+            raise CalculationError(
+                calculation_name="ConstituentMarketValues",
+                details=(f"'{scheme.scheme_name}' is float-adjusted but "
+                         f"{asset.ticker} has no usable free-float factor on "
+                         f"{date_str} (got {factor!r}). Using its full market "
+                         f"cap would weight it as though every share were "
+                         f"freely traded, which is a different index from the "
+                         f"one specified."))
+
+        return factor
 
     def asset_unit_value(self,
                          asset: Asset,
@@ -150,29 +189,30 @@ class MarketValuesMixin:
             missing — matching the behaviour of the market-value path.
 
         Raises:
-            CalculationError: If *asset* is not an equity (BN-185). Refused
-                outside the try below, deliberately: valuing it at 0.0 made a
-                constituent the index still holds contribute nothing, which is
-                a silent restatement of the index rather than a missing price.
+            CalculationError: If *asset* is not an equity (BN-185). Valuing it
+                at 0.0 made a constituent the index still holds contribute
+                nothing, which is a silent restatement of the index rather
+                than a missing price.
+
+        Errors are not caught (BN-184). A bare ``except Exception`` used to
+        turn any failure below into a unit value of 0.0, which feeds straight
+        into the "holds zero units" path — so a fetcher that raised and a name
+        that is genuinely unvaluable were indistinguishable, and any refusal
+        added beneath this would have been absorbed before reaching a caller.
         """
         equity = require_equity(asset, "AssetUnitValue", "be valued")
 
-        try:
-            date_str = current_date.strftime('%Y-%m-%d')
-            price_df = self.data.fetch_market_data(equity.ticker, date_str, date_str)
+        date_str = current_date.strftime('%Y-%m-%d')
+        price_df = self.data.fetch_market_data(equity.ticker, date_str, date_str)
 
-            if (price_df.empty or self.price_column not in price_df.columns
-                    or pd.isna(price_df[self.price_column].iloc[0])):
-                logger.warning(f"asset_unit_value: No price for {equity.ticker}. Value is 0.")
-                return 0.0
-
-            price = float(price_df[self.price_column].iloc[0])
-
-            return price * self._fx_rate(equity, current_date, date_str)
-
-        except Exception as e:
-            logger.error(f"Error calculating unit value for {asset.asset_id}: {e}")
+        if (price_df.empty or self.price_column not in price_df.columns
+                or pd.isna(price_df[self.price_column].iloc[0])):
+            logger.warning(f"asset_unit_value: No price for {equity.ticker}. Value is 0.")
             return 0.0
+
+        price = float(price_df[self.price_column].iloc[0])
+
+        return price * self._fx_rate(equity, current_date, date_str)
 
     def _fx_rate(self,
                  asset: Asset,
@@ -354,6 +394,15 @@ class MarketValuesMixin:
         )
         current_total_adjusted_market_value = sum(constituent_values_map.values())
 
+        # BN-184, triaged as leave. Unlike the rest of the catalogue this
+        # substitutes nothing in practice: every term summed above is
+        # price * shares * free_float * fx with each factor guarded
+        # non-negative, so the total cannot be negative and this branch is
+        # unreachable by construction. It is a floor against a future term
+        # that could go negative (a short or a liability leg), and a floor is
+        # the right answer there — a market-cap aggregate below zero has no
+        # level to express. Kept, deliberately, rather than deleted as dead:
+        # it costs one comparison a day and documents the invariant.
         if current_total_adjusted_market_value < 0:
             logger.warning(
                 f"Total adjusted market value is negative: "

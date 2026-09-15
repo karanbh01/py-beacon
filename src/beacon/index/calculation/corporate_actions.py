@@ -12,6 +12,7 @@ import pandas as pd
 from ...asset.base import Asset
 from ...asset.equity import require_equity
 from ...data.fetcher import DataFetcher
+from ...exceptions import CalculationError
 from ..constructor import IndexDefinition
 
 logger = logging.getLogger(__name__)
@@ -34,9 +35,18 @@ class CorporateActionsMixin:
                                 current_divisor_before_ca: float) -> float:
         """Adjust the index divisor for a corporate action to maintain continuity.
 
-        Currently supports **SPECIAL_DIVIDEND** fully.  Other action types
+        Currently supports **SPECIAL_DIVIDEND** fully.  Other recognised types
         (``RIGHTS_ISSUE``, ``SPIN_OFF``, ``STOCK_DIVIDEND``, ``MERGER``) are
-        recognised stubs that log a warning and return the divisor unchanged.
+        unimplemented and are refused.
+
+        Returning the divisor unchanged is this method's answer for *an action
+        that genuinely has no effect on the index* — one affecting a name the
+        index does not hold, or one whose adjustment rounds to nothing. Under
+        BN-184 it is no longer also the answer for "this action was malformed",
+        "this type is not implemented" or "this type is unknown": an
+        unadjustable action and a harmless one must not be spelled the same,
+        because the second is safe to publish and the first leaves the level
+        wrong from that day onward.
 
         For a special dividend the market-value reduction is::
 
@@ -60,8 +70,9 @@ class CorporateActionsMixin:
             The (possibly adjusted) divisor.
 
         Raises:
-            CalculationError: If the affected asset is a constituent and is not
-                an equity (BN-185).
+            CalculationError: If the action is malformed, if its type is
+                unknown or recognised-but-unimplemented, or if the affected
+                asset is a constituent and is not an equity (BN-185).
         """
         action_type = action.get('type', '').upper()
         asset_involved = action.get('asset')
@@ -69,8 +80,13 @@ class CorporateActionsMixin:
         ex_date_raw = action.get('ex_date')
 
         if ex_date_raw is None:
-            logger.warning(f"Corporate action missing ex_date: {action}. No divisor adjustment.")
-            return current_divisor_before_ca
+            raise CalculationError(
+                calculation_name="CorporateActionDivisor",
+                details=(f"the corporate action {action!r} carries no ex_date, "
+                         f"so there is no day to apply it on. It used to be "
+                         f"dropped with a warning, which is how a harmless "
+                         f"action is spelled."))
+
         ex_date = pd.Timestamp(ex_date_raw)
 
         logger.info(
@@ -80,11 +96,19 @@ class CorporateActionsMixin:
         )
 
         if asset_involved is None or value is None:
-            logger.warning(
-                f"Insufficient information for corporate action: {action}. "
-                "No divisor adjustment.")
-            return current_divisor_before_ca
+            raise CalculationError(
+                calculation_name="CorporateActionDivisor",
+                details=(f"the corporate action {action!r} is missing its "
+                         f"asset or its value, so the market-value reduction "
+                         f"it implies cannot be computed. It used to be "
+                         f"dropped with a warning, which is how a harmless "
+                         f"action is spelled."))
 
+        # The one genuinely-no-effect case, and the reason this method has a
+        # "divisor unchanged" answer at all: an action on a name the index
+        # does not hold moves none of the index's market value, so the
+        # divisor that preserves continuity is the one already in force.
+        # Logged at INFO, not WARNING, because nothing went wrong.
         if asset_involved not in constituents:
             logger.info(
                 f"Asset {asset_involved.asset_id} affected by CA is not currently "
@@ -92,13 +116,19 @@ class CorporateActionsMixin:
             )
             return current_divisor_before_ca
 
-        # --- Stub types: warn and return unchanged ---
+        # --- Recognised but unimplemented ---
+        # These used to return the divisor unchanged, which is also what a
+        # no-effect action returns — so "Beacon cannot adjust for this" and
+        # "this action does not move the index" were indistinguishable, and a
+        # spin-off silently left the level wrong forever after (BN-184).
         if action_type in self._STUB_CA_TYPES:
-            logger.warning(
-                f"Divisor adjustment for '{action_type}' is not yet implemented. "
-                "Returning divisor unchanged."
-            )
-            return current_divisor_before_ca
+            raise CalculationError(
+                calculation_name="CorporateActionDivisor",
+                details=(f"divisor adjustment for '{action_type}' is not "
+                         f"implemented, so the effect of this action on "
+                         f"{asset_involved.asset_id} cannot be computed. "
+                         f"Leaving the divisor unchanged would publish it as "
+                         f"an action with no effect on the index."))
 
         # --- SPECIAL_DIVIDEND ---
         if action_type == "SPECIAL_DIVIDEND":
@@ -111,11 +141,13 @@ class CorporateActionsMixin:
             )
 
         # --- Unknown action type ---
-        logger.warning(
-            f"Unrecognised corporate action type '{action_type}'. "
-            "Returning divisor unchanged."
-        )
-        return current_divisor_before_ca
+        raise CalculationError(
+            calculation_name="CorporateActionDivisor",
+            details=(f"corporate action type '{action_type}' on "
+                     f"{asset_involved.asset_id} is not recognised, so its "
+                     f"effect on the index is unknown. An unknown action is "
+                     f"not a no-effect action, which is what returning the "
+                     f"divisor unchanged would say."))
 
     def _special_dividend_divisor(self,
                                   asset: Asset,
@@ -128,11 +160,13 @@ class CorporateActionsMixin:
         Extracted from :meth:`handle_corporate_action` to keep nesting shallow.
 
         Raises:
-            CalculationError: If *asset* is not an equity (BN-185). This used
-                to return the divisor unchanged, which is also what a no-op
-                action returns — so an unadjustable action and a harmless one
-                were spelled identically, and a divisor that should have moved
-                silently did not.
+            CalculationError: If *asset* is not an equity (BN-185), or if the
+                shares, FX rate or market value the adjustment needs are
+                missing or unusable (BN-184). These all used to return the
+                divisor unchanged, which is also what a no-op action returns —
+                so an unadjustable action and a harmless one were spelled
+                identically, and a divisor that should have moved silently did
+                not.
         """
         equity = require_equity(asset, "CorporateActionDivisor",
                                 "carry a divisor adjustment")
@@ -141,11 +175,13 @@ class CorporateActionsMixin:
 
         shares = self.data.fetch_shares_outstanding(equity.ticker, date_str)
         if shares is None or shares <= 0:
-            logger.warning(
-                f"CA Handle: No shares for {equity.ticker}. "
-                "Cannot adjust divisor for special dividend."
-            )
-            return divisor_before
+            raise CalculationError(
+                calculation_name="CorporateActionDivisor",
+                details=(f"no shares outstanding for {equity.ticker} on "
+                         f"{date_str}, so the special dividend's market-value "
+                         f"reduction cannot be sized. The dividend happened "
+                         f"either way: skipping the adjustment leaves the "
+                         f"level overstated from this day onward."))
 
         reduction_local = float(value) * shares
 
@@ -161,14 +197,17 @@ class CorporateActionsMixin:
             fx_series = self.data.fetch_fx_rates(
                 asset.currency, self.definition.currency, date_str, date_str
             )
-            if not fx_series.empty:
-                fx_rate = float(fx_series.iloc[0])
-            else:
-                logger.warning(
-                    f"CA Handle: No FX for {asset.currency}/"
-                    f"{self.definition.currency}. Cannot adjust precisely."
-                )
-                return divisor_before
+            if fx_series.empty:
+                raise CalculationError(
+                    calculation_name="CorporateActionDivisor",
+                    details=(f"no {asset.currency}/{self.definition.currency} "
+                             f"rate on {date_str}, so a dividend paid in "
+                             f"{asset.currency} cannot be expressed in the "
+                             f"index's money. BN-188 refused the same gap in "
+                             f"the weighting; skipping the adjustment here "
+                             f"leaves the level overstated instead."))
+
+            fx_rate = float(fx_series.iloc[0])
 
         reduction_index_ccy = reduction_local * fx_rate
         logger.debug(
@@ -176,24 +215,33 @@ class CorporateActionsMixin:
             f"reduction value (index ccy): {reduction_index_ccy:.2f}"
         )
 
+        # Genuinely no effect: the continuity adjustment is
+        # `divisor * (mv - reduction) / mv`, which for a reduction of zero is
+        # the divisor itself. Returning it unchanged is the arithmetic, not a
+        # substitute for it, so this one stays (BN-184).
         if abs(reduction_index_ccy) < 1e-9:
             logger.debug("Reduction is negligible. Divisor not changed.")
             return divisor_before
 
         if mv_before <= 0:
-            logger.warning(
-                f"CA Handle: Market value before CA is "
-                f"{mv_before}. Cannot adjust divisor."
-            )
-            return divisor_before
+            raise CalculationError(
+                calculation_name="CorporateActionDivisor",
+                details=(f"the index is worth {mv_before} before this action, "
+                         f"so the continuity ratio it needs is undefined. "
+                         f"`adjust_divisor_for_rebalance` refuses the same "
+                         f"input one call down; returning the divisor "
+                         f"unchanged here quietly stepped around it."))
 
         mv_after = mv_before - reduction_index_ccy
+
         if mv_after <= 0:
-            logger.error(
-                f"CA Handle: Market value after CA effect is non-positive "
-                f"({mv_after}). Not adjusting divisor."
-            )
-            return divisor_before
+            raise CalculationError(
+                calculation_name="CorporateActionDivisor",
+                details=(f"a reduction of {reduction_index_ccy} against a "
+                         f"market value of {mv_before} leaves {mv_after}, so "
+                         f"the action as given consumes the whole index. "
+                         f"Either the dividend or the market value is wrong, "
+                         f"and leaving the divisor alone publishes both."))
 
         new_divisor = self.adjust_divisor_for_rebalance(
             divisor_before,

@@ -684,6 +684,14 @@ class EqualWeighted(WeightingSchemeBase):
         weights: dict[Asset, float] = {}
         num_constituents = len(constituents)
 
+        # BN-184, triaged as leave. Empty weights for an empty constituent
+        # list is the answer, not a substitute for one: there is nothing to
+        # weight, and any non-empty result would be invented. The emptiness
+        # itself is not swallowed — `calculate_constituent_weights` never
+        # reaches a scheme with no constituents, and an index that holds
+        # nothing on its base date is refused outright by the calculator's
+        # `_require_a_base_composition`, so the condition surfaces where it
+        # can actually be acted on.
         if num_constituents > 0:
             weight_per_constituent = 1.0 / num_constituents
             for asset in constituents:
