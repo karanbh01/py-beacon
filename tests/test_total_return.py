@@ -19,6 +19,7 @@ from beacon.asset.base import Asset
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.corporate_actions import CorporateActions
 from beacon.data.fetcher import DataFetcher
+from beacon.exceptions import CalculationError
 from beacon.index.calculation import IndexCalculator
 from beacon.index.calculation.total_return import (
     NET_TOTAL_RETURN,
@@ -377,3 +378,129 @@ class TestAgainstGeneratedData:
     def test_they_start_together(self, levels):
         """Whatever the type, the base value is the base value."""
         assert levels["price"].iloc[0] == levels["gross"].iloc[0]
+
+
+# -- BN-189: a foreign distribution must be convertible ----------------------
+
+# A yen name beside the dollar ones, at 150 to the dollar: far enough from
+# parity that the substituted number and the true one are not neighbours.
+JPY_PER_USD = 150.0
+JPY_DIVIDEND = 20.0
+EX_DATE = DATES[20]
+
+
+def two_currency_fetcher(with_rates: bool = True) -> DataFetcher:
+    """One dollar name and one yen name, the yen name paying a dividend.
+
+    The ex-date drop is in the price path, as a real feed quotes it, so the
+    reinvestment has something to offset.
+    """
+    prices = {"USCO": 100.0, "JPCO": 1000.0}
+    currencies = {"USCO": "USD", "JPCO": "JPY"}
+    rows: list[dict[str, object]] = []
+
+    for date in DATES:
+        for name, price in prices.items():
+            drop = JPY_DIVIDEND if name == "JPCO" and date >= EX_DATE else 0.0
+            rows.append({"IDENTIFIER": name, "DATE": date,
+                         "CLOSE": price - drop, "SHARES_OUTSTANDING": 1e9})
+
+        if with_rates:
+            rows.append({"IDENTIFIER": "JPYUSD", "DATE": date,
+                         "RATE": 1.0 / JPY_PER_USD})
+
+    reference = ReferenceData.from_dataframe(pd.DataFrame([
+        {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
+         "CURRENCY": currencies[name], "EXCHANGE": "XNYS"}
+        for name in prices]))
+
+    actions = CorporateActions.from_dataframe(pd.DataFrame([
+        {"IDENTIFIER": "JPCO", "EX_DATE": EX_DATE, "TYPE": "DIVIDEND",
+         "VALUE": JPY_DIVIDEND}]))
+
+    return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                       reference, actions)
+
+
+def calculator_over(fetcher: DataFetcher,
+                    return_type: str = TOTAL_RETURN) -> IndexCalculator:
+    definition = IndexDefinition(
+        index_id="FX", index_name="Two currencies", base_date=START,
+        base_value=1000.0, currency="USD", eligibility_rules=[],
+        weighting_scheme=EqualWeighted(), rebalancing_frequency="ANNUAL",
+        calendar="XNYS", universe_identifiers=["USCO", "JPCO"],
+        return_type=return_type)
+
+    return IndexCalculator(definition, fetcher)
+
+
+class TestAForeignDistributionMustBeConvertible:
+    """BN-189: an unconvertible dividend refuses rather than substituting.
+
+    The missing rate used to log "treating the distribution from X as already
+    in index currency" and carry on, so a 500-yen payment was reinvested as
+    500 dollars — 150 times the cash, permanently in the divisor and so in
+    every level after it. BN-188 took this decision one calculation over, for
+    the market cap that decides a weight; this is the one that decides a
+    level, where "unknown" is not a value a level can publish.
+    """
+    JPCO = Asset(name="JP Co", currency="JPY", asset_id="JPCO",
+                 asset_type="EQUITY")
+
+    def test_a_missing_pair_refuses(self):
+        calculator = calculator_over(two_currency_fetcher(with_rates=False))
+
+        with pytest.raises(CalculationError) as refusal:
+            calculator.distribution_rates({"JPCO": 5.0}, {self.JPCO: 100.0},
+                                          EX_DATE, "USD")
+
+        message = str(refusal.value)
+
+        assert "JPY/USD" in message
+        assert EX_DATE.strftime("%Y-%m-%d") in message
+        assert "JPCO" in message
+
+    def test_a_loaded_pair_converts(self):
+        rates = calculator_over(two_currency_fetcher()).distribution_rates(
+            {"JPCO": 5.0}, {self.JPCO: 100.0}, EX_DATE, "USD")
+
+        assert rates["JPCO"] == pytest.approx(1.0 / JPY_PER_USD)
+
+    def test_the_substitution_it_replaces_was_150x_the_cash(self):
+        """Pinned as a number rather than described: what the old path put
+        into the divisor, against what the dividend is actually worth."""
+        units = {self.JPCO: 100.0}
+        per_share = {"JPCO": 5.0}
+
+        substituted = TotalReturnMixin.distribution_received(units, per_share)
+        converted = TotalReturnMixin.distribution_received(
+            units, per_share, rates={"JPCO": 1.0 / JPY_PER_USD})
+
+        assert substituted == pytest.approx(500.0)
+        assert substituted / converted == pytest.approx(JPY_PER_USD)
+
+    def test_a_total_return_run_refuses(self):
+        """End to end, because the refusal has to survive the call chain."""
+        fetcher = two_currency_fetcher(with_rates=False)
+
+        with pytest.raises(CalculationError, match="TotalReturnDistribution"):
+            calculator_over(fetcher).run(start_date=START, end_date=END)
+
+    def test_a_price_run_over_the_same_data_still_computes(self):
+        """A price index reinvests nothing, so it needs no rate to be right —
+        the refusal must not spread to a calculation that never converts."""
+        levels = calculator_over(two_currency_fetcher(with_rates=False),
+                                 PRICE).run(start_date=START,
+                                            end_date=END).index_levels
+
+        assert not levels.empty
+
+    def test_the_loaded_pair_runs_and_reinvests(self):
+        """The refusal is about the missing rate, not about foreign names."""
+        fetcher = two_currency_fetcher()
+        gross = calculator_over(fetcher).run(start_date=START,
+                                             end_date=END).index_levels
+        price = calculator_over(fetcher, PRICE).run(
+            start_date=START, end_date=END).index_levels
+
+        assert gross.iloc[-1] > price.iloc[-1]

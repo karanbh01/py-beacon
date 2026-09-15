@@ -56,6 +56,7 @@ import pandas as pd
 from ...asset.base import Asset
 from ...data.corporate_actions import CASH, kind_of
 from ...data.fetcher import DataFetcher
+from ...exceptions import CalculationError
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,10 @@ class TotalReturnMixin:
             withholding: Fraction withheld; 0.0 for a gross index.
             rates: Identifier to FX rate into the index currency. A missing
                 entry converts at 1.0, which is correct for a name that
-                already reports in the index currency.
+                already reports in the index currency — and since BN-189 that
+                is the *only* thing a missing entry can mean: a name needing a
+                rate that is not there makes :meth:`distribution_rates` refuse
+                rather than leave a gap here for the 1.0 to fill.
 
         Returns:
             float: Total cash, net of withholding. Zero when nothing paid.
@@ -182,6 +186,17 @@ class TotalReturnMixin:
         ``self.definition``: `constructor` imports this module for its return
         types, so a mixin that reached back for the definition would close an
         import cycle. The caller has it already.
+
+        Raises:
+            CalculationError: If a paying name's pair is unknown (BN-189).
+                This used to log and carry on, and the log said what that
+                meant: the distribution was "treated as already in index
+                currency", so a 500-yen payment was reinvested as 500 dollars.
+                Unlike a display, a level cannot publish "unknown" for one
+                constituent and stay a level, so the calculation refuses --
+                the same decision BN-188 took one calculation over, where an
+                unconvertible market cap stopped being weighted at its local
+                number.
         """
         index_currency = index_currency.upper()
         held = {asset.asset_id: asset for asset in units}
@@ -189,7 +204,7 @@ class TotalReturnMixin:
         rates: dict[str, float] = {}
         date_str = date.strftime("%Y-%m-%d")
 
-        for identifier in per_share:
+        for identifier, cash in per_share.items():
             asset = held.get(identifier)
 
             if asset is None or asset.currency.upper() == index_currency:
@@ -198,11 +213,18 @@ class TotalReturnMixin:
             rate = self.rate_on(asset.currency, index_currency, date)
 
             if rate is None:
-                logger.warning(
-                    "No %s/%s rate on %s; treating the distribution from %s "
-                    "as already in index currency.",
-                    asset.currency, index_currency, date_str, identifier)
-                continue
+                raise CalculationError(
+                    calculation_name="TotalReturnDistribution",
+                    details=(f"no {asset.currency.upper()}/{index_currency} "
+                             f"rate on or before {date_str}, so {identifier}'s "
+                             f"distribution of {cash:g} per "
+                             f"share cannot be expressed in {index_currency}. "
+                             f"Reinvesting the local number instead would add "
+                             f"it to the aggregate as though the two "
+                             f"currencies were the same money, which moves "
+                             f"every level from this date on and leaves "
+                             f"nothing downstream looking wrong. Load the "
+                             f"pair, or run this index on price return."))
 
             rates[identifier] = rate
 

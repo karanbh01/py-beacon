@@ -37,7 +37,14 @@ from ...expressions.catalogue import describe_fields
 from ...expressions.namespaces import NAMESPACES
 from ..config import ServerConfig
 from ..documents import read_collection, validated
-from ..reference import MAX_BATCH, build_entries, parse_identifiers, parse_list
+from ..reference import (
+    DEFAULT_CURRENCY,
+    MAX_BATCH,
+    build_entries,
+    parse_currency,
+    parse_identifiers,
+    parse_list,
+)
 from ..schemas import (
     SOURCE_USER,
     BatchReferenceResponse,
@@ -114,6 +121,14 @@ FieldsQuery = Annotated[
     Query(description="Reference columns to return, plus derived fields such "
                       "as adv_3m. All stored columns and no derived field by "
                       "default.")]
+CurrencyQuery = Annotated[
+    str | None,
+    Query(description="ISO code the converted money fields (market_cap, "
+                      "free_float_market_cap) are converted into, e.g. EUR — "
+                      f"name the index's currency to compare caps against its "
+                      f"weights. {DEFAULT_CURRENCY} by default. The "
+                      "unconverted figures come back in market_cap_local and "
+                      "free_float_market_cap_local regardless.")]
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
@@ -464,13 +479,15 @@ def build_data_router() -> APIRouter:
     def reference_batch(request: Request,
                         identifiers: IdentifiersQuery = None,
                         date: AsOfQuery = None,
-                        fields: FieldsQuery = None) -> BatchReferenceResponse:
+                        fields: FieldsQuery = None,
+                        currency: CurrencyQuery = None) -> BatchReferenceResponse:
         # No 404 when nothing matches: a batch that found none of its
         # identifiers is a successful answer to a question about names this
         # dataset does not carry, and the per-entry `found` flag already says
         # so for each one.
         names = parse_identifiers(identifiers)
-        entries = build_entries(_data_fetcher(request), names, date, fields)
+        entries = build_entries(_data_fetcher(request), names, date, fields,
+                                parse_currency(currency))
 
         return BatchReferenceResponse(entries=entries, as_of=date)
 
@@ -478,14 +495,16 @@ def build_data_router() -> APIRouter:
     def reference(request: Request,
                   identifier: str,
                   date: AsOfQuery = None,
-                  fields: FieldsQuery = None) -> ReferenceResponse:
+                  fields: FieldsQuery = None,
+                  currency: CurrencyQuery = None) -> ReferenceResponse:
         """One instrument's reference record, stored and derived.
 
-        `fields` is honoured on the same terms as the batch form (BN-149).
-        Before that it was accepted and ignored, so `market_cap` came back
-        empty from here and populated from `/data/reference` -- a parameter
-        that looks supported while doing nothing, which is the failure a
-        client cannot diagnose.
+        `fields` and `currency` are honoured on the same terms as the batch
+        form: a parameter one of the two accepts and the other ignores is the
+        drift BN-149 closed here once already. Before it, `fields` was
+        accepted and ignored, so `market_cap` came back empty from here and
+        populated from `/data/reference` -- a parameter that looks supported
+        while doing nothing, which is the failure a client cannot diagnose.
 
         Universe memberships are answered here and not there: they were not
         answerable when this endpoint was written, because no universe could
@@ -496,7 +515,8 @@ def build_data_router() -> APIRouter:
         requested = parse_list(fields) if fields else None
 
         if requested:
-            entries = build_entries(fetcher, [identifier], date, requested)
+            entries = build_entries(fetcher, [identifier], date, requested,
+                                    parse_currency(currency))
 
             if not entries or not entries[0].fields:
                 raise DataNotFoundError(f"reference data for '{identifier}'",

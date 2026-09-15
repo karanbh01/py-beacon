@@ -25,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from beacon.server import ServerConfig, create_app
-from beacon.server.reference import DERIVED_CURRENCY
+from beacon.server.reference import DEFAULT_CURRENCY
 from beacon.synthetic import SyntheticConfig, generate
 from beacon.synthetic import regions as regions_module
 
@@ -221,7 +221,7 @@ class TestMarketCapIsDerivedAndConverted:
         identifier = panel.reference.data.index[0]
         fields = fields_for(client, identifier, "market_cap")
 
-        assert fields["market_cap_currency"] == DERIVED_CURRENCY
+        assert fields["market_cap_currency"] == DEFAULT_CURRENCY
 
     def test_free_float_is_the_smaller_number(self,
                                               client,

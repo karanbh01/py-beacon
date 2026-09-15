@@ -185,6 +185,28 @@ GET /data/corporate-actions/CMPA
    "value": 0.7514, "pay_date": "2026-06-05", "status": "paid"}
 ```
 
+## Market caps come in pairs
+
+`market_cap` and `free_float_market_cap` are each published twice, because the
+two answers are different questions:
+
+| field | what it is |
+| --- | --- |
+| `market_cap_local` | price x shares as the exchange reports it, in `local_currency` |
+| `market_cap` | the same figure converted, in `market_cap_currency` |
+
+`?currency=EUR` names what the converted half is converted into; it is `USD`
+when you say nothing, so an existing caller sees no change. Name the currency
+of the index you are comparing against — a cap column and a weight column in
+one row only mean something side by side while they share a unit, and that
+comparison is what caught the weighting bug BN-188 fixed.
+
+The endpoint never infers a currency, and it never converts the local figure
+away: that number is a fact about the company, and it is what you would
+cross-check against an external source. **A missing FX rate nulls the
+converted half only** — the local figure still reports, with `local_currency`
+saying what it is in.
+
 ## Adjusted prices
 
 `GET /data/prices/{identifier}?adjusted=true` adds an `ADJ_CLOSE` column:

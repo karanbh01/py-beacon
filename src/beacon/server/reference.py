@@ -26,6 +26,21 @@ in the same `fields` list as `NAME` and `SECTOR`, so a client asks for what it
 wants to display in one place and reads the answer out of one mapping. It is
 opt-in because computing it means slicing the price history for every
 identifier in the batch, which is work nobody should pay for by default.
+
+**A money field is published twice, in two named currencies (BN-189).** A
+market cap used to come back converted into a hard-coded USD, which was right
+for a dollar index and mislabelled for any other: after BN-188 the weighting
+converts into the *index's* currency, so a EUR index showed dollar caps beside
+euro weights and the row that made BN-188's bug visible stopped being
+comparable. Each money field now carries its local figure (`market_cap_local`,
+in `local_currency`) beside the converted one (`market_cap`, in
+`market_cap_currency`), and the optional `currency` parameter names what the
+converted one is converted into -- USD when the caller says nothing, so no
+existing caller moves. The local number is a fact about the company, the
+converted one is what compares to a weight, and publishing both means no
+client has to choose and none can be misled by the choice. A missing rate
+nulls the converted figure only: the local one is knowable whatever the FX
+situation, and nulling it would hide something the server holds.
 """
 import logging
 from typing import Any
@@ -45,25 +60,73 @@ ADV_3M = "adv_3m"
 MARKET_CAP = "market_cap"
 FREE_FLOAT_MARKET_CAP = "free_float_market_cap"
 
-# The currency every derived money amount is reported in.
+# The currency a derived money amount is converted into when the caller names
+# none.
 #
 # A market capitalisation is money, and since BN-128 the members of one
-# universe are quoted in seven currencies. Returning raw local values would
-# make the column unsortable and every comparison silently wrong -- a yen cap
-# ranks above a dollar one on magnitude alone -- so they are converted, and
-# `market_cap_currency` states what they were converted into rather than
-# leaving a client to assume.
-DERIVED_CURRENCY = "USD"
+# universe are quoted in seven currencies. Returning raw local values alone
+# would make the column unsortable and every comparison silently wrong -- a yen
+# cap ranks above a dollar one on magnitude alone -- so a converted figure is
+# published too, and `market_cap_currency` states what it was converted into
+# rather than leaving a client to assume. USD is the default rather than the
+# answer: `currency` names another (BN-189).
+DEFAULT_CURRENCY = "USD"
 DERIVED_CURRENCY_FIELD = "market_cap_currency"
 
+# The local half of each money pair: the figure as the exchange reports it,
+# in the instrument's own currency.
+LOCAL_CURRENCY_FIELD = "local_currency"
+MARKET_CAP_LOCAL = "market_cap_local"
+FREE_FLOAT_MARKET_CAP_LOCAL = "free_float_market_cap_local"
+
+# The derived fields that are money, and so come as a pair. The key is what a
+# caller asks for; both halves and both currency codes come back together,
+# because a client that has to request the unit separately from the number is
+# a client that will one day render the number without it.
+MONEY_FIELDS = {MARKET_CAP: MARKET_CAP_LOCAL,
+                FREE_FLOAT_MARKET_CAP: FREE_FLOAT_MARKET_CAP_LOCAL}
+
+# What a caller may name in `fields`. Descriptions say which currency a figure
+# is in and name its counterpart (BN-181) -- and they say it by naming the
+# parameter, not a currency: the unit is per-request since BN-189, so a
+# description that interpolated one would be wrong for every caller who names
+# another. The default is stated because a caller who names nothing still
+# needs to know what they got.
 DERIVED_FIELDS = {
     ADV_3M: f"Mean daily VOLUME over the trailing {TRAILING_MONTHS} calendar months.",
-    MARKET_CAP: f"Price x shares outstanding, in {DERIVED_CURRENCY}.",
-    FREE_FLOAT_MARKET_CAP: f"Market cap x free float, in {DERIVED_CURRENCY}.",
+    MARKET_CAP: (f"Price x shares outstanding, converted into the `currency` "
+                 f"the request names ({DEFAULT_CURRENCY} by default) and "
+                 f"stated in `{DERIVED_CURRENCY_FIELD}`; null when that rate "
+                 f"is unknown. The unconverted figure is `{MARKET_CAP_LOCAL}`, "
+                 f"in `{LOCAL_CURRENCY_FIELD}`."),
+    FREE_FLOAT_MARKET_CAP: (
+        f"Market cap x free float, converted into the `currency` the request "
+        f"names ({DEFAULT_CURRENCY} by default) and stated in "
+        f"`{DERIVED_CURRENCY_FIELD}`; null when that rate is unknown. The "
+        f"unconverted figure is `{FREE_FLOAT_MARKET_CAP_LOCAL}`, in "
+        f"`{LOCAL_CURRENCY_FIELD}`."),
 }
 
-# The derived fields that are money, and so carry the currency alongside.
-MONEY_FIELDS = (MARKET_CAP, FREE_FLOAT_MARKET_CAP)
+# Published alongside a money field rather than requested: asking for
+# `market_cap` returns all four keys. They are not in DERIVED_FIELDS because
+# that is the set a caller may name, and a companion that could be requested
+# on its own would be a second way to ask the same question -- and a fifth
+# name for the field picker, the catalogue and the expression namespace to
+# learn. Documented here so nothing has to infer them from the payload.
+COMPANION_FIELDS = {
+    DERIVED_CURRENCY_FIELD: (f"ISO code the converted money fields are in: "
+                             f"the request's `currency`, {DEFAULT_CURRENCY} "
+                             f"by default."),
+    LOCAL_CURRENCY_FIELD: ("ISO code the `_local` money fields are in: the "
+                           "instrument's own quote currency."),
+    MARKET_CAP_LOCAL: (f"Price x shares outstanding, unconverted, in "
+                       f"`{LOCAL_CURRENCY_FIELD}` -- what the exchange "
+                       f"reports. Its converted counterpart is "
+                       f"`{MARKET_CAP}`."),
+    FREE_FLOAT_MARKET_CAP_LOCAL: (
+        f"Market cap x free float in `{LOCAL_CURRENCY_FIELD}`, unconverted. "
+        f"Its converted counterpart is `{FREE_FLOAT_MARKET_CAP}`."),
+}
 
 # The most identifiers one request may name. Above the 512-member universe pane
 # with room to spare, and low enough that a malformed client cannot ask the
@@ -172,8 +235,9 @@ def _clean(row: pd.Series) -> dict[str, Any]:
 def _market_caps(fetcher: DataFetcher,
                  identifiers: list[str],
                  requested: set[str],
-                 end: pd.Timestamp) -> dict[str, dict[str, Any]]:
-    """Market capitalisation per name, converted into the reporting currency.
+                 end: pd.Timestamp,
+                 currency: str) -> dict[str, dict[str, Any]]:
+    """Market capitalisation per name, local and converted into *currency*.
 
     A point-in-time cap is a price times a share count, both of which move, so
     this is a market-data join rather than a stored attribute -- which is why
@@ -193,10 +257,17 @@ def _market_caps(fetcher: DataFetcher,
     computed: dict[str, dict[str, Any]] = {}
 
     for identifier in identifiers:
+        # Every key the request implies is present on every entry, null where
+        # it could not be computed. A name whose row is missing entirely still
+        # reports the currency it would have been converted into, because that
+        # is a property of the request rather than of the name.
         entry: dict[str, Any] = dict.fromkeys(wanted)
-        entry[DERIVED_CURRENCY_FIELD] = DERIVED_CURRENCY
+        entry.update(dict.fromkeys(MONEY_FIELDS[field] for field in wanted))
+        entry[DERIVED_CURRENCY_FIELD] = currency
+        entry[LOCAL_CURRENCY_FIELD] = None
+
         entry.update(_cap_fields(fetcher, identifier, wanted,
-                                 _rows_for(frame, identifier), end))
+                                 _rows_for(frame, identifier), end, currency))
 
         computed[identifier] = entry
 
@@ -207,7 +278,8 @@ def _cap_fields(fetcher: DataFetcher,
                 identifier: str,
                 wanted: set[str],
                 rows: pd.DataFrame | None,
-                end: pd.Timestamp) -> dict[str, Any]:
+                end: pd.Timestamp,
+                currency: str) -> dict[str, Any]:
     """One name's money fields, or an empty mapping when it has none.
 
     Free float is applied as a multiplier rather than fetched separately: it
@@ -221,6 +293,12 @@ def _cap_fields(fetcher: DataFetcher,
     renders as "we do not have this"; a local number wearing a dollar label is
     one it cannot tell from a real answer. The batch still succeeds -- one name
     without a rate must not fail four hundred and ninety-nine that have one.
+
+    **Only the converted half goes null (BN-189).** The local figure needs no
+    rate to be true, so withholding it because an FX pair is absent would hide
+    a number the server is holding -- and would take the cross-check against
+    an external source down with it, which is the one thing a reader can do
+    when the converted column is missing.
     """
     if rows is None or rows.empty:
         return {}
@@ -235,28 +313,37 @@ def _cap_fields(fetcher: DataFetcher,
     if pd.isna(price) or pd.isna(shares):
         return {}
 
-    currency = _currency_of(fetcher, identifier, end)
-    rate = fetcher.fx_rate_on(currency, DERIVED_CURRENCY, end)
+    local_currency = _currency_of(fetcher, identifier, end)
+    rate = fetcher.fx_rate_on(local_currency, currency, end)
 
     if rate is None:
         logger.warning(
-            "No %s/%s rate on or before %s; %s's market cap is reported as "
-            "unknown rather than as an unconverted %s figure.",
-            currency, DERIVED_CURRENCY, end.date(), identifier, currency)
+            "No %s/%s rate on or before %s; %s's market cap is reported in "
+            "%s alone, with the converted figure left unknown rather than "
+            "quoted as an unconverted %s number.",
+            local_currency, currency, end.date(), identifier, local_currency,
+            local_currency)
 
-        return {}
+    fields: dict[str, Any] = {LOCAL_CURRENCY_FIELD: local_currency}
 
-    capitalisation = float(price) * float(shares) * rate
-    fields: dict[str, Any] = {}
+    # Each half is scaled from its own base rather than one from the other:
+    # multiplication is not associative in floating point, and converting the
+    # floated local figure would move the published `free_float_market_cap` by
+    # a last-place bit against what this endpoint returned before BN-189.
+    local_cap = float(price) * float(shares)
+    converted_cap = local_cap * rate if rate is not None else None
 
     if MARKET_CAP in wanted:
-        fields[MARKET_CAP] = capitalisation
+        fields[MARKET_CAP_LOCAL] = local_cap
+        fields[MARKET_CAP] = converted_cap
 
     if FREE_FLOAT_MARKET_CAP in wanted:
         free_float = latest.get("FREE_FLOAT")
-        fields[FREE_FLOAT_MARKET_CAP] = (capitalisation * float(free_float)
-                                         if pd.notna(free_float)
-                                         else capitalisation)
+        share = float(free_float) if pd.notna(free_float) else 1.0
+
+        fields[FREE_FLOAT_MARKET_CAP_LOCAL] = local_cap * share
+        fields[FREE_FLOAT_MARKET_CAP] = (None if converted_cap is None
+                                         else converted_cap * share)
 
     return fields
 
@@ -279,28 +366,36 @@ def _rows_for(frame: pd.DataFrame,
 def _currency_of(fetcher: DataFetcher,
                  identifier: str,
                  as_of: pd.Timestamp) -> str:
-    """The currency an instrument is quoted in, from reference data."""
+    """The currency an instrument is quoted in, from reference data.
+
+    Falls back to the default rather than to whatever the request asked to
+    convert into: a name with no stated currency is an unknown, and answering
+    with the request's currency would make the local and converted figures
+    agree by construction and report a EUR figure for a name nobody has said
+    trades in euros.
+    """
     reference = fetcher.fetch_reference_data(identifier,
                                              as_of.strftime("%Y-%m-%d"))
 
     if reference.empty or "CURRENCY" not in reference.columns:
-        return DERIVED_CURRENCY
+        return DEFAULT_CURRENCY
 
     value = reference["CURRENCY"].iloc[0]
 
-    return str(value).upper() if pd.notna(value) else DERIVED_CURRENCY
+    return str(value).upper() if pd.notna(value) else DEFAULT_CURRENCY
 
 
 def _derived_fields(fetcher: DataFetcher,
                     identifiers: list[str],
                     requested: set[str],
-                    as_of: str | None) -> dict[str, dict[str, Any]]:
+                    as_of: str | None,
+                    currency: str) -> dict[str, dict[str, Any]]:
     """Compute the requested derived fields for the batch."""
     if not requested & set(DERIVED_FIELDS):
         return {}
 
     end = pd.Timestamp(as_of) if as_of else fetcher.date_range[1]
-    caps = _market_caps(fetcher, identifiers, requested, end)
+    caps = _market_caps(fetcher, identifiers, requested, end, currency)
 
     if ADV_3M not in requested:
         return caps
@@ -332,10 +427,37 @@ def _derived_fields(fetcher: DataFetcher,
             for identifier in identifiers}
 
 
+def parse_currency(raw: str | None) -> str:
+    """The `currency` parameter, validated, or the default when absent.
+
+    Raises:
+        InvalidRuleError: If it is not a three-letter code. An unknown-but-
+            well-formed code converts to nothing and reports null, which is a
+            data answer; "dollars" is a request that cannot be honoured, and
+            silently nulling every converted figure for it would look like
+            missing FX data rather than a typo.
+    """
+    if raw is None or not raw.strip():
+        return DEFAULT_CURRENCY
+
+    code = raw.strip().upper()
+
+    if len(code) != 3 or not code.isalpha():
+        raise InvalidRuleError(
+            "currency",
+            f"'{raw}' is not a currency code; name a three-letter ISO code "
+            f"such as {DEFAULT_CURRENCY} or EUR. It selects what the "
+            f"converted money fields are converted into; the local figures "
+            f"are returned either way.")
+
+    return code
+
+
 def build_entries(fetcher: DataFetcher,
                   identifiers: list[str],
                   date: str | None = None,
-                  fields: list[str] | None = None) -> list[ReferenceEntry]:
+                  fields: list[str] | None = None,
+                  currency: str = DEFAULT_CURRENCY) -> list[ReferenceEntry]:
     """Assemble one entry per requested identifier, in request order.
 
     Args:
@@ -346,6 +468,10 @@ def build_entries(fetcher: DataFetcher,
             every stored column and no derived field — computing ADV for a
             batch nobody asked it for would be the endpoint's whole cost paid
             by every caller.
+        currency: What the converted money fields are converted into,
+            defaulting to USD (BN-189). The local figures come back in the
+            instrument's own currency whatever this says, so a caller that
+            names nothing still gets both numbers and both labels.
 
     Returns:
         list: One `ReferenceEntry` per requested identifier, in order.
@@ -363,7 +489,8 @@ def build_entries(fetcher: DataFetcher,
 
     stored = _stored_fields(fetcher, identifiers, date,
                             stored_requested or None)
-    derived = _derived_fields(fetcher, identifiers, derived_requested, date)
+    derived = _derived_fields(fetcher, identifiers, derived_requested, date,
+                              currency)
 
     entries = []
     for identifier in identifiers:
