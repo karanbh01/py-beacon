@@ -171,6 +171,16 @@ class OptimisedIndexDefinition:
         return self._currency if self._currency is not None else self.source.currency
 
     @property
+    def calendar(self) -> str:
+        """The trading calendar, which is always the source's.
+
+        No override, unlike the currency or the base date: the derivation
+        reallocates on exactly the parent's rebalance dates, so a calendar of
+        its own could only disagree with the days it actually has weights for.
+        """
+        return self.source.calendar
+
+    @property
     def universe_identifiers(self) -> list[str] | None:
         """The investable universe, which is always the source's.
 

@@ -138,6 +138,30 @@ def sessions(start: pd.Timestamp,
     return pd.DatetimeIndex(schedule.sessions_in_range(first, last))
 
 
+def is_session(date: pd.Timestamp,
+               calendar: str | None) -> bool:
+    """Whether the market was open on *date*.
+
+    The single-day face of :func:`sessions`, and the question that tells a
+    holiday apart from a hole in the data (BN-183): a day with no bar that the
+    calendar says was **closed** is a market that was shut, while a day with no
+    bar that the calendar says was **open** is data that is missing something.
+    Nothing could ask it before BN-180 made the calendar a required property of
+    an index.
+
+    Args:
+        date: The date asked about.
+        calendar: Exchange MIC. None asks about Monday to Friday, holidays
+            included — the same explicit request :func:`sessions` accepts.
+
+    Returns:
+        bool: True when *date* is a trading session on *calendar*. A date past
+        the calendar's published bounds answers False, since a day the
+        calendar cannot speak for is not a day it says was open.
+    """
+    return len(sessions(date, date, calendar)) > 0
+
+
 # Display names for the venues a client is most likely to offer first. Every
 # other calendar falls back to its MIC, which is why this is allowed to be
 # partial: a name that is missing labels a calendar less well, and a name that

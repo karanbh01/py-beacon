@@ -250,7 +250,11 @@ class Backtest:
             transaction_cost_bps=self.transaction_cost_bps,
             modifiers=self.modifiers,
             benchmark=self.benchmark,
-            target_index=target_index)
+            target_index=target_index,
+            # The definition's own, resolved through a derivation to its
+            # parent's: the engine needs it to tell a market holiday apart
+            # from a hole in the data when a bar is missing (BN-183).
+            calendar=definition.calendar)
 
         return engine.run()
 

@@ -31,6 +31,8 @@ from .schemas import (
     RelativeMetricsPayload,
     SeriesPayload,
     headline_metric,
+    price_gap_payloads,
+    rebalance_pricing_payloads,
     rebalance_snapshots,
 )
 from .store import DocumentStore
@@ -136,7 +138,9 @@ def assemble_result(result: BacktestResult,
         benchmark=benchmark,
         rebalances=rebalance_snapshots(index_result, cap),
         total_costs=_total_costs(result),
-        initial_capital=result.portfolio.initial_capital)
+        initial_capital=result.portfolio.initial_capital,
+        price_gaps=price_gap_payloads(result),
+        rebalance_pricing=rebalance_pricing_payloads(result))
 
 
 def target_cap(definition: AnyIndexDefinition) -> float | None:

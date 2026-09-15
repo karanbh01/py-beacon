@@ -9,7 +9,7 @@ from ..portfolio.base import TradeInstruction
 from .asset_view import BacktestAssetView
 from .engine import BacktestEngine
 from .main import Backtest
-from .result import BacktestResult, UnfilledOrder
+from .result import BacktestResult, PriceGap, RebalancePricing, UnfilledOrder
 from .rules import BacktestModifier, DriftThresholdModifier
 
 __all__ = [
@@ -19,6 +19,8 @@ __all__ = [
     "BacktestModifier",
     "BacktestResult",
     "DriftThresholdModifier",
+    "PriceGap",
+    "RebalancePricing",
     "TradeInstruction",
     "UnfilledOrder",
 ]

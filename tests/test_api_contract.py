@@ -112,7 +112,8 @@ ERROR_CODES = {"UNAUTHORIZED", "DATA_NOT_FOUND", "VALIDATION_ERROR",
 # went unpublished in the first place.
 BACKTEST_RUN_FIELDS = {"level", "returns", "drawdown", "annual_returns",
                        "index_level", "metrics", "benchmark", "rebalances",
-                       "total_costs", "initial_capital"}
+                       "total_costs", "initial_capital", "price_gaps",
+                       "rebalance_pricing"}
 BACKTEST_RUN_REQUIRED = {"level", "returns", "drawdown", "annual_returns",
                          "index_level", "metrics"}
 

@@ -14,7 +14,15 @@ from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 # here as well so `from beacon.backtest.engine import TradeInstruction` keeps
 # working -- and because the engine is its main producer.
 from ..portfolio.base import Holding, Portfolio, TradeInstruction
-from .result import BacktestResult, Book, IndexBooks, UnfilledOrder
+from .pricing import PricingMixin
+from .result import (
+    BacktestResult,
+    Book,
+    IndexBooks,
+    PriceGap,
+    RebalancePricing,
+    UnfilledOrder,
+)
 from .rules import BacktestModifier
 
 # Reused from the portfolio rather than redefined: the engine decides whether
@@ -30,7 +38,7 @@ MIN_TRADE_VALUE = 0.01
 logger = logging.getLogger(__name__)
 
 
-class BacktestEngine:
+class BacktestEngine(PricingMixin):
     """Simulates portfolio execution against a target weight schedule.
 
     The engine consumes target weights from an ``IndexResult`` — the sole
@@ -58,6 +66,15 @@ class BacktestEngine:
             calculation and this is its parent, and they land in
             `index.optimised` and `index.target` respectively. Omitted on a
             plain run, whose own calculation fills the target book.
+        calendar: The exchange MIC the traded index schedules on, which since
+            BN-180 every definition carries. It is what lets a missing bar be
+            read correctly (BN-183): on a day the calendar says was closed the
+            market was shut and the previous session's price is what the
+            position was worth, while on a day it says was open the data is
+            missing something and the carried price is recorded as a gap.
+            None falls back to the data's own sessions — a day the store has
+            bars for is treated as open — which is all a caller assembling an
+            engine by hand can offer.
     """
 
     def __init__(self,
@@ -71,7 +88,8 @@ class BacktestEngine:
                  transaction_cost_bps: float = 0.0,
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
-                 target_index: IndexResult | None = None):
+                 target_index: IndexResult | None = None,
+                 calendar: str | None = None):
         self.start_date: pd.Timestamp = pd.Timestamp(start_date)
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
         self.initial_capital: float = initial_capital
@@ -85,11 +103,28 @@ class BacktestEngine:
         self.target_index: IndexResult | None = target_index
         self.price_column: str = price_column
         self.currency: str = currency.upper()
+        self.calendar: str | None = calendar
 
         # Listing currency per identifier, resolved lazily and once. Prices
         # are quoted where the company lists; a portfolio has one currency.
         self._currencies: dict[str, str] = {}
         self._rates: dict[tuple[str, str], pd.Series] = {}
+
+        # The last bar each name actually printed, so a miss is answered from
+        # the session before it rather than by refetching a whole history.
+        self._last_bars: dict[str, tuple[pd.Timestamp, float]] = {}
+
+        # What the run has to report about its own pricing (BN-183). The set
+        # is the dedupe: a rebalance day prices each name several times --
+        # the mark, the sell test, the buy test, the re-mark -- and one
+        # missing bar is one gap however many readers met it.
+        self._price_gaps: list[PriceGap] = []
+        self._gaps_seen: set[tuple[str, pd.Timestamp]] = set()
+        self._rebalance_pricing: list[RebalancePricing] = []
+
+        # Filled by `run`. A name past its last listed date has no price
+        # because it no longer exists, which is neither a holiday nor a gap.
+        self._delistings: dict[str, pd.Timestamp] = {}
 
         self.transaction_cost_bps: float = transaction_cost_bps
         self.modifiers: list[BacktestModifier] = modifiers or []
@@ -101,106 +136,6 @@ class BacktestEngine:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _fetch_price(self,
-                     asset_id: str,
-                     date: pd.Timestamp) -> float | None:
-        """One closing price for *asset_id* on *date*, in the book's currency.
-
-        The conversion is the point. Prices are stored as the company is
-        quoted -- yen in Tokyo, sterling in London -- while a portfolio has a
-        single currency, and `IndexCalculator` has always converted its market
-        values before comparing them. Returning the raw close here made the
-        engine value a 300 yen share as 300 dollars: every non-domestic weight
-        was wrong by its exchange rate, and against the single-currency
-        universe that existed until BN-128 the error was invisible because
-        every rate was 1.0.
-        """
-        date_str = date.strftime("%Y-%m-%d")
-        try:
-            df = self.data_provider.fetch_market_data(asset_id, date_str, date_str)
-            if df.empty or self.price_column not in df.columns:
-                return None
-
-            val = df[self.price_column].iloc[0]
-            if not pd.notna(val):
-                return None
-
-            return float(val) * self._rate_for(asset_id, date)
-        except Exception as e:
-            logger.error(f"Error fetching price for {asset_id} on {date_str}: {e}")
-        return None
-
-    def _rate_for(self,
-                  asset_id: str,
-                  date: pd.Timestamp) -> float:
-        """FX from an asset's listing currency into the book's, on *date*.
-
-        The whole series is fetched once per **pair** and then indexed by
-        date, which is what makes a per-day rate affordable: seven lookups for
-        a global universe rather than one per holding per day.
-
-        Using a single fixed rate instead would be worse than it sounds. A
-        constant scale factor cancels out of the weight arithmetic entirely --
-        the engine sizes a position by value, so `quantity x price x rate` is
-        the target value whatever the rate is -- and the conversion would look
-        correct while changing nothing. It is the *drift* in the rate that a
-        foreign holding actually experiences, and that only appears if the
-        rate moves.
-        """
-        currency = self._currency_of(asset_id)
-
-        if currency is None or currency == self.currency:
-            return 1.0
-
-        pair = (currency, self.currency)
-
-        if pair not in self._rates:
-            series = self.data_provider.fetch_fx_rates(currency, self.currency)
-
-            if series.empty:
-                logger.warning("No %s/%s rate; %s is valued unconverted.",
-                               currency, self.currency, asset_id)
-
-            self._rates[pair] = series.sort_index()
-
-        series = self._rates[pair]
-
-        if series.empty:
-            return 1.0
-
-        # As of the date, carried forward: a holiday in one market is not a
-        # reason to stop converting a position held in another.
-        position = series.index.searchsorted(date, side="right") - 1
-
-        if position < 0:
-            return float(series.iloc[0])
-
-        return float(series.iloc[position])
-
-    def _currency_of(self,
-                     asset_id: str) -> str | None:
-        """The currency an identifier is quoted in, from reference data."""
-        if asset_id in self._currencies:
-            return self._currencies[asset_id]
-
-        resolved: str | None = None
-
-        try:
-            frame = self.data_provider.fetch_reference_data(asset_id)
-
-            if not frame.empty and "CURRENCY" in frame.columns:
-                value = frame["CURRENCY"].iloc[0]
-
-                if pd.notna(value):
-                    resolved = str(value).upper()
-        except Exception as error:
-            logger.error("Could not resolve the currency of %s: %s",
-                         asset_id, error)
-
-        self._currencies[asset_id] = resolved or self.currency
-
-        return self._currencies[asset_id]
 
     def _update_portfolio_prices(self,
                                  portfolio: Portfolio,
@@ -245,11 +180,18 @@ class BacktestEngine:
                           delistings: dict[str, pd.Timestamp]) -> None:
         """Settle any holding whose listing has ended, into cash.
 
-        Without this the position is held forever. `_fetch_price` returns None
-        once the rows stop, so `_update_portfolio_prices` leaves the holding
+        Without this the position is held forever. A name past its last listed
+        date has no price, so `_update_portfolio_prices` leaves the holding
         marked at its last close and `_sell_instruction` returns None rather
         than a trade -- the NAV keeps carrying a company that no longer
         exists, and its weight is never released to anything that does.
+
+        The signal is *this mapping*, read from reference data's `DATE_TO`,
+        and it always was: nothing here infers a delisting from prices running
+        out, which is why BN-183 could change the price read without touching
+        disposal. `_fetch_price` consults the same mapping and declines to
+        carry a price forward past it, so the two agree on when a name stopped
+        existing rather than one of them guessing from an absence.
 
         Settled at the last price the portfolio saw, and **without** a
         transaction cost. That is the modelling decision, and it is
@@ -428,6 +370,12 @@ class BacktestEngine:
                 return []
 
         logger.info(f"[{date}] Rebalancing to target weights: {target_weights}")
+
+        # Recorded before the trades, and only for a rebalance that goes ahead:
+        # a skipped one priced nothing, and a row saying otherwise would be a
+        # session named for trades that never happened (BN-183).
+        self._record_rebalance_pricing(date)
+
         trades = self._generate_trades(portfolio, target_weights, date)
 
         # Let modifiers adjust the trade list
@@ -446,6 +394,26 @@ class BacktestEngine:
                     unfilled.append(shortfall)
 
         return unfilled
+
+    def _record_rebalance_pricing(self,
+                                  date: pd.Timestamp) -> None:
+        """Note the session this rebalance's prices are read from (BN-183).
+
+        One row per rebalance rather than one per leg: every name in it
+        resolves to the same session, because the closure that moved the date
+        closed the market for all of them. A run whose data cannot resolve a
+        session at all — a hand-assembled provider — records the date itself,
+        which is what it priced from.
+        """
+        session = self._resolved_session(date)
+
+        self._rebalance_pricing.append(
+            RebalancePricing(date=date,
+                             priced_from=session if session is not None else date))
+
+        if session is not None and session != date:
+            logger.info("[%s] The market was shut; the rebalance prices from "
+                        "the %s session.", date.date(), session.date())
 
     def _execute_buy(self,
                      portfolio: Portfolio,
@@ -535,6 +503,13 @@ class BacktestEngine:
             f"{self.end_date.date()} with capital {self.initial_capital:.2f}"
         )
 
+        # What this run reports about its own pricing, cleared rather than
+        # carried: a second `run()` on the same engine is a second run, and
+        # inheriting the first one's gaps would report them twice.
+        self._price_gaps.clear()
+        self._gaps_seen.clear()
+        self._rebalance_pricing.clear()
+
         trading_days = pd.bdate_range(start=self.start_date, end=self.end_date, freq="B")
         if trading_days.empty:
             logger.warning("No trading days in the specified date range.")
@@ -558,7 +533,11 @@ class BacktestEngine:
 
         unfilled: list[UnfilledOrder] = []
 
+        # Held on the engine as well as passed down: the price read consults
+        # it to decline carrying a delisted name forward (BN-183), and
+        # disposal reads it to settle the holding. One mapping, two readers.
         delistings = self._delisting_dates()
+        self._delistings = delistings
 
         for idx, date in enumerate(trading_days):
             # 1. Update prices for existing holdings
@@ -615,6 +594,8 @@ class BacktestEngine:
             index=self._index_books(),
             benchmark=self._benchmark_book(),
             unfilled=unfilled,
+            price_gaps=list(self._price_gaps),
+            rebalance_pricing=list(self._rebalance_pricing),
         ).with_data(self.data_provider)
 
     def _index_books(self) -> IndexBooks:

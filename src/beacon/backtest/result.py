@@ -75,6 +75,53 @@ class UnfilledOrder:
     shortfall_value: float
 
 
+@dataclass(frozen=True)
+class PriceGap:
+    """A day a name should have traded on and had no bar (BN-183).
+
+    The engine prices from the last session on or before the date it is
+    marking. Two different things can put it there, and only one of them is a
+    fault: a day the index's **calendar says was closed** is a market that was
+    shut, and the previous session's price is what the position was genuinely
+    worth through it — no gap is recorded, because nothing is missing. A day
+    the calendar says was **open** is data that is missing something, and the
+    price carried forward is a stale quote.
+
+    Carrying it forward is standard practice and beats refusing: a backtest
+    over five hundred names must not die because one of them had one bad day.
+    Doing it silently is not — the mark is not what that day's market said, so
+    it is published here rather than absorbed, the way `unfilled` publishes the
+    legs a rebalance could not fill.
+
+    Attributes:
+        date: The simulated day whose bar was missing.
+        asset_id: The name with no bar.
+        priced_from: The session the carried price actually came from, always
+            earlier than *date*.
+    """
+    date: pd.Timestamp
+    asset_id: str
+    priced_from: pd.Timestamp
+
+
+@dataclass(frozen=True)
+class RebalancePricing:
+    """What one rebalance priced from (BN-183).
+
+    A rebalance scheduled on a day the market was shut still trades — it prices
+    from the session in force through the closure — and a record that only
+    carried the scheduled date left a reader unable to tell the two cases
+    apart. `date` and `priced_from` are equal for the ordinary rebalance, which
+    is what makes an unequal pair worth reading.
+
+    Attributes:
+        date: The rebalance date from the weight schedule.
+        priced_from: The session its prices were read from.
+    """
+    date: pd.Timestamp
+    priced_from: pd.Timestamp
+
+
 class Book:
     """One comparator's daily record: levels, weights, returns.
 
@@ -185,6 +232,14 @@ class BacktestResult:
             run where every rebalance leg filled, so a non-empty list is
             itself the signal that the portfolio drifted off target for a
             reason other than price movement.
+        price_gaps: Days a name had no bar on a session its calendar says was
+            open, and was therefore marked at a carried-forward price
+            (BN-183). Empty for a run with complete data — a market holiday is
+            not a gap, since nothing is missing on a day nothing traded.
+        rebalance_pricing: What each rebalance priced from, in date order.
+            `date` and `priced_from` differ only where the schedule landed on
+            a day the market was shut, so the run can state which session its
+            trades were struck at rather than leaving it inferable.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -194,6 +249,8 @@ class BacktestResult:
     index: IndexBooks = field(default_factory=IndexBooks)
     benchmark: Book | None = None
     unfilled: list[UnfilledOrder] = field(default_factory=list)
+    price_gaps: list[PriceGap] = field(default_factory=list)
+    rebalance_pricing: list[RebalancePricing] = field(default_factory=list)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 

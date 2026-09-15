@@ -433,6 +433,46 @@ class UnfilledOrderPayload(BaseModel):
     shortfall_value: float
 
 
+class PriceGapPayload(BaseModel):
+    """A day a name had no bar on a session that should have had one."""
+    date: str = Field(
+        description="The simulated day whose bar was missing, YYYY-MM-DD. A "
+                    "trading day out of the backtest, not a wall-clock stamp.")
+    asset_id: str = Field(
+        description="The name with no bar on that day.")
+    priced_from: str = Field(
+        description="The session the carried-forward price actually came "
+                    "from, YYYY-MM-DD; always earlier than `date`.")
+
+
+class RebalancePricingPayload(BaseModel):
+    """The session one rebalance's trades were priced from."""
+    date: str = Field(
+        description="The rebalance date from the weight schedule, YYYY-MM-DD.")
+    priced_from: str = Field(
+        description="The session its prices were read from, YYYY-MM-DD. Equal "
+                    "to `date` for an ordinary rebalance; earlier when the "
+                    "schedule landed on a day the market was shut, which is "
+                    "the case worth reading.")
+
+
+# One sentence, two payloads: the record and the run payload publish the same
+# list, and a client reading both should meet the same words.
+PRICE_GAPS_DESCRIPTION = (
+    "Days a holding or a target name had no bar on a session its index's "
+    "calendar says was open, and was therefore marked at a carried-forward "
+    "price. Empty on a run with complete data — a market holiday is not a "
+    "gap, since nothing is missing on a day nothing traded. A non-empty list "
+    "is the signal that some marks are stale quotes rather than that day's "
+    "market, which is otherwise invisible in the NAV.")
+
+REBALANCE_PRICING_DESCRIPTION = (
+    "What each rebalance priced from, in date order. `date` and `priced_from` "
+    "differ only where the schedule landed on a day the market was shut, so "
+    "the run states which session its trades were struck at rather than "
+    "leaving it inferable from the weight snapshots.")
+
+
 class BacktestResultSummary(BaseModel):
     """Serialised view of a `BacktestResult`, in the shape of its books.
 
@@ -448,6 +488,10 @@ class BacktestResultSummary(BaseModel):
     index: IndexBooksPayload = Field(default_factory=IndexBooksPayload)
     benchmark: BookPayload | None = None
     unfilled: list[UnfilledOrderPayload] = Field(default_factory=list)
+    price_gaps: list[PriceGapPayload] = Field(
+        default_factory=list, description=PRICE_GAPS_DESCRIPTION)
+    rebalance_pricing: list[RebalancePricingPayload] = Field(
+        default_factory=list, description=REBALANCE_PRICING_DESCRIPTION)
     metrics: BacktestMetrics
     # None only on records written before BN-162 stamped them: a listing row
     # without a date is honest about predating the stamp.
@@ -499,8 +543,29 @@ class BacktestResultSummary(BaseModel):
                        price=order.price,
                        shortfall_value=order.shortfall_value)
                        for order in result.unfilled],
+                   price_gaps=price_gap_payloads(result),
+                   rebalance_pricing=rebalance_pricing_payloads(result),
                    metrics=metrics,
                    run_at=datetime.now(UTC).isoformat())
+
+
+def price_gap_payloads(result: BacktestResult) -> list[PriceGapPayload]:
+    """The run's carried-forward marks, for whichever payload publishes them.
+
+    Shared by the record and the run payload rather than written twice: the
+    same fact crossing the wire in two shapes is how the two drift.
+    """
+    return [PriceGapPayload(date=str(gap.date.date()),
+                            asset_id=gap.asset_id,
+                            priced_from=str(gap.priced_from.date()))
+            for gap in result.price_gaps]
+
+
+def rebalance_pricing_payloads(result: BacktestResult) -> list[RebalancePricingPayload]:
+    """The session each rebalance priced from, for either payload."""
+    return [RebalancePricingPayload(date=str(row.date.date()),
+                                    priced_from=str(row.priced_from.date()))
+            for row in result.rebalance_pricing]
 
 
 def _portfolio_payload(portfolio: Any) -> PortfolioBookPayload:
@@ -3001,6 +3066,10 @@ class BacktestRunResult(BaseModel):
         description="Transaction costs paid across the run, for the cost drag.")
     initial_capital: float = Field(
         default=0.0, description="Capital the simulation started with.")
+    price_gaps: list[PriceGapPayload] = Field(
+        default_factory=list, description=PRICE_GAPS_DESCRIPTION)
+    rebalance_pricing: list[RebalancePricingPayload] = Field(
+        default_factory=list, description=REBALANCE_PRICING_DESCRIPTION)
 
 
 class SyncJobResult(BaseModel):
