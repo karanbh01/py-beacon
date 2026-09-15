@@ -35,7 +35,6 @@ zero. Zero passes a `> 0` test by failing it honestly; missing has no value to
 compare at all.
 """
 import logging
-from typing import Any
 
 import pandas as pd
 
@@ -44,6 +43,7 @@ from ..catalogue import SELECTION, Display, register
 from ..data.features import MAX_AGE_DAYS
 from ..data.fetcher import DataFetcher
 from ..exceptions import InvalidRuleError
+from .context import IndexContext
 from .methodology import EligibilityRuleBase
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,7 @@ class FeatureRule(EligibilityRuleBase):
                     asset: Asset,
                     current_date: pd.Timestamp,
                     market_data_provider: DataFetcher,
-                    context: dict[str, Any] | None = None) -> bool:
+                    context: IndexContext | None = None) -> bool:
         """Whether the asset passes, as of `current_date`.
 
         The date is the rebalance date, and it is passed straight through to

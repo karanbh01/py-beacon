@@ -5,7 +5,6 @@ such as eligibility criteria and weighting schemes.
 """
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
 
 import pandas as pd
 
@@ -19,6 +18,7 @@ from ..catalogue import (
 )
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
+from .context import IndexContext
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,42 @@ def _resolve_session(calculation_name: str,
                  f"{last:%Y-%m-%d}, or refresh the store."))
 
 
+def _rate_into(calculation_name: str,
+               asset: Equity,
+               to_currency: str,
+               date: pd.Timestamp,
+               market_data_provider: DataFetcher) -> float:
+    """FX converting *asset*'s quote currency into *to_currency*, or a refusal.
+
+    The one place a methodology converts money, over the one rate lookup the
+    library has (:meth:`DataFetcher.fx_rate_on`). A market cap is a price
+    times a share count in whatever currency the name trades in; comparing two
+    of them — to rank, to weight, or to screen against a bound — is only
+    meaningful once they are the same money.
+
+    Raises:
+        CalculationError: If the pair is unknown, naming it, the date and the
+            name. Falling back to the local number is the substitution that
+            produced BN-188: a yen cap outranked a dollar one on magnitude
+            alone and every weight in the index was wrong, with nothing
+            downstream looking odd enough for anyone to ask.
+    """
+    rate = market_data_provider.fx_rate_on(asset.currency, to_currency, date)
+
+    if rate is not None:
+        return rate
+
+    raise CalculationError(
+        calculation_name=calculation_name,
+        details=(f"no {asset.currency.upper()}/{to_currency.upper()} rate on "
+                 f"or before {date:%Y-%m-%d}, so {asset.ticker}'s market cap "
+                 f"cannot be expressed in {to_currency.upper()}. Using its "
+                 f"local number instead would compare it with the rest of the "
+                 f"universe on magnitude alone, which is a different index "
+                 f"under the same heading. Load the pair, or drop the name "
+                 f"from the universe."))
+
+
 class EligibilityRuleBase(ABC):
     """
     Abstract base class for an eligibility rule.
@@ -95,7 +131,7 @@ class EligibilityRuleBase(ABC):
                     asset: Asset,
                     current_date: pd.Timestamp,
                     market_data_provider: DataFetcher,
-                    context: dict[str, Any] | None = None) -> bool:
+                    context: IndexContext | None = None) -> bool:
         """
         Checks if a given asset is eligible based on this rule.
 
@@ -104,7 +140,9 @@ class EligibilityRuleBase(ABC):
             current_date: The date on which eligibility is being assessed.
             market_data_provider: A DataFetcher instance to get necessary market data
                                   (e.g., market cap, trading volume).
-            context: Optional dictionary for additional context from the index or global settings.
+            context: What the index the rule is running inside reports in and
+                settles. None when the rule is evaluated outside an index, in
+                which case nothing here may assume a currency it was not told.
 
         Returns:
             True if the asset is eligible, False otherwise.
@@ -119,9 +157,13 @@ class EligibilityRuleBase(ABC):
 @register(SELECTION, "Market capitalisation",
           fields={
               "min_market_cap": Display("Minimum market cap", order=1,
-                                        help="In the index currency. Blank for no floor."),
+                                        help="In the index currency, converted "
+                                             "at the rate on the day. Blank for "
+                                             "no floor."),
               "max_market_cap": Display("Maximum market cap", order=2,
-                                        help="In the index currency. Blank for no ceiling."),
+                                        help="In the index currency, converted "
+                                             "at the rate on the day. Blank for "
+                                             "no ceiling."),
           })
 class MarketCapRule(EligibilityRuleBase):
     """Eligibility by market capitalisation, read from a resolved session.
@@ -137,6 +179,19 @@ class MarketCapRule(EligibilityRuleBase):
     That is the same resolution :class:`MarketCapWeighted` performs, through
     the same primitive and by design. Selection running on one calendar and
     weighting on another is two methodologies under one heading.
+
+    **The bounds are in the index's currency, and now the arithmetic is too
+    (BN-188).** The published help text has always said so while the code
+    compared a name's local number against the bound, so a 5bn floor admitted
+    a name whose yen cap read 5.2bn and excluded a genuinely larger one quoted
+    in a strong currency. The cap is converted at the session's rate before it
+    meets either bound; a missing pair refuses rather than falling back to the
+    local figure.
+
+    Outside an index there is no context and so no currency to convert into,
+    and the bounds are then read in the asset's own. That is the only honest
+    answer to "over five billion of what?" when nobody has said — and it is
+    not a fallback inside an index, where the calculator always supplies one.
 
     **Past the last bar it refuses rather than excluding.** A rule that cannot
     evaluate has not found the asset ineligible, it has failed, and the two
@@ -158,12 +213,13 @@ class MarketCapRule(EligibilityRuleBase):
                     asset: Asset,
                     current_date: pd.Timestamp,
                     market_data_provider: DataFetcher,
-                    context: dict[str, Any] | None = None) -> bool:
+                    context: IndexContext | None = None) -> bool:
         """Whether *asset*'s market cap at the resolved session clears the bounds.
 
         Raises:
-            CalculationError: If *asset* is not an equity, or if *current_date*
-                lies outside the data's coverage, so the rule cannot be
+            CalculationError: If *asset* is not an equity, if *current_date*
+                lies outside the data's coverage, or if the cap cannot be
+                converted into the index currency, so the rule cannot be
                 evaluated at all. Nothing here turns a failure into an
                 exclusion — see the class docstring.
         """
@@ -196,6 +252,11 @@ class MarketCapRule(EligibilityRuleBase):
             return False
 
         market_cap = current_price * shares_outstanding
+
+        # Into the index's money before it meets a bound stated in that money.
+        if context is not None:
+            market_cap *= _rate_into(self.rule_name, equity, context.currency,
+                                     session, market_data_provider)
 
         if self.min_market_cap is not None and market_cap < self.min_market_cap:
             logger.debug(
@@ -245,7 +306,7 @@ class LiquidityRule(EligibilityRuleBase):
                     asset: Asset,
                     current_date: pd.Timestamp,
                     market_data_provider: DataFetcher,
-                    context: dict[str, Any] | None = None) -> bool:
+                    context: IndexContext | None = None) -> bool:
         """Whether *asset*'s traded volume and value over the lookback qualify.
 
         No session resolution here, and none needed: this reads a *window*
@@ -339,7 +400,7 @@ class WeightingSchemeBase(ABC):
                           constituents: list[Asset],
                           current_date: pd.Timestamp,
                           market_data_provider: DataFetcher,
-                          context: dict[str, Any] | None = None) -> dict[Asset, float]:
+                          context: IndexContext | None = None) -> dict[Asset, float]:
         """
         Calculates the weight for each constituent asset.
 
@@ -347,7 +408,8 @@ class WeightingSchemeBase(ABC):
             constituents: A list of assets that are eligible for the index.
             current_date: The date for which weights are being calculated.
             market_data_provider: A DataFetcher instance.
-            context: Optional dictionary for additional context.
+            context: What the index the scheme is running inside reports in
+                and settles. None when it is invoked outside an index.
 
         Returns:
             A dictionary mapping each Asset object to its calculated weight (float).
@@ -383,6 +445,15 @@ class MarketCapWeighted(WeightingSchemeBase):
     one. Past the last bar it refuses, since there the same read would be a
     stale print presented as the current one. The bound is the data's own
     coverage, not a day count, which cannot tell those two apart.
+
+    **Caps are compared in one currency (BN-188).** This weighted
+    ``price x shares`` in whatever money the name traded in, so a yen name
+    entered the sum as though a thousand billion yen were a thousand billion
+    dollars — a fifteen-fold error on its own weight, and a wrong weight on
+    every other constituent with it. A universe spanning currencies is
+    converted into the index's before the caps are summed, and a missing pair
+    refuses; see :meth:`_target_currency` for why a universe quoted in one
+    currency needs no conversion at all.
     """
     def __init__(self,
                  use_free_float: bool = False):
@@ -451,20 +522,71 @@ class MarketCapWeighted(WeightingSchemeBase):
 
         return pd.Timestamp(closes.index[-1]), float(closes.iloc[-1])
 
+    def _target_currency(self,
+                         constituents: list[Asset],
+                         context: IndexContext | None) -> str | None:
+        """The currency the caps are compared in, or None when none is needed.
+
+        A weight is a ratio, so converting every cap by the *same* rate cannot
+        move it: a universe quoted in one currency weights identically however
+        the index reports, and this answers None there. That is not a
+        shortcut — it is what stops a single-currency index refusing over an
+        FX pair that could not have changed its answer, and it is why BN-188
+        moves no existing result.
+
+        Across currencies the conversion is the whole point. Mathematically
+        any base gives the same weights, since a change of base is another
+        common factor; the index's own is the one to use in practice, because
+        it is the base a store actually holds pairs into and the one the
+        index's levels are already quoted in.
+
+        Raises:
+            CalculationError: If the universe spans currencies and no context
+                was supplied, so there is no currency to compare in. Summing
+                the local numbers is the arithmetic this exists to stop, and a
+                scheme silently picking a base of its own would be the same
+                fault wearing a better-looking implementation.
+        """
+        currencies = {asset.currency.upper() for asset in constituents}
+
+        if len(currencies) <= 1:
+            return None
+
+        if context is not None:
+            return context.currency
+
+        raise CalculationError(
+            calculation_name=self.scheme_name,
+            details=(f"the universe is quoted in {len(currencies)} currencies "
+                     f"({', '.join(sorted(currencies))}) and no index context "
+                     f"was supplied, so there is no currency to compare their "
+                     f"market caps in. Adding them as they stand would weight "
+                     f"a name by the size of its currency's unit. Call this "
+                     f"through an IndexCalculator, or pass an IndexContext."))
+
     def _asset_market_cap(self,
                           asset: Equity,
                           session: pd.Timestamp,
-                          market_data_provider: DataFetcher) -> float:
+                          market_data_provider: DataFetcher,
+                          to_currency: str | None = None) -> float:
         """One constituent's market cap, read from the day it last traded.
 
         Shares outstanding and the free-float factor are read on that same
         day rather than on the requested one, so the cap is one coherent
         observation rather than a current share count against an older price.
 
+        Args:
+            asset: The constituent.
+            session: The session the rebalance reads from.
+            market_data_provider: The data source.
+            to_currency: Currency to express the cap in. None leaves it in the
+                name's own, which :meth:`_target_currency` asks for only when
+                every constituent shares it.
+
         Raises:
             CalculationError: If the name cannot be priced, has no positive
-                shares outstanding, or — on a free-float index — has no
-                usable free-float factor.
+                shares outstanding, cannot be converted into *to_currency*,
+                or — on a free-float index — has no usable free-float factor.
         """
         priced_on, price = self._asset_price(asset, session, market_data_provider)
         priced_str = priced_on.strftime('%Y-%m-%d')
@@ -481,6 +603,13 @@ class MarketCapWeighted(WeightingSchemeBase):
                          f"there is no market-cap index to publish."))
 
         asset_market_cap = price * shares_outstanding
+
+        # Converted on the day the name was priced, so the cap stays one
+        # coherent observation: a rate from the requested date against a close
+        # from an earlier one would mix two days into a single number.
+        if to_currency is not None:
+            asset_market_cap *= _rate_into(self.scheme_name, asset, to_currency,
+                                           priced_on, market_data_provider)
 
         if not self.use_free_float:
             return asset_market_cap
@@ -502,19 +631,20 @@ class MarketCapWeighted(WeightingSchemeBase):
                           constituents: list[Asset],
                           current_date: pd.Timestamp,
                           market_data_provider: DataFetcher,
-                          context: dict[str, Any] | None = None) -> dict[Asset, float]:
+                          context: IndexContext | None = None) -> dict[Asset, float]:
         """Weights proportional to market cap, or a refusal.
 
         Raises:
             CalculationError: If *current_date* lies outside the data's
-                coverage, if any constituent is unpriceable or is not an
-                equity, or if the caps sum to nothing. Nothing here falls
-                back to another methodology — see the class docstring.
+                coverage, if any constituent is unpriceable, unconvertible or
+                is not an equity, or if the caps sum to nothing. Nothing here
+                falls back to another methodology — see the class docstring.
         """
         if not constituents:
             return {}
 
         session = self._session_for(current_date, market_data_provider)
+        to_currency = self._target_currency(constituents, context)
         market_caps: dict[Asset, float] = {}
 
         for asset in constituents:
@@ -522,7 +652,7 @@ class MarketCapWeighted(WeightingSchemeBase):
                                     "be weighted by market cap, having none")
 
             market_caps[asset] = self._asset_market_cap(
-                equity, session, market_data_provider)
+                equity, session, market_data_provider, to_currency)
 
         total_market_cap = sum(market_caps.values())
 
@@ -550,7 +680,7 @@ class EqualWeighted(WeightingSchemeBase):
                           constituents: list[Asset],
                           current_date: pd.Timestamp,
                           market_data_provider: DataFetcher,
-                          context: dict[str, Any] | None = None) -> dict[Asset, float]:
+                          context: IndexContext | None = None) -> dict[Asset, float]:
         weights: dict[Asset, float] = {}
         num_constituents = len(constituents)
 

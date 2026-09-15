@@ -132,6 +132,13 @@ class DataFetcher:
         self._source: str | None = None
         self._store_path: Path | None = None
 
+        # Rate series, one per ordered pair, behind `fx_rate_on`. A run
+        # converts every foreign name on every day and each fetch slices the
+        # whole market frame, so an uncached lookup made an eighty-name global
+        # index take longer than the rest of the suite put together. Cleared
+        # whenever the market data underneath it is replaced.
+        self._fx_series: dict[tuple[str, str], pd.Series] = {}
+
     # -- properties ----------------------------------------------------------
 
     @property
@@ -478,6 +485,9 @@ class DataFetcher:
                                             keep="last")
 
         self._market = MarketData.from_dataframe(combined)
+        # The pairs are market rows, so a merge can add or restate them; a
+        # cache held over the swap would answer out of the old frame.
+        self._fx_series.clear()
         self.record_refresh(MARKET_DATASET)
 
         return len(combined) - before
@@ -667,6 +677,56 @@ class DataFetcher:
             return pd.Series(dtype=float)
         rate_col = column if column in df.columns else df.columns[0]
         return df[rate_col]
+
+    def fx_rate_on(self,
+                   from_currency: str,
+                   to_currency: str,
+                   date: str | pd.Timestamp) -> float | None:
+        """The rate converting *from_currency* into *to_currency* on *date*.
+
+        The single currency conversion in the library (BN-188). There were
+        three, and they disagreed: the index calculator carried a rate forward
+        and refused when the pair was unknown, the reference endpoint
+        substituted 1.0 and reported the local number under a dollar heading,
+        and the market-cap weighting did not convert at all — which is how a
+        yen name came to carry fifteen times the weight it should. One lookup
+        means the number displayed and the number weighted by are the same
+        quantity, which is the half of this that nothing was checking.
+
+        The series is fetched once per ordered pair and cached, because a run
+        asks this on every foreign name on every day and each fetch slices the
+        whole market frame.
+
+        Args:
+            from_currency: The currency being converted out of.
+            to_currency: The currency being converted into.
+            date: The date the rate is wanted on.
+
+        Returns:
+            float | None: The rate in force on *date*, carried forward over
+            gaps, or None when the pair is unknown — which callers treat as
+            "cannot convert" rather than as a rate of one. Nothing here
+            invents parity on a caller's behalf: a rate of 1.0 is a claim
+            about two currencies, and the only one this makes is that a
+            currency converts into itself.
+        """
+        if from_currency.upper() == to_currency.upper():
+            return 1.0
+
+        pair = (from_currency.upper(), to_currency.upper())
+
+        if pair not in self._fx_series:
+            self._fx_series[pair] = self.fetch_fx_rates(*pair).sort_index()
+
+        series = self._fx_series[pair]
+
+        if series.empty:
+            return None
+
+        position = series.index.searchsorted(pd.Timestamp(date),
+                                             side="right") - 1
+
+        return float(series.iloc[max(position, 0)])
 
     # -- reference data ------------------------------------------------------
 

@@ -169,33 +169,6 @@ def _clean(row: pd.Series) -> dict[str, Any]:
     return fields
 
 
-def _rate_into_base(fetcher: DataFetcher,
-                    currency: str,
-                    as_of: pd.Timestamp,
-                    cache: dict[str, float]) -> float:
-    """FX from an instrument's currency into the reporting one.
-
-    Cached per currency for the batch: a five-hundred-name request spans a
-    handful of currencies, and looking one up per name would be five hundred
-    slices to answer seven questions.
-    """
-    if currency == DERIVED_CURRENCY:
-        return 1.0
-
-    if currency not in cache:
-        series = fetcher.fetch_fx_rates(currency, DERIVED_CURRENCY,
-                                        end_date=as_of.strftime("%Y-%m-%d"))
-        cache[currency] = float(series.iloc[-1]) if not series.empty else 1.0
-
-        if series.empty:
-            logger.warning(
-                "No %s/%s rate on or before %s; market caps quoted in %s are "
-                "reported unconverted.",
-                currency, DERIVED_CURRENCY, as_of.date(), currency)
-
-    return cache[currency]
-
-
 def _market_caps(fetcher: DataFetcher,
                  identifiers: list[str],
                  requested: set[str],
@@ -205,10 +178,6 @@ def _market_caps(fetcher: DataFetcher,
     A point-in-time cap is a price times a share count, both of which move, so
     this is a market-data join rather than a stored attribute -- which is why
     it is derived and has to be asked for by name.
-
-    Free float is applied as a multiplier rather than fetched separately: it
-    lives in the same row, and reading it twice would double the work to
-    produce a number that is the first one scaled.
     """
     wanted = requested & set(MONEY_FIELDS)
 
@@ -222,39 +191,74 @@ def _market_caps(fetcher: DataFetcher,
                                       end.strftime("%Y-%m-%d"), columns)
 
     computed: dict[str, dict[str, Any]] = {}
-    rates: dict[str, float] = {}
 
     for identifier in identifiers:
         entry: dict[str, Any] = dict.fromkeys(wanted)
         entry[DERIVED_CURRENCY_FIELD] = DERIVED_CURRENCY
-
-        rows = _rows_for(frame, identifier)
-
-        if rows is not None and not rows.empty:
-            # The last observation on or before the date, so a name that
-            # stopped trading before it is valued at its final print rather
-            # than reported as missing -- and one that never traded is.
-            latest = rows.iloc[-1]
-            price = latest.get("CLOSE")
-            shares = latest.get("SHARES_OUTSTANDING")
-
-            if pd.notna(price) and pd.notna(shares):
-                currency = _currency_of(fetcher, identifier, end)
-                rate = _rate_into_base(fetcher, currency, end, rates)
-                capitalisation = float(price) * float(shares) * rate
-
-                if MARKET_CAP in wanted:
-                    entry[MARKET_CAP] = capitalisation
-
-                if FREE_FLOAT_MARKET_CAP in wanted:
-                    free_float = latest.get("FREE_FLOAT")
-                    entry[FREE_FLOAT_MARKET_CAP] = (
-                        capitalisation * float(free_float)
-                        if pd.notna(free_float) else capitalisation)
+        entry.update(_cap_fields(fetcher, identifier, wanted,
+                                 _rows_for(frame, identifier), end))
 
         computed[identifier] = entry
 
     return computed
+
+
+def _cap_fields(fetcher: DataFetcher,
+                identifier: str,
+                wanted: set[str],
+                rows: pd.DataFrame | None,
+                end: pd.Timestamp) -> dict[str, Any]:
+    """One name's money fields, or an empty mapping when it has none.
+
+    Free float is applied as a multiplier rather than fetched separately: it
+    lives in the same row, and reading it twice would double the work to
+    produce a number that is the first one scaled.
+
+    **An unconvertible cap is reported as unknown (BN-188).** This used to fall
+    back to a rate of 1.0 and return the local figure under a
+    `market_cap_currency` of USD, which is how a yen cap came to sort above a
+    dollar one in the universe table. A null is a value the client already
+    renders as "we do not have this"; a local number wearing a dollar label is
+    one it cannot tell from a real answer. The batch still succeeds -- one name
+    without a rate must not fail four hundred and ninety-nine that have one.
+    """
+    if rows is None or rows.empty:
+        return {}
+
+    # The last observation on or before the date, so a name that stopped
+    # trading before it is valued at its final print rather than reported as
+    # missing -- and one that never traded is.
+    latest = rows.iloc[-1]
+    price = latest.get("CLOSE")
+    shares = latest.get("SHARES_OUTSTANDING")
+
+    if pd.isna(price) or pd.isna(shares):
+        return {}
+
+    currency = _currency_of(fetcher, identifier, end)
+    rate = fetcher.fx_rate_on(currency, DERIVED_CURRENCY, end)
+
+    if rate is None:
+        logger.warning(
+            "No %s/%s rate on or before %s; %s's market cap is reported as "
+            "unknown rather than as an unconverted %s figure.",
+            currency, DERIVED_CURRENCY, end.date(), identifier, currency)
+
+        return {}
+
+    capitalisation = float(price) * float(shares) * rate
+    fields: dict[str, Any] = {}
+
+    if MARKET_CAP in wanted:
+        fields[MARKET_CAP] = capitalisation
+
+    if FREE_FLOAT_MARKET_CAP in wanted:
+        free_float = latest.get("FREE_FLOAT")
+        fields[FREE_FLOAT_MARKET_CAP] = (capitalisation * float(free_float)
+                                         if pd.notna(free_float)
+                                         else capitalisation)
+
+    return fields
 
 
 def _rows_for(frame: pd.DataFrame,

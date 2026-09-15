@@ -51,6 +51,7 @@ from ..data.fetcher import DataFetcher
 from ..exceptions import ExpressionError, InvalidRuleError
 from ..expressions.core import Expression, from_dict
 from ..expressions.resolve import resolve
+from .context import IndexContext
 from .feature_rules import EXCLUDE, INCLUDE, ON_MISSING
 from .methodology import EligibilityRuleBase
 
@@ -130,7 +131,7 @@ class ExpressionRule(EligibilityRuleBase):
                     asset: Asset,
                     current_date: pd.Timestamp,
                     market_data_provider: DataFetcher,
-                    context: dict[str, Any] | None = None) -> bool:
+                    context: IndexContext | None = None) -> bool:
         """Whether the asset passes, as of `current_date`.
 
         The date is the rebalance date and is passed straight through to the

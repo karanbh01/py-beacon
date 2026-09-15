@@ -43,6 +43,7 @@ import pandas as pd
 
 from ...asset.base import Asset
 from ...data.fetcher import DataFetcher
+from ..context import IndexContext
 from ..methodology import EligibilityRuleBase
 
 logger = logging.getLogger(__name__)
@@ -123,7 +124,8 @@ class SelectionResult:
 def select_with_provenance(universe: list[Asset],
                            rules: list[EligibilityRuleBase],
                            current_date: pd.Timestamp,
-                           data_fetcher: DataFetcher) -> SelectionResult:
+                           data_fetcher: DataFetcher,
+                           context: IndexContext | None = None) -> SelectionResult:
     """Narrow a universe to its eligible constituents, recording each step.
 
     Args:
@@ -132,6 +134,10 @@ def select_with_provenance(universe: list[Asset],
             survived the ones before it.
         current_date: The date to evaluate at.
         data_fetcher: Data source the rules read from.
+        context: What the index settles for its rules — its currency, so a
+            bound stated in it is compared against a converted figure rather
+            than a local one (BN-188). None outside an index, and then a rule
+            that needs it says so rather than assuming one.
 
     Returns:
         SelectionResult: Survivors, the funnel, and per-asset provenance.
@@ -145,7 +151,8 @@ def select_with_provenance(universe: list[Asset],
     exclusions: dict[str, int] = {}
 
     for position, rule in enumerate(rules, start=1):
-        surviving, removed = _apply_rule(rule, surviving, current_date, data_fetcher)
+        surviving, removed = _apply_rule(rule, surviving, current_date,
+                                        data_fetcher, context)
 
         for asset_id in removed:
             exclusions[asset_id] = position
@@ -164,7 +171,8 @@ def select_with_provenance(universe: list[Asset],
 def _apply_rule(rule: EligibilityRuleBase,
                 candidates: list[Asset],
                 current_date: pd.Timestamp,
-                data_fetcher: DataFetcher) -> tuple[list[Asset], list[str]]:
+                data_fetcher: DataFetcher,
+                context: IndexContext | None = None) -> tuple[list[Asset], list[str]]:
     """Split candidates into those that pass a rule and those that do not.
 
     A rule that raises is left to raise (BN-182). This used to catch every
@@ -179,7 +187,7 @@ def _apply_rule(rule: EligibilityRuleBase,
     removed: list[str] = []
 
     for asset in candidates:
-        if rule.is_eligible(asset, current_date, data_fetcher):
+        if rule.is_eligible(asset, current_date, data_fetcher, context):
             kept.append(asset)
         else:
             logger.debug(f"Asset {asset.asset_id} failed eligibility rule: {rule.rule_name}")

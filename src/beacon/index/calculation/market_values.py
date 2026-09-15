@@ -28,42 +28,22 @@ class MarketValuesMixin:
                 from_currency: str,
                 to_currency: str,
                 date: pd.Timestamp) -> float | None:
-        """An FX rate on a date, from a series fetched once per pair.
+        """An FX rate on a date. Kept as the calculator's name for one lookup.
 
-        The calculator converts every foreign holding on every day, so this
-        used to make one `fetch_fx_rates` call per foreign name per date --
-        each of which slices the whole market frame. Against the
-        single-currency universes that existed before BN-128 it never fired;
-        against a global one an eighty-name index took longer than the rest of
-        the suite put together.
+        The caching, carry-forward and None-on-unknown behaviour this method
+        defined moved to :meth:`DataFetcher.fx_rate_on` in BN-188, because
+        three parts of the library were converting currency three different
+        ways and one of them -- the market-cap weighting -- was not converting
+        at all. This is now the calculator's spelling of that one lookup, so
+        the levels, the weights and the reference display cannot drift apart
+        again.
 
         Returns:
             float | None: The rate as of `date`, carried forward over gaps, or
             None when the pair is unknown -- which callers already treat as
             "cannot convert" rather than as a rate of one.
         """
-        if from_currency.upper() == to_currency.upper():
-            return 1.0
-
-        pair = (from_currency.upper(), to_currency.upper())
-        cache = getattr(self, "_fx_cache", None)
-
-        if cache is None:
-            cache = {}
-            self._fx_cache = cache
-
-        if pair not in cache:
-            cache[pair] = self.data.fetch_fx_rates(
-                from_currency, to_currency).sort_index()
-
-        series = cache[pair]
-
-        if series.empty:
-            return None
-
-        position = series.index.searchsorted(date, side="right") - 1
-
-        return float(series.iloc[max(position, 0)])
+        return self.data.fx_rate_on(from_currency, to_currency, date)
 
     def _get_constituent_market_values(self,
                                        constituents_with_weights: dict[Asset, float],

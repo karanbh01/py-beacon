@@ -13,6 +13,7 @@ from ...data.fetcher import DataFetcher
 from ...exceptions import CalculationError
 from ..capping import CapReport, apply_cap
 from ..constructor import IndexDefinition
+from ..context import IndexContext
 from ..result import IndexResult, daily_weights_frame
 from ..schedule import effective_date, sessions
 from .corporate_actions import CorporateActionsMixin
@@ -98,6 +99,13 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         self.definition: IndexDefinition = index_definition
         self.data: DataFetcher = data_provider
         self.price_column: str = price_column
+
+        # What the methodology gets to know about the index it is running
+        # inside. Rules and schemes have always taken this argument and it was
+        # never supplied, so a market-cap weighting could not tell which
+        # currency to compare its caps in and added them as though every
+        # currency's unit were the same size (BN-188).
+        self.context: IndexContext = IndexContext(currency=self.definition.currency)
 
         logger.info(f"IndexCalculator initialized for index '{self.definition.index_name}'.")
 
@@ -218,7 +226,8 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         result = select_with_provenance(universe,
                                         self.definition.eligibility_rules,
                                         current_date,
-                                        self.data)
+                                        self.data,
+                                        self.context)
 
         logger.info(
             f"Selected {len(result.survivors)} constituents for "
@@ -252,7 +261,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
 
         try:
             weights = self.definition.weighting_scheme.calculate_weights(
-                constituents, current_date, self.data
+                constituents, current_date, self.data, self.context
             )
         except Exception as e:
             logger.error(
