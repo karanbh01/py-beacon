@@ -79,18 +79,26 @@ SILENT_FIELD_CEILING = 180
 # it: `OverviewView.start` is the data's first date, and beacon-ui printed it
 # as the index's base date on one pane while the editor printed `base_date` on
 # another, for as long as the factsheet existed.
+#
+# BN-187 added four. Two are new fields (`AttributionView.requested_*`); two
+# were already described, wrongly — `RiskPayload.window_*` called a bound a
+# measurement and `FeatureResponse.as_of` called an echo a resolution. A bad
+# description is invisible to the ratchet below, which counts silence, so
+# these are pinned here instead.
 DESCRIBED_DATE_FIELDS = {
     ("ActiveRiskPayload", "window_start"), ("ActiveRiskPayload", "window_end"),
     ("AttributionView", "start"), ("AttributionView", "end"),
+    ("AttributionView", "requested_start"), ("AttributionView", "requested_end"),
     ("BacktestResultSummary", "run_at"),
     ("BookPayload", "weights_dates_total"),
     ("CompareView", "start"), ("CompareView", "end"),
-    ("FeatureBatchResponse", "as_of"),
+    ("FeatureBatchResponse", "as_of"), ("FeatureResponse", "as_of"),
     ("FuturesPriceResponse", "time_to_expiry"),
     ("OptimisationRunResult", "start"), ("OptimisationRunResult", "end"),
     ("OverviewView", "start"), ("OverviewView", "end"),
     ("RelativeMetricsPayload", "start"), ("RelativeMetricsPayload", "end"),
     ("RenderResult", "rendered_at"),
+    ("RiskPayload", "window_start"), ("RiskPayload", "window_end"),
     ("RiskModelView", "start"), ("RiskModelView", "end"),
     ("RollResponse", "as_of"),
     ("TermStructureEntry", "time_to_expiry"),

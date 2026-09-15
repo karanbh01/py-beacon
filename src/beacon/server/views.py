@@ -67,11 +67,16 @@ def build_overview(index_id: str,
     snapshots = snapshots_from(run)
     latest = snapshots[-1]
 
+    # The level index is stored as full ISO-8601 timestamps; the span is
+    # published as YYYY-MM-DD (BN-187). These are dates rather than moments —
+    # the time component is always midnight — and `CompareView` next door
+    # already emits plain dates, so a client reading both had two parsing
+    # paths for one concept.
     return OverviewView(
         index_id=index_id,
         name=name,
-        start=str(level.index[0]) if level.index else "",
-        end=str(level.index[-1]) if level.index else "",
+        start=str(level.index[0])[:10] if level.index else "",
+        end=str(level.index[-1])[:10] if level.index else "",
         observations=len(level.index),
         rebalances=len(snapshots),
         last_rebalance=latest.date,
@@ -118,8 +123,14 @@ def build_attribution(index_id: str,
                        cap_drag=_cap_drag(capped, uncapped, prices.loc[window]),
                        cost_drag=_cost_drag(run))
 
+    # `start` is resolved — the shift drops the window's first date, so it is
+    # a trading day later than what was asked for — and the request itself was
+    # published nowhere. The pair beside it carries the window as given, or as
+    # defaulted, which is what a client labelling a range needs (BN-187).
     return AttributionView(
         index_id=index_id,
+        requested_start=start or span[0],
+        requested_end=end or span[1],
         start=result.start,
         end=result.end,
         periods=result.periods,

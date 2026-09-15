@@ -693,7 +693,17 @@ class FeatureValue(BaseModel):
 class FeatureResponse(BaseModel):
     """Response of `GET /data/features/{identifier}`."""
     identifier: str
-    as_of: str = Field(description="The date these were resolved at.")
+    as_of: str = Field(
+        description="The cutoff the features were read at, YYYY-MM-DD: the "
+                    "`date` query echoed back unchanged, or the last date the "
+                    "loaded market data carries when none was given. Never "
+                    "resolved back — a request for a weekend stays a weekend — "
+                    "because each feature independently takes the latest row "
+                    "published on or before it. What was actually read is each "
+                    "`features[].date`, the announcement date of the row that "
+                    "answered, which is usually earlier than this and differs "
+                    "from feature to feature. `FeatureBatchResponse.as_of` is "
+                    "the same field on the batch endpoint.")
     features: list[FeatureValue]
 
 
@@ -714,7 +724,8 @@ class FeatureBatchResponse(BaseModel):
                     "published on or before it. What was actually read is each "
                     "`entries[].features[].date`, the announcement date of the "
                     "row that answered, which is usually earlier than this and "
-                    "differs from feature to feature.")
+                    "differs from feature to feature. `FeatureResponse.as_of` "
+                    "is the same field on the single-instrument endpoint.")
     entries: list[FeatureBatchEntry]
 
 
@@ -2746,19 +2757,19 @@ class OverviewView(BaseModel):
     index_id: str
     name: str
     start: str = Field(
-        description="First date the stored run's level series covers, as a "
-                    "full ISO-8601 timestamp (`2023-01-02T00:00:00`, not "
-                    "`2023-01-02`). Resolved from the data rather than "
-                    "requested: it is **later than the index's `base_date`** "
-                    "whenever the price store does not reach back that far, so "
-                    "labelling it as the base date shows a different figure "
-                    "from the one the definition carries. `end` is the other "
-                    "end of the same series; the window the backtest was asked "
-                    "for is not published here.")
+        description="First date the stored run's level series covers, "
+                    "YYYY-MM-DD — the same form `CompareView.start` uses. "
+                    "Resolved from the data rather than requested: it is "
+                    "**later than the index's `base_date`** whenever the price "
+                    "store does not reach back that far, so labelling it as "
+                    "the base date shows a different figure from the one the "
+                    "definition carries. `end` is the other end of the same "
+                    "series; the window the backtest was asked for is not "
+                    "published here.")
     end: str = Field(
-        description="Last date the stored run's level series covers, in the "
-                    "same full ISO-8601 form as `start`. Resolved from the "
-                    "data: earlier than the end the backtest requested "
+        description="Last date the stored run's level series covers, "
+                    "YYYY-MM-DD, in the same form as `start`. Resolved from "
+                    "the data: earlier than the end the backtest requested "
                     "whenever the price store stops short of it. `start` is "
                     "the other end.")
     observations: int
@@ -2837,9 +2848,22 @@ class RiskPayload(BaseModel):
                     "history. Listed rather than only counted, so a reader "
                     "sees which names are missing.")
     window_start: str | None = Field(
-        default=None, description="First date of the estimation window.")
+        default=None,
+        description="First date of the **run's own** level series, YYYY-MM-DD "
+                    "— the span the price fetch behind this estimate was given, "
+                    "not the dates prices came back on. It does not narrow: "
+                    "when the store covers less, the covariance is estimated "
+                    "from fewer observations and this still reports the run's "
+                    "span, so it is a bound rather than a measurement. Null "
+                    "when the run carries no level series. `window_end` is the "
+                    "other end, and `active_risk.window_start` is this same "
+                    "window — both come from the run, not from a query.")
     window_end: str | None = Field(
-        default=None, description="Last date of the estimation window.")
+        default=None,
+        description="Last date of the run's own level series, YYYY-MM-DD, on "
+                    "the same terms as `window_start`, which is the other end: "
+                    "a bound given to the price fetch, unchanged by what the "
+                    "store actually held.")
 
 
 class ActiveRiskPayload(BaseModel):
@@ -2938,21 +2962,38 @@ class AttributionView(BaseModel):
     upstream, which is worth surfacing rather than rounding away.
     """
     index_id: str
+    requested_start: str | None = Field(
+        default=None,
+        description="The window's first date **as asked for**, YYYY-MM-DD: the "
+                    "`start` query echoed back unchanged, or the run's own "
+                    "first date when the query was omitted, which is what the "
+                    "window then defaulted to. It does not resolve — no data "
+                    "moves it — so it is the field to label a range with. "
+                    "`start` is the resolved counterpart and is a trading day "
+                    "later. Null only when the query was omitted and the run "
+                    "carries no level series to default from. `requested_end` "
+                    "is the other end.")
+    requested_end: str | None = Field(
+        default=None,
+        description="The window's last date as asked for, YYYY-MM-DD, on the "
+                    "same terms as `requested_start`, which is the other end: "
+                    "the `end` query echoed unchanged, or the run's own last "
+                    "date when none was given. `end` is the resolved "
+                    "counterpart.")
     start: str = Field(
         description="First date a contribution was computed for, as a full "
                     "ISO-8601 timestamp. Resolved, and **one trading day later "
                     "than the window's own first date**: a period's return is "
                     "earned by the weight held at its start, so the first date "
                     "in the window has no complete period behind it and is "
-                    "dropped. The `start` query is not echoed back anywhere, "
-                    "and when it is omitted the window defaults to the run's "
-                    "own span. `end` is the other end.")
+                    "dropped. `requested_start` carries the window that was "
+                    "asked for, in YYYY-MM-DD; this is not that date. `end` is "
+                    "the other end.")
     end: str = Field(
         description="Last date a contribution was computed for, in the same "
                     "full ISO-8601 form as `start`. Resolved: the latest date "
                     "the run covers at or before the requested `end`, which "
-                    "defaults to the run's own last date. The `end` query is "
-                    "not echoed back. `start` is the other end.")
+                    "`requested_end` echoes. `start` is the other end.")
     periods: int
     total_return: float
     contributions: list[ContributionPayload]

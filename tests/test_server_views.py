@@ -115,6 +115,31 @@ class TestOverview:
         # Equal weights over six names: effective count equals the real count.
         assert concentration["effective_assets"] == pytest.approx(6.0, abs=1e-6)
 
+    def test_the_span_is_a_plain_date(self,
+                                      client):
+        """BN-187: a wire break, taken deliberately.
+
+        These were full ISO-8601 timestamps while `CompareView` next door
+        emitted plain dates, so a client reading both needed two parsing paths
+        for one concept. They are dates rather than moments — the time
+        component was always midnight.
+        """
+        payload = client.get(f"/beacon/{INDEX_ID}/overview", headers=auth()).json()
+
+        assert payload["start"] == payload["start"][:10]
+        assert payload["end"] == payload["end"][:10]
+        assert "T" not in payload["start"] and "T" not in payload["end"]
+
+    def test_the_span_matches_the_form_compare_uses(self,
+                                                    client):
+        """The same concept on adjacent endpoints, now in the same shape."""
+        overview = client.get(f"/beacon/{INDEX_ID}/overview", headers=auth()).json()
+        compared = client.get("/beacon/compare",
+                              params={"ids": [INDEX_ID, CAPPED_ID]},
+                              headers=auth()).json()
+
+        assert len(overview["start"]) == len(compared["start"]) == 10
+
     def test_an_unknown_index_is_a_404(self,
                                        client):
         response = client.get("/beacon/nope/overview", headers=auth())
@@ -277,6 +302,40 @@ class TestAttribution:
                               headers=auth()).json()
 
         assert narrowed["reconciles"] is True
+
+    def test_the_requested_window_is_echoed_unchanged(self,
+                                                      client):
+        """BN-187: `start` resolves, `requested_start` does not.
+
+        A client labelling a range needs the dates it asked for, and until now
+        the request was published nowhere — so the only date available was one
+        the shift had already moved.
+        """
+        narrowed = client.get(f"/beacon/{INDEX_ID}/attribution",
+                              params={"start": "2023-06-01", "end": "2023-12-31"},
+                              headers=auth()).json()
+
+        assert narrowed["requested_start"] == "2023-06-01"
+        assert narrowed["requested_end"] == "2023-12-31"
+
+    def test_the_resolved_start_is_later_than_the_one_asked_for(self,
+                                                                client):
+        """The contribution shift drops the window's first row, so `start` is
+        a trading day after `requested_start` — permanently, not occasionally.
+        """
+        narrowed = client.get(f"/beacon/{INDEX_ID}/attribution",
+                              params={"start": "2023-06-01", "end": "2023-12-31"},
+                              headers=auth()).json()
+
+        assert narrowed["start"][:10] > narrowed["requested_start"]
+
+    def test_an_omitted_window_echoes_what_it_defaulted_to(self,
+                                                           payload):
+        """The run's own span, which is what the request became."""
+        assert payload["requested_start"] is not None
+        assert payload["requested_end"] is not None
+        assert len(payload["requested_start"]) == 10
+        assert payload["requested_start"] < payload["requested_end"]
 
 
 class TestAssetView:
