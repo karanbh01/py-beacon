@@ -7,7 +7,7 @@ import pytest
 
 from beacon.asset.bond import Bond
 from beacon.asset.equity import Equity
-from beacon.exceptions import CalculationError
+from beacon.exceptions import CalculationError, UnexpectedCalculationError
 from beacon.index.calculation import IndexCalculator
 from beacon.index.result import IndexResult
 
@@ -874,6 +874,9 @@ class TestASubstitutedWeightingIsRefused:
                                                      pd.Timestamp("2025-03-03"))
 
         assert "would publish an allocation the scheme did not produce" in str(raised.value)
+        # And it stays a refusal, not a fault: BN-194 gave the wrapped case its
+        # own class, so this assertion is now what keeps the two apart.
+        assert not isinstance(raised.value, UnexpectedCalculationError)
 
     def test_weights_already_summing_to_one_pass_through(self,
                                                          calculator,
@@ -933,3 +936,62 @@ class TestASubstitutedWeightingIsRefused:
             pytest.raises(CalculationError, match="no usable free-float factor"),
         ):
             calculator.run(end_date="2025-01-03")
+
+
+class TestASchemeThatCrashesIsNotReportedAsADecision:
+    """BN-194: the `except Exception` around the scheme call wraps a *fault*.
+
+    Every refusal in this file is deliberate and carries a remedy in its
+    message. Whatever a scheme raises is neither, and both arrived under one
+    published code — so a reader was told the engine had refused when in fact
+    something broke, and went looking for a request to change that does not
+    exist.
+    """
+
+    def test_a_crashing_scheme_raises_the_unexpected_subclass(self,
+                                                              calculator,
+                                                              mock_definition):
+        mock_definition.weighting_scheme.scheme_name = "EqualWeighted"
+        mock_definition.weighting_scheme.calculate_weights.side_effect = (
+            ZeroDivisionError("division by zero"))
+
+        with pytest.raises(UnexpectedCalculationError) as raised:
+            calculator.calculate_constituent_weights([AAPL],
+                                                     pd.Timestamp("2025-03-03"))
+
+        assert raised.value.original_type == "ZeroDivisionError"
+        assert isinstance(raised.value.__cause__, ZeroDivisionError)
+
+    def test_it_is_still_a_calculation_error(self,
+                                             calculator,
+                                             mock_definition):
+        """Existing `except CalculationError` callers keep catching it."""
+        mock_definition.weighting_scheme.scheme_name = "EqualWeighted"
+        mock_definition.weighting_scheme.calculate_weights.side_effect = (
+            KeyError("CLOSE"))
+
+        with pytest.raises(CalculationError) as raised:
+            calculator.calculate_constituent_weights([AAPL],
+                                                     pd.Timestamp("2025-03-03"))
+
+        assert isinstance(raised.value, UnexpectedCalculationError)
+        assert raised.value.original_type == "KeyError"
+
+    def test_the_scheme_name_is_still_carried(self,
+                                              calculator,
+                                              mock_definition):
+        """The `WeightingScheme-` prefix survives as a name, and only that.
+
+        Nothing branches on it: the class, and the code it maps to, are what
+        separate a crash from a refusal.
+        """
+        mock_definition.weighting_scheme.scheme_name = "EqualWeighted"
+        mock_definition.weighting_scheme.calculate_weights.side_effect = (
+            ZeroDivisionError("division by zero"))
+
+        with pytest.raises(UnexpectedCalculationError) as raised:
+            calculator.calculate_constituent_weights([AAPL],
+                                                     pd.Timestamp("2025-03-03"))
+
+        assert raised.value.calculation_name == "WeightingScheme-EqualWeighted"
+        assert raised.value.details == "division by zero"

@@ -110,8 +110,15 @@ DESCRIBED_DATE_FIELDS = {
 
 # The error codes the envelope promises. A response outside this set means an
 # exception escaped its handler.
+#
+# CALCULATION_ERROR and UNEXPECTED_CALCULATION_FAILURE are two codes on
+# purpose (BN-194): the first is a deliberate refusal carrying a remedy, the
+# second is a crash caught at a boundary. They shared a code, and a client
+# heading that "the engine refused to answer" was right for one and wrong for
+# the other.
 ERROR_CODES = {"UNAUTHORIZED", "DATA_NOT_FOUND", "VALIDATION_ERROR",
-               "CONFIGURATION_ERROR", "CALCULATION_ERROR", "REPORTING_ERROR",
+               "CONFIGURATION_ERROR", "CALCULATION_ERROR",
+               "UNEXPECTED_CALCULATION_FAILURE", "REPORTING_ERROR",
                "MISSING_DEPENDENCY", "NOT_IMPLEMENTED", "INVALID_RULE"}
 
 # The backtest run payload's fields, written out rather than read off the model

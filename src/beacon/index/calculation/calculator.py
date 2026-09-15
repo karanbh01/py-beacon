@@ -11,7 +11,7 @@ import pandas as pd
 from ...asset.base import Asset
 from ...asset.equity import Equity
 from ...data.fetcher import DataFetcher
-from ...exceptions import CalculationError
+from ...exceptions import CalculationError, UnexpectedCalculationError
 from ..capping import CapReport, apply_cap
 from ..constructor import IndexDefinition
 from ..context import IndexContext
@@ -319,10 +319,13 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             A dictionary mapping each Asset to its float weight. Sum of weights should be 1.0.
 
         Raises:
-            CalculationError: If the scheme fails, or if its weights do not sum
-                to 1. The second used to be silently renormalised with a
-                warning — and a scheme's own output rescaled is the scheme not
-                being applied, which is the BN-179 argument exactly (BN-184).
+            UnexpectedCalculationError: If the scheme itself raises. A crash,
+                not a decision, and it carries its own published code so a
+                client does not read it as a refusal (BN-194).
+            CalculationError: If its weights do not sum to 1. That used to be
+                silently renormalised with a warning — and a scheme's own
+                output rescaled is the scheme not being applied, which is the
+                BN-179 argument exactly (BN-184).
         """
         date_str = current_date.strftime('%Y-%m-%d')
         if not constituents:
@@ -343,9 +346,16 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             logger.error(
                 f"Error applying weighting scheme "
                 f"{self.definition.weighting_scheme.scheme_name}: {e}")
-            raise CalculationError(
+
+            # `UnexpectedCalculationError`, not `CalculationError` (BN-194).
+            # Everything a guard in this file refuses is a decision with a
+            # remedy in its message; whatever a scheme raises here is a fault,
+            # and the two arrived under one published code. The
+            # `WeightingScheme-` prefix below survives as a *name* only —
+            # nothing may branch on it, which is why the class differs.
+            raise UnexpectedCalculationError(
                 calculation_name=f"WeightingScheme-{self.definition.weighting_scheme.scheme_name}",
-                details=str(e)) from e
+                cause=e) from e
 
         # A scheme that does not return weights summing to 1 has not produced
         # the weighting it names. Rescaling them here published a *different*

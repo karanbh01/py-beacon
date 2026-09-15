@@ -25,6 +25,7 @@ from beacon.exceptions import (
     InvalidRuleError,
     MissingDependencyError,
     ReportingError,
+    UnexpectedCalculationError,
 )
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Transaction
@@ -356,6 +357,107 @@ class TestErrorEnvelope:
 
     def test_specific_mapping_beats_the_catch_all(self):
         assert classify(DataNotFoundError("x"))[1] == "DATA_NOT_FOUND"
+
+
+class TestARefusalAndACrashAreDifferentCodes:
+    """BN-194: `CALCULATION_ERROR` meant two things a client must separate.
+
+    103 guards raise `CalculationError` deliberately, each naming what was
+    missing and what to do. One `except Exception` in the calculator wrapped a
+    scheme's crash in the same class, so a genuine bug arrived under the code a
+    client heads with "the engine refused to answer" — told a decision was
+    made when something broke, which sends the reader looking for a change
+    that does not exist.
+
+    The separator has to be the published *code*. The only thing distinguishing
+    them before was the `WeightingScheme-` prefix in `calculation_name`, and a
+    client keying on that would be mirroring one `except` block's internals.
+    """
+
+    @staticmethod
+    def _envelope(exception: BeaconError) -> tuple[int, dict]:
+        """Raise `exception` from a route and read the envelope back."""
+        app = create_app(ServerConfig(auth_token=TOKEN))
+
+        @app.get("/boom")
+        def boom() -> None:
+            raise exception
+
+        response = TestClient(app, raise_server_exceptions=False).get(
+            "/boom", headers=auth())
+
+        return response.status_code, response.json()
+
+    def test_the_two_reach_a_client_under_different_codes(self):
+        """End to end through the envelope, not merely as different classes."""
+        refusal = CalculationError("WeightingScheme-EqualWeighted",
+                                   "the 2 weights it returned sum to 0.6, not 1")
+        crash = UnexpectedCalculationError("WeightingScheme-EqualWeighted",
+                                           ZeroDivisionError("division by zero"))
+
+        refusal_status, refusal_body = self._envelope(refusal)
+        crash_status, crash_body = self._envelope(crash)
+
+        assert refusal_body["error"]["code"] == "CALCULATION_ERROR"
+        assert crash_body["error"]["code"] == "UNEXPECTED_CALCULATION_FAILURE"
+        assert refusal_body["error"]["code"] != crash_body["error"]["code"]
+        assert refusal_status == crash_status == 500
+
+    def test_the_names_are_identical_so_only_the_code_separates_them(self):
+        """The `WeightingScheme-` prefix survives as a name, not as a signal.
+
+        Both bodies below carry the same `calculation_name`, which is the
+        point: a client that branched on the prefix would still see no
+        difference, and is meant to branch on the code instead.
+        """
+        _, refusal = self._envelope(
+            CalculationError("WeightingScheme-EqualWeighted", "weights sum to 0.6"))
+        _, crash = self._envelope(
+            UnexpectedCalculationError("WeightingScheme-EqualWeighted",
+                                       ZeroDivisionError("division by zero")))
+
+        assert (refusal["error"]["detail"]["calculation_name"]
+                == crash["error"]["detail"]["calculation_name"])
+
+    def test_the_detail_names_the_exception_that_actually_failed(self):
+        """`original_type` tells a ZeroDivisionError from a KeyError."""
+        _, body = self._envelope(
+            UnexpectedCalculationError("WeightingScheme-EqualWeighted",
+                                       KeyError("CLOSE")))
+
+        assert body["error"]["detail"]["original_type"] == "KeyError"
+        assert "KeyError" in body["error"]["message"]
+
+    def test_a_refusal_carries_no_original_type(self):
+        """A deliberate refusal has no crashed exception to name."""
+        _, body = self._envelope(CalculationError("IndexLevel", "divisor is zero"))
+
+        assert "original_type" not in body["error"]["detail"]
+
+    def test_the_subclass_does_not_fall_through_to_its_parent(self):
+        """classify() walks EXCEPTION_MAPPING in order and takes the first fit.
+
+        Listed after `CalculationError` the new entry would be unreachable,
+        and the fix would look done while changing nothing on the wire.
+        """
+        types = [exception_type for exception_type, _, _ in EXCEPTION_MAPPING]
+
+        assert (types.index(UnexpectedCalculationError)
+                < types.index(CalculationError))
+        assert classify(UnexpectedCalculationError(
+            "WeightingScheme-EqualWeighted", ZeroDivisionError("x"))) == (
+                500, "UNEXPECTED_CALCULATION_FAILURE")
+
+    def test_an_existing_calculation_error_handler_still_catches_it(self):
+        """A subclass, so no `except CalculationError` anywhere changes."""
+        assert issubclass(UnexpectedCalculationError, CalculationError)
+
+        try:
+            raise UnexpectedCalculationError("Scheme", ValueError("bad input"))
+        except CalculationError as caught:
+            assert isinstance(caught, UnexpectedCalculationError)
+        else:  # pragma: no cover - the raise above always raises
+            pytest.fail("an except CalculationError handler stopped catching it")
 
 
 def all_beacon_error_subclasses() -> set[type]:

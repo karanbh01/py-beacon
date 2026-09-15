@@ -171,6 +171,55 @@ class CalculationError(BeaconError):
         self.calculation_name = calculation_name
         self.details = details
 
+class UnexpectedCalculationError(CalculationError):
+    """Raised when a calculation *crashed*, as opposed to refusing.
+
+    Every other `CalculationError` in this codebase is a deliberate refusal:
+    a guard that names what was missing and what to do about it. This one is
+    the opposite — an exception nobody anticipated, caught at a boundary and
+    re-raised so it still reaches a client inside the error envelope instead
+    of as an unlabelled 500.
+
+    The two shared one published code until BN-194, and a client heading
+    `CALCULATION_ERROR` with *"the engine refused to answer"* was therefore
+    told a decision had been made when in fact something broke. That is a
+    **wrong remedy**, which costs more than no remedy: the reader goes looking
+    for what to change, there is nothing, and the real signal — a stack trace
+    worth reporting — is disguised as a considered answer.
+
+    A subclass rather than a sibling, because a crash during a calculation
+    genuinely *is* a calculation error: anything already written as
+    ``except CalculationError`` keeps catching it, so no handler changes
+    behaviour. What separates them on the wire is the published code alone —
+    never the `WeightingScheme-` prefix that one `except` block happens to put
+    in `calculation_name`, which is an implementation detail and documented
+    nowhere a client is meant to read.
+
+    `original_type` carries the class name of the exception that actually
+    failed, so a reader can tell a `ZeroDivisionError` from a `KeyError`
+    without a server log. Like every other attribute of a `BeaconError`, it
+    reaches the client in the envelope's `detail`.
+    """
+    def __init__(self,
+                 calculation_name: str,
+                 cause: BaseException):
+        self.original_type = type(cause).__name__
+
+        # `BeaconError.__init__` rather than the parent's, because the parent's
+        # "Error in calculation '<name>': <details>" reads as a considered
+        # answer, which is the confusion this class exists to end. The two
+        # attributes it would have set are set below instead, so the shape a
+        # client sees stays the parent's plus one field.
+        BeaconError.__init__(
+            self,
+            f"Calculation '{calculation_name}' failed with an unexpected "
+            f"{self.original_type}: {cause}. This is a fault rather than a "
+            f"refusal: there is nothing in the request to change, and it is "
+            f"worth reporting.")
+
+        self.calculation_name = calculation_name
+        self.details = str(cause)
+
 # For the main __init__.py, they can be exposed directly:
 # from .beacon_exceptions import DataNotFoundError, InvalidRuleError
 # if beacon_exceptions.py is in root

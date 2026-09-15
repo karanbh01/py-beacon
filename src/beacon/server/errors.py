@@ -23,6 +23,7 @@ from ..exceptions import (
     InvalidRuleError,
     MissingDependencyError,
     ReportingError,
+    UnexpectedCalculationError,
 )
 from .schemas import ErrorDetail, ErrorEnvelope
 
@@ -56,6 +57,16 @@ EXCEPTION_MAPPING: tuple[tuple[type[BeaconError], int, str], ...] = (
     # A process with no data source is a deployment fact, not a client
     # mistake -- same family as ConfigurationError.
     (DataSourceError, status.HTTP_500_INTERNAL_SERVER_ERROR, "NO_DATA_SOURCE"),
+    # A crash inside a calculation, caught at a boundary and re-raised (BN-194).
+    # It must sit BEFORE its parent: the lookup below takes the first entry
+    # whose type fits, so behind `CalculationError` it would never be reached.
+    # Its own code because `CALCULATION_ERROR` means a *deliberate refusal with
+    # a remedy* -- 103 guards raise it -- and a client heads the two
+    # differently. The detail carries `original_type`, the class name of the
+    # exception that failed, so a reader can tell a `ZeroDivisionError` from a
+    # `KeyError` without a server log.
+    (UnexpectedCalculationError, status.HTTP_500_INTERNAL_SERVER_ERROR,
+     "UNEXPECTED_CALCULATION_FAILURE"),
     (CalculationError, status.HTTP_500_INTERNAL_SERVER_ERROR, "CALCULATION_ERROR"),
     (ReportingError, status.HTTP_500_INTERNAL_SERVER_ERROR, "REPORTING_ERROR"),
     # A malformed expression is a client mistake, not a server fault: the tree
