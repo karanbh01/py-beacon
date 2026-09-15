@@ -73,8 +73,8 @@ class MarketValuesMixin:
                             current_date: pd.Timestamp) -> float:
         """Compute the FX/free-float-adjusted market value for a single Equity asset.
 
-        Returns 0.0 (with a warning logged) whenever price, shares, or FX data
-        is missing, matching the previous inline behaviour.
+        Returns 0.0 (with a warning logged) when price or shares data is
+        missing. An unconvertible currency refuses instead — see below.
 
         Only equities carry the ticker used for the market-data lookups;
         :meth:`_get_constituent_market_values` refuses a non-equity before it
@@ -88,17 +88,24 @@ class MarketValuesMixin:
 
         Raises:
             CalculationError: If the weighting scheme is float-adjusted and no
-                usable free-float factor exists for *asset* (BN-184).
+                usable free-float factor exists for *asset* (BN-184), or if
+                *asset*'s currency cannot be converted into the index's
+                (BN-191).
         """
         date_str = current_date.strftime('%Y-%m-%d')
         price_df = self.data.fetch_market_data(asset.ticker, date_str, date_str)
 
-        # The two zero-value branches below, and the FX one further down, are
-        # left as they are on purpose: they are the chain demonstrated with a
-        # live wrong output in #204 (an exact-date read, so a market holiday
-        # zeroes the whole book) and they are fixed there, together with
-        # `_fx_rate` and `index_units`. Fixing one of them here would leave
-        # the others producing the same wrong answer by a different route.
+        # BN-191, triaged as leave, because this total is a *scale* and not a
+        # level: on the `run()` path it sets the units and the divisor together
+        # (units = weight x total / unit_value, divisor = total / base_value),
+        # so any positive constant multiplying it leaves every published level
+        # identical, and the rebalance adjustment cancels it the same way. What
+        # a name is *weighted* by is decided in
+        # `MarketCapWeighted._asset_market_cap`, which already refuses an
+        # unpriceable name, a missing share count and a missing free float
+        # (BN-184, BN-188), off the session the name last traded rather than an
+        # exact date. The level-affecting twin of these two zeros is
+        # `asset_unit_value`'s missing price, separated below.
         if price_df.empty or self.price_column not in price_df.columns \
                 or pd.isna(price_df[self.price_column].iloc[0]):
             logger.warning(
@@ -119,20 +126,54 @@ class MarketValuesMixin:
         market_value_local_ccy = current_price * shares
         market_value_local_ccy *= self._free_float(asset, date_str)
 
-        # FX Conversion to Index Currency
-        fx_rate = 1.0
-        if asset.currency.upper() != self.definition.currency.upper():
-            rate = self.rate_on(asset.currency,
-                                self.definition.currency, current_date)
-            if rate is not None:
-                fx_rate = rate
-            else:
-                logger.warning(
-                    f"No FX rate found for {asset.currency}/{self.definition.currency} "
-                    f"on {current_date}. Using 1.0.")
-                return 0.0
+        # FX conversion into the index currency. Unlike the two zeros above
+        # this is not a scale: `calculate_index_level` divides this very sum by
+        # the divisor, so a dropped term is a level that is wrong by that
+        # name's whole share of the market cap.
+        return market_value_local_ccy * self._market_value_rate(
+            asset, current_date, date_str, market_value_local_ccy)
 
-        return market_value_local_ccy * fx_rate
+    def _market_value_rate(self,
+                           asset: Equity,
+                           current_date: pd.Timestamp,
+                           date_str: str,
+                           local_value: float) -> float:
+        """The rate converting *asset*'s market value into the index currency.
+
+        Raises:
+            CalculationError: If the pair is unknown (BN-191). This used to
+                return 0.0 while logging "Using 1.0" — two opposite
+                behaviours, one in the code and the other in the log, so a
+                reader diagnosing from logs would conclude the name had been
+                valued as though a yen were a dollar when in fact it had been
+                removed from the aggregate altogether. Neither is available:
+                a rate of 1.0 is BN-188's defect and 0.0 publishes a level
+                over the constituents that happen to be convertible.
+        """
+        local = asset.currency.upper()
+        index_currency = self.definition.currency.upper()
+
+        if local == index_currency:
+            return 1.0
+
+        rate = self.rate_on(asset.currency, self.definition.currency,
+                            current_date)
+
+        if rate is None:
+            raise CalculationError(
+                calculation_name="ConstituentMarketValues",
+                details=(f"no {local}/{index_currency} rate on or before "
+                         f"{date_str}, so {asset.ticker}'s market value of "
+                         f"{local_value:g} {local} cannot be expressed in "
+                         f"{index_currency}. Excluding it from the aggregate "
+                         f"— the old answer — silently restates the index "
+                         f"over the constituents that happen to be "
+                         f"convertible, and converting at 1.0 — what the old "
+                         f"log claimed — weights it as though the two "
+                         f"currencies were the same money. Load the pair, or "
+                         f"define the index in {local}."))
+
+        return rate
 
     def _free_float(self,
                     asset: Equity,
@@ -172,7 +213,7 @@ class MarketValuesMixin:
 
     def asset_unit_value(self,
                          asset: Asset,
-                         current_date: pd.Timestamp) -> float:
+                         current_date: pd.Timestamp) -> float | None:
         """Value of one unit of *asset* in the index currency: price times FX.
 
         Distinct from :meth:`_asset_market_value`, which multiplies by shares
@@ -185,14 +226,21 @@ class MarketValuesMixin:
             current_date: Valuation date.
 
         Returns:
-            float: Price in index currency, or 0.0 when price or FX is
-            missing — matching the behaviour of the market-value path.
+            float | None: The price in index currency, or None when the name
+            could not be priced on *current_date*. None rather than 0.0 since
+            BN-191: "could not be priced" and "priced at zero" used to be one
+            answer, so the caller that must refuse the first
+            (:meth:`index_units`) could not tell it from the one the caller
+            that must tolerate it (:meth:`holding_values`, where a feed gap is
+            a flat day) is right about. The tolerance is unchanged; it is no
+            longer *indistinguishable* from a failure.
 
         Raises:
-            CalculationError: If *asset* is not an equity (BN-185). Valuing it
-                at 0.0 made a constituent the index still holds contribute
-                nothing, which is a silent restatement of the index rather
-                than a missing price.
+            CalculationError: If *asset* is not an equity (BN-185), or if its
+                currency cannot be converted into the index's (BN-191).
+                Valuing either at 0.0 made a constituent the index still holds
+                contribute nothing, which is a silent restatement of the index
+                rather than a missing price.
 
         Errors are not caught (BN-184). A bare ``except Exception`` used to
         turn any failure below into a unit value of 0.0, which feeds straight
@@ -207,8 +255,10 @@ class MarketValuesMixin:
 
         if (price_df.empty or self.price_column not in price_df.columns
                 or pd.isna(price_df[self.price_column].iloc[0])):
-            logger.warning(f"asset_unit_value: No price for {equity.ticker}. Value is 0.")
-            return 0.0
+            logger.warning(
+                f"asset_unit_value: No price for {equity.ticker} on {date_str}; "
+                "it cannot be priced today.")
+            return None
 
         price = float(price_df[self.price_column].iloc[0])
 
@@ -220,21 +270,38 @@ class MarketValuesMixin:
                  date_str: str) -> float:
         """FX rate converting *asset*'s currency into the index currency.
 
-        Returns 0.0 rather than 1.0 when a needed rate is missing, so a
-        constituent whose rate cannot be found drops out of the aggregate
-        instead of being silently valued as though no conversion were needed.
+        Raises:
+            CalculationError: If the pair is unknown (BN-191). It used to
+                return 0.0, which made the name's unit value zero, which made
+                its unit count zero in :meth:`index_units`, which made it
+                contribute nothing — and the index published a level over the
+                constituents that remained, with two warnings in a log and a
+                coherent number at the end. The result is not a mis-weighted
+                index but a different one, and nothing in it says which names
+                are missing. This is also what masked BN-189: the payer of an
+                unconvertible dividend had already been given zero units here,
+                so the substituted local dividend was multiplied by zero.
         """
-        if asset.currency.upper() == self.definition.currency.upper():
+        local = asset.currency.upper()
+        index_currency = self.definition.currency.upper()
+
+        if local == index_currency:
             return 1.0
 
         rate = self.rate_on(asset.currency, self.definition.currency,
                             current_date)
 
         if rate is None:
-            logger.warning(
-                f"No FX rate found for {asset.currency}/{self.definition.currency} "
-                f"on {current_date}. Excluding from the aggregate.")
-            return 0.0
+            raise CalculationError(
+                calculation_name="AssetUnitValue",
+                details=(f"no {local}/{index_currency} rate on or before "
+                         f"{date_str}, so one unit of {asset.asset_id} cannot "
+                         f"be valued in {index_currency}. Excluding it from "
+                         f"the aggregate — the old answer — drops the "
+                         f"constituent and publishes a level over the rest of "
+                         f"them, which is a different index rather than a "
+                         f"mis-valued one. Load the pair, or define the index "
+                         f"in {local}."))
 
         return rate
 
@@ -263,24 +330,78 @@ class MarketValuesMixin:
             current_date: Rebalance date.
 
         Returns:
-            dict: Units per constituent. A constituent with no unit value gets
-            zero units rather than an infinite position.
+            dict: Units per constituent. A constituent priced at exactly zero
+            gets zero units rather than an infinite position.
+
+        Raises:
+            CalculationError: If a constituent the index allocates weight to
+                could not be priced at all (BN-191). ``unit_value <= 0.0``
+                used to cover both that and a name genuinely quoted at zero,
+                and the two are not the same event: the second is a fact about
+                a market, the first is the absence of one. Holding zero units
+                of a name with a target weight leaves the index short by that
+                whole weight and publishes the shortfall as the index's own
+                level — the same refusal `chaining._price_series` already
+                makes on the optimised path (BN-184).
         """
         units: dict[Asset, float] = {}
 
         for asset, weight in weights.items():
-            unit_value = self.asset_unit_value(asset, current_date)
-
-            if unit_value <= 0.0:
-                logger.warning(
-                    f"No unit value for {asset.asset_id} on {current_date}; it "
-                    "holds zero units and contributes nothing.")
-                units[asset] = 0.0
-                continue
-
-            units[asset] = weight * aggregate / unit_value
+            units[asset] = self._units_of(asset, weight, aggregate,
+                                          current_date)
 
         return units
+
+    def _units_of(self,
+                  asset: Asset,
+                  weight: float,
+                  aggregate: float,
+                  current_date: pd.Timestamp) -> float:
+        """Units of one constituent realising *weight* of *aggregate*.
+
+        Raises:
+            CalculationError: If *asset* carries a non-zero *weight* and could
+                not be priced, or was priced below zero.
+        """
+        unit_value = self.asset_unit_value(asset, current_date)
+        date_str = current_date.strftime('%Y-%m-%d')
+
+        if unit_value is None or unit_value < 0.0:
+            # A name carried at a weight of zero is never held, so its price is
+            # not needed and its absence is not a failure — the same carve-out
+            # `chaining._price_series` makes.
+            if weight == 0.0:
+                logger.warning(
+                    f"{asset.asset_id} has no unit value on {date_str}; its "
+                    "target weight is zero, so it holds zero units.")
+
+                return 0.0
+
+            reason = ("could not be priced" if unit_value is None
+                      else f"was priced at {unit_value:g}")
+
+            raise CalculationError(
+                calculation_name="IndexUnits",
+                details=(f"{asset.asset_id} carries a target weight of "
+                         f"{weight:.6g} on {date_str} but {reason}, so there "
+                         f"is no unit count that realises that weight. "
+                         f"Holding zero units of it — the old answer — leaves "
+                         f"the index short by its whole weight and publishes "
+                         f"the shortfall as the index's own level."))
+
+        if unit_value == 0.0:
+            # Distinct from the refusal above, deliberately (BN-191): a name
+            # quoted at exactly zero has been priced, and zero is the answer
+            # the market gave. Zero units is then the only finite answer — but
+            # it is arithmetic forced by a real observation, not a missing one.
+            logger.warning(
+                f"{asset.asset_id} is priced at zero on {date_str}; it holds "
+                "zero units, because no finite position in a worthless name "
+                "carries a weight.")
+
+            return 0.0
+
+        return weight * aggregate / unit_value
 
     def holding_values(self,
                        units: dict[Asset, float],
@@ -299,10 +420,19 @@ class MarketValuesMixin:
         Returns:
             dict: Value per holding in the index currency. A name with no
             price today is worth 0.0 and still appears, because it is still
-            held.
+            held — a feed gap is a data-quality problem, and carrying the level
+            forward (which :meth:`level_from_units` does) is the right response
+            to one. BN-191 left that tolerance alone; what changed is that
+            `None` now says "could not be priced" out loud, so the caller that
+            must refuse it can while this one need not.
         """
-        return {asset: count * self.asset_unit_value(asset, current_date)
-                for asset, count in units.items()}
+        values: dict[Asset, float] = {}
+
+        for asset, count in units.items():
+            unit_value = self.asset_unit_value(asset, current_date)
+            values[asset] = 0.0 if unit_value is None else count * unit_value
+
+        return values
 
     def aggregate_value(self,
                         units: dict[Asset, float],
@@ -335,6 +465,16 @@ class MarketValuesMixin:
 
         Raises:
             CalculationError: If the divisor is not positive.
+
+        The two carry-forward branches below were triaged with BN-191, which
+        fixed the chain that used to hollow the aggregate out above them.
+        Neither became unreachable and both are kept, because what remains is
+        the case they were written for — a day on which the *data* has nothing
+        to say. `not units` is a rebalance that selected no constituents; a
+        non-positive aggregate is every holding unpriced on one date, which an
+        exact-date read produces on a market holiday. Carrying the last level
+        is the right answer to a feed gap; what BN-191 removed is the gap the
+        calculation was manufacturing for itself.
         """
         if divisor <= 0:
             logger.error(f"Invalid divisor: {divisor}. Cannot calculate index level.")

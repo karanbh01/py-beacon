@@ -218,3 +218,90 @@ class TestAFailingCurrencyLookupPropagates:
         levels = chain({DAYS[0]: {"AAA": 1.0}}, fetcher).index_levels
 
         assert levels.iloc[1] == pytest.approx(1.1 * BASE)
+
+
+# -- BN-191: the chained path takes the calculated path's decision ------------
+
+
+class TestAnUnconvertibleHoldingIsRefused:
+    """BN-191: the twin of `MarketValuesMixin._fx_rate`, moved together.
+
+    A name quoted where no rate reaches the index currency used to yield a
+    column of NaN, which `_units_for` turned into zero units, which left the
+    chained index short by that name's whole weight and published the
+    shortfall. The calculated path refuses it; if this one substituted, an
+    optimised index and its parent would disagree about what an unvaluable
+    name means — the two-layer disagreement of #195 and #198 in a new place.
+    """
+
+    def test_a_held_foreign_name_with_no_rate_refuses(self):
+        solved = {DAYS[0]: {"AAA": 0.5, "BP": 0.5}}
+        fetcher = Fetcher({"AAA": [100.0] * 4, "BP": [100.0] * 4},
+                          currencies={"AAA": "USD", "BP": "GBP"})
+
+        with pytest.raises(CalculationError) as raised:
+            chain(solved, fetcher)
+
+        message = str(raised.value)
+
+        assert "GBP/USD" in message
+        assert "BP" in message
+
+    def test_a_foreign_name_never_held_is_tolerated(self):
+        """The same carve-out the missing-price refusal makes.
+
+        A name carried at a weight of zero is never valued, so the pair it
+        would need is not needed either.
+        """
+        solved = {DAYS[0]: {"AAA": 1.0, "BP": 0.0}}
+        fetcher = Fetcher({"AAA": [100.0] * 4, "BP": [100.0] * 4},
+                          currencies={"AAA": "USD", "BP": "GBP"})
+
+        assert chain(solved, fetcher).index_levels.iloc[0] == pytest.approx(BASE)
+
+    def test_the_refusal_does_not_depend_on_which_name_came_first(self):
+        """The rate cache holds None for an unknown pair, not a NaN column.
+
+        Two names in the same unconvertible currency, one held and one not: had
+        the cache stored the unheld name's NaN series the held name would have
+        read a cached "conversion" and never reached the refusal. `SPARE`
+        sorts before `BP` is reached, which is the ordering that would have hid
+        it.
+        """
+        solved = {DAYS[0]: {"AAA": 0.5, "BP": 0.5, "SPARE": 0.0}}
+        fetcher = Fetcher({"AAA": [100.0] * 4, "BP": [100.0] * 4,
+                           "SPARE": [100.0] * 4},
+                          currencies={"AAA": "USD", "BP": "GBP",
+                                      "SPARE": "GBP"})
+
+        with pytest.raises(CalculationError, match="GBP/USD"):
+            chain(solved, fetcher)
+
+
+class TestPricedAtZeroIsNotTheSameAsUnvaluable:
+    """BN-191: `isna or <= 0.0` covered two different events."""
+
+    def test_a_name_quoted_at_zero_holds_zero_units_rather_than_refusing(self):
+        """A price of zero is an observation, not the absence of one.
+
+        No finite position in a worthless name carries a weight, so zero units
+        is the only answer arithmetic allows — and half the book is then
+        uninvested, which is why the level is half the base. That is the
+        honest consequence of a real quote, so it computes; the case BN-191
+        refuses is the one where the shortfall was manufactured by data that
+        was simply not there.
+        """
+        solved = {DAYS[0]: {"AAA": 0.5, "ZERO": 0.5}}
+        fetcher = Fetcher({"AAA": [100.0] * 4, "ZERO": [0.0] * 4})
+
+        levels = chain(solved, fetcher).index_levels
+
+        assert levels.iloc[0] == pytest.approx(0.5 * BASE)
+
+    def test_a_negative_price_refuses(self):
+        """A negative equity price is not a price."""
+        solved = {DAYS[0]: {"AAA": 0.5, "NEG": 0.5}}
+        fetcher = Fetcher({"AAA": [100.0] * 4, "NEG": [-5.0] * 4})
+
+        with pytest.raises(CalculationError, match="NEG"):
+            chain(solved, fetcher)

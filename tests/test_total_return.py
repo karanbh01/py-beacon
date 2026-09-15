@@ -489,16 +489,54 @@ class TestAForeignDistributionMustBeConvertible:
         assert substituted / converted == pytest.approx(JPY_PER_USD)
 
     def test_a_total_return_run_refuses(self):
-        """End to end, because the refusal has to survive the call chain."""
+        """End to end, because the refusal has to survive the call chain.
+
+        BN-191 moved which refusal fires first, and that interaction is real
+        rather than incidental. This data has no JPY/USD pair at all, so the
+        *valuation* of JPCO fails on the base date, before any dividend is
+        reached: BN-189's own analysis said `market_values` had already zeroed
+        the payer, and zeroing it is what BN-191 replaced with a refusal. So
+        the run still refuses, one step earlier and naming the more
+        fundamental cause. `distribution_rates` keeps its own refusal for the
+        case that reaches it — a pair known on some dates and not on the
+        ex-date — which the method-level tests above pin directly.
+        """
         fetcher = two_currency_fetcher(with_rates=False)
 
-        with pytest.raises(CalculationError, match="TotalReturnDistribution"):
+        with pytest.raises(CalculationError, match="ConstituentMarketValues"):
             calculator_over(fetcher).run(start_date=START, end_date=END)
 
     def test_a_price_run_over_the_same_data_still_computes(self):
-        """A price index reinvests nothing, so it needs no rate to be right —
-        the refusal must not spread to a calculation that never converts."""
-        levels = calculator_over(two_currency_fetcher(with_rates=False),
+        """A price index reinvests nothing, so BN-189's refusal cannot reach it
+        — but BN-191's does, and the reason is this issue's whole thesis.
+
+        The distribution refusal is still scoped to reinvestment: nothing on
+        this path calls `distribution_rates`, and the refusal that fires names
+        the market-value conversion instead. What it says is that an index
+        which cannot value a constituent cannot publish a level over the rest
+        of them, and that is true of a price index exactly as much as a
+        total-return one. Before BN-191 this run *did* publish levels — over
+        the dollar name alone, having silently dropped the yen one, with two
+        warnings in a log and a coherent number at the end.
+        """
+        with pytest.raises(CalculationError) as refusal:
+            calculator_over(two_currency_fetcher(with_rates=False),
+                            PRICE).run(start_date=START, end_date=END)
+
+        message = str(refusal.value)
+
+        assert "JPY/USD" in message
+        assert "JPCO" in message
+        assert "TotalReturnDistribution" not in message
+
+    def test_the_only_missing_pair_is_the_reason(self):
+        """The counterpart: load the pair and the same price run computes.
+
+        Without this the refusal above could be passing for any reason at all
+        — a foreign name being rejected outright, say, rather than an
+        unconvertible one.
+        """
+        levels = calculator_over(two_currency_fetcher(),
                                  PRICE).run(start_date=START,
                                             end_date=END).index_levels
 

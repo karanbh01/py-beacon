@@ -17,6 +17,8 @@ reason, rather than each against itself.
 The universe is the issue's: one dollar name and one yen name at 150, chosen
 so the unconverted answer and the converted one are not near neighbours.
 """
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
 
@@ -27,7 +29,11 @@ from beacon.exceptions import CalculationError
 from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.context import IndexContext
-from beacon.index.methodology import MarketCapRule, MarketCapWeighted
+from beacon.index.methodology import (
+    EqualWeighted,
+    MarketCapRule,
+    MarketCapWeighted,
+)
 from beacon.server.reference import build_entries
 
 START = "2024-01-02"
@@ -372,3 +378,200 @@ class TestOneRateLookup:
         fetcher.merge_market_data(restated)
 
         assert fetcher.fx_rate_on("JPY", "USD", AS_OF) == pytest.approx(0.01)
+
+
+# -- BN-191: an index that cannot value a constituent publishes no level ------
+
+
+def equal_weighted_index(with_rates: bool = True) -> IndexCalculator:
+    """The same universe, equal weighted, as an index that actually runs.
+
+    Equal weighting is the case #204 was filed over: BN-188's refusal lives in
+    the *weighting*, so a market-cap index over this data never reaches the
+    valuation at all, while an equal-weighted one needs no rate to decide a
+    weight and every rate to value one. That gap is where the missing pair used
+    to drop a constituent and let the calculation carry on.
+    """
+    definition = IndexDefinition(index_id="FX191",
+                                 index_name="Two currencies",
+                                 base_date=START,
+                                 base_value=1000.0,
+                                 currency="USD",
+                                 eligibility_rules=[],
+                                 weighting_scheme=EqualWeighted(),
+                                 rebalancing_frequency="ANNUAL",
+                                 calendar="XNYS",
+                                 universe_identifiers=list(PRICE))
+
+    return IndexCalculator(definition, build_fetcher(with_rates))
+
+
+def _as_it_was(asset,
+               *_args) -> float:
+    """The substitution BN-191 removed: 0.0 on an unconvertible pair.
+
+    Restored per-name rather than wholesale, because that is how it behaved —
+    the dollar name converted at 1.0 and only the yen one was zeroed. Zeroing
+    both would have emptied the aggregate and tripped BN-184's divisor refusal
+    instead, which is a different failure from the one being pinned.
+    """
+    return 1.0 if asset.currency.upper() == "USD" else 0.0
+
+
+class TestAnIndexThatCannotValueAConstituentPublishesNoLevel:
+    """BN-191: the chain that dropped a name and published the remainder.
+
+    `_fx_rate` returned 0.0 on an unknown pair, so the name's unit value was
+    zero, so `index_units` gave it zero units, so it contributed nothing — and
+    the level series came out over the constituents that happened to be
+    convertible. Two warnings in a log and a coherent number at the end. The
+    result is not a mis-weighted index but a different one, and nothing in it
+    said which names were missing from it.
+    """
+
+    def test_the_run_refuses(self):
+        with pytest.raises(CalculationError):
+            equal_weighted_index(with_rates=False).run(start_date=START,
+                                                       end_date=END)
+
+    def test_the_refusal_names_the_pair_the_name_and_the_date(self):
+        with pytest.raises(CalculationError) as raised:
+            equal_weighted_index(with_rates=False).run(start_date=START,
+                                                       end_date=END)
+
+        message = str(raised.value)
+
+        assert "JPY/USD" in message
+        assert "JPSML" in message
+        assert START in message
+
+    def test_the_substitution_it_replaces_halved_the_index(self):
+        """The old output, reproduced by restoring the two zeros it rested on.
+
+        With the yen name's market value zeroed the base-date aggregate was the
+        dollar name's 1e11 alone, so the divisor was 1e8 — and the equal
+        weighting still gave the yen name half the index, of which it held zero
+        units. The book was therefore half invested and the level printed 500
+        against a base value of 1000, from the first ordinary day on, with no
+        market having moved. Pinned as a number because "the level was wrong"
+        understates it: the index halved overnight and published the half.
+        """
+        calculator = equal_weighted_index(with_rates=False)
+
+        with (patch.object(calculator, "_market_value_rate",
+                           side_effect=_as_it_was),
+              patch.object(calculator, "_fx_rate", side_effect=_as_it_was)):
+            levels = calculator.run(start_date=START, end_date=END).index_levels
+
+        assert levels.iloc[0] == pytest.approx(1000.0)
+        assert levels.iloc[-1] == pytest.approx(500.0)
+
+    def test_the_loaded_pair_publishes_the_whole_index(self):
+        """The counterpart: the refusal is about the missing pair, not about
+        foreign names. Both names are flat here, so the level holds its base."""
+        levels = equal_weighted_index().run(start_date=START,
+                                            end_date=END).index_levels
+
+        assert levels.iloc[0] == pytest.approx(1000.0)
+        assert levels.iloc[-1] == pytest.approx(1000.0)
+
+    def test_the_daily_panel_used_to_carry_the_dropped_name_at_zero(self):
+        """Why a log was not enough: the result said nothing was wrong.
+
+        The panel listed the yen name with a weight of 0.0 — indistinguishable
+        from a name the methodology genuinely does not hold — so a reader of
+        the published output had no way to learn that half the index was
+        unvaluable.
+        """
+        calculator = equal_weighted_index(with_rates=False)
+
+        with (patch.object(calculator, "_market_value_rate",
+                           side_effect=_as_it_was),
+              patch.object(calculator, "_fx_rate", side_effect=_as_it_was)):
+            panel = calculator.run(start_date=START, end_date=END).daily_weights
+
+        yen = panel[panel["IDENTIFIER"] == "JPSML"]
+
+        assert not yen.empty
+        assert (yen["WEIGHT"] == 0.0).all()
+
+
+class TestTheRefusalsAreAtTheRightGranularity:
+    """Each conversion that decides a published number refuses on its own."""
+
+    @staticmethod
+    def yen_asset() -> Equity:
+        return assets()[1]
+
+    def test_the_unit_value_refuses(self):
+        calculator = equal_weighted_index(with_rates=False)
+
+        with pytest.raises(CalculationError, match="AssetUnitValue"):
+            calculator.asset_unit_value(self.yen_asset(), AS_OF)
+
+    def test_the_market_value_refuses(self):
+        calculator = equal_weighted_index(with_rates=False)
+
+        with pytest.raises(CalculationError, match="ConstituentMarketValues"):
+            calculator._get_constituent_market_values(
+                {self.yen_asset(): 1.0}, AS_OF)
+
+    def test_the_dollar_name_beside_it_is_untouched(self):
+        """A single-currency name needs no pair, so the refusal is scoped."""
+        calculator = equal_weighted_index(with_rates=False)
+
+        assert calculator.asset_unit_value(assets()[0], AS_OF) == pytest.approx(
+            PRICE["USBIG"])
+
+
+class TestCouldNotBePricedIsNotPricedAtZero:
+    """BN-191: `unit_value <= 0.0` covered two different events."""
+
+    BEFORE_THE_DATA = pd.Timestamp("2023-06-01")
+
+    def test_a_missing_price_is_none_rather_than_zero(self):
+        """None is "could not be priced"; 0.0 is a quote. The distinction is
+        the whole of this change — a level cannot tell them apart otherwise."""
+        calculator = equal_weighted_index()
+
+        assert calculator.asset_unit_value(assets()[0],
+                                           self.BEFORE_THE_DATA) is None
+
+    def test_holding_values_still_tolerates_it(self):
+        """A feed gap is a flat day, not a collapse, and that is unchanged."""
+        calculator = equal_weighted_index()
+        dollar = assets()[0]
+
+        assert calculator.holding_values({dollar: 10.0},
+                                         self.BEFORE_THE_DATA) == {dollar: 0.0}
+
+    def test_index_units_refuses_a_name_it_cannot_price(self):
+        """Zero units of a name with a target weight leaves the index short by
+        that whole weight and publishes the shortfall as its own level."""
+        calculator = equal_weighted_index()
+
+        with pytest.raises(CalculationError, match="IndexUnits"):
+            calculator.index_units({assets()[0]: 1.0}, 1e6,
+                                   self.BEFORE_THE_DATA)
+
+    def test_a_zero_weight_name_it_cannot_price_is_tolerated(self):
+        """A name carried at zero is never held, so no price is needed."""
+        calculator = equal_weighted_index()
+        dollar = assets()[0]
+
+        assert calculator.index_units({dollar: 0.0}, 1e6,
+                                      self.BEFORE_THE_DATA) == {dollar: 0.0}
+
+    def test_a_name_quoted_at_zero_holds_zero_units_rather_than_refusing(self):
+        """A price of zero is an observation, not the absence of one.
+
+        No finite position in a worthless name carries a weight, so zero units
+        is the only answer arithmetic allows — and it is forced by a real
+        quote, so it computes rather than refusing.
+        """
+        calculator = equal_weighted_index()
+        dollar = assets()[0]
+
+        with patch.object(calculator, "asset_unit_value", return_value=0.0):
+            assert calculator.index_units({dollar: 1.0}, 1e6,
+                                          AS_OF) == {dollar: 0.0}

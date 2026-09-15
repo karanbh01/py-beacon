@@ -127,12 +127,15 @@ def _unit_value_panel(currency: str,
     same conversion the calculator and the engine apply, vectorised: prices
     are quoted where the company lists, the index has one currency, and it is
     the drift in the rate a foreign holding actually experiences. Prices and
-    rates are carried forward over gaps; a name with no price yet is NaN and
-    is treated as unvaluable (zero units, zero value) until one appears.
+    rates are carried forward over gaps; a name with no price yet is NaN, and
+    since BN-191 that is unvaluable rather than worth zero — tolerated while
+    the schedule carries it at a weight of zero, refused at the first
+    rebalance that allocates to it.
 
     Raises:
         CalculationError: If a name the schedule actually allocates to has no
-            prices anywhere in the window (BN-184).
+            prices anywhere in the window (BN-184), or is quoted in a currency
+            with no rate into the index's (BN-191).
     """
     assets = sorted({asset for weights in solved.values() for asset in weights})
 
@@ -148,7 +151,7 @@ def _unit_value_panel(currency: str,
     end = days[-1].strftime("%Y-%m-%d")
 
     columns: dict[str, pd.Series] = {}
-    rates: dict[str, pd.Series] = {}
+    rates: dict[str, pd.Series | None] = {}
 
     for asset in assets:
         prices = _price_series(data_provider, asset, start, end,
@@ -156,7 +159,8 @@ def _unit_value_panel(currency: str,
 
         columns[asset] = _converted(prices.reindex(days).ffill(),
                                     _currency_of(data_provider, asset, currency),
-                                    currency, days, data_provider, rates)
+                                    currency, days, data_provider, rates,
+                                    asset, asset in held)
 
     return pd.DataFrame(columns, index=days)
 
@@ -166,7 +170,9 @@ def _converted(prices: pd.Series,
                index_currency: str,
                days: pd.Index,
                data_provider: DataFetcher,
-               rates: dict[str, pd.Series]) -> pd.Series:
+               rates: dict[str, pd.Series | None],
+               asset: str,
+               held: bool) -> pd.Series:
     """*prices*, converted into the index currency, caching the rate series.
 
     Split out of :func:`_unit_value_panel`, where the conversion used to rebind
@@ -176,6 +182,13 @@ def _converted(prices: pd.Series,
     (BN-184). A chained index over foreign names added its prices as though
     every currency's unit were the same size, which is precisely the defect
     BN-188 removed from the market-cap weighting.
+
+    Raises:
+        CalculationError: If *held* and the pair is unknown (BN-191), matching
+            `MarketValuesMixin._fx_rate` on the calculated path. The cache
+            holds None for an unknown pair rather than a column of NaN, so
+            whether the refusal fires cannot depend on which name in that
+            currency was reached first.
     """
     if quoted_in == index_currency:
         return prices
@@ -184,7 +197,24 @@ def _converted(prices: pd.Series,
         rates[quoted_in] = _rate_series(data_provider, quoted_in,
                                         index_currency, days)
 
-    return prices * rates[quoted_in]
+    series = rates[quoted_in]
+
+    if series is None:
+        if held:
+            raise CalculationError(
+                calculation_name="ChainedLevels",
+                details=(f"no {quoted_in}/{index_currency} rate over "
+                         f"{days[0]:%Y-%m-%d}..{days[-1]:%Y-%m-%d}, but the "
+                         f"schedule allocates to {asset}, which is quoted in "
+                         f"{quoted_in}. Leaving it unvaluable would hold zero "
+                         f"units of it and publish a level over the names "
+                         f"that remain — a different index rather than a "
+                         f"mis-valued one, and the same refusal the "
+                         f"calculated path makes."))
+
+        return pd.Series(float("nan"), index=days)
+
+    return prices * series
 
 
 def _price_series(data_provider: DataFetcher,
@@ -257,15 +287,22 @@ def _currency_of(data_provider: DataFetcher,
 def _rate_series(data_provider: DataFetcher,
                  from_currency: str,
                  to_currency: str,
-                 days: pd.Index) -> pd.Series:
-    """An FX pair as-of each calculation day, carried forward over gaps."""
+                 days: pd.Index) -> pd.Series | None:
+    """An FX pair as-of each calculation day, carried forward over gaps.
+
+    Returns:
+        pd.Series | None: The rate series, or None when the pair is unknown.
+        None rather than a column of NaN since BN-191: the caller decides what
+        an unknown pair means, and it means different things for a name the
+        schedule holds and a name it carries at a weight of zero.
+    """
     series = data_provider.fetch_fx_rates(from_currency, to_currency)
 
     if series.empty:
         logger.warning("No %s/%s rate; those holdings cannot be valued.",
                        from_currency, to_currency)
 
-        return pd.Series(float("nan"), index=days)
+        return None
 
     return series.sort_index().astype(float).reindex(days, method="ffill")
 
@@ -276,31 +313,66 @@ def _units_for(weights: dict[str, float],
                day: pd.Timestamp) -> dict[str, float]:
     """Units realising *weights* of *aggregate* at today's unit values.
 
-    The calculator's `index_units`, restated: a name with no usable unit value
-    holds zero units and contributes nothing, rather than an infinite
-    position.
+    The calculator's `index_units`, restated — including its BN-191 split: a
+    name the schedule allocates to and the panel cannot value refuses, while a
+    name genuinely quoted at zero holds zero units, because no finite position
+    in a worthless name carries a weight. The two used to share
+    ``isna or <= 0.0``, which made the absence of a price and a price of zero
+    the same event; they are not, and only the first is a failure. Refusing
+    here rather than reporting is what keeps an optimised index and its parent
+    agreeing about what an unvaluable name means.
 
-    BN-184, triaged as report-not-refuse, and deliberately left alone here.
-    This is the twin of `MarketValuesMixin.index_units`, whose identical
-    substitution is filed with a demonstrated wrong output as #204; the two
-    must move together or the chained and calculated paths will disagree about
-    what an unvaluable name means. What is missing either way is that the
-    result does not say the index ran under-invested on those days.
+    Raises:
+        CalculationError: If a name carrying a non-zero weight has no usable
+            unit value on *day*.
     """
     units: dict[str, float] = {}
 
     for asset, weight in weights.items():
         value = unit_values.at[day, asset]
-
-        if pd.isna(value) or float(value) <= 0.0:
-            logger.warning("No unit value for %s on %s; it holds zero units.",
-                           asset, day.date())
-            units[asset] = 0.0
-            continue
-
-        units[asset] = weight * aggregate / float(value)
+        units[asset] = _units_of(asset, weight, aggregate, value, day)
 
     return units
+
+
+def _units_of(asset: str,
+              weight: float,
+              aggregate: float,
+              value: float,
+              day: pd.Timestamp) -> float:
+    """Units of one name, or a refusal. See :func:`_units_for`.
+
+    Raises:
+        CalculationError: If *asset* carries a non-zero *weight* and *value*
+            is unusable.
+    """
+    if pd.isna(value) or float(value) < 0.0:
+        # A name carried at a weight of zero is never held, so its value is
+        # not needed and its absence is not a failure — the same carve-out
+        # :func:`_price_series` makes one step earlier.
+        if weight == 0.0:
+            logger.warning("No unit value for %s on %s; its target weight is "
+                           "zero, so it holds zero units.", asset, day.date())
+
+            return 0.0
+
+        raise CalculationError(
+            calculation_name="ChainedLevels",
+            details=(f"{asset} carries a target weight of {weight:.6g} on "
+                     f"{day:%Y-%m-%d} but has no usable unit value "
+                     f"({value!r}), so there is no unit count that realises "
+                     f"that weight. Holding zero units of it — the old answer "
+                     f"— leaves the chained index short by its whole weight "
+                     f"and publishes the shortfall as the index's own level."))
+
+    if float(value) == 0.0:
+        logger.warning("%s is priced at zero on %s; it holds zero units, "
+                       "because no finite position in a worthless name "
+                       "carries a weight.", asset, day.date())
+
+        return 0.0
+
+    return weight * aggregate / float(value)
 
 
 def _holding_values(units: dict[str, float],

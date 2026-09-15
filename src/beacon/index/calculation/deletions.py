@@ -9,8 +9,9 @@ be valued at all.
 
 ## What goes wrong without this
 
-`asset_unit_value` returns 0.0 when a price is missing, which is the right
-answer to "what is this worth today" and the wrong basis for an index level. A
+`asset_unit_value` returns None when a price is missing and `holding_values`
+values that at 0.0, which is the right answer to "what is this worth today"
+and the wrong basis for an index level. A
 name that was 4% of the index simply stops contributing, so the level falls 4%
 on the day it delists and never recovers it. The index reports a loss that no
 holder experienced: in reality the position was sold, at a price, and the

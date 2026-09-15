@@ -184,6 +184,22 @@ def _stub_calculator(mock_definition,
     return calc
 
 
+def _price_the_universe(mock_data,
+                        price=100.0):
+    """Give the mock fetcher a real price, so run() can value its holdings.
+
+    These tests used to leave `fetch_market_data` a bare MagicMock, whose
+    `.empty` is truthy — so every constituent came back unpriceable, took zero
+    units, contributed nothing, and the run published a level series over an
+    index holding nothing at all. That is exactly the chain BN-191 refuses, so
+    the run now stops instead; pricing the universe is what these tests always
+    meant, and the assertions below are load-bearing rather than vacuous once
+    it is there.
+    """
+    mock_data.fetch_market_data.return_value = pd.DataFrame(
+        {"CLOSE": [price]}, index=[pd.Timestamp("2025-01-02")])
+
+
 class TestRun:
     """Tests for IndexCalculator.run()."""
 
@@ -198,8 +214,11 @@ class TestRun:
             calculator.run(end_date="2024-12-01")
 
     def test_returns_index_result(self,
-                                  calculator):
+                                  calculator,
+                                  mock_data):
         """run() returns an IndexResult with data_fetcher bound."""
+        _price_the_universe(mock_data)
+
         with (
             patch.object(calculator, '_get_universe', return_value=[AAPL, MSFT]),
             patch.object(calculator, 'select_constituents', return_value=[AAPL, MSFT]),
@@ -215,8 +234,11 @@ class TestRun:
         assert result._data_fetcher is calculator.data
 
     def test_base_date_level_equals_base_value(self,
-                                               calculator):
+                                               calculator,
+                                               mock_data):
         """On base date the index level should equal base_value."""
+        _price_the_universe(mock_data)
+
         with (
             patch.object(calculator, '_get_universe', return_value=[AAPL]),
             patch.object(calculator, 'select_constituents', return_value=[AAPL]),
@@ -230,8 +252,11 @@ class TestRun:
         assert result.index_levels.iloc[0] == 1000.0
 
     def test_base_date_records_snapshots(self,
-                                         calculator):
+                                         calculator,
+                                         mock_data):
         """Base date should create constituent and weight snapshots."""
+        _price_the_universe(mock_data)
+
         with (
             patch.object(calculator, '_get_universe', return_value=[AAPL, MSFT]),
             patch.object(calculator, 'select_constituents', return_value=[AAPL, MSFT]),
@@ -248,13 +273,16 @@ class TestRun:
         assert result.weight_snapshots[base] == {"AAPL": 0.6, "MSFT": 0.4}
 
     def test_regular_day_values_the_held_units(self,
-                                               calculator):
+                                               calculator,
+                                               mock_data):
         """After the base date, an ordinary day revalues the index's holdings.
 
         The index holds units fixed at the last rebalance (BN-103), so a
         regular day is just those units marked at today's prices over the
         divisor — no reselection, no reweighting.
         """
+        _price_the_universe(mock_data)
+
         # base_date = 2025-01-02, run to 2025-01-03 (two business days)
         with (
             patch.object(calculator, '_get_universe', return_value=[AAPL]),
@@ -272,8 +300,11 @@ class TestRun:
         assert result.index_levels[pd.Timestamp("2025-01-03")] == 1050.0
 
     def test_rebalance_date_reconstitutes(self,
-                                          calculator):
+                                          calculator,
+                                          mock_data):
         """On a rebalance date, the universe is re-resolved and weights recalculated."""
+        _price_the_universe(mock_data)
+
         # Make get_rebalance_dates return a date within our range
         rebal_date = pd.Timestamp("2025-01-06")  # Monday
         calculator.definition.get_rebalance_dates.return_value = [rebal_date]
@@ -315,8 +346,11 @@ class TestRun:
         assert rebal_date in result.weight_snapshots
 
     def test_start_date_clamped_to_base_date(self,
-                                             calculator):
+                                             calculator,
+                                             mock_data):
         """If start_date < base_date, it's clamped to base_date."""
+        _price_the_universe(mock_data)
+
         with (
             patch.object(calculator, '_get_universe', return_value=[AAPL]),
             patch.object(calculator, 'select_constituents', return_value=[AAPL]),
@@ -340,8 +374,11 @@ class TestRun:
         assert result.index_levels.empty
 
     def test_idempotent_multiple_calls(self,
-                                       calculator):
+                                       calculator,
+                                       mock_data):
         """Calling run() twice produces identical results (no side effects)."""
+        _price_the_universe(mock_data)
+
         with (
             patch.object(calculator, '_get_universe', return_value=[AAPL]),
             patch.object(calculator, 'select_constituents', return_value=[AAPL]),
@@ -357,8 +394,11 @@ class TestRun:
         pd.testing.assert_series_equal(r1.divisor_history, r2.divisor_history)
 
     def test_divisor_history_populated(self,
-                                       calculator):
+                                       calculator,
+                                       mock_data):
         """Every trading day should have a divisor entry."""
+        _price_the_universe(mock_data)
+
         with (
             patch.object(calculator, '_get_universe', return_value=[AAPL]),
             patch.object(calculator, 'select_constituents', return_value=[AAPL]),
@@ -375,13 +415,16 @@ class TestRun:
         assert all(d > 0 for d in result.divisor_history.values)
 
     def test_zero_market_value_base_date_is_refused(self,
-                                                    calculator):
+                                                    calculator,
+                                                    mock_data):
         """A base date worth nothing has no scale to anchor an index to.
 
         This used to fall back to a divisor of 1.0, which publishes a level
         series that is internally coherent and measures nothing. The refusal
         reaches the caller of `run`, not just `initialize_divisor` (BN-184).
         """
+        _price_the_universe(mock_data)
+
         with (
             patch.object(calculator, '_get_universe', return_value=[AAPL]),
             patch.object(calculator, 'select_constituents', return_value=[AAPL]),
@@ -737,13 +780,20 @@ class TestANonEquityIsRefusedInTheCalculation:
         previous level forward. A bond is not worth nothing — it is not a thing
         this pipeline can value at all, and the refusal is raised before the
         broad `except` below so the handler cannot turn it back into 0.0.
+
+        Since BN-191 the priceless equity comes back None rather than 0.0 —
+        "could not be priced", not "priced at zero" — and the tolerance lives
+        with the caller that is entitled to it: `holding_values` still values
+        it at zero for the day, which is what makes the carry-forward work.
         """
+        date = pd.Timestamp("2025-03-03")
         mock_data.fetch_market_data.return_value = pd.DataFrame()
 
-        assert calculator.asset_unit_value(AAPL, pd.Timestamp("2025-03-03")) == 0.0
+        assert calculator.asset_unit_value(AAPL, date) is None
+        assert calculator.holding_values({AAPL: 10.0}, date) == {AAPL: 0.0}
 
         with pytest.raises(CalculationError):
-            calculator.asset_unit_value(bond, pd.Timestamp("2025-03-03"))
+            calculator.asset_unit_value(bond, date)
 
     def test_a_corporate_action_refuses_rather_than_passing_the_divisor_through(
             self,
