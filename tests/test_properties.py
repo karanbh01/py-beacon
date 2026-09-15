@@ -97,9 +97,14 @@ class _FakeMarketDataProvider:
     Exposes only the methods ``MarketCapWeighted.calculate_weights`` calls,
     mirroring the shapes documented on ``beacon.data.fetcher.DataFetcher``:
     ``fetch_market_data`` returns a single-identifier, date-indexed frame
-    with a ``CLOSE`` column, ``fetch_shares_outstanding`` returns a raw
-    float, and ``resolve_session``/``date_range`` describe a store holding
-    exactly one session. ``EqualWeighted`` never calls the provider at all.
+    with a ``CLOSE`` column, ``fetch_price`` returns that frame's one number,
+    ``fetch_shares_outstanding`` returns a raw float, and
+    ``resolve_session``/``date_range`` describe a store holding exactly one
+    session. ``warm_session`` is the batch-read hint (BN-190) and does nothing
+    here, which is the whole of its contract: a provider that ignores it must
+    give identical answers, so this stub ignoring it is what keeps the
+    properties below a check on the scheme rather than on the optimisation.
+    ``EqualWeighted`` never calls the provider at all.
     """
     def __init__(self,
                  prices: dict[str, float],
@@ -124,6 +129,17 @@ class _FakeMarketDataProvider:
             {"CLOSE": [self._prices[identifier]]},
             index=pd.DatetimeIndex([_AS_OF], name="DATE"),
         )
+
+    def fetch_price(self,
+                    identifier: str,
+                    date: str,
+                    column: str = "CLOSE") -> float | None:
+        return self._prices[identifier]
+
+    def warm_session(self,
+                     identifiers: list[str],
+                     date: str | pd.Timestamp) -> None:
+        return None
 
     def fetch_shares_outstanding(self,
                                  identifier: str,

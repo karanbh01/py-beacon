@@ -27,10 +27,15 @@ _PRICE_COLUMN = "CLOSE"
 _VOLUME_COLUMN = "VOLUME"
 
 
-def _has_close(frame: pd.DataFrame) -> bool:
-    """Whether *frame*'s first row carries a usable close."""
-    return not (frame.empty or _PRICE_COLUMN not in frame.columns
-                or pd.isna(frame[_PRICE_COLUMN].iloc[0]))
+def _equity_tickers(assets: list[Asset]) -> list[str]:
+    """The tickers among *assets*, skipping anything that is not an equity.
+
+    For warming a session read only. Nothing is decided here, so a non-equity
+    is passed over rather than refused — the refusal belongs where the asset is
+    actually being assessed or weighted, and `require_equity` makes it there
+    with the name of what could not be done.
+    """
+    return [asset.ticker for asset in assets if isinstance(asset, Equity)]
 
 
 def _resolve_session(calculation_name: str,
@@ -126,6 +131,36 @@ class EligibilityRuleBase(ABC):
                  rule_name: str):
         self.rule_name = rule_name
 
+    def prepare(self,  # noqa: B027 — an optional hook, not part of the interface
+                candidates: list[Asset],
+                current_date: pd.Timestamp,
+                market_data_provider: DataFetcher,
+                context: IndexContext | None = None) -> None:
+        """Read in one go whatever this rule is about to read per name.
+
+        Called once with the whole candidate set before `is_eligible` is asked
+        about any of them. It decides nothing and returns nothing: a rule that
+        did no preparation must give exactly the answers it gives now, because
+        this is a hint about *how* to read rather than about *what* is
+        eligible. Doing nothing is therefore the right default, and it is the
+        base implementation (BN-190).
+
+        It exists because the per-name shape is what made a universe expensive.
+        `is_eligible` is a predicate over one asset, so a rule reading market
+        data reads it a name at a time, and each read slices a frame whose size
+        is the whole store — the cost of one lookup growing with the universe
+        around it rather than with the row it wants.
+
+        Args:
+            candidates: Everything that reached this rung, in order. A rule
+                that ranks rather than screens would want this set too; that is
+                not what this is for, but it is the same set.
+            current_date: The date selection is being made at.
+            market_data_provider: The data source the reads will go to.
+            context: What the index settles for its rules, as for
+                :meth:`is_eligible`.
+        """
+
     @abstractmethod
     def is_eligible(self,
                     asset: Asset,
@@ -209,6 +244,33 @@ class MarketCapRule(EligibilityRuleBase):
                 and min_market_cap > max_market_cap):
             raise ValueError("min_market_cap cannot be greater than max_market_cap.")
 
+    def prepare(self,
+                candidates: list[Asset],
+                current_date: pd.Timestamp,
+                market_data_provider: DataFetcher,
+                context: IndexContext | None = None) -> None:
+        """Read the whole candidate set's session in one slice (BN-190).
+
+        Every name this rule is about to be asked about is read on the same
+        session, for the same two columns. Warming that session turns the
+        per-name reads below into dictionary lookups, and — because the
+        weighting scheme then reads the survivors on the same session — makes
+        the second pricing of every surviving name free.
+
+        Raises:
+            CalculationError: If *current_date* lies outside the data's
+                coverage. That is the same refusal `is_eligible` makes over the
+                same date, arriving one call earlier; a rule that cannot
+                resolve its session cannot assess anything.
+        """
+        if not candidates:
+            return
+
+        session = _resolve_session(self.rule_name, "assess eligibility",
+                                   current_date, market_data_provider)
+
+        market_data_provider.warm_session(_equity_tickers(candidates), session)
+
     def is_eligible(self,
                     asset: Asset,
                     current_date: pd.Timestamp,
@@ -230,15 +292,14 @@ class MarketCapRule(EligibilityRuleBase):
                                    current_date, market_data_provider)
         date_str = session.strftime('%Y-%m-%d')
 
-        price_df = market_data_provider.fetch_market_data(equity.ticker, date_str, date_str)
+        current_price = market_data_provider.fetch_price(equity.ticker, date_str,
+                                                         _PRICE_COLUMN)
 
-        if not _has_close(price_df):
+        if current_price is None:
             logger.warning(
                 f"MarketCapRule: Could not fetch price for {equity.ticker} "
                 f"on {date_str}.")
             return False
-
-        current_price = float(price_df[_PRICE_COLUMN].iloc[0])
 
         # Read on the same session as the price, so the cap is one coherent
         # observation rather than a current share count against an older close.
@@ -497,11 +558,11 @@ class MarketCapWeighted(WeightingSchemeBase):
                 index — the same fault as the fallback, in miniature.
         """
         session_str = session.strftime('%Y-%m-%d')
-        same_day = market_data_provider.fetch_market_data(
-            asset.ticker, session_str, session_str)
+        same_day = market_data_provider.fetch_price(asset.ticker, session_str,
+                                                    _PRICE_COLUMN)
 
-        if _has_close(same_day):
-            return session, float(same_day[_PRICE_COLUMN].iloc[0])
+        if same_day is not None:
+            return session, same_day
 
         history = market_data_provider.fetch_market_data(
             asset.ticker, None, session_str)
@@ -645,6 +706,14 @@ class MarketCapWeighted(WeightingSchemeBase):
 
         session = self._session_for(current_date, market_data_provider)
         to_currency = self._target_currency(constituents, context)
+
+        # The same session a selection rule has just read, over a subset of the
+        # names it read it for, so this keeps that panel rather than building
+        # another — which is what stops every surviving name being priced twice
+        # in one rebalance (BN-190). Where no rule read anything, it is still
+        # one slice for the whole constituent list rather than one per name.
+        market_data_provider.warm_session(_equity_tickers(constituents), session)
+
         market_caps: dict[Asset, float] = {}
 
         for asset in constituents:

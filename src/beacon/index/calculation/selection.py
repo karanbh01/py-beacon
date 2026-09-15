@@ -182,7 +182,14 @@ def _apply_rule(rule: EligibilityRuleBase,
     coverage, that swallow turned each refusal back into an exclusion and
     emptied the universe, which is the very failure the refusal exists to
     stop.
+
+    The rule is shown the whole candidate set once before being asked about any
+    of it (BN-190). Nothing it does there can change an answer — `prepare` is
+    the rule reading in one slice what it would otherwise read a name at a time
+    — so the loop below is unchanged and so is every verdict it records.
     """
+    rule.prepare(candidates, current_date, data_fetcher, context)
+
     kept: list[Asset] = []
     removed: list[str] = []
 

@@ -94,10 +94,39 @@ class MarketData:
         return list(self._df.columns)
 
     @property
+    def sessions(self) -> pd.DatetimeIndex:
+        """The distinct dates the dataset carries, ascending.
+
+        Cached on the frame's identity, for the reason the identifiers above
+        are (BN-190). Materialising the DATE level is an O(rows) take over the
+        whole frame, and `date_range` and `last_session_on_or_before` each did
+        it on every call — which `resolve_session` makes once *per name* while
+        a methodology walks a universe. On a 1,600-name preview that was 59% of
+        the runtime spent re-deriving a constant: every name on a given date
+        resolves to the same session, and the frame does not move underneath
+        them.
+        """
+        cached: tuple[object, pd.DatetimeIndex] | None = getattr(
+            self, "_session_cache", None)
+
+        if cached is not None and cached[0] is self._df:
+            return cached[1]
+
+        values = pd.DatetimeIndex(
+            self._df.index.get_level_values("DATE")).unique().sort_values()
+        self._session_cache = (self._df, values)
+
+        return values
+
+    @property
     def date_range(self) -> tuple[pd.Timestamp, pd.Timestamp]:
         """(earliest, latest) timestamps in the dataset."""
-        dates = self._df.index.get_level_values("DATE")
-        return dates.min(), dates.max()
+        sessions = self.sessions
+
+        if not len(sessions):
+            return pd.NaT, pd.NaT
+
+        return pd.Timestamp(sessions[0]), pd.Timestamp(sessions[-1])
 
     def last_session_on_or_before(self,
                                   date: str | pd.Timestamp) -> pd.Timestamp | None:
@@ -108,13 +137,13 @@ class MarketData:
         when the dataset begins after *date*, since then there is no earlier
         session to be in force.
         """
-        dates = self._df.index.get_level_values("DATE")
-        applicable = dates[dates <= pd.Timestamp(date)]
+        sessions = self.sessions
+        position = int(sessions.searchsorted(pd.Timestamp(date), side="right"))
 
-        if not len(applicable):
+        if position == 0:
             return None
 
-        return pd.Timestamp(applicable.max())
+        return pd.Timestamp(sessions[position - 1])
 
     # -- query ---------------------------------------------------------------
 

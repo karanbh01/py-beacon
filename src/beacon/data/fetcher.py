@@ -13,6 +13,7 @@ import pandas as pd
 from .base import MarketData, ReferenceData
 from .corporate_actions import CorporateActions
 from .features import MAX_AGE_DAYS, FeatureData
+from .session import SessionPanel
 
 # The datasets a fetcher can report freshness for. Named here so the server
 # and the fetcher cannot drift apart on the spelling.
@@ -138,6 +139,14 @@ class DataFetcher:
         # index take longer than the rest of the suite put together. Cleared
         # whenever the market data underneath it is replaced.
         self._fx_series: dict[tuple[str, str], pd.Series] = {}
+
+        # The session a methodology is currently walking a universe over, read
+        # in one slice. One panel rather than a growing map of them: the reads
+        # that repeat are the ones inside a single rebalance -- a selection
+        # rule prices every name and the weighting then prices the survivors
+        # again -- and they are over at the moment the date moves on (BN-190).
+        # Cleared whenever the market data underneath it is replaced.
+        self._session_panel: SessionPanel | None = None
 
     # -- properties ----------------------------------------------------------
 
@@ -486,8 +495,10 @@ class DataFetcher:
 
         self._market = MarketData.from_dataframe(combined)
         # The pairs are market rows, so a merge can add or restate them; a
-        # cache held over the swap would answer out of the old frame.
+        # cache held over the swap would answer out of the old frame. The
+        # session panel is the same story one day wide.
         self._fx_series.clear()
+        self._session_panel = None
         self.record_refresh(MARKET_DATASET)
 
         return len(combined) - before
@@ -608,6 +619,46 @@ class DataFetcher:
         """
         return self._market.get(identifier, start_date, end_date, columns)
 
+    def warm_session(self,
+                     identifiers: list[str],
+                     date: str | pd.Timestamp) -> None:
+        """Read one session's rows for *identifiers* in a single slice.
+
+        A hint, not a contract: every read this serves answers identically
+        without it, only slower. What it removes is the shape a methodology
+        walking a universe otherwise has — one frame slice per name per column,
+        each costing what the whole frame costs rather than what one row does,
+        which is why a preview's cost per name climbed with the size of its
+        universe (BN-190).
+
+        It also ends the duplication that made the same names priced twice in
+        one rebalance. A selection rule prices every candidate; the weighting
+        scheme then prices the survivors, the same names on the same day. The
+        second warm is a subset of the first, so it keeps the panel rather than
+        rebuilding it, and the reads that follow are free.
+
+        Nothing goes stale under it: the panel answers only for the identifiers
+        it was built with, only on its own session, and a merge clears it.
+        Calling this with a different session or a name it does not hold
+        replaces it, so the caller never has to say when it is done.
+
+        Args:
+            identifiers: The instruments about to be read one at a time.
+            date: The session they will be read on. Resolve it first —
+                :meth:`resolve_session` — since a panel for a closed day holds
+                nothing and every read would fall back to the frame.
+        """
+        session = pd.Timestamp(date)
+        held = self._session_panel
+
+        if held is not None and held.session == session and held.covers(identifiers):
+            return
+
+        stamp = session.strftime("%Y-%m-%d")
+
+        self._session_panel = SessionPanel.from_market_frame(
+            session, self._market.get(identifiers, stamp, stamp))
+
     # -- auxiliary market data -----------------------------------------------
     #
     # Shares outstanding, free-float factors and FX rates are all sourced from
@@ -643,6 +694,20 @@ class DataFetcher:
         """
         return self._market_scalar(identifier, date, column)
 
+    def fetch_price(self,
+                    identifier: str,
+                    date: str,
+                    column: str = "CLOSE") -> float | None:
+        """Return *identifier*'s price on *date*, or None if it did not print.
+
+        The scalar form of the single-day, single-name fetch a methodology
+        makes for every name in a universe. It reads the same value
+        ``fetch_market_data(identifier, date, date)`` does — the same column of
+        the same row — and returns it rather than a one-row frame to slice,
+        which is what lets a warmed session serve it (BN-190).
+        """
+        return self._market_scalar(identifier, date, column)
+
     def _market_scalar(self,
                        identifier: str,
                        date: str,
@@ -650,6 +715,16 @@ class DataFetcher:
         """Read a single market-data value for *identifier* on *date*."""
         if column not in self._market.columns:
             return None
+
+        # Only when the warmed panel is for this exact session and genuinely
+        # holds this name. Anything else -- another date, a name outside the
+        # set it was built for -- goes to the data, because a panel that
+        # answered beyond what it was built from would be guessing.
+        panel = self._session_panel
+
+        if panel is not None and panel.answers(identifier, date):
+            return panel.value(identifier, column)
+
         df = self._market.get(identifier, date, date, columns=[column])
         if df.empty:
             return None
