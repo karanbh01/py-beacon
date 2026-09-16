@@ -37,7 +37,7 @@ from beacon.index import schedule
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
 from beacon.server import ServerConfig, create_app
-from beacon.server.routers.indices import build_schedule
+from beacon.server.routers.indices import MAX_SCHEDULE_LIMIT, build_schedule
 from beacon.server.schemas import IndexDocument
 from beacon.server.store import SCHEMA_VERSION_KEY, DocumentStore
 
@@ -715,6 +715,31 @@ class TestScheduleEndpoint:
 
         assert body["as_of"] == str(pd.Timestamp.today().normalize().date())
 
+    def test_the_default_response_is_what_it_always_was(self, client):
+        """BN-195 adds two fields and a parameter. Everything else on the wire
+        has to be untouched, checked field by field against the pre-change
+        answer rather than assumed from the diff."""
+        self._saved(client)
+
+        body = client.get("/indices/IDX/schedule", params={"asof": "2026-08-03"},
+                          headers=auth()).json()
+
+        assert set(body) == {"index_id", "rebalancing_frequency",
+                             "rebalance_day_rule", "calendar", "as_of",
+                             "next_rebalance", "days_until", "recent",
+                             "upcoming", "recent_total", "upcoming_total"}
+        assert body["index_id"] == "IDX"
+        assert body["rebalancing_frequency"] == "QUARTERLY"
+        assert body["rebalance_day_rule"] == "FIRST_BUSINESS_DAY"
+        assert body["calendar"] == "XNYS"
+        assert body["as_of"] == "2026-08-03"
+        assert body["next_rebalance"] == "2026-10-01"
+        assert body["days_until"] == 59
+        assert body["recent"] == ["2025-10-01", "2026-01-02", "2026-04-01",
+                                  "2026-07-01"]
+        assert body["upcoming"] == ["2026-10-01", "2027-01-04", "2027-04-01",
+                                    "2027-07-01"]
+
     def test_it_is_derived_rather_than_stored(self, client):
         """Two different as-of dates give two different answers off one stored
         document, which a stored next-rebalance could not do."""
@@ -726,6 +751,104 @@ class TestScheduleEndpoint:
                                "2026-11-03")
 
         assert first.next_rebalance != later.next_rebalance
+
+
+class TestScheduleTotalsAndLimit:
+    """BN-195: a served slice with its true total beside it.
+
+    The endpoint trimmed to four either side and said nothing, so a client
+    could not tell "these are all of them" from "the last four of twenty-seven"
+    — and beacon-ui needs the whole set to build a dropdown of an index's
+    rebalance dates rather than reimplementing `THIRD_FRIDAY` resolution and
+    holiday roll-back in TypeScript.
+    """
+    ASOF = "2026-08-03"
+
+    def _saved(self, client, **overrides):
+        created = client.post("/indices", json=document(**overrides),
+                              headers=auth())
+        assert created.status_code == 200, created.text
+
+        return client
+
+    def _schedule(self, client, **params):
+        params.setdefault("asof", self.ASOF)
+
+        response = client.get("/indices/IDX/schedule", params=params,
+                              headers=auth())
+        assert response.status_code == 200, response.text
+
+        return response.json()
+
+    def test_the_totals_say_how_many_were_trimmed_away(self, client):
+        self._saved(client, base_date="2010-01-01")
+
+        body = self._schedule(client)
+
+        assert len(body["recent"]) == 4
+        assert body["recent_total"] == 67
+        assert body["recent_total"] > len(body["recent"])
+
+    def test_a_limit_large_enough_returns_the_whole_history(self, client):
+        """The ask that started this: the client wants every rebalance date,
+        and a total equal to the served length is how it knows it has them."""
+        self._saved(client, base_date="2010-01-01")
+
+        body = self._schedule(client, limit=100)
+
+        assert len(body["recent"]) == body["recent_total"] == 67
+        assert body["recent"][0] == "2010-01-04"
+        assert body["recent"][-1] == "2026-07-01"
+
+    def test_the_limit_applies_to_each_list_separately(self, client):
+        """Not ten dates in total: `recent` and `upcoming` are trimmed
+        independently, which is why the description says so."""
+        self._saved(client, base_date="2010-01-01")
+
+        body = self._schedule(client, limit=2)
+
+        assert len(body["recent"]) == 2
+        assert len(body["upcoming"]) == 2
+        assert body["recent_total"] == 67
+        assert body["upcoming_total"] == 4
+
+    def test_the_default_is_the_old_horizon(self, client):
+        self._saved(client, base_date="2010-01-01")
+
+        assert self._schedule(client) == self._schedule(client, limit=4)
+
+    def test_raising_the_limit_does_not_lengthen_the_lookahead(self, client):
+        """`upcoming_total` counts what the projection found, not what will
+        ever occur: the lookahead is a separate bound, so asking for more
+        history cannot invent future dates."""
+        self._saved(client, base_date="2010-01-01")
+
+        body = self._schedule(client, limit=MAX_SCHEDULE_LIMIT)
+
+        assert body["upcoming_total"] == 4
+        assert len(body["upcoming"]) == 4
+
+    def test_the_next_rebalance_does_not_move_with_the_limit(self, client):
+        self._saved(client, base_date="2010-01-01")
+
+        answers = [self._schedule(client, limit=limit) for limit in (1, 4, 200)]
+
+        assert {body["next_rebalance"] for body in answers} == {"2026-10-01"}
+        assert {body["days_until"] for body in answers} == {59}
+        assert {body["recent_total"] for body in answers} == {67}
+        assert {body["upcoming_total"] for body in answers} == {4}
+
+    @pytest.mark.parametrize("limit", [0, -1, MAX_SCHEDULE_LIMIT + 1])
+    def test_an_out_of_range_limit_is_refused(self, client, limit):
+        """The cap bounds a malformed request rather than protecting the
+        server: every real schedule fits well inside it."""
+        self._saved(client)
+
+        response = client.get("/indices/IDX/schedule",
+                              params={"asof": self.ASOF, "limit": limit},
+                              headers=auth())
+
+        assert response.status_code == 422
 
 
 class TestTheStoredMigration:

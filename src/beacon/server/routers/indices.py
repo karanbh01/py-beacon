@@ -211,14 +211,32 @@ def _delete_one(store: DocumentStore,
                             f"backtest:{index_id}"))
 
 
-# How much history and how far ahead the schedule view shows. Enough for a
-# client to render "last rebalanced / next rebalance" and a short strip either
-# side, without projecting a decade of dates nobody asked for.
+# How far ahead the schedule view projects, and how many dates each side it
+# serves by default. Enough for a client to render "last rebalanced / next
+# rebalance" and a short strip either side, without projecting a decade of
+# dates nobody asked for.
 SCHEDULE_HORIZON_PERIODS = 4
+
+# The cap bounds a malformed request, not the server: a 1999-based monthly
+# index has around 320 rebalances, which is a fine dropdown and a fine payload,
+# so 512 clears every schedule a real index can produce — over forty years of
+# monthly dates — while still refusing a limit of a million.
+MAX_SCHEDULE_LIMIT = 512
+
+ScheduleLimitQuery = Annotated[
+    int,
+    Query(ge=1, le=MAX_SCHEDULE_LIMIT,
+          description=f"Maximum dates per list, at most {MAX_SCHEDULE_LIMIT} "
+                      f"and {SCHEDULE_HORIZON_PERIODS} by default. It bounds "
+                      "`recent` and `upcoming` separately rather than the two "
+                      "together, so a limit of 10 can return 20 dates. Raising "
+                      "it yields more history only: the lookahead is a separate "
+                      "bound, so it cannot produce further future dates.")]
 
 
 def build_schedule(document: IndexDocument,
-                   as_of: str | None = None) -> ScheduleView:
+                   as_of: str | None = None,
+                   limit: int = SCHEDULE_HORIZON_PERIODS) -> ScheduleView:
     """Derive an index's rebalance schedule around a date.
 
     Derived rather than stored: the next rebalance is a function of the
@@ -228,10 +246,12 @@ def build_schedule(document: IndexDocument,
     Args:
         document: The index definition.
         as_of: The date to answer from; defaults to today.
+        limit: Most dates to serve in each of `recent` and `upcoming`; the
+            untrimmed lengths are published beside them either way.
 
     Returns:
-        ScheduleView: The next rebalance, days until, and a short strip of
-        dates either side.
+        ScheduleView: The next rebalance, days until, and a strip of dates
+        either side with the counts they were trimmed from.
     """
     today = pd.Timestamp(as_of) if as_of else pd.Timestamp.today().normalize()
 
@@ -242,12 +262,18 @@ def build_schedule(document: IndexDocument,
                                    document.rebalance_day_rule)
 
     months = FREQUENCY_MONTHS[document.rebalancing_frequency]
+    # The lookahead is deliberately not a function of `limit`: a client asking
+    # for more history should not silently get a longer projection, so
+    # `upcoming_total` counts what this window found rather than what exists.
     window = rebalance_dates(document.rebalancing_frequency,
                              document.base_date,
                              today + pd.DateOffset(
                                  months=months * SCHEDULE_HORIZON_PERIODS),
                              document.calendar,
                              document.rebalance_day_rule)
+
+    past = [str(date.date()) for date in window if date <= today]
+    future = [str(date.date()) for date in window if date > today]
 
     return ScheduleView(
         index_id=document.id,
@@ -259,10 +285,10 @@ def build_schedule(document: IndexDocument,
         # Calendar days, not sessions: it renders as "in 57 days" and a reader
         # counts those on a wall calendar.
         days_until=((upcoming_date - today).days if upcoming_date else None),
-        recent=[str(date.date()) for date in window if date <= today][
-            -SCHEDULE_HORIZON_PERIODS:],
-        upcoming=[str(date.date()) for date in window if date > today][
-            :SCHEDULE_HORIZON_PERIODS])
+        recent=past[-limit:],
+        recent_total=len(past),
+        upcoming=future[:limit],
+        upcoming_total=len(future))
 
 
 def build_indices_router() -> APIRouter:
@@ -378,8 +404,10 @@ def build_indices_router() -> APIRouter:
     @router.get("/{index_id}/schedule", response_model=ScheduleView)
     def schedule(request: Request,
                  index_id: Identifier,
-                 asof: AsOfQuery = None) -> ScheduleView:
-        return build_schedule(load_index(request, index_id), asof)
+                 asof: AsOfQuery = None,
+                 limit: ScheduleLimitQuery = SCHEDULE_HORIZON_PERIODS
+                 ) -> ScheduleView:
+        return build_schedule(load_index(request, index_id), asof, limit)
 
     @router.get("/{index_id}", response_model=IndexDocument)
     def get_index(request: Request,
