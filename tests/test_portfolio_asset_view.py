@@ -213,7 +213,12 @@ class TestTheEngineBindsItsRun:
         dp.fetch_market_data.side_effect = fetch
         dp.fetch_reference_data.return_value = pd.DataFrame()
         dp.fetch_fx_rates.return_value = pd.Series(dtype=float)
-        dp.delisting_dates = {}
+        # The method, not its result: this used to read `= {}`, which made
+        # `delisting_dates()` a call on a dict. The engine's old
+        # `except Exception` caught the TypeError and returned an empty
+        # mapping, so the double reached the intended answer by the wrong
+        # route and nothing said so (BN-197).
+        dp.delisting_dates.return_value = {}
 
         engine = BacktestEngine(str(dates[0].date()), str(dates[-1].date()),
                                 10_000.0, dp,

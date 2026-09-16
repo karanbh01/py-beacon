@@ -371,3 +371,126 @@ class TestTheGapsReachTheWire:
                 for row in record.rebalance_pricing] == expected
         assert [(row.date, row.priced_from)
                 for row in payload.rebalance_pricing] == expected
+
+
+class TestAFailedDelistingLookupIsNotAnEmptyOne:
+    """BN-197. The engine used to swallow the failure into `{}` and carry on.
+
+    Empty is not "unknown" here — it is "nothing is ever delisted", and every
+    reader acts on it. `_fetch_price` stops declining to carry a dead name
+    forward and `_dispose_delisted` never settles, so the run finishes holding
+    names that no longer exist, each marked at its last close, and publishes a
+    NAV as though that were real. The only record was a WARNING.
+
+    `IndexCalculator.delisting_schedule` calls the same method bare and always
+    has, so the two surfaces gave different answers to one failure.
+    """
+
+    def test_the_failure_propagates_rather_than_reading_as_no_delistings(self):
+        fetcher = build_fetcher(delist={"BBB": "2021-01-20"})
+        fetcher.delisting_dates = _raising(ValueError("malformed DATE_TO"))
+        engine = build_engine(fetcher, pd.Timestamp("2021-01-06"))
+
+        with pytest.raises(ValueError, match="malformed DATE_TO"):
+            engine.run()
+
+    def test_it_does_not_finish_holding_a_name_that_stopped_existing(self):
+        """The harm, stated as the outcome rather than the mechanism.
+
+        Under the old behaviour this run completed with BBB still held and
+        marked at its last close for every day after it was delisted.
+        """
+        fetcher = build_fetcher(delist={"BBB": "2021-01-20"},
+                                stop_prices={"BBB": "2021-01-20"})
+        fetcher.delisting_dates = _raising(KeyError("DATE_TO"))
+        engine = build_engine(fetcher, pd.Timestamp("2021-01-06"))
+
+        with pytest.raises(KeyError):
+            engine.run()
+
+    def test_a_provider_without_the_method_is_still_fine(self):
+        """The case the `getattr` exists for, and the one that must not move.
+
+        A hand-assembled provider need not implement this, and a backtest over
+        a universe where nothing is delisted should not require it to. That is
+        an absent capability, not a failed lookup.
+        """
+        fetcher = _WithoutDelistings(build_fetcher())
+        engine = build_engine(fetcher, pd.Timestamp("2021-01-06"))
+
+        assert engine._delisting_dates() == {}
+        assert engine.run().trading_nav.notna().all()
+
+    def test_a_non_mapping_answer_still_reads_as_nothing_leaves(self):
+        """Also an answer rather than a failure: a double returning a stand-in."""
+        fetcher = build_fetcher()
+        fetcher.delisting_dates = lambda: None
+        engine = build_engine(fetcher, pd.Timestamp("2021-01-06"))
+
+        assert engine._delisting_dates() == {}
+
+    def test_the_engine_and_the_calculator_agree_about_one_failure(self):
+        """The point of the issue: two surfaces, one call, one answer.
+
+        Neither number is asserted here — only that the two stopped
+        disagreeing, which is the thing that was wrong.
+        """
+        from beacon.index.calculation import IndexCalculator
+
+        fetcher = build_fetcher()
+        fetcher.delisting_dates = _raising(ValueError("malformed DATE_TO"))
+
+        engine_raised = _raises(
+            build_engine(fetcher, pd.Timestamp("2021-01-06"))._delisting_dates)
+        calculator_raised = _raises(
+            lambda: IndexCalculator.delisting_schedule(
+                _WithData(fetcher)))
+
+        assert engine_raised is calculator_raised is True
+
+
+def _raising(error: BaseException):
+    """A `delisting_dates` stand-in that fails the way a bad store would."""
+    def _fail() -> dict[str, pd.Timestamp]:
+        raise error
+
+    return _fail
+
+
+def _raises(call) -> bool:
+    """Whether *call* raised, without caring which exception it was."""
+    try:
+        call()
+    except Exception:
+        return True
+
+    return False
+
+
+class _WithData:
+    """The one attribute `delisting_schedule` reads off its calculator."""
+
+    def __init__(self,
+                 data: DataFetcher):
+        self.data = data
+
+
+class _WithoutDelistings:
+    """A provider that does not offer `delisting_dates` at all.
+
+    `del fetcher.delisting_dates` cannot express this — the name is on the
+    class, not the instance — and a provider genuinely lacking the method is
+    the case the `getattr` guard exists for, so it has to be a real object
+    rather than a patched one.
+    """
+
+    def __init__(self,
+                 fetcher: DataFetcher):
+        self._fetcher = fetcher
+
+    def __getattr__(self,
+                    name: str):
+        if name == "delisting_dates":
+            raise AttributeError(name)
+
+        return getattr(self._fetcher, name)

@@ -157,22 +157,32 @@ class BacktestEngine(PricingMixin):
     def _delisting_dates(self) -> dict[str, pd.Timestamp]:
         """When each holding stops being listed, or an empty mapping.
 
-        Defensive about what comes back because the provider is an interface,
-        not a class: a fetcher assembled by hand or stood in for by a double
-        need not implement this, and a backtest over a universe where nothing
-        is ever delisted should not require it to.
+        Defensive about what the provider *offers*, not about whether it
+        works. The provider is an interface rather than a class, so a fetcher
+        assembled by hand or stood in for by a double need not implement this,
+        and a backtest over a universe where nothing is ever delisted should
+        not require it to — hence the `getattr`, and hence a non-mapping answer
+        being read as "nothing leaves".
+
+        A failure is a different thing, and used to be swallowed into the same
+        empty mapping with a WARNING (BN-197). Empty does not mean "unknown"
+        here, it means "nothing is ever delisted", and the engine acts on it:
+        the price read stops declining to carry a dead name forward, and
+        disposal never settles the holding. So the book ran to the end holding
+        names that no longer existed, each marked at its last close, and
+        published a NAV as though that were real — with the only record of it
+        in a log nobody reads after the fact.
+
+        `IndexCalculator.delisting_schedule` calls the same method bare and
+        always has. Two surfaces over one call answering differently is the
+        BN-174 shape, and the one that substitutes is the one that was wrong.
         """
         getter = getattr(self.data_provider, "delisting_dates", None)
 
         if getter is None:
             return {}
 
-        try:
-            dates = getter()
-        except Exception as error:
-            logger.warning("Could not resolve delistings: %s", error)
-
-            return {}
+        dates = getter()
 
         return dates if isinstance(dates, dict) else {}
 
