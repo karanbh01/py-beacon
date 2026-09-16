@@ -941,11 +941,14 @@ class TestASubstitutedWeightingIsRefused:
 class TestASchemeThatCrashesIsNotReportedAsADecision:
     """BN-194: the `except Exception` around the scheme call wraps a *fault*.
 
-    Every refusal in this file is deliberate and carries a remedy in its
-    message. Whatever a scheme raises is neither, and both arrived under one
-    published code — so a reader was told the engine had refused when in fact
-    something broke, and went looking for a request to change that does not
-    exist.
+    Every refusal *in the calculator* is deliberate and carries a remedy in its
+    message. A fault is neither, and both arrived under one published code — so
+    a reader was told the engine had refused when in fact something broke, and
+    went looking for a request to change that does not exist.
+
+    BN-194 also assumed the converse: that a scheme only ever faults. BN-179,
+    BN-188 and BN-191 had already made that false, and the class below is the
+    half BN-196 put back.
     """
 
     def test_a_crashing_scheme_raises_the_unexpected_subclass(self,
@@ -995,3 +998,84 @@ class TestASchemeThatCrashesIsNotReportedAsADecision:
 
         assert raised.value.calculation_name == "WeightingScheme-EqualWeighted"
         assert raised.value.details == "division by zero"
+
+
+class TestASchemesOwnRefusalIsNotReportedAsACrash:
+    """BN-196: the inversion of the above, and the one BN-194 shipped.
+
+    A scheme raising `CalculationError` is refusing, not breaking: since BN-179
+    an unpriced constituent, an unknown share count and a zero total market cap
+    are all deliberate, each naming what to do about it. Wrapping them said
+    `UNEXPECTED_CALCULATION_FAILURE` — "the engine broke" for a missing column,
+    with the remedy demoted to a nested string.
+
+    Why BN-194's own tests missed it: all three feed the wrap a `ZeroDivisionError`
+    or a `KeyError`. Every one tests the class BN-194 reasoned about, and none
+    tests the class it reasoned away, so the wrap was never asked the question
+    it got wrong.
+    """
+
+    def test_a_refusing_scheme_propagates_its_own_error(self,
+                                                        calculator,
+                                                        mock_definition):
+        refusal = CalculationError(
+            calculation_name="MarketCapWeighted",
+            details="AAPL has no CLOSE on or before 2025-03-03")
+        mock_definition.weighting_scheme.scheme_name = "MarketCapWeighted"
+        mock_definition.weighting_scheme.calculate_weights.side_effect = refusal
+
+        with pytest.raises(CalculationError) as raised:
+            calculator.calculate_constituent_weights([AAPL],
+                                                     pd.Timestamp("2025-03-03"))
+
+        assert raised.value is refusal
+
+    def test_the_refusal_is_not_relabelled_as_unexpected(self,
+                                                         calculator,
+                                                         mock_definition):
+        """The published code is the whole point: a client branches on it."""
+        mock_definition.weighting_scheme.scheme_name = "MarketCapWeighted"
+        mock_definition.weighting_scheme.calculate_weights.side_effect = (
+            CalculationError(calculation_name="MarketCapWeighted",
+                             details="nothing to weight by"))
+
+        with pytest.raises(CalculationError) as raised:
+            calculator.calculate_constituent_weights([AAPL],
+                                                     pd.Timestamp("2025-03-03"))
+
+        assert not isinstance(raised.value, UnexpectedCalculationError)
+
+    def test_the_remedy_survives_at_the_top_level(self,
+                                                  calculator,
+                                                  mock_definition):
+        """What the user reads. Wrapped, this text sat inside a crash report."""
+        mock_definition.weighting_scheme.scheme_name = "MarketCapWeighted"
+        mock_definition.weighting_scheme.calculate_weights.side_effect = (
+            CalculationError(
+                calculation_name="MarketCapWeighted",
+                details="load the name's prices, or remove it from the universe"))
+
+        with pytest.raises(CalculationError) as raised:
+            calculator.calculate_constituent_weights([AAPL],
+                                                     pd.Timestamp("2025-03-03"))
+
+        assert "remove it from the universe" in str(raised.value)
+
+    def test_a_subclassed_refusal_still_reports_as_unexpected(self,
+                                                              calculator,
+                                                              mock_definition):
+        """`UnexpectedCalculationError` *is* a `CalculationError`.
+
+        A scheme that wraps its own fault has already classified it, and the
+        pass-through must not launder that back into a decision.
+        """
+        mock_definition.weighting_scheme.scheme_name = "MarketCapWeighted"
+        mock_definition.weighting_scheme.calculate_weights.side_effect = (
+            UnexpectedCalculationError("MarketCapWeighted",
+                                       ZeroDivisionError("division by zero")))
+
+        with pytest.raises(UnexpectedCalculationError) as raised:
+            calculator.calculate_constituent_weights([AAPL],
+                                                     pd.Timestamp("2025-03-03"))
+
+        assert raised.value.original_type == "ZeroDivisionError"

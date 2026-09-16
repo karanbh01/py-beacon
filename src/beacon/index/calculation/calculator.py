@@ -319,13 +319,16 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             A dictionary mapping each Asset to its float weight. Sum of weights should be 1.0.
 
         Raises:
-            UnexpectedCalculationError: If the scheme itself raises. A crash,
-                not a decision, and it carries its own published code so a
-                client does not read it as a refusal (BN-194).
-            CalculationError: If its weights do not sum to 1. That used to be
-                silently renormalised with a warning — and a scheme's own
-                output rescaled is the scheme not being applied, which is the
-                BN-179 argument exactly (BN-184).
+            CalculationError: If the scheme refuses — an unpriced constituent,
+                an unknown share count, a market cap of zero — in which case it
+                propagates exactly as the scheme raised it, remedy and all
+                (BN-196). Also if its weights do not sum to 1: that used to be
+                silently renormalised with a warning, and a scheme's own output
+                rescaled is the scheme not being applied, which is the BN-179
+                argument exactly (BN-184).
+            UnexpectedCalculationError: If the scheme raises anything else. A
+                crash, not a decision, and it carries its own published code so
+                a client does not read it as a refusal (BN-194).
         """
         date_str = current_date.strftime('%Y-%m-%d')
         if not constituents:
@@ -342,17 +345,27 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             weights = self.definition.weighting_scheme.calculate_weights(
                 constituents, current_date, self.data, self.context
             )
+
+        # A scheme's own refusal, passed through as it was raised (BN-196).
+        # BN-194 wrapped this on the premise that a guard in *this* file refuses
+        # deliberately while a scheme only ever faults — which BN-179, BN-188
+        # and BN-191 had already made false: every substitution they removed
+        # became a `CalculationError` raised from inside a scheme, each naming
+        # its remedy. Wrapping them relabelled the whole class as a crash, so
+        # "unpriced constituent" published as "the engine broke" — the exact
+        # inversion BN-194 set out to fix. What reaches the `except` below is
+        # what that premise actually described: an exception the scheme never
+        # meant to raise.
+        except CalculationError:
+            raise
+
         except Exception as e:
             logger.error(
                 f"Error applying weighting scheme "
                 f"{self.definition.weighting_scheme.scheme_name}: {e}")
 
-            # `UnexpectedCalculationError`, not `CalculationError` (BN-194).
-            # Everything a guard in this file refuses is a decision with a
-            # remedy in its message; whatever a scheme raises here is a fault,
-            # and the two arrived under one published code. The
-            # `WeightingScheme-` prefix below survives as a *name* only —
-            # nothing may branch on it, which is why the class differs.
+            # The `WeightingScheme-` prefix survives as a *name* only — nothing
+            # may branch on it, which is why the class differs.
             raise UnexpectedCalculationError(
                 calculation_name=f"WeightingScheme-{self.definition.weighting_scheme.scheme_name}",
                 cause=e) from e

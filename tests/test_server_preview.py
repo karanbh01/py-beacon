@@ -466,3 +466,66 @@ class TestRequestAndResolution:
                                json={"as_of": "2025-03-03"}, headers=auth())
 
         assert "weights" not in response.json()
+
+
+class TestTheWeightingSchemeMayBeTheFirstToRefuse:
+    """BN-196. The two tests above pass on an index that has selection rules.
+
+    A rule refuses first, so the refusal never reaches the weighting scheme and
+    never meets the `except Exception` wrapped around it — which since BN-194
+    relabelled a scheme's own `CalculationError` as a crash. Strip the rules and
+    the same request, same scheme, same date and same store publish
+    `UNEXPECTED_CALCULATION_FAILURE` instead, with the remedy demoted to a
+    nested string.
+
+    An index with no selection rules is not an edge case: "hold these names,
+    weight them by market cap" is the simplest index there is. It was untested
+    here only because one fixture serves the whole file and that fixture carries
+    rules, so every refusal in it was attributed before the weighting ran.
+    """
+
+    @pytest.fixture
+    def unfiltered(self,
+                   tmp_path) -> TestClient:
+        """The same index with its selection stage empty."""
+        document = definition_document()
+        document["pipeline"]["selection"] = []
+
+        config = ServerConfig(auth_token=TOKEN,
+                              data_fetcher=build_fetcher(),
+                              storage_root=tmp_path)
+        client = TestClient(create_app(config), raise_server_exceptions=False)
+
+        with client:
+            client.post("/indices", json=document, headers=auth())
+            yield client
+
+    def test_a_scheme_refusal_is_published_as_a_decision(self,
+                                                         unfiltered):
+        response = unfiltered.post("/indices/PREVIEW/preview",
+                                   json={"as_of": "2025-03-03"}, headers=auth())
+
+        assert response.json()["error"]["code"] == "CALCULATION_ERROR"
+
+    def test_the_remedy_is_the_message_rather_than_a_nested_detail(self,
+                                                                   unfiltered):
+        """What the user reads when the preview fails, and what they act on."""
+        response = unfiltered.post("/indices/PREVIEW/preview",
+                                   json={"as_of": "2025-03-03"}, headers=auth())
+        message = response.json()["error"]["message"]
+
+        assert "unexpected" not in message.lower()
+        assert "2025-01-31" in message
+
+    def test_both_shapes_of_the_index_agree(self,
+                                            client,
+                                            unfiltered):
+        """The classification cannot depend on whether a rule refused first."""
+        filtered_code = client.post(
+            "/indices/PREVIEW/preview",
+            json={"as_of": "2025-03-03"}, headers=auth()).json()["error"]["code"]
+        unfiltered_code = unfiltered.post(
+            "/indices/PREVIEW/preview",
+            json={"as_of": "2025-03-03"}, headers=auth()).json()["error"]["code"]
+
+        assert filtered_code == unfiltered_code == "CALCULATION_ERROR"
