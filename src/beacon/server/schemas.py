@@ -34,6 +34,7 @@ from ..exceptions import CalculationError
 from ..expressions.core import COMPARISONS
 from ..index.derived import OBJECTIVES
 from ..index.result import IndexResult
+from ..index.schedule import CalendarCoverage
 from ..optimise.config import MIN_TRACKING_ERROR
 from ..report.blocks import BLOCK_TYPES
 from ..universe import FROZEN, LIVE
@@ -163,6 +164,56 @@ class HealthResponse(BaseModel):
                     "then nothing whose age could be reported.")
 
 
+class CalendarCoveragePayload(BaseModel):
+    """The window asked for beside the one the calendar could offer (BN-198).
+
+    Present only when the calendar narrowed the run, so its presence is the
+    signal. A window the calendar covers *nothing* of never reaches a result at
+    all — that refuses, because an empty index is a failure wearing a success.
+    """
+    calendar: str = Field(
+        description="MIC of the calendar that narrowed the range.")
+    requested_start: str = Field(
+        description="First date the run asked for, ISO 8601. Not the date it "
+                    "produced — see covered_start.")
+    requested_end: str = Field(
+        description="Last date the run asked for, ISO 8601.")
+    covered_start: str = Field(
+        description="First date the calendar could speak for, ISO 8601. The "
+                    "index has no level before this.")
+    covered_end: str = Field(
+        description="Last date the calendar could speak for, ISO 8601.")
+    trimmed_start: bool = Field(
+        description="Whether the calendar's history does not reach back to "
+                    "requested_start. Published so a client never compares "
+                    "dates to find out; the remedy is a different calendar or "
+                    "a later base date.")
+    trimmed_end: bool = Field(
+        description="Whether the calendar's published sessions stop before "
+                    "requested_end. A different remedy from trimmed_start: "
+                    "the sessions do not exist yet rather than not at all.")
+
+    @classmethod
+    def from_coverage(cls,
+                      coverage: CalendarCoverage) -> "CalendarCoveragePayload":
+        """Build from the library's `CalendarCoverage`.
+
+        Only ever called for a partial cover, where both covered ends are set —
+        an empty one refuses before a result exists.
+        """
+        assert coverage.calendar is not None
+        assert coverage.covered_start is not None
+        assert coverage.covered_end is not None
+
+        return cls(calendar=coverage.calendar,
+                   requested_start=coverage.requested_start.date().isoformat(),
+                   requested_end=coverage.requested_end.date().isoformat(),
+                   covered_start=coverage.covered_start.date().isoformat(),
+                   covered_end=coverage.covered_end.date().isoformat(),
+                   trimmed_start=coverage.trimmed_start,
+                   trimmed_end=coverage.trimmed_end)
+
+
 class IndexResultSummary(BaseModel):
     """Serialised view of an `IndexResult`."""
     index_id: str
@@ -174,6 +225,12 @@ class IndexResultSummary(BaseModel):
         description="Rebalance date -> constituent identifiers.")
     weight_snapshots: dict[str, dict[str, float]] = Field(
         description="Rebalance date -> {identifier: weight}. Weights sum to 1.")
+    calendar_coverage: CalendarCoveragePayload | None = Field(
+        default=None,
+        description="Set only when the calendar could not cover the whole "
+                    "requested range, in which case the levels span "
+                    "covered_start to covered_end rather than the dates "
+                    "asked for. Null on an ordinary run.")
 
     @classmethod
     def from_result(cls,
@@ -188,12 +245,17 @@ class IndexResultSummary(BaseModel):
             for date, members in result.weight_snapshots.items()
         }
 
+        coverage = result.calendar_coverage
+
         return cls(index_id=result.index_id,
                    index_levels=SeriesPayload.from_series(result.index_levels),
                    divisor_history=SeriesPayload.from_series(result.divisor_history),
                    rebalance_dates=sorted(constituents),
                    constituent_snapshots=constituents,
-                   weight_snapshots=weights)
+                   weight_snapshots=weights,
+                   calendar_coverage=(
+                       CalendarCoveragePayload.from_coverage(coverage)
+                       if coverage is not None else None))
 
 
 class BacktestMetrics(BaseModel):

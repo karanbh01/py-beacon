@@ -28,6 +28,7 @@ from beacon.exceptions import (
     UnexpectedCalculationError,
 )
 from beacon.index.result import IndexResult
+from beacon.index.schedule import CalendarCoverage
 from beacon.portfolio.base import Transaction
 from beacon.server import (
     BacktestResultSummary,
@@ -629,6 +630,40 @@ class TestResultSchemas:
         assert payload["index_levels"]["data"] == [1000.0, 1010.0]
         assert payload["rebalance_dates"] == [rebalance.isoformat()]
         assert payload["weight_snapshots"][rebalance.isoformat()] == {"AAA": 0.6, "BBB": 0.4}
+        assert payload["calendar_coverage"] is None
+
+    def test_a_narrowed_range_publishes_both_ends(self):
+        """BN-198. The twin-field shape: a resolution step moved the range, so
+        the range as asked for is published beside the one produced.
+
+        `trimmed_start` and `trimmed_end` are published rather than left to be
+        derived, because working the narrowing out by comparing two dates is an
+        edge a client gets right for a while and then does not — and the two
+        ends have different remedies, so one flag for "partial" would not be
+        enough to act on either.
+        """
+        coverage = CalendarCoverage(
+            calendar="XTKS",
+            requested_start=pd.Timestamp("1996-01-02"),
+            requested_end=pd.Timestamp("1998-12-31"),
+            covered_start=pd.Timestamp("1997-01-06"),
+            covered_end=pd.Timestamp("1998-12-31"),
+            calendar_start=pd.Timestamp("1997-01-06"),
+            calendar_end=pd.Timestamp("2027-09-16"))
+        result = IndexResult(index_id="DEMO",
+                             index_levels=pd.Series(dtype=float),
+                             divisor_history=pd.Series(dtype=float),
+                             constituent_snapshots={},
+                             weight_snapshots={},
+                             calendar_coverage=coverage)
+
+        published = IndexResultSummary.from_result(result).model_dump()["calendar_coverage"]
+
+        assert published["calendar"] == "XTKS"
+        assert published["requested_start"] == "1996-01-02"
+        assert published["covered_start"] == "1997-01-06"
+        assert published["trimmed_start"] is True
+        assert published["trimmed_end"] is False
 
     def test_backtest_result_round_trips(self):
         nav = pd.Series([1000.0, 1100.0], index=DATES[:2])

@@ -10,6 +10,7 @@ from ..data.fetcher import DataFetcher
 from ..plot.base import PlotAccessor
 from .asset_view import IndexAssetView
 from .capping import CapReport
+from .schedule import CalendarCoverage
 
 #: Long-form columns of the daily weights panel, in order.
 DAILY_WEIGHT_COLUMNS = ["DATE", "IDENTIFIER", "AMOUNT", "WEIGHT"]
@@ -117,6 +118,12 @@ class IndexResult:
     # answer.
     daily_weights: pd.DataFrame = field(default_factory=empty_daily_weights,
                                         repr=False, compare=False)
+    # None when the calendar covered the whole requested window, which is the
+    # ordinary case -- so its presence is itself the signal that the range was
+    # narrowed, the way `cap_reports` signals that capping occurred (BN-198).
+    # A window the calendar can cover *none* of does not arrive here at all:
+    # that refuses in `run()` rather than publishing an empty index.
+    calendar_coverage: CalendarCoverage | None = None
     _data_fetcher: DataFetcher | None = field(default=None, repr=False, compare=False)
 
     def capped_assets_on_date(self,

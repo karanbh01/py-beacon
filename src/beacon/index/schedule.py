@@ -67,6 +67,8 @@ no longer is, is reachable by *omission*: `calendar` is a required argument of
 something a caller asks for in writing, never something they get by forgetting.
 """
 import logging
+from dataclasses import dataclass
+from functools import lru_cache
 
 import exchange_calendars
 import pandas as pd
@@ -110,6 +112,29 @@ SESSION_UNIT = pd.bdate_range("2024-01-01", periods=1).unit
 _LOOKAHEAD_PERIODS = 2
 
 
+@lru_cache(maxsize=64)
+def _built(calendar: str,
+           start: str | None) -> exchange_calendars.ExchangeCalendar:
+    """One calendar object per (MIC, start), built once and kept.
+
+    `exchange_calendars` caches the *default* calendar and nothing else, so
+    every request for an earlier start rebuilds from scratch. Measured before
+    this existed: a `sessions()` call that widens costs 407 ms, and one that
+    has to bisect for the floor costs 835 ms — against 8.5 ms for a call
+    inside the default bounds. `sessions()` is called several times per run and
+    `rebalance_dates` calls it again, so a pre-2006 index paid that repeatedly
+    for an object that cannot change between calls.
+
+    Bounded rather than unbounded: the keyspace is a handful of MICs times a
+    handful of distinct starts, and a calendar object is large enough that an
+    unbounded cache over a long-lived server is a leak rather than a saving.
+    """
+    if start is None:
+        return exchange_calendars.get_calendar(calendar)
+
+    return exchange_calendars.get_calendar(calendar, start=start)
+
+
 def _calendar_covering(calendar: str,
                        start: pd.Timestamp) -> exchange_calendars.ExchangeCalendar:
     """A calendar whose history reaches back to *start*, where it can.
@@ -129,23 +154,240 @@ def _calendar_covering(calendar: str,
     notice, and clamping forward is the deliberate behaviour documented on
     :func:`sessions`.
 
-    Falls back to the default bounds if the package refuses the earlier start,
-    which is what a calendar with a hard lower bound does.
+    When the package refuses the earlier start, this falls back to the widest
+    calendar it *will* build rather than to the default one (BN-198). The
+    difference decides whether a request is partly answerable or not at all:
+    XTKS will not build from 1996 but will from 1997, so a 1996-2000 index
+    falling back to the default bounds looks like a window the calendar covers
+    nothing of — and refuses — when four fifths of it were available. Falling
+    back to the floor makes that what it is, a partial cover, which is
+    reported rather than refused.
     """
-    schedule = exchange_calendars.get_calendar(calendar)
+    schedule = _built(calendar, None)
 
     if start >= schedule.first_session:
         return schedule
 
     try:
-        return exchange_calendars.get_calendar(
-            calendar, start=start.strftime("%Y-%m-%d"))
+        return _built(calendar, start.strftime("%Y-%m-%d"))
     except Exception:
-        logger.warning(
-            "%s cannot reach back to %s; sessions before %s are unavailable.",
-            calendar, start.date(), schedule.first_session.date())
+        floor = earliest_available(calendar)
 
-        return schedule
+        logger.warning(
+            "%s cannot reach back to %s; its earliest session is %s.",
+            calendar, start.date(), floor.date())
+
+        if floor >= schedule.first_session:
+            return schedule
+
+        return _built(calendar, floor.strftime("%Y-%m-%d"))
+
+
+@dataclass(frozen=True)
+class CalendarCoverage:
+    """What a calendar could offer of the window it was asked for (BN-198).
+
+    The twin-field shape, for the same reason as `as_of`/`resolved_date`:
+    a resolution step moved a field, so the unmoved one is published beside
+    it. A calendar narrowing a window is a resolution step like any other, and
+    a covered range alone cannot say what was asked for.
+
+    `is_partial` exists so a client never has to compare two dates to find
+    out — an edge a reader gets right for a while and then does not.
+    `trimmed_start` and `trimmed_end` say *which* end moved, because the two
+    have different causes and different remedies: the near end is a calendar
+    whose history does not reach (change the calendar or the base date), the
+    far end is one whose published sessions stop (wait, or ask for less).
+
+    Attributes:
+        calendar: The MIC asked for, or None for plain business days.
+        requested_start: The window's first date, as asked for.
+        requested_end: The window's last date, as asked for.
+        covered_start: First date the calendar can speak for, or None when it
+            can speak for none of the window.
+        covered_end: Last such date, or None in the same case.
+    """
+
+    calendar: str | None
+    requested_start: pd.Timestamp
+    requested_end: pd.Timestamp
+    covered_start: pd.Timestamp | None
+    covered_end: pd.Timestamp | None
+    #: The calendar's own bounds as resolved for *this* request, which is not
+    #: a property of the calendar alone: `_calendar_covering` widens the near
+    #: end on demand, so the same MIC answers differently depending on how far
+    #: back it was asked to reach. None when no calendar was named.
+    calendar_start: pd.Timestamp | None = None
+    calendar_end: pd.Timestamp | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        """Whether the calendar covers none of the requested window."""
+        return self.covered_start is None or self.covered_end is None
+
+    @property
+    def starts_before_calendar(self) -> bool:
+        """Whether the window opens before anything the calendar knows.
+
+        Which end failed decides the remedy, so a refusal has to know: too
+        early is a calendar whose history does not reach, too late is one
+        whose published sessions stop, and the two are acted on differently.
+        """
+        return (self.calendar_start is not None
+                and self.requested_start < self.calendar_start)
+
+    def describe_window(self) -> str:
+        """The requested window beside the covered one, for a log line."""
+        if self.is_empty:
+            return (f"{self.requested_start:%Y-%m-%d} to "
+                    f"{self.requested_end:%Y-%m-%d}, none of which is covered")
+
+        return (f"{self.requested_start:%Y-%m-%d} to "
+                f"{self.requested_end:%Y-%m-%d}, covered from "
+                f"{self.covered_start:%Y-%m-%d} to {self.covered_end:%Y-%m-%d}")
+
+    @property
+    def trimmed_start(self) -> bool:
+        """Whether the calendar's history does not reach the requested start."""
+        return (self.covered_start is not None
+                and self.covered_start > self.requested_start)
+
+    @property
+    def trimmed_end(self) -> bool:
+        """Whether the calendar's sessions stop before the requested end."""
+        return (self.covered_end is not None
+                and self.covered_end < self.requested_end)
+
+    @property
+    def is_partial(self) -> bool:
+        """Whether either end was narrowed. False when the cover is complete."""
+        return self.trimmed_start or self.trimmed_end
+
+
+def calendar_coverage(start: pd.Timestamp,
+                      end: pd.Timestamp,
+                      calendar: str | None) -> CalendarCoverage:
+    """How much of a window a calendar can actually speak for.
+
+    A pure query: it refuses nothing and logs nothing, so the caller decides
+    what a narrowing means. :func:`sessions` stays the primitive it was and
+    keeps answering with what it has — `is_session` depends on that, since a
+    date outside a calendar's bounds is a date it cannot call open — while an
+    index calculation asks this first and refuses on an empty answer.
+
+    Args:
+        start: First date of the window, inclusive.
+        end: Last date, inclusive.
+        calendar: Exchange MIC, or None for plain business days, which have no
+            bounds and therefore always cover the window in full.
+
+    Returns:
+        CalendarCoverage: The requested window beside the covered one.
+    """
+    requested_start = pd.Timestamp(start)
+    requested_end = pd.Timestamp(end)
+
+    if calendar is None:
+        return CalendarCoverage(calendar=None,
+                                requested_start=requested_start,
+                                requested_end=requested_end,
+                                covered_start=requested_start,
+                                covered_end=requested_end)
+
+    schedule = _calendar_covering(calendar, requested_start)
+    calendar_start = pd.Timestamp(schedule.first_session)
+    calendar_end = pd.Timestamp(schedule.last_session)
+
+    first = max(requested_start, calendar_start)
+    last = min(requested_end, calendar_end)
+
+    # An inverted window is the caller's arithmetic, not the calendar's reach,
+    # and must not be reported as a coverage failure -- `rebalance_dates`
+    # already answers "nothing" for one and has always been allowed to.
+    empty = requested_start > requested_end or first > last
+
+    return CalendarCoverage(calendar=calendar,
+                            requested_start=requested_start,
+                            requested_end=requested_end,
+                            covered_start=None if empty else first,
+                            covered_end=None if empty else last,
+                            calendar_start=calendar_start,
+                            calendar_end=calendar_end)
+
+
+# Years the earliest-session search brackets between. The floor sits below
+# every floor `exchange_calendars` ships — NYSE is the deepest at 1885, so a
+# 1900 bracket would report *itself* as the answer for it — and the ceiling is
+# the default twenty-year window every calendar builds unasked, which every
+# floor is therefore at or below. Widening the bracket costs one bisection
+# step, so it is bought cheaply.
+_SEARCH_FLOOR = 1800
+_SEARCH_CEILING = 2006
+
+
+@lru_cache(maxsize=64)
+def earliest_available(calendar: str) -> pd.Timestamp:
+    """The earliest session the package will build for a calendar.
+
+    Found by bisection rather than read off an attribute, because there is no
+    attribute: `get_calendar(code)` returns twenty years of history whatever
+    the underlying data supports, and the true floor only shows up as the
+    earliest `start` it will accept. Each calendar's floor differs and none is
+    the default bound — XTKS and XBOM reach back to 1997, XHKG to 1960, while
+    all three report a first session of 2006 until asked for more.
+
+    Worth the handful of calendar builds because it is only ever called to
+    explain a refusal, and the alternative is a message that understates the
+    reach: quoting the default bound would tell someone asking for a 1950 Hong
+    Kong index that the calendar starts in 2006, which is both false and the
+    wrong thing to act on.
+
+    Args:
+        calendar: Exchange MIC.
+
+    Returns:
+        pd.Timestamp: First session of the widest calendar obtainable.
+    """
+    low, high = _SEARCH_FLOOR, _SEARCH_CEILING
+
+    while low < high:
+        middle = (low + high) // 2
+
+        try:
+            _built(calendar, f"{middle}-01-02")
+            high = middle
+        except Exception:
+            low = middle + 1
+
+    return pd.Timestamp(_built(calendar, f"{low}-01-02").first_session)
+
+
+def describe_bounds(coverage: CalendarCoverage) -> str:
+    """Why a calendar could not cover a window, in terms of the end that failed.
+
+    Only the failing end is searched for. A window that opens before the
+    calendar's history needs the true floor, and finding it costs a handful of
+    calendar builds; a window that opens after the calendar's last published
+    session needs no search at all, because that bound is already known. The
+    old version quoted both ends always, which paid for the search on every
+    refusal and — for a calendar the package will build arbitrarily far back,
+    NYSE being one — reported the search's own lower bracket as though it were
+    a fact about the exchange.
+    """
+    calendar = coverage.calendar
+    assert calendar is not None, "a coverage with no calendar cannot refuse"
+
+    name = DISPLAY_NAMES.get(calendar, calendar)
+
+    if coverage.starts_before_calendar:
+        return (f"{calendar} ({name}) has no sessions before "
+                f"{earliest_available(calendar):%Y-%m-%d}")
+
+    last = coverage.calendar_end
+
+    return (f"{calendar} ({name}) has no published sessions after "
+            f"{last:%Y-%m-%d}" if last is not None else
+            f"{calendar} ({name}) cannot cover that window")
 
 
 def sessions(start: pd.Timestamp,

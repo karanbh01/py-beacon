@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from beacon.asset.equity import Equity
+from beacon.exceptions import CalculationError
 from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
@@ -259,3 +260,116 @@ class TestIntegrationRun:
                                                        result):
         for ids in result.constituent_snapshots.values():
             assert set(ids) == {"ASSET_A", "ASSET_B"}
+
+
+class TestACalendarThatCannotCoverTheRange:
+    """BN-198. A window the calendar cannot reach used to succeed, emptily.
+
+    `sessions()` clamps to what the calendar object holds, so a pre-1997 Tokyo
+    index got no sessions at all, and `run()` logged "no trading days" and
+    returned an `IndexResult` with no levels in it. Good data, a real request,
+    a successful result containing nothing, and a WARNING as the only record
+    that anything had gone wrong.
+
+    Karan's call on the two halves: refuse when the calendar covers none of the
+    window, because an empty series is a failure wearing a success and neither
+    half of the remedy is discoverable from an empty list; report when it
+    covers part, because that is a real answer to a smaller question.
+    """
+
+    def definition(self,
+                   base_date: str,
+                   calendar: str) -> IndexDefinition:
+        return IndexDefinition(
+            index_id="TZ",
+            index_name="Calendar Coverage",
+            base_date=base_date,
+            base_value=BASE_VALUE,
+            # Matching the fixture's reference data, so no FX conversion is
+            # attempted: the universe is quoted in USD and a JPY index would
+            # reach for a rate the mock provider answers with a MagicMock.
+            currency="USD",
+            eligibility_rules=[],
+            weighting_scheme=EqualWeighted(),
+            rebalancing_frequency="QUARTERLY",
+            calendar=calendar,
+            universe_identifiers=["ASSET_A", "ASSET_B"],
+        )
+
+    def test_it_refuses_rather_than_publishing_an_empty_index(self,
+                                                              mock_data):
+        calculator = IndexCalculator(self.definition("1995-01-02", "XTKS"),
+                                     mock_data)
+
+        with pytest.raises(CalculationError):
+            calculator.run(end_date="1995-12-29")
+
+    def test_the_refusal_names_the_calendar_and_its_earliest_session(self,
+                                                                     mock_data):
+        """"The calendar does not cover 1995" leaves a reader looking at the
+        base date, which is not the thing that is wrong."""
+        calculator = IndexCalculator(self.definition("1995-01-02", "XTKS"),
+                                     mock_data)
+
+        with pytest.raises(CalculationError) as raised:
+            calculator.run(end_date="1995-12-29")
+
+        message = str(raised.value)
+
+        assert "XTKS" in message
+        assert "Tokyo Stock Exchange" in message
+        assert "1997-01-06" in message
+
+    def test_an_ordinary_run_reports_no_coverage_at_all(self,
+                                                        result):
+        """Null on a full cover, so its presence is itself the signal."""
+        assert result.calendar_coverage is None
+
+    def priced_over(self,
+                    start: str,
+                    end: str) -> MagicMock:
+        """A provider carrying flat prices across an arbitrary period.
+
+        The module fixture only holds 2024, and a 1997 run over it refuses on
+        an unpriced constituent (BN-191) long before it can say anything about
+        calendars — a different refusal reached first, which is the shape
+        BN-196 was about.
+        """
+        data = _make_mock_data()
+        priced = set(pd.bdate_range(start, end).strftime("%Y-%m-%d"))
+
+        def fetch_market_data(ticker,
+                              begin,
+                              finish):
+            if str(begin)[:10] not in priced:
+                return pd.DataFrame()
+
+            return pd.DataFrame(
+                {"CLOSE": [100.0]},
+                index=pd.Index([pd.Timestamp(begin)], name="DATE"))
+
+        data.fetch_market_data.side_effect = fetch_market_data
+
+        return data
+
+    def test_a_partial_cover_succeeds_and_carries_both_ranges(self):
+        """XTKS reaches 1997, so a 1996 start is narrowed rather than refused."""
+        calculator = IndexCalculator(self.definition("1996-01-02", "XTKS"),
+                                     self.priced_over("1996-01-01", "1999-01-31"))
+
+        coverage = calculator.run(end_date="1998-12-31").calendar_coverage
+
+        assert coverage is not None
+        assert coverage.requested_start == pd.Timestamp("1996-01-02")
+        assert coverage.covered_start == pd.Timestamp("1997-01-06")
+        assert coverage.trimmed_start
+        assert not coverage.trimmed_end
+
+    def test_the_levels_stop_at_the_covered_range(self):
+        """The report is only worth having if it describes what was produced."""
+        calculator = IndexCalculator(self.definition("1996-01-02", "XTKS"),
+                                     self.priced_over("1996-01-01", "1999-01-31"))
+
+        result = calculator.run(end_date="1998-12-31")
+
+        assert result.index_levels.index.min() >= pd.Timestamp("1997-01-06")

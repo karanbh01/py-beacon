@@ -27,6 +27,7 @@ implementation is wrong: the third Friday of April 2025 is Good Friday, and the
 import inspect
 import json
 
+import exchange_calendars
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -36,6 +37,11 @@ from beacon.data.fetcher import DataFetcher
 from beacon.index import schedule
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
+from beacon.index.schedule import (
+    calendar_coverage,
+    describe_bounds,
+    earliest_available,
+)
 from beacon.server import ServerConfig, create_app
 from beacon.server.routers.indices import MAX_SCHEDULE_LIMIT, build_schedule
 from beacon.server.schemas import IndexDocument
@@ -1148,3 +1154,183 @@ class TestPublishedCalendars:
                               headers=auth())
 
         assert response.status_code == 422
+
+
+class TestCalendarCoverage:
+    """BN-198: a calendar that cannot reach the window, and what that means.
+
+    `exchange_calendars` builds twenty years by default and will widen the near
+    end on request — but only as far as the data it ships goes, and that floor
+    differs per calendar and is not published as an attribute. Before this, a
+    window below the floor fell back to the *default* bounds and produced an
+    empty session index, which the calculator turned into a successful index
+    with no levels in it.
+
+    The floors are real and measured rather than assumed: XTKS and XBOM reach
+    1997, XHKG reaches 1960, and all three report a first session of 2006 until
+    something asks for more.
+    """
+
+    def test_a_window_inside_the_calendar_is_covered_whole(self):
+        coverage = calendar_coverage(pd.Timestamp("2020-01-02"),
+                                     pd.Timestamp("2020-06-30"), "XNYS")
+
+        assert not coverage.is_empty
+        assert not coverage.is_partial
+        assert coverage.covered_start == pd.Timestamp("2020-01-02")
+        assert coverage.covered_end == pd.Timestamp("2020-06-30")
+
+    def test_a_window_below_the_floor_is_covered_nowhere(self):
+        """XTKS reaches 1997, so 1995 is outside it entirely."""
+        coverage = calendar_coverage(pd.Timestamp("1995-01-02"),
+                                     pd.Timestamp("1995-12-29"), "XTKS")
+
+        assert coverage.is_empty
+        assert coverage.covered_start is None
+        assert not coverage.is_partial
+
+    def test_a_window_straddling_the_floor_is_partial_not_empty(self):
+        """The case the default-bounds fallback used to lose.
+
+        XTKS will not build from 1996 but will from 1997, so four fifths of
+        this window exists. Falling back to the default 2006 bound made the
+        whole thing look uncovered and refused a run that had an answer.
+        """
+        coverage = calendar_coverage(pd.Timestamp("1996-01-02"),
+                                     pd.Timestamp("2000-12-29"), "XTKS")
+
+        assert not coverage.is_empty
+        assert coverage.is_partial
+        assert coverage.trimmed_start
+        assert not coverage.trimmed_end
+        assert coverage.covered_start == pd.Timestamp("1997-01-06")
+        assert coverage.covered_end == pd.Timestamp("2000-12-29")
+
+    def test_a_window_past_the_last_session_is_partial_at_the_far_end(self):
+        coverage = calendar_coverage(pd.Timestamp("2020-01-02"),
+                                     pd.Timestamp("2035-12-31"), "XNYS")
+
+        assert coverage.is_partial
+        assert coverage.trimmed_end
+        assert not coverage.trimmed_start
+        assert coverage.covered_start == pd.Timestamp("2020-01-02")
+
+    def test_the_two_ends_are_reported_separately(self):
+        """They have different causes and different remedies, so one boolean
+        for "partial" is not enough to act on."""
+        early = calendar_coverage(pd.Timestamp("1996-01-02"),
+                                  pd.Timestamp("2000-12-29"), "XTKS")
+        late = calendar_coverage(pd.Timestamp("2020-01-02"),
+                                 pd.Timestamp("2035-12-31"), "XNYS")
+
+        assert (early.trimmed_start, early.trimmed_end) == (True, False)
+        assert (late.trimmed_start, late.trimmed_end) == (False, True)
+
+    def test_no_calendar_covers_everything(self):
+        """Business days have no bounds, so they never narrow a window."""
+        coverage = calendar_coverage(pd.Timestamp("1900-01-01"),
+                                     pd.Timestamp("2099-12-31"), None)
+
+        assert not coverage.is_partial
+        assert not coverage.is_empty
+
+    def test_an_inverted_window_is_not_a_coverage_failure(self):
+        """The caller's arithmetic, not the calendar's reach. `rebalance_dates`
+        has always been allowed to answer "nothing" for one."""
+        coverage = calendar_coverage(pd.Timestamp("2020-06-30"),
+                                     pd.Timestamp("2020-01-02"), "XNYS")
+
+        assert coverage.is_empty
+        assert not coverage.trimmed_start
+        assert not coverage.trimmed_end
+
+
+class TestEarliestAvailable:
+    """The floor is found, not read: there is no attribute that reports it."""
+
+    @pytest.mark.parametrize("calendar,expected", [("XTKS", "1997-01-06"),
+                                                   ("XHKG", "1960-01-04"),
+                                                   ("XBOM", "1997-01-02")])
+    def test_it_finds_each_calendars_own_floor(self,
+                                               calendar,
+                                               expected):
+        assert earliest_available(calendar) == pd.Timestamp(expected)
+
+    def test_the_default_object_understates_every_one_of_them(self):
+        """Why the search exists. Quoting `first_session` off the default
+        calendar would tell someone asking for a 1980 Hong Kong index that the
+        calendar starts in 2006, which is false by forty-six years."""
+        default = exchange_calendars.get_calendar("XHKG").first_session
+
+        assert earliest_available("XHKG") < pd.Timestamp(default)
+
+
+class TestTheRefusalNamesTheEndThatFailed:
+    """The remedy differs by end, so the message has to distinguish them."""
+
+    def test_a_too_early_window_names_the_earliest_session(self):
+        coverage = calendar_coverage(pd.Timestamp("1995-01-02"),
+                                     pd.Timestamp("1995-12-29"), "XTKS")
+
+        assert "no sessions before 1997-01-06" in describe_bounds(coverage)
+
+    def test_a_too_late_window_names_the_last_published_session(self):
+        coverage = calendar_coverage(pd.Timestamp("2035-01-02"),
+                                     pd.Timestamp("2035-06-30"), "XNYS")
+        message = describe_bounds(coverage)
+
+        assert "no published sessions after" in message
+        assert "New York Stock Exchange" in message
+
+    def test_the_late_case_does_not_pay_for_the_floor_search(self):
+        """The far bound is already known, and bisecting for it would build a
+        handful of calendars to quote a number that is not the problem."""
+        coverage = calendar_coverage(pd.Timestamp("2035-01-02"),
+                                     pd.Timestamp("2035-06-30"), "XNYS")
+
+        assert "1800" not in describe_bounds(coverage)
+
+
+class TestCalendarObjectsAreBuiltOnce:
+    """BN-198. `exchange_calendars` caches the default calendar and nothing else.
+
+    Measured before the cache existed: 8.5 ms for a `sessions()` call inside
+    the default bounds, 407 ms for one that widens, and 835 ms for one that has
+    to bisect for the floor. `sessions()` is called several times per run and
+    `rebalance_dates` calls it again, so the same immutable object was rebuilt
+    repeatedly — the BN-190 shape, a cost hiding behind a call site with no
+    visible loop.
+
+    Caching the built calendar is caching a *read*, not a conclusion: the
+    object is a function of (MIC, start) and nothing in a run can change it.
+    """
+
+    def test_a_repeated_widen_does_not_rebuild(self):
+        schedule._built.cache_clear()
+        window = (pd.Timestamp("1999-01-04"), pd.Timestamp("2001-12-31"))
+
+        schedule.sessions(*window, "XNYS")
+        after_first = schedule._built.cache_info().misses
+        for _ in range(5):
+            schedule.sessions(*window, "XNYS")
+
+        assert schedule._built.cache_info().misses == after_first
+        assert schedule._built.cache_info().hits >= 5
+
+    def test_the_floor_search_runs_once_per_calendar(self):
+        """The bisection builds a handful of calendars; doing that per call
+        made the refusal path cost most of a second."""
+        earliest_available.cache_clear()
+        schedule._built.cache_clear()
+
+        first = earliest_available("XTKS")
+        builds = schedule._built.cache_info().misses
+        second = earliest_available("XTKS")
+
+        assert first == second
+        assert schedule._built.cache_info().misses == builds
+
+    def test_the_cache_is_bounded(self):
+        """Unbounded would be a leak in a long-lived server: these objects are
+        large, and the key includes a start date a caller chooses."""
+        assert schedule._built.cache_info().maxsize is not None

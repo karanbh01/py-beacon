@@ -16,7 +16,7 @@ from ..capping import CapReport, apply_cap
 from ..constructor import IndexDefinition
 from ..context import IndexContext
 from ..result import IndexResult, daily_weights_frame
-from ..schedule import effective_date, sessions
+from ..schedule import calendar_coverage, describe_bounds, effective_date, sessions
 from .corporate_actions import CorporateActionsMixin
 from .deletions import DeletionMixin
 from .market_values import MarketValuesMixin
@@ -575,11 +575,40 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         if pd_start < base_date:
             pd_start = base_date
 
+        # What the calendar can actually speak for, asked before the sessions
+        # are built (BN-198). A window the calendar cannot reach used to
+        # produce an empty index *successfully*: good data, a real request, a
+        # result with no levels in it and a WARNING as the only record.
+        coverage = calendar_coverage(pd_start, pd_end, self.definition.calendar)
+
+        if coverage.is_empty and self.definition.calendar is not None:
+            raise CalculationError(
+                calculation_name="IndexCalculator",
+                details=(
+                    f"cannot schedule {pd_start:%Y-%m-%d} to "
+                    f"{pd_end:%Y-%m-%d}: {describe_bounds(coverage)}, so it "
+                    f"can speak for none of that window. An index cannot have "
+                    f"levels on days its calendar does not know about, and "
+                    f"publishing an empty one would report that as a result "
+                    f"rather than as a problem. Move the dates inside those "
+                    f"bounds, or name a calendar that covers the period."))
+
+        if coverage.is_partial:
+            logger.warning(
+                "%s narrowed this run: %s. The index is calculated over the "
+                "covered range and carries both in its result.",
+                self.definition.calendar, coverage.describe_window())
+
         # The index's own sessions, not Monday to Friday (BN-186). A level is
         # a statement that the market traded and the constituents were worth
         # something; on 25 December neither is true, and iterating business
         # days published one anyway whenever the store happened to carry a bar.
         trading_days = sessions(pd_start, pd_end, self.definition.calendar)
+
+        # Still reachable with a full cover: a window inside the calendar's
+        # bounds that holds no session at all, a single weekend being the
+        # smallest case. That is a real answer to a narrow question rather
+        # than a calendar failing to reach, so it stays an empty result.
         if trading_days.empty:
             logger.warning("No trading days in the requested range.")
             return IndexResult(
@@ -588,6 +617,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 divisor_history=pd.Series(dtype=float),
                 constituent_snapshots={},
                 weight_snapshots={},
+                calendar_coverage=coverage if coverage.is_partial else None,
             )
 
         # A base date the market was shut on is initialised on the first
@@ -854,6 +884,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             cap_reports=cap_reports,
             announcement_dates=announcements,
             daily_weights=daily_weights_frame(daily_records),
+            calendar_coverage=coverage if coverage.is_partial else None,
         ).with_data(self.data)
 
     def run_daily_calculation(self,
