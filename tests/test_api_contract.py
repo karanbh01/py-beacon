@@ -25,6 +25,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from beacon.backtest.result import BacktestResult, Book, IndexBooks
 from beacon.exceptions import CalculationError
@@ -136,7 +137,11 @@ BACKTEST_RUN_REQUIRED = {"level", "returns", "drawdown", "annual_returns",
 # the rebalance snapshots — what was DECIDED — side by side. Written out for the
 # same reason as the list above.
 RECORD_BOOK_FIELDS = {"levels", "weights", "weights_dates_total",
-                      "rebalances", "rebalances_total"}
+                      "rebalances", "rebalances_total",
+                      # BN-200. Defaults to null, so records written before it
+                      # still validate; present only when the index's calendar
+                      # narrowed the range the levels actually span.
+                      "calendar_coverage"}
 
 # The metric keys `BacktestResult.summary()` produces, which `BacktestMetrics`
 # mirrors by string literal (BN-176). Written out here for the same reason as
@@ -942,3 +947,69 @@ class TestFuzzStore:
         fails at the step that wrote it rather than at the one that reads it."""
         assert self._script().main([]) == 2
         assert "usage" in capsys.readouterr().err
+
+
+# Response models exported from `beacon.server` that no route uses, so nothing
+# a client generates from the OpenAPI spec can see them. Both predate BN-200
+# and neither is wrong to exist -- `Money` is a shape worth having before a
+# route needs it -- but the list must not grow silently, because a field added
+# to an orphan looks exactly like a field that shipped.
+KNOWN_ORPHAN_MODELS = {"IndexResultSummary", "Money"}
+
+
+class TestAPublishedModelReachesARoute:
+    """BN-200: a schema that exists is not a schema that ships.
+
+    `calendar_coverage` was added to `IndexResultSummary`, which is defined,
+    exported, documented and constructed by nothing but its own tests. The
+    model test passed. The field reached no client, and a regenerated client
+    produced no diff at all -- which is how beacon-ui found it, by checking
+    before building rather than after.
+
+    The failure is specific and repeatable: *"I added the field" and "a client
+    can read the field" are different claims that feel identical from the side
+    that wrote it.* Four handed-over contracts this fortnight needed checking
+    and every one had the same shape -- the model was right and the route was
+    not. A test that builds the model directly cannot tell the two apart,
+    because it is the half that was never in doubt.
+    """
+
+    def exported_models(self):
+        """Every response model `beacon.server` publishes as public API."""
+        import beacon.server as server
+
+        return {name: getattr(server, name) for name in server.__all__
+                if isinstance(getattr(server, name), type)
+                and issubclass(getattr(server, name), BaseModel)}
+
+    def test_no_new_model_is_orphaned_from_every_route(self,
+                                                       spec):
+        """The ratchet. A model absent from the spec's components is on no
+        route: FastAPI only emits what a route actually references."""
+        components = set(spec["components"]["schemas"])
+        orphans = {name for name in self.exported_models()
+                   if name not in components}
+
+        assert orphans <= KNOWN_ORPHAN_MODELS, (
+            f"{sorted(orphans - KNOWN_ORPHAN_MODELS)} are exported response "
+            f"models that no route returns, so nothing a client generates can "
+            f"see them. Wire the model to a route, or add it here with the "
+            f"reason it exists unrouted.")
+
+        assert orphans == KNOWN_ORPHAN_MODELS, (
+            f"{sorted(KNOWN_ORPHAN_MODELS - orphans)} are no longer orphaned. "
+            f"Remove them from KNOWN_ORPHAN_MODELS so the progress cannot be "
+            f"given back.")
+
+    def test_the_calendar_coverage_shape_is_reachable(self,
+                                                      spec):
+        """The specific field BN-200 is about, pinned where a client reads it.
+
+        On `BookPayload` rather than `IndexResultSummary`: a book is what a
+        client actually receives for a calculated index, and it already carries
+        the `source` the coverage comes off.
+        """
+        book = spec["components"]["schemas"]["BookPayload"]["properties"]
+
+        assert "calendar_coverage" in book
+        assert "CalendarCoveragePayload" in spec["components"]["schemas"]

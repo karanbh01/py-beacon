@@ -716,3 +716,94 @@ class TestTheListing:
         paths = client.get("/openapi.json").json()["paths"]
 
         assert "/beacon/backtests" in paths
+
+
+class TestANarrowedCalendarReachesTheClient:
+    """BN-200: the field BN-198 added, pinned where a client actually reads it.
+
+    BN-198 put `calendar_coverage` on `IndexResultSummary`, which is defined,
+    exported and constructed by nothing but its own tests. That test passed and
+    the field reached no route: a regenerated client produced no diff at all.
+    beacon-ui found it by checking before building.
+
+    So this test goes through HTTP deliberately. Building the model and reading
+    the attribute back is the half that was never in doubt — "I added the
+    field" and "a client can read the field" are different claims, and only one
+    of them is what the issue was for.
+    """
+
+    TOKYO_DATES = pd.bdate_range("1996-01-02", "1998-12-31")
+
+    def fetcher(self) -> DataFetcher:
+        """Flat prices across a window that straddles the XTKS floor of 1997."""
+        rows = [{"IDENTIFIER": name,
+                 "DATE": date,
+                 "CLOSE": 100.0,
+                 "VOLUME": 1_000_000,
+                 "SHARES_OUTSTANDING": SHARES}
+                for name in GROWTH
+                for date in self.TOKYO_DATES]
+        reference = pd.DataFrame([{"IDENTIFIER": name,
+                                   "DATE_FROM": "1990-01-01",
+                                   "NAME": name,
+                                   "CURRENCY": "USD",
+                                   "EXCHANGE": "XTKS"}
+                                  for name in GROWTH])
+
+        return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                           ReferenceData.from_dataframe(reference))
+
+    @pytest.fixture
+    def narrowed(self,
+                 tmp_path) -> dict:
+        """A finished backtest whose index calendar could not reach its base date."""
+        document = index_document()
+        document["calendar"] = "XTKS"
+        document["base_date"] = "1996-01-02"
+
+        config = ServerConfig(auth_token=TOKEN,
+                              data_fetcher=self.fetcher(),
+                              storage_root=tmp_path)
+
+        with TestClient(create_app(config),
+                        raise_server_exceptions=False) as client:
+            created = client.post("/indices", json=document, headers=auth())
+            assert created.status_code == 200, created.json()
+
+            run_backtest(client,
+                         start_date="1996-01-02",
+                         end_date="1998-12-31")
+
+            response = client.get("/beacon/BT/record", headers=auth())
+            assert response.status_code == 200, response.json()
+
+            return response.json()
+
+    def test_the_book_carries_the_coverage(self,
+                                           narrowed):
+        assert narrowed["index"]["target"]["calendar_coverage"] is not None
+
+    def test_it_publishes_both_ends_of_the_range(self,
+                                                 narrowed):
+        """The twin-field shape on the wire: what was asked for beside what was
+        produced. XTKS has no sessions before 1997-01-06."""
+        coverage = narrowed["index"]["target"]["calendar_coverage"]
+
+        assert coverage["calendar"] == "XTKS"
+        assert coverage["requested_start"] == "1996-01-02"
+        assert coverage["covered_start"] == "1997-01-06"
+
+    def test_the_narrowing_is_flagged_without_comparing_dates(self,
+                                                              narrowed):
+        """beacon-ui's ask: deriving this by comparing two dates is an edge a
+        client gets right for a while and then does not."""
+        coverage = narrowed["index"]["target"]["calendar_coverage"]
+
+        assert coverage["trimmed_start"] is True
+        assert coverage["trimmed_end"] is False
+
+    def test_an_ordinary_run_publishes_null(self,
+                                            record):
+        """Null rather than absent, so its presence is the signal — and the
+        ordinary case stays unchanged for every existing client."""
+        assert record["index"]["target"]["calendar_coverage"] is None

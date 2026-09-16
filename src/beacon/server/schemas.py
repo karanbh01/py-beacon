@@ -463,6 +463,15 @@ class BookPayload(BaseModel):
                     "the run payload publishes, kept here because the record "
                     "is what survives the job result. Empty for a comparator "
                     "supplied as a bare level series, which decided nothing.")
+    calendar_coverage: CalendarCoveragePayload | None = Field(
+        default=None,
+        description="Set only when the index's calendar could not cover the "
+                    "whole requested range, in which case `levels` spans "
+                    "covered_start to covered_end rather than the dates asked "
+                    "for. Null on an ordinary run, and on a comparator "
+                    "supplied as a bare level series, which has no calendar of "
+                    "its own. A range the calendar could cover *none* of "
+                    "refuses instead, so it never arrives here.")
     rebalances_total: int = Field(
         default=0,
         description="Rebalances the index actually had; larger than the rows "
@@ -684,12 +693,20 @@ def _book_payload(book: Any,
     snapshots = ([] if book.source is None
                  else rebalance_snapshots(book.source, cap))
 
+    # Off the same `source` the snapshots come from, and for the same reason:
+    # a narrowed range is a fact about the calculation that produced this book,
+    # and a book assembled from a bare level series has no calculation behind
+    # it to have narrowed anything (BN-200).
+    coverage = None if book.source is None else book.source.calendar_coverage
+
     return BookPayload(
         levels=SeriesPayload.from_series(book.levels),
         weights=TableFrame.from_dataframe(book.weights.tail(MAX_WEIGHT_DATES)),
         weights_dates_total=len(book.weights),
         rebalances=snapshots[-MAX_REBALANCES:],
-        rebalances_total=len(snapshots))
+        rebalances_total=len(snapshots),
+        calendar_coverage=(CalendarCoveragePayload.from_coverage(coverage)
+                           if coverage is not None else None))
 
 
 class BacktestRecordRow(BaseModel):
