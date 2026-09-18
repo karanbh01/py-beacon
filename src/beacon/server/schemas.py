@@ -3257,8 +3257,17 @@ class JobStatusOf(BaseModel, Generic[ResultT]):
     result: ResultT | None = Field(
         default=None,
         description="Present only once the job has succeeded; null otherwise.")
-    error: str | None = Field(default=None,
-                              description="Failure reason, when status is failed.")
+    error: "ErrorDetail | None" = Field(
+        default=None,
+        description="Failure reason, when status is failed; null otherwise. "
+                    "The same `{code, message, detail}` a non-2xx response "
+                    "carries, and the same schema — so a failed job branches "
+                    "on `error.code` exactly as an HTTP error does (BN-199). "
+                    "It was a bare string until then, which left the job path "
+                    "the one place a deliberate refusal and a crash looked "
+                    "alike. A job that failed before this carries "
+                    "UNCLASSIFIED_FAILURE: its message was recorded, its code "
+                    "was not, and the migration does not guess one.")
 
 
 class JobStatus(JobStatusOf[Any]):

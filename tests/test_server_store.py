@@ -11,7 +11,12 @@ from beacon.data.fetcher import DataFetcher
 from beacon.exceptions import ConfigurationError
 from beacon.server import ServerConfig, create_app
 from beacon.server import store as store_module
-from beacon.server.store import CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, DocumentStore
+from beacon.server.store import (
+    CURRENT_SCHEMA_VERSION,
+    SCHEMA_VERSION_KEY,
+    UNCLASSIFIED_FAILURE,
+    DocumentStore,
+)
 
 TOKEN = "test-token-value"
 ASSETS = ["AAA", "BBB", "CCC"]
@@ -386,3 +391,101 @@ class TestCoverage:
     def test_requires_authentication(self,
                                      client):
         assert client.get("/data/coverage").status_code == 401
+
+
+class TestTheJobErrorMigration:
+    """BN-199 v2 -> v3: a job's bare `error` string becomes an `ErrorDetail`.
+
+    Not cosmetic. `JobStatusOf.error` is now `ErrorDetail | None`, so a stored
+    string no longer validates against it. Measured on an un-migrated document
+    rather than assumed, because the two routes fail differently and neither
+    fails the way it first looked:
+
+        GET /jobs      -> 200, jobs: 0, skipped: 1
+        GET /jobs/old  -> 422 INVALID_ARGUMENT, "1 validation error for JobStatus"
+
+    The listing is tolerant (BN-178) so the job does not break it — it
+    *disappears* from it, counted in `skipped`, which is the right behaviour
+    for a corrupt file and the wrong one for a document this build made
+    unreadable. The detail route is worse: a pydantic error about the server's
+    own model, published as the **caller's** invalid argument, because
+    `ValidationError` subclasses `ValueError` and the 422 handler catches it.
+
+    So the migration is what stops this build from silently retiring the
+    failure record of every job the previous one ran.
+    """
+
+    def stored_v2(self,
+                  store,
+                  document: dict) -> dict:
+        """Write a document stamped as v2, bypassing `write`'s restamping."""
+        payload = {**document, SCHEMA_VERSION_KEY: 2}
+        (store.directory / f"{document['job_id']}.json").write_text(
+            json.dumps(payload), encoding="utf-8")
+
+        return store.read(document["job_id"])
+
+    def test_a_string_error_becomes_an_envelope(self,
+                                                store):
+        migrated = self.stored_v2(store, {"job_id": "old",
+                                          "status": "failed",
+                                          "error": "deliberate failure"})
+
+        assert migrated["error"] == {"code": "UNCLASSIFIED_FAILURE",
+                                     "message": "deliberate failure",
+                                     "detail": None}
+
+    def test_the_message_survives_verbatim(self,
+                                           store):
+        """The prose is the only thing these documents ever had; losing it to
+        gain a code would be a bad trade."""
+        migrated = self.stored_v2(store, {"job_id": "old",
+                                          "status": "failed",
+                                          "error": "AAPL has no CLOSE"})
+
+        assert migrated["error"]["message"] == "AAPL has no CLOSE"
+
+    def test_the_code_does_not_guess(self,
+                                     store):
+        """These documents kept `str(exc)` and nothing else, so the code
+        genuinely is not known. `BEACON_ERROR` would be a guess, and a wrong
+        one for every crash: it means "a refusal nobody registered"."""
+        migrated = self.stored_v2(store, {"job_id": "old",
+                                          "status": "failed",
+                                          "error": "anything"})
+
+        assert migrated["error"]["code"] == UNCLASSIFIED_FAILURE
+        assert migrated["error"]["code"] != "BEACON_ERROR"
+
+    def test_a_succeeded_job_is_untouched(self,
+                                          store):
+        migrated = self.stored_v2(store, {"job_id": "ok",
+                                          "status": "succeeded",
+                                          "error": None,
+                                          "result": {"value": "done"}})
+
+        assert migrated["error"] is None
+        assert migrated["result"] == {"value": "done"}
+
+    def test_a_job_already_carrying_an_envelope_is_untouched(self,
+                                                             store):
+        """Idempotent, because a v2 document written by a build that already
+        had the new shape is a thing that can exist mid-upgrade."""
+        envelope = {"code": "CALCULATION_ERROR", "message": "a decision",
+                    "detail": None}
+        migrated = self.stored_v2(store, {"job_id": "new",
+                                          "status": "failed",
+                                          "error": envelope})
+
+        assert migrated["error"] == envelope
+
+    def test_another_collection_passes_through(self,
+                                               store):
+        """One version chain covers every collection, so a migration that
+        concerns only jobs has to say which documents it applies to. An index
+        with a string `error` field of its own must not be rewritten."""
+        payload = {"id": "IDX", "error": "not a job", SCHEMA_VERSION_KEY: 2}
+        (store.directory / "IDX.json").write_text(json.dumps(payload),
+                                                  encoding="utf-8")
+
+        assert store.read("IDX")["error"] == "not a job"

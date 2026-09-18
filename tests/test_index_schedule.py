@@ -45,7 +45,11 @@ from beacon.index.schedule import (
 from beacon.server import ServerConfig, create_app
 from beacon.server.routers.indices import MAX_SCHEDULE_LIMIT, build_schedule
 from beacon.server.schemas import IndexDocument
-from beacon.server.store import SCHEMA_VERSION_KEY, DocumentStore
+from beacon.server.store import (
+    CURRENT_SCHEMA_VERSION,
+    SCHEMA_VERSION_KEY,
+    DocumentStore,
+)
 
 TOKEN = "test-token-value"
 
@@ -865,6 +869,12 @@ class TestTheStoredMigration:
     have to invent the machinery. This is that first change, so these tests are
     also the first exercise of the chain against a real migration rather than a
     monkeypatched one.
+
+    The assertions read `CURRENT_SCHEMA_VERSION` rather than the literal 2 they
+    were written with. A v1 document is migrated all the way forward, not to
+    the version this issue happened to add, so pinning the number here made
+    BN-199's bump to 3 look like a regression in BN-180's migration (BN-199).
+    What these tests are about is the *calendar*, and that is what they assert.
     """
 
     def test_a_document_without_a_calendar_migrates_to_xnys(self,
@@ -874,7 +884,7 @@ class TestTheStoredMigration:
         migrated = store.read("IDX")
 
         assert migrated["calendar"] == schedule.DEFAULT_CALENDAR
-        assert migrated[SCHEMA_VERSION_KEY] == 2
+        assert migrated[SCHEMA_VERSION_KEY] == CURRENT_SCHEMA_VERSION
 
     def test_the_migrated_document_is_valid_and_schedules_on_sessions(self,
                                                                       tmp_path):
@@ -912,15 +922,20 @@ class TestTheStoredMigration:
         migrated = store.read("w")
 
         assert "calendar" not in migrated
-        assert migrated[SCHEMA_VERSION_KEY] == 2
+        assert migrated[SCHEMA_VERSION_KEY] == CURRENT_SCHEMA_VERSION
 
     def test_a_newer_version_is_still_refused(self,
                                               tmp_path):
-        """The guard that stops a v3 document being read by a v2 build. It
+        """The guard that stops a document from a newer build being read. It
         behaved correctly against an empty chain; the point of checking it
         again is that the chain is no longer empty.
+
+        Relative to the current version rather than a literal, for the reason
+        in the class docstring: written as 3, this stopped testing anything the
+        moment 3 became a version this build understands.
         """
-        store = store_raw(tmp_path, document(), version=3)
+        store = store_raw(tmp_path, document(),
+                          version=CURRENT_SCHEMA_VERSION + 1)
 
         with pytest.raises(Exception, match="newer than this"):
             store.read("IDX")

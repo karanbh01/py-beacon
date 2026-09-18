@@ -127,7 +127,8 @@ class TestEstimationJob:
                          headers=auth()).json()
 
         assert job["status"] == "failed"
-        assert "at least two" in job["error"]
+        assert "at least two" in job["error"]["message"]
+        assert job["error"]["code"] == "DATA_NOT_FOUND"
 
     def test_it_requires_authentication(self,
                                         client):
@@ -253,7 +254,7 @@ class TestDiagnostics:
                          headers=auth()).json()
 
         assert job["status"] == "failed"
-        assert "unknown target" in job["error"]
+        assert "unknown target" in job["error"]["message"]
 
 
 class TestReads:

@@ -137,6 +137,57 @@ def _envelope(code: str,
         error=ErrorDetail(code=code, message=message, detail=detail)).model_dump()
 
 
+def failure_envelope(exc: BaseException,
+                     calculation: str) -> dict[str, Any]:
+    """The `{code, message, detail}` an exception publishes, without a response.
+
+    For a caller that has to *record* a failure rather than answer a request —
+    a background job, whose caller received 202 long before anything went
+    wrong (BN-199). Until this, a failed job carried `str(exc)` and nothing
+    else, so a deliberate refusal and a crash reached a client identically:
+    the one place the distinction BN-194 and BN-196 established did not reach.
+
+    The ladder matches `register_exception_handlers` deliberately, so the same
+    exception carries the same code whichever way it travels. That includes
+    `ValueError` -> `INVALID_ARGUMENT`, with the tension noted on
+    `ARGUMENT_CODE` above and one wrinkle of its own: inside an accepted job a
+    `ValueError` is less certainly the caller's fault than it is at the request
+    boundary, because the request was already validated. It is still the
+    likelier reading — the job body is where a stored document becomes a
+    definition, and that is exactly where a bad stored value surfaces — and
+    one code for one exception is worth more than a second judgement call in a
+    second place.
+
+    Anything else is wrapped as an `UnexpectedCalculationError` rather than
+    given a code of its own. A fault that escaped every guard IS that case, so
+    it publishes `UNEXPECTED_CALCULATION_FAILURE` and carries `original_type`
+    exactly as one raised in the library would. Reaching for the `BEACON_ERROR`
+    catch-all instead would put a crash back under the code an unregistered
+    *refusal* gets, which is BN-194's original conflation at one remove.
+
+    Args:
+        exc: Whatever the job raised.
+        calculation: What was being computed, for the wrap's calculation name.
+            A job's `kind` is the honest answer: it is what the work was.
+
+    Returns:
+        dict: The `ErrorDetail` body — `code`, `message` and optional `detail`.
+        Not the outer envelope: a job records the detail, not a response.
+    """
+    if isinstance(exc, BeaconError):
+        _, code = classify(exc)
+
+        return ErrorDetail(code=code,
+                           message=str(exc),
+                           detail=_beacon_detail(exc)).model_dump()
+
+    if isinstance(exc, ValueError):
+        return ErrorDetail(code=ARGUMENT_CODE, message=str(exc)).model_dump()
+
+    return failure_envelope(UnexpectedCalculationError(calculation, exc),
+                            calculation)
+
+
 def _beacon_detail(exc: BeaconError) -> dict[str, Any] | None:
     """Pull the structured attributes a library exception carries.
 

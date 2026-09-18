@@ -380,7 +380,8 @@ class TestRenderingAStoredTemplate:
                          headers=auth()).json()
 
         assert job["status"] == "failed"
-        assert "of the page is left" in job["error"]
+        assert "of the page is left" in job["error"]["message"]
+        assert job["error"]["code"] == "REPORTING_ERROR"
 
 
 class TestDownload:

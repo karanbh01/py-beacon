@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .documents import Stored, raw, read_collection, stored
+from .errors import failure_envelope
 from .store import DocumentStore
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,11 @@ class Job:
     progress: float = 0.0
     message: str = ""
     result: Any = None
-    error: str | None = None
+    # The `{code, message, detail}` of an `ErrorDetail`, not a bare string
+    # (BN-199). Same shape an HTTP error carries, so a client renders a failed
+    # job through the renderer it already has rather than a parallel one --
+    # which was the complaint, rather than a symptom of it.
+    error: dict[str, Any] | None = None
     _task: asyncio.Task[Any] | None = field(default=None, repr=False, compare=False)
 
     @property
@@ -481,9 +486,10 @@ class JobRegistry:
             self._emit(job)
             raise
         except Exception as exc:
-            logger.error(f"Job {job.id} ({job.kind}) failed: {exc}")
+            logger.error(f"Job {job.id} ({job.kind}) failed: {exc}",
+                         exc_info=exc)
             job.status = FAILED
-            job.error = str(exc)
+            job.error = failure_envelope(exc, calculation=job.kind)
         finally:
             if job.status != CANCELLED:
                 self._emit(job)

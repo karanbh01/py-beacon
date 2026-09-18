@@ -354,7 +354,11 @@ class TestBenchmarkAgainstAnIdentifier:
         job = run_backtest(client, benchmark={"kind": "identifier", "id": "NOPE"})
 
         assert job["status"] == "failed"
-        assert "NOPE" in job["error"]
+        assert "NOPE" in job["error"]["message"]
+        # A missing identifier is a decision the server made about the
+        # request, and since BN-199 a failed job publishes which kind of
+        # failure it was rather than only its prose.
+        assert job["error"]["code"] == "DATA_NOT_FOUND"
 
     def test_unknown_price_column_fails(self,
                                        client):
@@ -398,7 +402,8 @@ class TestBenchmarkAgainstAnotherIndex:
         job = run_backtest(client, benchmark={"kind": "index", "id": "ABSENT"})
 
         assert job["status"] == "failed"
-        assert "ABSENT" in job["error"]
+        assert "ABSENT" in job["error"]["message"]
+        assert job["error"]["code"] == "DATA_NOT_FOUND"
 
 
 class TestBenchmarkIsOptional:

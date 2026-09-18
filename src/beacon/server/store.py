@@ -51,7 +51,7 @@ APP_NAME = "beacon"
 SCHEMA_VERSION_KEY = "schema_version"
 
 # Bump when a stored shape changes, and add the matching entry to MIGRATIONS.
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 # The field an index document is discriminated by. One version chain covers
 # every collection — watchlists, indices, constraint sets — so a migration that
@@ -83,10 +83,45 @@ def _add_default_calendar(document: dict[str, Any]) -> dict[str, Any]:
     return {**document, "calendar": DEFAULT_CALENDAR}
 
 
+# The field a stored job result is discriminated by, on the same reasoning as
+# `_INDEX_MARKER`: one version chain covers every collection, so a migration
+# that concerns only one has to say which documents it applies to.
+_JOB_MARKER = "job_id"
+
+# What a job failure recorded before BN-199 publishes as its code. Not a guess
+# at what the failure was: these documents kept `str(exc)` and nothing else, so
+# the code genuinely is not known, and inventing a plausible one would be worse
+# than saying so. Deliberately not `BEACON_ERROR`, which means "a refusal whose
+# subclass nobody registered" and would misreport half of these.
+UNCLASSIFIED_FAILURE = "UNCLASSIFIED_FAILURE"
+
+
+def _wrap_job_error(document: dict[str, Any]) -> dict[str, Any]:
+    """v2 -> v3: a job's bare `error` string becomes an `ErrorDetail` body.
+
+    BN-199 made `Job.error` the same `{code, message, detail}` an HTTP error
+    carries, so a client can branch on `error.code` instead of reading prose.
+    A document written before that holds a string, which no longer validates
+    against the response model -- so without this migration one old failed job
+    would 500 the whole jobs listing, which is the BN-174 failure exactly.
+
+    The message is kept verbatim; the code says it is unknown. Documents from
+    other collections, and jobs that succeeded, pass through untouched.
+    """
+    if _JOB_MARKER not in document or not isinstance(document.get("error"), str):
+        return document
+
+    return {**document,
+            "error": {"code": UNCLASSIFIED_FAILURE,
+                      "message": document["error"],
+                      "detail": None}}
+
+
 # version -> function producing the next version's shape. Keyed by the version
 # being migrated FROM, so applying 1 turns a v1 document into a v2 one.
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: _add_default_calendar,
+    2: _wrap_job_error,
 }
 
 

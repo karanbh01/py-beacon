@@ -412,7 +412,12 @@ class TestRun:
                          headers=auth()).json()
 
         assert job["status"] == "failed"
-        assert "cannot reach" in job["error"]
+        assert "cannot reach" in job["error"]["message"]
+        # An infeasible constraint set is a decision, not a breakage, and
+        # since BN-199 a failed job says which it was. This is the case the
+        # issue was about: before it, this and a crash in the solver reached a
+        # client as indistinguishable prose.
+        assert job["error"]["code"] == "CALCULATION_ERROR"
 
 
 class TestFrontier:

@@ -1,11 +1,13 @@
 # tests/test_server_jobs.py
 """Tests for the job registry, job polling, and the WebSocket event feed."""
 import asyncio
+import json
 
 import pytest
 from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
+from beacon.exceptions import CalculationError, DataNotFoundError
 from beacon.server import ServerConfig, create_app
 from beacon.server.jobs import (
     CANCELLED,
@@ -16,6 +18,7 @@ from beacon.server.jobs import (
     JobRegistry,
 )
 from beacon.server.routers.jobs import POLICY_VIOLATION
+from beacon.server.store import SCHEMA_VERSION_KEY
 
 TOKEN = "test-token-value"
 
@@ -109,7 +112,7 @@ class TestRegistry:
         await registry.drain()
 
         assert job.status == FAILED
-        assert job.error == "deliberate"
+        assert job.error["message"] == "deliberate"
 
     @pytest.mark.asyncio
     async def test_result_is_withheld_until_success(self):
@@ -339,3 +342,198 @@ class TestSocketPolicyCode:
     def test_policy_violation_code_is_the_websocket_one(self):
         """1008 is the protocol's policy-violation close code."""
         assert POLICY_VIOLATION == 1008
+
+
+class TestAFailedJobPublishesACode:
+    """BN-199: the job path was the one place a refusal and a crash looked alike.
+
+    BN-194 and BN-196 spent two issues establishing that a deliberate refusal
+    and a genuine fault must reach a client under different codes, because they
+    ask different things of the reader: one names something to change, the
+    other names something broken. Everywhere an error travels through the HTTP
+    envelope that holds. A job recorded `str(exc)` and nothing else, so both
+    arrived as prose and a client had nothing to branch on.
+
+    Through the route rather than off the registry, deliberately (BN-200): the
+    field existing on the dataclass and a client being able to read it are
+    different claims, and only the second one is what the issue was for.
+    """
+
+    def failed_job(self,
+                   client,
+                   body) -> dict:
+        """Submit a failing job through the app and poll its terminal state."""
+        registry = client.app.state.jobs
+
+        job = client.portal.call(submit, registry, "demo", body)
+        client.portal.call(registry.drain)
+
+        polled = client.get(f"/jobs/{job.id}", headers=auth()).json()
+        assert polled["status"] == FAILED
+
+        return polled["error"]
+
+    def test_a_refusal_publishes_its_own_code(self,
+                                              client):
+        async def refusing(report):
+            raise CalculationError(calculation_name="MarketCapWeighted",
+                                   details="AAPL has no CLOSE; load its prices")
+
+        error = self.failed_job(client, refusing)
+
+        assert error["code"] == "CALCULATION_ERROR"
+        assert "load its prices" in error["message"]
+
+    def test_a_crash_publishes_the_unexpected_code(self,
+                                                   client):
+        async def crashing(report):
+            raise ZeroDivisionError("division by zero")
+
+        error = self.failed_job(client, crashing)
+
+        assert error["code"] == "UNEXPECTED_CALCULATION_FAILURE"
+
+    def test_a_crash_carries_the_original_type(self,
+                                               client):
+        """Wrapped as an `UnexpectedCalculationError` rather than given a code
+        of its own, so it carries exactly what one raised in the library does —
+        a client can name the failing class without reading a server log."""
+        async def crashing(report):
+            raise ZeroDivisionError("division by zero")
+
+        error = self.failed_job(client, crashing)
+
+        assert error["detail"]["original_type"] == "ZeroDivisionError"
+
+    def test_the_two_are_distinguishable(self,
+                                         client):
+        """The whole issue in one assertion. Both used to be bare prose."""
+        async def refusing(report):
+            raise CalculationError(calculation_name="X", details="a decision")
+
+        async def crashing(report):
+            raise TypeError("a fault")
+
+        assert (self.failed_job(client, refusing)["code"]
+                != self.failed_job(client, crashing)["code"])
+
+    def test_the_job_kind_names_the_calculation(self,
+                                                client):
+        """A job's kind is the honest answer to "what was being computed": it
+        is what the work was, and the wrap needs a name."""
+        async def crashing(report):
+            raise TypeError("a fault")
+
+        error = self.failed_job(client, crashing)
+
+        assert error["detail"]["calculation_name"] == "demo"
+
+    def test_a_successful_job_carries_no_error(self,
+                                               client):
+        registry = client.app.state.jobs
+
+        job = client.portal.call(submit, registry, "demo", counting_job)
+        client.portal.call(registry.drain)
+
+        assert client.get(f"/jobs/{job.id}",
+                          headers=auth()).json()["error"] is None
+
+
+class TestTheJobCodeMatchesTheRequestCode:
+    """One exception, one code, whichever way it travels.
+
+    The point of routing both through `failure_envelope` rather than writing a
+    second ladder: two ladders agree on the day they are written and drift
+    afterwards, and a client that branches on `error.code` cannot tell which
+    one produced the answer it got.
+    """
+
+    @pytest.mark.parametrize("exception,expected", [
+        (CalculationError(calculation_name="X", details="a decision"),
+         "CALCULATION_ERROR"),
+        (DataNotFoundError("universe 'tech'", source="DocumentStore"),
+         "DATA_NOT_FOUND"),
+        (ValueError("end_date must be after start_date"),
+         "INVALID_ARGUMENT"),
+    ])
+    def test_the_same_exception_gets_the_same_code(self,
+                                                   exception,
+                                                   expected):
+        from beacon.server.errors import failure_envelope
+
+        assert failure_envelope(exception, calculation="demo")["code"] == expected
+
+    def test_an_unregistered_fault_is_not_given_the_refusal_catch_all(self):
+        """`BEACON_ERROR` means "a refusal whose subclass nobody registered".
+        Reusing it for a crash puts BN-194's conflation back at one remove."""
+        from beacon.server.errors import failure_envelope
+
+        envelope = failure_envelope(KeyError("CLOSE"), calculation="demo")
+
+        assert envelope["code"] != "BEACON_ERROR"
+        assert envelope["code"] == "UNEXPECTED_CALCULATION_FAILURE"
+
+
+class TestAJobStoredBeforeCodesExisted:
+    """BN-199: the migration, seen from the routes it keeps working.
+
+    A v2 document holds `error` as a string. Without the v2 -> v3 migration the
+    listing drops it (tolerantly, counted in `skipped`) and the detail route
+    answers 422 INVALID_ARGUMENT quoting a pydantic error about the server's
+    own model — the caller blamed for a shape the server changed underneath
+    them. Both measured before this was written.
+
+    Through the routes rather than the store, because the store test already
+    proves the document is rewritten and that is not the claim at issue here:
+    the claim is that a client can still read a job the previous build wrote.
+    """
+
+    @pytest.fixture
+    def with_an_old_job(self,
+                        tmp_path):
+        """A server whose results store holds one pre-BN-199 failed job."""
+        results = tmp_path / "job_results"
+        results.mkdir(parents=True)
+        (results / "old.json").write_text(
+            json.dumps({"job_id": "old",
+                        "kind": "backtest:BT",
+                        "status": "failed",
+                        "progress": 1.0,
+                        "message": "",
+                        "result": None,
+                        "error": "AAPL has no CLOSE; load its prices",
+                        SCHEMA_VERSION_KEY: 2}),
+            encoding="utf-8")
+
+        config = ServerConfig(auth_token=TOKEN, storage_root=tmp_path)
+        with TestClient(create_app(config),
+                        raise_server_exceptions=False) as entered:
+            yield entered
+
+    def test_the_detail_route_serves_it(self,
+                                        with_an_old_job):
+        response = with_an_old_job.get("/jobs/old", headers=auth())
+
+        assert response.status_code == 200
+        assert response.json()["status"] == FAILED
+
+    def test_its_message_is_still_readable(self,
+                                           with_an_old_job):
+        error = with_an_old_job.get("/jobs/old", headers=auth()).json()["error"]
+
+        assert error["message"] == "AAPL has no CLOSE; load its prices"
+
+    def test_it_says_its_code_is_unknown_rather_than_guessing(self,
+                                                              with_an_old_job):
+        error = with_an_old_job.get("/jobs/old", headers=auth()).json()["error"]
+
+        assert error["code"] == "UNCLASSIFIED_FAILURE"
+
+    def test_it_does_not_vanish_from_the_listing(self,
+                                                 with_an_old_job):
+        """The tolerant listing would skip it, which is right for a corrupt
+        file and wrong for one this build made unreadable."""
+        listing = with_an_old_job.get("/jobs", headers=auth()).json()
+
+        assert [job["job_id"] for job in listing["jobs"]] == ["old"]
+        assert listing["skipped"] == 0

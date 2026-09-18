@@ -74,7 +74,11 @@ class TestRegistryPersistence:
         document = store.read(job.id)
 
         assert document["status"] == "failed"
-        assert document["error"] == "deliberate failure"
+        assert document["error"]["message"] == "deliberate failure"
+        # The code survives the round trip too: a restart that kept the prose
+        # and lost the classification would put the job path back where
+        # BN-199 found it (BN-199).
+        assert document["error"]["code"] == "INVALID_ARGUMENT"
 
     @pytest.mark.asyncio
     async def test_a_cancelled_job_is_persisted(self,
