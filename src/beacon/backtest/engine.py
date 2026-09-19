@@ -110,7 +110,6 @@ class BacktestEngine(PricingMixin):
         # Listing currency per identifier, resolved lazily and once. Prices
         # are quoted where the company lists; a portfolio has one currency.
         self._currencies: dict[str, str] = {}
-        self._rates: dict[tuple[str, str], pd.Series] = {}
 
         # The last bar each name actually printed, so a miss is answered from
         # the session before it rather than by refetching a whole history.

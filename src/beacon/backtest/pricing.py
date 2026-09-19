@@ -41,7 +41,6 @@ class PricingMixin:
     currency: str
     calendar: str | None
     _currencies: dict[str, str]
-    _rates: dict[tuple[str, str], pd.Series]
     _last_bars: dict[str, tuple[pd.Timestamp, float]]
     _price_gaps: list[PriceGap]
     _gaps_seen: set[tuple[str, pd.Timestamp]]
@@ -298,9 +297,24 @@ class PricingMixin:
                   date: pd.Timestamp) -> float:
         """FX from an asset's listing currency into the book's, on *date*.
 
-        The whole series is fetched once per **pair** and then indexed by
-        date, which is what makes a per-day rate affordable: seven lookups for
-        a global universe rather than one per holding per day.
+        Resolving *which* currencies are involved is the engine's own business
+        — it knows the book's currency and the asset's listing currency — and
+        the rate lookup is not. Since BN-206 that half delegates to
+        `DataFetcher.fx_rate_on`, which is the library's one conversion.
+
+        This method used to carry its own copy: its own per-pair cache, its
+        own date walk, and its own answers to the two questions that matter.
+        Both answers were wrong. An unknown pair returned **1.0**, valuing a
+        foreign holding at parity and putting the NAV out by the whole
+        exchange rate with a WARNING as the only record (BN-205) — the
+        substitution BN-188 deleted everywhere it looked, in the one folder it
+        did not look in. A date before the series returned the series' *first*
+        rate, which is look-ahead (BN-204).
+
+        Caching moved with the lookup: `fx_rate_on` holds one series per
+        ordered pair on the fetcher, so a per-day rate is still seven slices
+        for a global universe rather than one per holding per day, and there
+        is now one cache rather than two that can disagree.
 
         Using a single fixed rate instead would be worse than it sounds. A
         constant scale factor cancels out of the weight arithmetic entirely --
@@ -308,37 +322,36 @@ class PricingMixin:
         the target value whatever the rate is -- and the conversion would look
         correct while changing nothing. It is the *drift* in the rate that a
         foreign holding actually experiences, and that only appears if the
-        rate moves.
+        rate moves. That cancellation is also why neither defect above showed
+        up in a NAV-level test: a one-name book comes out identical whether
+        the rate is right, wrong, or invented.
+
+        Raises:
+            CalculationError: If no rate exists on or before *date*. A book
+                that cannot convert a holding cannot state its NAV in its own
+                currency, and saying so is the answer -- the same argument
+                BN-198 settled for a calendar that cannot cover a window.
         """
         currency = self._currency_of(asset_id)
 
         if currency is None or currency == self.currency:
             return 1.0
 
-        pair = (currency, self.currency)
+        rate = self.data_provider.fx_rate_on(currency, self.currency, date)
 
-        if pair not in self._rates:
-            series = self.data_provider.fetch_fx_rates(currency, self.currency)
+        if rate is not None:
+            return rate
 
-            if series.empty:
-                logger.warning("No %s/%s rate; %s is valued unconverted.",
-                               currency, self.currency, asset_id)
-
-            self._rates[pair] = series.sort_index()
-
-        series = self._rates[pair]
-
-        if series.empty:
-            return 1.0
-
-        # As of the date, carried forward: a holiday in one market is not a
-        # reason to stop converting a position held in another.
-        position = series.index.searchsorted(date, side="right") - 1
-
-        if position < 0:
-            return float(series.iloc[0])
-
-        return float(series.iloc[position])
+        raise CalculationError(
+            calculation_name="BacktestEngine",
+            details=(f"no {currency.upper()}/{self.currency.upper()} rate on "
+                     f"or before {date:%Y-%m-%d}, so {asset_id} cannot be "
+                     f"valued in the book's currency. Valuing it unconverted "
+                     f"— the old answer — carries a {currency.upper()} holding "
+                     f"as though it were {self.currency.upper()}, so the NAV "
+                     f"is wrong by the whole exchange rate and nothing in the "
+                     f"result looks odd. Load the pair, or run the backtest "
+                     f"in {currency.upper()}."))
 
     def _currency_of(self,
                      asset_id: str) -> str | None:

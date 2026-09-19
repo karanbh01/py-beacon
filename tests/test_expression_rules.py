@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from beacon.asset.equity import Equity
+from beacon.data.base import MarketData, ReferenceData
 from beacon.data.corporate_actions import CorporateActions
 from beacon.data.features import FeatureData
 from beacon.data.fetcher import DataFetcher
@@ -342,3 +343,70 @@ class TestCurrencyConversion:
 
         assert cap == pytest.approx(unconverted * 0.0064)
         assert not np.isclose(cap, unconverted)
+
+
+class TestAnUnconvertibleCapIsNoCapAtAll:
+    """BN-206: this module computed caps unconverted when FX was missing.
+
+    `_rate` returned 1.0 for an unknown pair, so a yen cap was compared
+    against dollar ones on magnitude alone — BN-188's original bug, in the one
+    place BN-188's sweep did not reach. A JPY name at 1000 x 1m shares came
+    out at 1,000,000,000 instead of about 6,400,000: a **156x** overstatement,
+    in a screen whose entire purpose is ranking by size.
+
+    None is what `_cap` already answers when a price or a share count is
+    missing, so an unconvertible cap joins a contract that exists rather than
+    inventing one. It is emphatically not the local number.
+    """
+
+    def build(self,
+              with_fx: bool) -> DataFetcher:
+        """One JPY name, with or without the JPYUSD pair."""
+        dates = pd.bdate_range("2024-01-02", "2024-01-31")
+        rows: list[dict[str, object]] = [
+            {"IDENTIFIER": "JPCO", "DATE": date, "CLOSE": 1_000.0,
+             "SHARES_OUTSTANDING": 1_000_000, "FREE_FLOAT": 1.0}
+            for date in dates]
+
+        if with_fx:
+            rows += [{"IDENTIFIER": "JPYUSD", "DATE": date, "RATE": 0.0064}
+                     for date in dates]
+
+        reference = pd.DataFrame([{"IDENTIFIER": "JPCO",
+                                   "DATE_FROM": "2020-01-01",
+                                   "NAME": "JPCO",
+                                   "CURRENCY": "JPY",
+                                   "EXCHANGE": "XTKS"}])
+
+        return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                           ReferenceData.from_dataframe(reference))
+
+    def cap(self,
+            with_fx: bool):
+        return value_of(data.market.market_cap, "JPCO",
+                        pd.Timestamp("2024-01-31"), self.build(with_fx))
+
+    def test_a_convertible_cap_is_in_dollars(self):
+        assert self.cap(with_fx=True) == pytest.approx(6_400_000.0)
+
+    def test_an_unconvertible_cap_is_none(self):
+        assert self.cap(with_fx=False) is None
+
+    def test_it_is_not_the_local_number(self):
+        """The defect stated as itself: 1e9 is the yen figure wearing a dollar
+        sign, and a screen would rank it above every genuine large cap."""
+        assert self.cap(with_fx=False) != pytest.approx(1_000_000_000.0)
+
+    def test_an_instrument_with_no_currency_has_no_cap_either(self):
+        """The second substitution in the same six lines: a missing reference
+        row was read as "already quoted in USD", which is the same claim about
+        two currencies made with even less to go on."""
+        dates = pd.bdate_range("2024-01-02", "2024-01-31")
+        market = pd.DataFrame([{"IDENTIFIER": "MYSTERY", "DATE": date,
+                                "CLOSE": 1_000.0,
+                                "SHARES_OUTSTANDING": 1_000_000}
+                               for date in dates])
+        fetcher = DataFetcher(MarketData.from_dataframe(market))
+
+        assert value_of(data.market.market_cap, "MYSTERY",
+                        pd.Timestamp("2024-01-31"), fetcher) is None

@@ -29,7 +29,6 @@ billion" quietly admit every company the dataset has never heard of.
 """
 import logging
 from collections.abc import Callable
-from functools import lru_cache
 from typing import Any
 
 import pandas as pd
@@ -251,11 +250,16 @@ def _cap(identifier: str,
     """
     price = _column(identifier, date, fetcher, CLOSE)
     shares = _column(identifier, date, fetcher, SHARES)
+    rate = _rate(identifier, date, fetcher)
 
-    if price is None or shares is None:
+    # An unconvertible cap is a cap this screen cannot compute, which is the
+    # answer `price is None` already gets (BN-206). It is emphatically not the
+    # local number: comparing that against dollars ranks on currency as much
+    # as on size, which is the bug BN-188 was raised for.
+    if price is None or shares is None or rate is None:
         return None
 
-    cap = float(price) * float(shares) * _rate(identifier, date, fetcher)
+    cap = float(price) * float(shares) * rate
 
     if not float_adjusted:
         return cap
@@ -267,45 +271,32 @@ def _cap(identifier: str,
 
 def _rate(identifier: str,
           date: pd.Timestamp,
-          fetcher: DataFetcher) -> float:
-    """FX from an instrument's quote currency into USD, as of the date."""
+          fetcher: DataFetcher) -> float | None:
+    """FX from an instrument's quote currency into USD, or None (BN-206).
+
+    None where the old answer was 1.0, in both of the two ways this can fail.
+    A cap quoted in yen and compared as though it were dollars is BN-188's
+    original bug -- a 156x overstatement for a JPY name, in a screen whose
+    whole purpose is ranking by size -- and it survived here because BN-188
+    swept `index/`, `data/` and `server/` and this module is in none of them.
+
+    The currency being unknown is the second way, and it used to answer 1.0
+    too: an instrument with no reference row was silently treated as already
+    quoted in USD. That is the same claim about two currencies, made with
+    even less to go on.
+    """
     reference = fetcher.fetch_reference_data(identifier,
                                              date.strftime("%Y-%m-%d"))
 
     if reference.empty or "CURRENCY" not in reference.columns:
-        return 1.0
+        return None
 
     value = reference["CURRENCY"].iloc[0]
-    currency = str(value).upper() if pd.notna(value) else BASE_CURRENCY
 
-    return _rate_into_base(fetcher, currency, date.strftime("%Y-%m-%d"))
+    if pd.isna(value):
+        return None
 
-
-@lru_cache(maxsize=4096)
-def _rate_into_base(fetcher: DataFetcher,
-                    currency: str,
-                    as_of: str) -> float:
-    """One currency's rate into USD on one date.
-
-    Cached because resolution is per instrument: a rebalance over thousands of
-    names spans a handful of currencies, and looking one up per name would be
-    thousands of slices to answer seven questions. Keyed on the fetcher too,
-    so two stores in one process cannot borrow each other's rates; bounded, so
-    a long-running server does not accumulate them without limit.
-    """
-    if currency == BASE_CURRENCY:
-        return 1.0
-
-    series = fetcher.fetch_fx_rates(currency, BASE_CURRENCY, end_date=as_of)
-
-    if series.empty:
-        logger.warning("No %s/%s rate on or before %s; caps quoted in %s are "
-                       "compared unconverted.",
-                       currency, BASE_CURRENCY, as_of, currency)
-
-        return 1.0
-
-    return float(series.iloc[-1])
+    return fetcher.fx_rate_on(str(value).upper(), BASE_CURRENCY, date)
 
 
 def _adv(identifier: str,

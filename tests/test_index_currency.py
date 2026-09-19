@@ -575,3 +575,94 @@ class TestCouldNotBePricedIsNotPricedAtZero:
         with patch.object(calculator, "asset_unit_value", return_value=0.0):
             assert calculator.index_units({dollar: 1.0}, 1e6,
                                           AS_OF) == {dollar: 0.0}
+
+
+def moving_rate_fetcher(first_rate_date: str) -> DataFetcher:
+    """A JPYUSD series that starts late and *moves*.
+
+    Both halves matter. Starting late is the condition BN-204 is about; moving
+    is what makes the defect visible at all, because a flat series makes the
+    wrong rate identical to the right one. Every fixture in this file was flat
+    until now, which is why a look-ahead lived here unnoticed.
+    """
+    rows: list[dict[str, object]] = []
+
+    for index, date in enumerate(DATES):
+        for name, price in PRICE.items():
+            rows.append({"IDENTIFIER": name, "DATE": date, "CLOSE": price,
+                         "SHARES_OUTSTANDING": SHARES, "FREE_FLOAT": 1.0})
+
+        if date >= pd.Timestamp(first_rate_date):
+            rows.append({"IDENTIFIER": "JPYUSD", "DATE": date,
+                         "RATE": (1.0 / JPY_PER_USD) + index * 1e-5})
+
+    reference = pd.DataFrame([
+        {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
+         "CURRENCY": CURRENCY[name], "EXCHANGE": "XXXX"}
+        for name in PRICE
+    ])
+
+    return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                       ReferenceData.from_dataframe(reference))
+
+
+# The JPYUSD series starts here rather than at START, so dates before it are
+# inside the fixture's price history and outside its rate history -- which is
+# the shape BN-204 is about, and is what a real store looks like when prices
+# were backfilled further than FX.
+LATE_RATE_START = "2024-01-17"
+EARLY_DATE = pd.Timestamp("2024-01-03")
+
+
+class TestARateIsNeverCarriedBackwards:
+    """BN-204: a date before the series used to get the series' first rate.
+
+    Carrying a rate **forward** over a gap is correct and is what the code's
+    own comments describe. Carrying the first one **backward** answers with a
+    rate dated after the day it is applied to, which is look-ahead — the
+    failure a backtest exists to avoid, and one `features.py` already calls
+    "the most common way a backtest lies".
+
+    `MarketData.resolve_session` states the rule for sessions and is where the
+    fix's wording comes from: *there is no earlier observation to be in force,
+    so there is no answer rather than a substitute for one.*
+    """
+
+    def test_a_date_before_the_series_has_no_rate(self):
+        fetcher = moving_rate_fetcher(LATE_RATE_START)
+
+        assert fetcher.fx_rate_on("JPY", "USD", EARLY_DATE) is None
+
+    def test_the_first_date_of_the_series_does_have_one(self):
+        """The boundary, so the fix cannot be "return None one day too often"."""
+        fetcher = moving_rate_fetcher(LATE_RATE_START)
+
+        assert fetcher.fx_rate_on("JPY", "USD", pd.Timestamp(LATE_RATE_START)) is not None
+
+    def test_it_is_not_the_first_rate_of_a_later_series(self):
+        """The defect stated as itself: whatever comes back for an early date
+        must not be the number the series opens with."""
+        fetcher = moving_rate_fetcher(LATE_RATE_START)
+        opening = fetcher.fx_rate_on("JPY", "USD", pd.Timestamp(LATE_RATE_START))
+
+        assert fetcher.fx_rate_on("JPY", "USD", EARLY_DATE) != opening
+
+    def test_carrying_forward_still_works(self):
+        """The behaviour that must not move: forward over a gap is correct."""
+        fetcher = moving_rate_fetcher(LATE_RATE_START)
+        after = AS_OF + pd.Timedelta(days=30)
+
+        assert fetcher.fx_rate_on("JPY", "USD", after) == pytest.approx(
+            fetcher.fx_rate_on("JPY", "USD", AS_OF))
+
+    def test_a_flat_series_would_have_hidden_this(self):
+        """Why the bug survived, pinned as a fact about fixtures.
+
+        With a constant rate the look-ahead returns the correct number, so no
+        assertion on the *value* can fail. Only the None/not-None distinction
+        catches it, which is what the tests above assert.
+        """
+        flat = build_fetcher()
+        early = pd.Timestamp("2023-01-15")
+
+        assert flat.fx_rate_on("JPY", "USD", early) is None

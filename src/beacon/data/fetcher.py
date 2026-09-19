@@ -779,11 +779,19 @@ class DataFetcher:
 
         Returns:
             float | None: The rate in force on *date*, carried forward over
-            gaps, or None when the pair is unknown — which callers treat as
-            "cannot convert" rather than as a rate of one. Nothing here
-            invents parity on a caller's behalf: a rate of 1.0 is a claim
-            about two currencies, and the only one this makes is that a
-            currency converts into itself.
+            gaps, or None when the pair is unknown **or when its history
+            begins after *date***. Callers treat None as "cannot convert"
+            rather than as a rate of one. Nothing here invents parity on a
+            caller's behalf: a rate of 1.0 is a claim about two currencies,
+            and the only one this makes is that a currency converts into
+            itself.
+
+            Carried **forward** only. A date before the series starts used to
+            answer with the series' first rate — a rate dated after the day it
+            was applied to, which is look-ahead (BN-204). `resolve_session`
+            states the same rule for sessions and is where the wording comes
+            from: there is no earlier observation to be in force, so there is
+            no answer rather than a substitute for one.
         """
         if from_currency.upper() == to_currency.upper():
             return 1.0
@@ -801,7 +809,13 @@ class DataFetcher:
         position = series.index.searchsorted(pd.Timestamp(date),
                                              side="right") - 1
 
-        return float(series.iloc[max(position, 0)])
+        # -1 means every rate in the series is dated after `date`. The pair is
+        # known and simply does not reach back this far, which is the same
+        # answer as not knowing it: this conversion cannot be made.
+        if position < 0:
+            return None
+
+        return float(series.iloc[position])
 
     # -- reference data ------------------------------------------------------
 

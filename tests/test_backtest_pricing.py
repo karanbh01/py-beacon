@@ -494,3 +494,103 @@ class _WithoutDelistings:
             raise AttributeError(name)
 
         return getattr(self._fetcher, name)
+
+
+class TestTheEngineUsesTheLibrarysOneConversion:
+    """BN-205/BN-206: the engine had its own FX, and both its answers were wrong.
+
+    BN-188 consolidated four conversion implementations onto
+    `DataFetcher.fx_rate_on` and its commit says *"the 1.0 fallback is gone
+    rather than propagated"*. It swept `data/`, `index/` and `server/`. This
+    module is in none of them, so a fifth implementation survived carrying
+    exactly that fallback, plus the look-ahead BN-204 fixed in the primitive.
+
+    A consolidation is only as complete as its search: *"all now route through
+    X"* is a claim about every file, not about the files that were opened.
+    """
+
+    def fetcher_with(self,
+                     fx_from: str | None) -> DataFetcher:
+        """A GBP name in a USD book, with the pair present, late, or absent.
+
+        The rate **moves**: a constant one cancels out of the weight
+        arithmetic entirely — the engine sizes by value, so `quantity x price
+        x rate` is the target value whatever the rate is — and a flat fixture
+        therefore cannot fail whether the rate is right, wrong or invented.
+        """
+        rows: list[dict[str, object]] = [
+            {"IDENTIFIER": "UKCO", "DATE": date, "CLOSE": 100.0}
+            for date in pd.bdate_range(START, END)]
+
+        if fx_from is not None:
+            rows += [{"IDENTIFIER": "GBPUSD", "DATE": date,
+                      "CLOSE": 1.50 + index * 0.01, "RATE": 1.50 + index * 0.01}
+                     for index, date in enumerate(pd.bdate_range(fx_from, END))]
+
+        reference = pd.DataFrame([{"IDENTIFIER": "UKCO",
+                                   "DATE_FROM": "2020-01-01",
+                                   "NAME": "UKCO",
+                                   "CURRENCY": "GBP",
+                                   "EXCHANGE": "XLON"}])
+
+        return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                           ReferenceData.from_dataframe(reference))
+
+    def engine_over(self,
+                    fetcher: DataFetcher) -> BacktestEngine:
+        schedule = {pd.Timestamp(START): {"UKCO": 1.0}}
+
+        return BacktestEngine(start_date=START,
+                              end_date=END,
+                              initial_capital=100_000.0,
+                              data_provider=fetcher,
+                              index_result=index_result_from_weights(schedule),
+                              calendar="XNYS",
+                              currency="USD")
+
+    def test_an_unknown_pair_refuses_rather_than_valuing_at_parity(self):
+        """The old answer was 1.0: a GBP holding carried as though a pound
+        were a dollar, with the NAV out by the whole exchange rate and a
+        WARNING as the only record."""
+        engine = self.engine_over(self.fetcher_with(None))
+
+        with pytest.raises(CalculationError, match="GBP/USD"):
+            engine._rate_for("UKCO", pd.Timestamp(START))
+
+    def test_the_refusal_names_what_to_do(self):
+        engine = self.engine_over(self.fetcher_with(None))
+
+        with pytest.raises(CalculationError) as raised:
+            engine._rate_for("UKCO", pd.Timestamp(START))
+
+        assert "Load the pair" in str(raised.value)
+
+    def test_a_date_before_the_series_refuses_rather_than_looking_ahead(self):
+        """The rate exists, just not yet. Returning the series' first value
+        would price January from a March observation."""
+        engine = self.engine_over(self.fetcher_with("2021-01-20"))
+
+        with pytest.raises(CalculationError):
+            engine._rate_for("UKCO", pd.Timestamp("2021-01-05"))
+
+    def test_a_rate_that_exists_is_returned(self):
+        engine = self.engine_over(self.fetcher_with(START))
+
+        assert engine._rate_for("UKCO", pd.Timestamp(START)) == pytest.approx(1.50)
+
+    def test_the_book_currency_needs_no_conversion(self):
+        """Unchanged, and the one 1.0 that is a fact rather than a guess."""
+        engine = self.engine_over(self.fetcher_with(START))
+        engine._currencies["UKCO"] = "USD"
+
+        assert engine._rate_for("UKCO", pd.Timestamp(START)) == 1.0
+
+    def test_the_engine_and_the_fetcher_agree(self):
+        """One lookup, so the number valued by and the number displayed are
+        the same quantity — which is what BN-188 was for."""
+        fetcher = self.fetcher_with(START)
+        engine = self.engine_over(fetcher)
+        date = pd.Timestamp("2021-01-15")
+
+        assert (engine._rate_for("UKCO", date)
+                == fetcher.fx_rate_on("GBP", "USD", date))
