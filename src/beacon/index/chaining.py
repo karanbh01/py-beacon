@@ -288,7 +288,14 @@ def _rate_series(data_provider: DataFetcher,
                  from_currency: str,
                  to_currency: str,
                  days: pd.Index) -> pd.Series | None:
-    """An FX pair as-of each calculation day, carried forward over gaps.
+    """An FX pair as-of each calculation day, under the fetcher's policy.
+
+    Delegates to `DataFetcher.fx_rates_on` since BN-207. This used to hold its
+    own copy of the carry rule — `reindex(days, method="ffill")` written out
+    here — which was correct, and being correct is why it survived the BN-188
+    sweep and then sat outside the `fx_policy` setting that every other
+    conversion answers to. Correct-and-separate is the state the other copies
+    were in before they drifted.
 
     Returns:
         pd.Series | None: The rate series, or None when the pair is unknown.
@@ -296,15 +303,13 @@ def _rate_series(data_provider: DataFetcher,
         an unknown pair means, and it means different things for a name the
         schedule holds and a name it carries at a weight of zero.
     """
-    series = data_provider.fetch_fx_rates(from_currency, to_currency)
+    series = data_provider.fx_rates_on(from_currency, to_currency, days)
 
-    if series.empty:
+    if series is None:
         logger.warning("No %s/%s rate; those holdings cannot be valued.",
                        from_currency, to_currency)
 
-        return None
-
-    return series.sort_index().astype(float).reindex(days, method="ffill")
+    return series
 
 
 def _units_for(weights: dict[str, float],

@@ -75,6 +75,31 @@ class Fetcher:
 
         return pd.Series(self.rates, index=DAYS)
 
+    def fx_rates_on(self,
+                    from_currency,
+                    to_currency,
+                    days):
+        """The method chaining actually calls since BN-207.
+
+        Implemented here rather than left off, because a double that omits
+        part of the contract answers a question the real fetcher would not:
+        this stub had `fetch_fx_rates` only, so merging chaining onto the
+        shared lookup broke three tests that were not about FX at all. A fake
+        is a claim about a contract, and a partial claim is still a claim.
+
+        Carry-forward, matching `DEFAULT_FX_POLICY` — the stub holds one rate
+        per day anyway, so the two policies agree over this fixture and the
+        distinction is tested against the real fetcher instead.
+        """
+        if from_currency.upper() == to_currency.upper():
+            return pd.Series(1.0, index=days)
+
+        if self.rates is None:
+            return None
+
+        return (pd.Series(self.rates, index=DAYS)
+                .astype(float).reindex(days, method="ffill"))
+
 
 def parent() -> IndexResult:
     """A parent calculation whose only role here is to supply the calendar."""

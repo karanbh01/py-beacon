@@ -24,7 +24,12 @@ import pytest
 
 from beacon.asset.equity import Equity
 from beacon.data.base import MarketData, ReferenceData
-from beacon.data.fetcher import DataFetcher
+from beacon.data.fetcher import (
+    DEFAULT_FX_POLICY,
+    FX_CARRY_FORWARD,
+    FX_EXACT_DAY,
+    DataFetcher,
+)
 from beacon.exceptions import CalculationError
 from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
@@ -666,3 +671,102 @@ class TestARateIsNeverCarriedBackwards:
         early = pd.Timestamp("2023-01-15")
 
         assert flat.fx_rate_on("JPY", "USD", early) is None
+
+
+def gapped_rate_fetcher(gap: pd.Timestamp,
+                        policy: str) -> DataFetcher:
+    """The two-name universe whose JPYUSD pair skips one business day.
+
+    A gap in the middle rather than at an end: the two policies differ only
+    about a day the pair did not print, and a gap at the edge is BN-204's
+    question instead.
+    """
+    rows: list[dict[str, object]] = []
+
+    for date in DATES:
+        for name, price in PRICE.items():
+            rows.append({"IDENTIFIER": name, "DATE": date, "CLOSE": price,
+                         "SHARES_OUTSTANDING": SHARES, "FREE_FLOAT": 1.0})
+
+        if date != gap:
+            rows.append({"IDENTIFIER": "JPYUSD", "DATE": date,
+                         "RATE": 1.0 / JPY_PER_USD})
+
+    reference = pd.DataFrame([
+        {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
+         "CURRENCY": CURRENCY[name], "EXCHANGE": "XXXX"}
+        for name in PRICE
+    ])
+
+    return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                       ReferenceData.from_dataframe(reference),
+                       fx_policy=policy)
+
+
+class TestTheFxPolicyIsAModellingChoice:
+    """BN-207: whether a rate carries over a gap is the user's decision.
+
+    It used to be four sites' decision and one dissenter's. Every conversion
+    carried forward except the corporate-action path, which read an exact date
+    and refused on a gap — defensible, undocumented, and not selectable. The
+    two answers disagree about real money, so the library does not get to pick
+    one silently.
+
+    CARRY_FORWARD is the default because it is what all but one site already
+    did, so adopting the setting moves no existing number until asked.
+    """
+
+    GAP = pd.Timestamp("2024-01-17")
+
+    def test_carry_forward_uses_the_last_rate_in_force(self):
+        fetcher = gapped_rate_fetcher(self.GAP, FX_CARRY_FORWARD)
+
+        assert fetcher.fx_rate_on("JPY", "USD", self.GAP) == pytest.approx(
+            1.0 / JPY_PER_USD)
+
+    def test_exact_day_refuses_on_a_day_with_no_rate(self):
+        fetcher = gapped_rate_fetcher(self.GAP, FX_EXACT_DAY)
+
+        assert fetcher.fx_rate_on("JPY", "USD", self.GAP) is None
+
+    def test_exact_day_still_answers_on_a_day_that_has_one(self):
+        """The policy narrows which days answer, not which pairs exist."""
+        fetcher = gapped_rate_fetcher(self.GAP, FX_EXACT_DAY)
+        printed = self.GAP + pd.Timedelta(days=1)
+
+        assert fetcher.fx_rate_on("JPY", "USD", printed) is not None
+
+    def test_the_default_is_carry_forward(self):
+        assert DEFAULT_FX_POLICY == FX_CARRY_FORWARD
+        assert build_fetcher().fx_policy == FX_CARRY_FORWARD
+
+    def test_an_unknown_policy_is_refused_at_construction(self):
+        """A misspelled policy must not read as the default: it would convert
+        money under an assumption nobody chose."""
+        with pytest.raises(ValueError, match="Unknown fx_policy"):
+            DataFetcher(MarketData.from_dataframe(
+                pd.DataFrame([{"IDENTIFIER": "A", "DATE": DATES[0],
+                               "CLOSE": 1.0}])),
+                fx_policy="BACKFILL")
+
+    def test_both_call_shapes_obey_it(self):
+        """`fx_rates_on` exists so chaining need not ask per day, and sharing
+        the rule is the whole point: two call shapes, one policy."""
+        days = pd.DatetimeIndex([self.GAP - pd.Timedelta(days=1), self.GAP])
+
+        carried = gapped_rate_fetcher(self.GAP, FX_CARRY_FORWARD)
+        exact = gapped_rate_fetcher(self.GAP, FX_EXACT_DAY)
+
+        assert carried.fx_rates_on("JPY", "USD", days).notna().all()
+        assert exact.fx_rates_on("JPY", "USD", days).isna().any()
+
+    def test_the_series_never_back_fills_under_either_policy(self):
+        """BN-204 in its vectorised form: `ffill` carries forward and leaves
+        NaN before the first rate, rather than reaching back into it."""
+        fetcher = moving_rate_fetcher(LATE_RATE_START)
+        days = pd.DatetimeIndex([EARLY_DATE, pd.Timestamp(LATE_RATE_START)])
+
+        rates = fetcher.fx_rates_on("JPY", "USD", days)
+
+        assert pd.isna(rates.iloc[0])
+        assert pd.notna(rates.iloc[1])

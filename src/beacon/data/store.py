@@ -54,7 +54,7 @@ from ..exceptions import ConfigurationError
 from .base import MarketData, ReferenceData
 from .corporate_actions import CorporateActions
 from .features import FeatureData
-from .fetcher import DataFetcher
+from .fetcher import DEFAULT_FX_POLICY, DataFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -310,17 +310,26 @@ def save(fetcher: DataFetcher,
     return path
 
 
-def load(path: Path) -> DataFetcher:
+def load(path: Path,
+         fx_policy: str = DEFAULT_FX_POLICY) -> DataFetcher:
     """Read a store directory into a fetcher.
 
     Args:
         path: Directory written by :func:`save`.
+        fx_policy: How the fetcher reads a rate on a day the pair printed
+            none — see :data:`~beacon.data.fetcher.FX_CARRY_FORWARD` and
+            :data:`~beacon.data.fetcher.FX_EXACT_DAY`. A modelling assumption
+            rather than a store property, so it is chosen when the store is
+            opened rather than written into it: the same rows converted under
+            the other assumption are a legitimate second answer, and stamping
+            one into the data would make it the only one (BN-207).
 
     Returns:
         DataFetcher: Serving whatever the store holds.
 
     Raises:
         ConfigurationError: If the path is not a readable store.
+        ValueError: If *fx_policy* is not a known policy.
     """
     if not exists(path):
         raise ConfigurationError(
@@ -347,7 +356,8 @@ def load(path: Path) -> DataFetcher:
     logger.info("Loaded %d identifier(s) from the %s data store at %s.",
                 len(market.identifiers), manifest.source, path)
 
-    fetcher = DataFetcher(market, reference, actions, features)
+    fetcher = DataFetcher(market, reference, actions, features,
+                          fx_policy=fx_policy)
 
     # Stamped here because this is the only place that knows: the manifest says
     # who wrote the rows, and the path is what `/data/coverage` measures on

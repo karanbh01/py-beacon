@@ -76,6 +76,36 @@ STALE_AFTER_SECONDS: dict[str, float | None] = {
     EVENT: 60 * 60 * 24 * 7,
 }
 
+# How an FX rate is read on a day the pair did not print one (BN-207).
+#
+# A modelling assumption rather than an implementation detail, which is why it
+# is selectable and why it lives in one place. The two answers are both
+# defensible and they disagree about real money:
+#
+# CARRY_FORWARD treats a rate as in force until the next one is published, so
+# a day with no bar is valued at the last rate that existed. That is what a
+# market participant would actually have transacted at, and it is what four of
+# the five conversion sites did before they were merged.
+#
+# EXACT_DAY refuses unless the pair printed a rate on that very date. That is
+# the stricter reading and the right one when a conversion stands for a real
+# cash event on a specific day -- a dividend, most obviously -- where an
+# approximate rate is worse than being told the rate is unknown. It is what
+# the corporate-action path did, alone and silently, before this was a setting.
+#
+# Neither is a default the library gets to choose on a user's behalf without
+# saying so, hence `fx_policy` on the fetcher and the value published on
+# `/health`. A number converted under one assumption is a different number
+# under the other, and nothing in a result looks odd either way.
+FX_CARRY_FORWARD = "CARRY_FORWARD"
+FX_EXACT_DAY = "EXACT_DAY"
+FX_POLICIES = (FX_CARRY_FORWARD, FX_EXACT_DAY)
+
+# What an installation converts at when nobody chooses. Carry-forward, because
+# it is what every path but one already did, so adopting the setting changes no
+# existing number until somebody asks it to.
+DEFAULT_FX_POLICY = FX_CARRY_FORWARD
+
 # The classification column read when none is named. Sector is the one every
 # reference dataset carries and the one group constraints are usually built on.
 DEFAULT_SCHEME = "SECTOR"
@@ -100,7 +130,20 @@ class DataFetcher:
                  market_data: MarketData,
                  reference_data: ReferenceData | None = None,
                  corporate_actions: CorporateActions | None = None,
-                 features: FeatureData | None = None):
+                 features: FeatureData | None = None,
+                 fx_policy: str = DEFAULT_FX_POLICY):
+        if fx_policy not in FX_POLICIES:
+            raise ValueError(
+                f"Unknown fx_policy: {fx_policy!r}. "
+                f"Supported values: {list(FX_POLICIES)}.")
+
+        # One assumption for every conversion in the library (BN-207). Held
+        # here rather than passed per call because it is a property of how this
+        # dataset is being read, not of any one question asked of it -- and
+        # because a per-call default is how five conversion sites came to
+        # disagree in the first place.
+        self.fx_policy = fx_policy
+
         self._market = market_data
         self._reference = reference_data
         self._actions = (corporate_actions if corporate_actions is not None
@@ -806,8 +849,17 @@ class DataFetcher:
         if series.empty:
             return None
 
-        position = series.index.searchsorted(pd.Timestamp(date),
-                                             side="right") - 1
+        stamp = pd.Timestamp(date)
+
+        if self.fx_policy == FX_EXACT_DAY:
+            # No carry at all: the rate must have printed on this very day.
+            # `.get` rather than a search, because "the rate for this date" is
+            # a lookup under this policy rather than a question about ordering.
+            value = series.get(stamp)
+
+            return None if value is None or pd.isna(value) else float(value)
+
+        position = series.index.searchsorted(stamp, side="right") - 1
 
         # -1 means every rate in the series is dated after `date`. The pair is
         # known and simply does not reach back this far, which is the same
@@ -816,6 +868,55 @@ class DataFetcher:
             return None
 
         return float(series.iloc[position])
+
+    def fx_rates_on(self,
+                    from_currency: str,
+                    to_currency: str,
+                    days: pd.Index) -> pd.Series | None:
+        """:meth:`fx_rate_on` over many days at once, as a Series.
+
+        The vectorised face of the same rule, for a caller that needs a rate
+        for every day of a run rather than one date (BN-207). Chained levels
+        want exactly that, and asking per day would be one search per day per
+        currency where a single reindex answers the lot.
+
+        It exists so that sharing the *rule* does not force one call shape on
+        every caller: the policy, the carry semantics and the meaning of "no
+        rate" are decided here once, and the two methods differ only in how
+        many answers they return. Two implementations of the lookup is how the
+        library came to have five of them.
+
+        Args:
+            from_currency: The currency being converted out of.
+            to_currency: The currency being converted into.
+            days: The dates wanted, ascending.
+
+        Returns:
+            pd.Series | None: One rate per day, indexed by *days*, or None when
+            the pair is unknown entirely. Individual days the policy cannot
+            answer for are NaN — a day is missing, not the pair — which is the
+            distinction `_rate_series` in chaining already depended on.
+        """
+        if from_currency.upper() == to_currency.upper():
+            return pd.Series(1.0, index=days)
+
+        pair = (from_currency.upper(), to_currency.upper())
+
+        if pair not in self._fx_series:
+            self._fx_series[pair] = self.fetch_fx_rates(*pair).sort_index()
+
+        series = self._fx_series[pair]
+
+        if series.empty:
+            return None
+
+        if self.fx_policy == FX_EXACT_DAY:
+            return series.astype(float).reindex(days)
+
+        # `ffill` is the carry, and it leaves NaN before the first rate rather
+        # than back-filling it — which is the vectorised statement of BN-204:
+        # forward over a gap, never backward into one.
+        return series.astype(float).reindex(days, method="ffill")
 
     # -- reference data ------------------------------------------------------
 

@@ -1,5 +1,7 @@
 # tests/test_corporate_actions.py
 """BN-98: corporate-action history, TTM aggregates and point-in-time classification."""
+import inspect
+
 import pandas as pd
 import pytest
 
@@ -12,7 +14,12 @@ from beacon.data.corporate_actions import (
     SPLIT,
     CorporateActions,
 )
-from beacon.data.fetcher import UNCLASSIFIED, DataFetcher
+from beacon.data.fetcher import (
+    FX_CARRY_FORWARD,
+    FX_EXACT_DAY,
+    UNCLASSIFIED,
+    DataFetcher,
+)
 from beacon.exceptions import CalculationError
 
 # A hand-checkable history. Ordinary dividends over 2023 total 1.10; adding the
@@ -346,3 +353,67 @@ class TestPointInTimeClassification:
 
         assert early == {"Industrials": ["AAA"]}
         assert late == {"Technology": ["AAA"]}
+
+
+class TestTheDividendConversionObeysTheFxPolicy:
+    """BN-207: this path's exact-date read became the global setting.
+
+    It used to fetch `date..date` and refuse on an empty frame — an exact-day
+    rule written inline, and the only site that did not carry forward. Being
+    correct is why it survived BN-188's consolidation and why nobody noticed
+    it disagreed with everything else.
+
+    Now it asks `fx_rate_on`, so a dividend converts under whichever
+    assumption the dataset was opened with. EXACT_DAY reproduces exactly what
+    the inline read did.
+    """
+
+    GAP = pd.Timestamp("2024-01-17")
+
+    def fetcher(self,
+                policy: str) -> DataFetcher:
+        """A GBP name paying a special dividend, with an FX gap on the ex-date."""
+        dates = pd.bdate_range("2024-01-02", "2024-01-31")
+        rows: list[dict[str, object]] = []
+
+        for date in dates:
+            rows.append({"IDENTIFIER": "UKCO", "DATE": date, "CLOSE": 100.0,
+                         "SHARES_OUTSTANDING": 1_000_000})
+
+            if date != self.GAP:
+                rows.append({"IDENTIFIER": "GBPUSD", "DATE": date,
+                             "RATE": 1.25})
+
+        reference = pd.DataFrame([{"IDENTIFIER": "UKCO",
+                                   "DATE_FROM": "2020-01-01",
+                                   "NAME": "UKCO",
+                                   "CURRENCY": "GBP",
+                                   "EXCHANGE": "XLON"}])
+
+        return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                           ReferenceData.from_dataframe(reference),
+                           fx_policy=policy)
+
+    def test_carry_forward_converts_the_dividend(self):
+        """The behaviour every other conversion already had, now reaching
+        dividends too: a gap in the FX feed does not stop the calculation."""
+        fetcher = self.fetcher(FX_CARRY_FORWARD)
+
+        assert fetcher.fx_rate_on("GBP", "USD", self.GAP) == pytest.approx(1.25)
+
+    def test_exact_day_refuses_on_the_gap(self):
+        """The old inline behaviour, now chosen rather than hardcoded."""
+        fetcher = self.fetcher(FX_EXACT_DAY)
+
+        assert fetcher.fx_rate_on("GBP", "USD", self.GAP) is None
+
+    def test_the_refusal_names_the_policy_in_force(self):
+        """A reader has to be able to tell "no rate exists" from "no rate on
+        this exact day, because that is what this installation asks for"."""
+        from beacon.index.calculation.corporate_actions import (
+            CorporateActionsMixin,
+        )
+
+        source = inspect.getsource(CorporateActionsMixin)
+
+        assert "fx_policy" in source

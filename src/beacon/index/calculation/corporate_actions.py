@@ -191,23 +191,28 @@ class CorporateActionsMixin:
             if ff is not None:
                 reduction_local *= ff
 
-        # FX conversion to index currency
-        fx_rate = 1.0
-        if asset.currency.upper() != self.definition.currency.upper():
-            fx_series = self.data.fetch_fx_rates(
-                asset.currency, self.definition.currency, date_str, date_str
-            )
-            if fx_series.empty:
-                raise CalculationError(
-                    calculation_name="CorporateActionDivisor",
-                    details=(f"no {asset.currency}/{self.definition.currency} "
-                             f"rate on {date_str}, so a dividend paid in "
-                             f"{asset.currency} cannot be expressed in the "
-                             f"index's money. BN-188 refused the same gap in "
-                             f"the weighting; skipping the adjustment here "
-                             f"leaves the level overstated instead."))
+        # FX conversion to index currency, through the library's one lookup
+        # (BN-207). This used to fetch `date_str..date_str` and take the single
+        # row, which is an exact-day read written inline -- correct in itself,
+        # and the reason this site survived BN-188's consolidation. It also
+        # meant a dividend on a day the FX feed happened to skip refused where
+        # every other conversion carried forward, and nothing said which
+        # behaviour was intended. That choice is now `fx_policy`, set once for
+        # the dataset: EXACT_DAY reproduces exactly what this line did.
+        fx_rate = self.data.fx_rate_on(asset.currency,
+                                       self.definition.currency,
+                                       ex_date)
 
-            fx_rate = float(fx_series.iloc[0])
+        if fx_rate is None:
+            raise CalculationError(
+                calculation_name="CorporateActionDivisor",
+                details=(f"no {asset.currency}/{self.definition.currency} "
+                         f"rate on {date_str} under the {self.data.fx_policy} "
+                         f"policy, so a dividend paid in {asset.currency} "
+                         f"cannot be expressed in the index's money. BN-188 "
+                         f"refused the same gap in the weighting; skipping "
+                         f"the adjustment here leaves the level overstated "
+                         f"instead."))
 
         reduction_index_ccy = reduction_local * fx_rate
         logger.debug(

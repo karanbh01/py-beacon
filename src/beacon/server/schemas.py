@@ -162,6 +162,16 @@ class HealthResponse(BaseModel):
         description="Seconds since the market data was last loaded or synced. "
                     "Null only when no data source is configured — there is "
                     "then nothing whose age could be reported.")
+    fx_policy: str | None = Field(
+        default=None,
+        description="How this installation reads an exchange rate on a day "
+                    "the pair printed none: CARRY_FORWARD uses the last rate "
+                    "in force, EXACT_DAY refuses unless the rate is dated "
+                    "that day. A modelling assumption rather than a "
+                    "preference — the same holding converts to different "
+                    "money under the two, and every conversion in the library "
+                    "obeys whichever is set. Null when no data source is "
+                    "configured, since nothing is being converted.")
 
 
 class CalendarCoveragePayload(BaseModel):

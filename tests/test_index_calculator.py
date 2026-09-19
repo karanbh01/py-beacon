@@ -518,9 +518,22 @@ class TestHandleCorporateAction:
     def ca_calculator(self,
                       mock_definition,
                       mock_data):
-        """Calculator with weighting_scheme.use_free_float = False."""
+        """Calculator with weighting_scheme.use_free_float = False.
+
+        The double answers `fx_rate_on` because that is what the dividend path
+        calls since BN-207; it used to call `fetch_fx_rates` and read a frame.
+        Left unset, a `MagicMock` returns a Mock rather than a rate, which
+        multiplies into the reduction and surfaces four frames later as
+        "unsupported format string passed to MagicMock.__format__" — a fault
+        wearing the costume of a formatting bug.
+
+        A domestic asset converts at 1.0 and never reaches the lookup; the
+        tests below that care about FX set their own return value.
+        """
         mock_definition.weighting_scheme = MagicMock()
         mock_definition.weighting_scheme.use_free_float = False
+        mock_data.fx_rate_on.return_value = 1.0
+
         return IndexCalculator(mock_definition, mock_data)
 
     def _make_action(self,
@@ -569,7 +582,7 @@ class TestHandleCorporateAction:
         """Special dividend in foreign currency applies FX conversion."""
         gbp_asset = Equity(name="BP", currency="GBP", ticker="BP", exchange="LSE")
         mock_data.fetch_shares_outstanding.return_value = 500
-        mock_data.fetch_fx_rates.return_value = pd.Series([1.25])  # GBP->USD
+        mock_data.fx_rate_on.return_value = 1.25  # GBP->USD
 
         # reduction = 4 * 500 * 1.25 = 2500
         # mv_after = 50000 - 2500 = 47500
@@ -661,7 +674,7 @@ class TestHandleCorporateAction:
         """BN-188's gap, on the corporate-action path (BN-184)."""
         gbp_asset = Equity(name="BP", currency="GBP", ticker="BP", exchange="LSE")
         mock_data.fetch_shares_outstanding.return_value = 500
-        mock_data.fetch_fx_rates.return_value = pd.Series(dtype=float)
+        mock_data.fx_rate_on.return_value = None  # the pair is unknown
         action = self._make_action(asset=gbp_asset, value=4.0)
 
         with pytest.raises(CalculationError, match="no GBP/USD rate"):

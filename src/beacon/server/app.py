@@ -102,6 +102,12 @@ def build_router() -> APIRouter:
             # data source, because then there is nothing whose age could be
             # reported.
             cache_age=(config.data_fetcher.age_seconds(MARKET_DATASET)
+                       if config.data_fetcher is not None else None),
+            # Published because it changes numbers (BN-207). A client showing
+            # a converted figure is showing the result of an assumption, and
+            # a reader who cannot see which assumption was in force has to
+            # infer it -- which is exactly where these bugs have lived.
+            fx_policy=(config.data_fetcher.fx_policy
                        if config.data_fetcher is not None else None))
 
     return router
