@@ -19,6 +19,47 @@ def _read_file(file_path: str) -> pd.DataFrame:
         raise ValueError(f"Unsupported file format '{ext}'. Use .csv, .xls, or .xlsx.")
 
 
+
+def as_of_position(index: pd.Index,
+                   date: str | pd.Timestamp) -> int | None:
+    """Where the last observation at or before *date* sits, or None (BN-208).
+
+    The one way a point-in-time lookup is done, so that look-ahead is not
+    something a caller has to remember to avoid.
+
+    ## Why this exists rather than the two-line form
+
+    The natural expression is `index.searchsorted(date, side="right") - 1`,
+    which returns **-1** when every observation is dated after *date*. In
+    pandas -1 is a perfectly legal index meaning *the last element*, so the
+    honest value for "nothing to find" is silently a lookup that returns the
+    newest observation in the series -- the largest look-ahead available.
+
+    Both FX sites hit this. Both had a guard, and both guards clamped rather
+    than refused:
+
+        series.iloc[max(position, 0)]      # the FIRST rate, still the future
+        if position < 0: series.iloc[0]    # the same, written out
+
+    Whoever wrote them saw that -1 was dangerous and reached for the nearest
+    plausible value. That swaps a large look-ahead for a small one. The only
+    correct answer is that there is no answer, and returning None is the only
+    way to say it that a caller cannot accidentally index with.
+
+    Args:
+        index: Ascending dates. Sorting is the caller's business; a search
+            over an unsorted index is meaningless under any convention.
+        date: The point in time being asked about.
+
+    Returns:
+        int | None: Position of the last entry at or before *date*, or None
+        when the index begins after it.
+    """
+    position = int(index.searchsorted(pd.Timestamp(date), side="right"))
+
+    return None if position == 0 else position - 1
+
+
 class MarketData:
     """Time-series data container backed by a MultiIndex DataFrame.
 
@@ -138,12 +179,9 @@ class MarketData:
         session to be in force.
         """
         sessions = self.sessions
-        position = int(sessions.searchsorted(pd.Timestamp(date), side="right"))
+        position = as_of_position(sessions, date)
 
-        if position == 0:
-            return None
-
-        return pd.Timestamp(sessions[position - 1])
+        return None if position is None else pd.Timestamp(sessions[position])
 
     # -- query ---------------------------------------------------------------
 

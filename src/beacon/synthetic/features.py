@@ -54,6 +54,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+from ..data.base import as_of_position
+
 logger = logging.getLogger(__name__)
 
 FUNDAMENTALS = "fundamentals"
@@ -212,9 +214,14 @@ def _fundamentals(universe: pd.DataFrame,
     # `dates <= quarter` inside the loop is O(days) each time, which at the
     # 6,000-name default came to six hundred million comparisons and took ten
     # times longer than generating the prices these are derived from.
-    positions = [(quarter, int(dates.searchsorted(quarter, side="right")) - 1)
+    # Through `as_of_position` (BN-208), which answers None rather than -1 for
+    # a quarter that precedes the price history. The filter below did the same
+    # job correctly; routing it through the primitive is what lets the
+    # look-ahead backstop forbid the raw idiom outright rather than keep a
+    # list of the places it is allowed.
+    positions = [(quarter, as_of_position(dates, quarter))
                  for quarter in quarters]
-    positions = [(quarter, row) for quarter, row in positions if row >= 0]
+    positions = [(quarter, row) for quarter, row in positions if row is not None]
 
     closes = prices.to_numpy()
     columns = {name: index for index, name in enumerate(prices.columns)}

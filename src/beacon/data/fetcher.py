@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .base import MarketData, ReferenceData
+from .base import MarketData, ReferenceData, as_of_position
 from .corporate_actions import CorporateActions
 from .features import MAX_AGE_DAYS, FeatureData
 from .session import SessionPanel
@@ -859,15 +859,13 @@ class DataFetcher:
 
             return None if value is None or pd.isna(value) else float(value)
 
-        position = series.index.searchsorted(stamp, side="right") - 1
+        # Through `as_of_position` rather than a local search (BN-208): it
+        # returns None where the raw form returns -1, and -1 is a legal pandas
+        # index meaning the *last* element. That collision is what put a March
+        # rate on a January valuation here, twice.
+        position = as_of_position(series.index, stamp)
 
-        # -1 means every rate in the series is dated after `date`. The pair is
-        # known and simply does not reach back this far, which is the same
-        # answer as not knowing it: this conversion cannot be made.
-        if position < 0:
-            return None
-
-        return float(series.iloc[position])
+        return None if position is None else float(series.iloc[position])
 
     def fx_rates_on(self,
                     from_currency: str,
