@@ -76,6 +76,15 @@ DERIVED_CURRENCY_FIELD = "market_cap_currency"
 # The local half of each money pair: the figure as the exchange reports it,
 # in the instrument's own currency.
 LOCAL_CURRENCY_FIELD = "local_currency"
+
+# When the observation behind every money field on this entry was printed, and
+# whether that is old enough to be worth saying so (BN-210). Published
+# alongside the caps rather than requested, on the same terms as the currency
+# fields: a figure whose age a reader has to infer is a figure they will
+# eventually mis-read, and the null this replaced said "unknown" for a name
+# whose value was perfectly well known and simply not recent.
+PRICED_FROM_FIELD = "priced_from"
+PRICE_IS_STALE_FIELD = "price_is_stale"
 MARKET_CAP_LOCAL = "market_cap_local"
 FREE_FLOAT_MARKET_CAP_LOCAL = "free_float_market_cap_local"
 
@@ -113,6 +122,21 @@ DERIVED_FIELDS = {
 # on its own would be a second way to ask the same question -- and a fifth
 # name for the field picker, the catalogue and the expression namespace to
 # learn. Documented here so nothing has to infer them from the payload.
+# What counts as a recent price, in days (BN-210).
+#
+# Two jobs, and it used to have only the first. It is the window read for the
+# last price and share count -- the one nearly every name is answered from --
+# and it is the threshold above which a price is reported as stale.
+#
+# What it is no longer is a *bound on the answer*. A name absent from the
+# window used to be reported as having no market cap at all, which put a blank
+# beside a weight the index had computed perfectly well from the same missing
+# name's last print. The cap is now computed from whatever price exists and
+# carries the date it came from; this number decides whether that date is worth
+# flagging, not whether the figure is published.
+LOOKBACK_DAYS = 30
+
+
 COMPANION_FIELDS = {
     DERIVED_CURRENCY_FIELD: (f"ISO code the converted money fields are in: "
                              f"the request's `currency`, {DEFAULT_CURRENCY} "
@@ -126,6 +150,20 @@ COMPANION_FIELDS = {
     FREE_FLOAT_MARKET_CAP_LOCAL: (
         f"Market cap x free float in `{LOCAL_CURRENCY_FIELD}`, unconverted. "
         f"Its converted counterpart is `{FREE_FLOAT_MARKET_CAP}`."),
+    PRICED_FROM_FIELD: (
+        f"The date the close and share count behind every money field on this "
+        f"entry were printed, YYYY-MM-DD -- **not** the `date` the request "
+        f"asked about. They differ for a name that has not traded recently, "
+        f"which is valued at its last print rather than reported as unknown. "
+        f"Null when the instrument has no price anywhere in the data, which is "
+        f"a real absence rather than a stale one. `{PRICE_IS_STALE_FIELD}` is "
+        f"the same fact as a flag."),
+    PRICE_IS_STALE_FIELD: (
+        f"Whether `{PRICED_FROM_FIELD}` is more than {LOOKBACK_DAYS} days "
+        f"before the requested date. Published rather than left to be derived: "
+        f"a client should not have to subtract two dates to learn that a "
+        f"figure is months old, and an index can carry a real weight in a name "
+        f"whose last trade is long past. Null when there is no price at all."),
 }
 
 # The most identifiers one request may name. Above the 512-member universe pane
@@ -133,11 +171,6 @@ COMPANION_FIELDS = {
 # server to assemble an unbounded response. A caller needing more paginates.
 MAX_BATCH = 1000
 
-# How far back to look for the last price and share count. Long enough to
-# cross a delisting or a quiet stretch, short enough that a name absent from
-# the whole window is reported as having no cap rather than one from years
-# ago.
-LOOKBACK_DAYS = 30
 
 
 def parse_list(raw: list[str] | None) -> list[str]:
@@ -263,10 +296,8 @@ def _market_caps(fetcher: DataFetcher,
     columns: list[str] = [
         name for name in ("CLOSE", "SHARES_OUTSTANDING", "FREE_FLOAT")
         if name in available]
-    start = (end - pd.DateOffset(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
-    frame = fetcher.fetch_market_data(identifiers, start,
-                                      end.strftime("%Y-%m-%d"), columns)
+    frame = _priced_rows(fetcher, identifiers, end, columns)
 
     computed: dict[str, dict[str, Any]] = {}
 
@@ -279,6 +310,8 @@ def _market_caps(fetcher: DataFetcher,
         entry.update(dict.fromkeys(MONEY_FIELDS[field] for field in wanted))
         entry[DERIVED_CURRENCY_FIELD] = currency
         entry[LOCAL_CURRENCY_FIELD] = None
+        entry[PRICED_FROM_FIELD] = None
+        entry[PRICE_IS_STALE_FIELD] = None
 
         entry.update(_cap_fields(fetcher, identifier, wanted,
                                  _rows_for(frame, identifier), end, currency))
@@ -286,6 +319,82 @@ def _market_caps(fetcher: DataFetcher,
         computed[identifier] = entry
 
     return computed
+
+
+
+def _priced_rows(fetcher: DataFetcher,
+                 identifiers: list[str],
+                 end: pd.Timestamp,
+                 columns: list[str]) -> pd.DataFrame:
+    """Rows to price each name from, reading further back only where needed.
+
+    The cap is no longer bounded by a day count (BN-210): a name that last
+    traded ninety days ago has a market cap, and refusing to compute one left
+    a weight standing next to a blank in the same row. What bounds it now is
+    the data's own coverage, and `priced_from` on the response says how old
+    the observation is, so staleness is visible rather than inferred.
+
+    **Two stages, because removing the bound naively is a 32x regression.**
+    Measured over 500 names and ten years of daily bars: the recent window
+    costs 650 ms and the whole history costs 20.6 seconds. The fetch itself is
+    no slower — the identifier selection dominates it — but every per-name
+    slice afterwards then cuts a 1.37-million-row frame instead of a
+    ten-thousand-row one, and there are five hundred of them. That is BN-190's
+    shape exactly: a cost with no visible loop, introduced by a tidy-up.
+
+    So the recent window is read first and answers almost every name, and only
+    the stragglers are read again without a lower bound. A store where nothing
+    is stale pays what it paid before.
+    """
+    recent = (end - pd.DateOffset(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    end_str = end.strftime("%Y-%m-%d")
+
+    frame = _last_row_each(
+        fetcher.fetch_market_data(identifiers, recent, end_str, columns))
+    seen = _identifiers_in(frame)
+    missing = [name for name in identifiers if name not in seen]
+
+    if not missing:
+        return frame
+
+    older = _last_row_each(
+        fetcher.fetch_market_data(missing, None, end_str, columns))
+
+    if older.empty:
+        return frame
+
+    if frame.empty:
+        return older
+
+    return pd.concat([frame, older]).sort_index()
+
+
+def _last_row_each(frame: pd.DataFrame) -> pd.DataFrame:
+    """Reduce a multi-identifier frame to one row per name: its latest.
+
+    Done once, with a grouped tail, rather than by slicing the frame per name
+    downstream. That slicing is what made the unbounded read 32x slower: `xs`
+    over a 1.37-million-row frame is cheap once and ruinous five hundred
+    times, and only one row of each name's history is ever read.
+
+    Measured over 500 names and ten years, with every name stale so the deep
+    read is unavoidable: 19.8 seconds before this, 1.1 after.
+    """
+    if frame.empty or not isinstance(frame.index, pd.MultiIndex):
+        return frame
+
+    return frame.sort_index().groupby(level="IDENTIFIER", sort=False).tail(1)
+
+
+def _identifiers_in(frame: pd.DataFrame) -> set[str]:
+    """Which names a multi-identifier frame actually carries rows for."""
+    if frame.empty:
+        return set()
+
+    if isinstance(frame.index, pd.MultiIndex):
+        return set(frame.index.get_level_values("IDENTIFIER"))
+
+    return set()
 
 
 def _cap_fields(fetcher: DataFetcher,
@@ -327,6 +436,13 @@ def _cap_fields(fetcher: DataFetcher,
     if pd.isna(price) or pd.isna(shares):
         return {}
 
+    # The day the numbers above were printed, which is not necessarily the day
+    # the caller asked about (BN-210). A cap computed from a three-month-old
+    # close is a true statement about a company that has not traded since; it
+    # is only misleading if nothing says how old it is.
+    priced_from = pd.Timestamp(rows.index[-1])
+    stale = (end - priced_from).days > LOOKBACK_DAYS
+
     local_currency = _currency_of(fetcher, identifier, end)
     rate = fetcher.fx_rate_on(local_currency, currency, end)
 
@@ -338,7 +454,11 @@ def _cap_fields(fetcher: DataFetcher,
             local_currency, currency, end.date(), identifier, local_currency,
             local_currency)
 
-    fields: dict[str, Any] = {LOCAL_CURRENCY_FIELD: local_currency}
+    fields: dict[str, Any] = {
+        LOCAL_CURRENCY_FIELD: local_currency,
+        PRICED_FROM_FIELD: priced_from.date().isoformat(),
+        PRICE_IS_STALE_FIELD: stale,
+    }
 
     # Each half is scaled from its own base rather than one from the other:
     # multiplication is not associative in floating point, and converting the

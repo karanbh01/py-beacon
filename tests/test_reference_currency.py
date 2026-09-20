@@ -262,14 +262,21 @@ class TestExistingCallersDoNotMove:
         assert fields["market_cap"] == pytest.approx(
             LOCAL_CAP["JPSML"] / JPY_PER_USD)
 
-    def test_the_only_new_keys_are_the_three_added_ones(self):
-        """A client reading the payload by key sees exactly what it did,
-        plus the pair it can ignore."""
+    def test_the_added_keys_are_the_documented_companions(self):
+        """A client reading the payload by key sees exactly what it did, plus
+        companions it can ignore.
+
+        Five now rather than three: BN-210 added `priced_from` and
+        `price_is_stale`, which say how old the money fields are. Additive in
+        the same way as the currency pair — nothing a caller already read
+        moved, and the pin is kept literal so the next addition is a decision
+        rather than a surprise.
+        """
         before = {"market_cap", "free_float_market_cap", "market_cap_currency"}
 
         assert derived_keys(fields_for()["JPSML"]) - before == {
             "market_cap_local", "free_float_market_cap_local",
-            "local_currency"}
+            "local_currency", "priced_from", "price_is_stale"}
 
     def test_both_endpoints_still_agree(self,
                                         client):

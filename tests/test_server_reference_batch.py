@@ -470,3 +470,104 @@ class TestAnOptionalColumnTheStoreLacks:
 
         assert self.ask(client, "market_cap") != self.ask(
             client, "free_float_market_cap")
+
+
+class TestACapSaysHowOldItIs:
+    """BN-210: a quiet name had a weight and a blank cap in the same row.
+
+    The two were read on different rules. Weighting walks back as far as it
+    needs; the cap column looked back thirty days from the requested date and
+    gave up. So an index could say "this is 25% of your holdings" and, beside
+    it, "we do not know what this company is worth" — and the cross-check
+    between the two is the only reason the cap column exists.
+
+    Karan's call: compute the cap from whatever price exists, and publish the
+    date it came from plus a staleness flag. The columns become comparable by
+    being *legible* rather than by being identical, which survives the two
+    rules diverging again later — and a reader sees staleness instead of
+    inferring it from a null that meant "not recent", not "not known".
+    """
+
+    def client_over(self,
+                    tmp_path,
+                    last_traded: dict[str, str]) -> TestClient:
+        """A store where each name stops printing on its own date."""
+        rows = [{"IDENTIFIER": name, "DATE": date, "CLOSE": 100.0,
+                 "SHARES_OUTSTANDING": 1_000_000}
+                for name, stop in last_traded.items()
+                for date in pd.bdate_range("2025-01-02", stop)]
+
+        reference = pd.DataFrame([{"IDENTIFIER": name,
+                                   "DATE_FROM": "2020-01-01",
+                                   "NAME": name,
+                                   "CURRENCY": "USD",
+                                   "EXCHANGE": "XNYS"}
+                                  for name in last_traded])
+        fetcher = DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                              ReferenceData.from_dataframe(reference))
+        config = ServerConfig(auth_token=TOKEN, data_fetcher=fetcher,
+                              storage_root=tmp_path)
+
+        return TestClient(create_app(config), raise_server_exceptions=False)
+
+    def entries(self,
+                client: TestClient) -> dict[str, dict]:
+        response = client.get("/data/reference",
+                              params={"identifiers": "LOUD,QUIET",
+                                      "fields": "market_cap",
+                                      "date": "2025-06-30"},
+                              headers=auth())
+        assert response.status_code == 200, response.text
+
+        return {entry["identifier"]: entry["fields"]
+                for entry in response.json()["entries"]}
+
+    @pytest.fixture
+    def fields(self,
+               tmp_path) -> dict[str, dict]:
+        """LOUD trades to the end; QUIET stopped 76 days before it."""
+        return self.entries(self.client_over(
+            tmp_path, {"LOUD": "2025-06-30", "QUIET": "2025-04-15"}))
+
+    def test_a_quiet_name_has_a_cap_rather_than_a_blank(self,
+                                                        fields):
+        """The defect: this was null while the name carried a real weight."""
+        assert fields["QUIET"]["market_cap"] == pytest.approx(100_000_000.0)
+
+    def test_it_says_which_day_it_was_priced_from(self,
+                                                  fields):
+        assert fields["QUIET"]["priced_from"] == "2025-04-15"
+
+    def test_and_that_the_price_is_stale(self,
+                                         fields):
+        assert fields["QUIET"]["price_is_stale"] is True
+
+    def test_a_current_name_is_not_flagged(self,
+                                           fields):
+        """Otherwise the flag says nothing: it has to distinguish."""
+        assert fields["LOUD"]["price_is_stale"] is False
+        assert fields["LOUD"]["priced_from"] == "2025-06-30"
+
+    def test_staleness_is_published_rather_than_derived(self,
+                                                        fields):
+        """A client should not have to subtract two dates to find out. Both
+        halves are present on every entry that has a cap at all."""
+        for name in ("LOUD", "QUIET"):
+            assert fields[name]["priced_from"] is not None
+            assert fields[name]["price_is_stale"] is not None
+
+    def test_a_name_that_never_traded_still_has_no_cap(self,
+                                                       tmp_path):
+        """The bound moved from a day count to the data's own coverage, so
+        "no price anywhere" is still unknown — that one is a real absence."""
+        client = self.client_over(tmp_path, {"LOUD": "2025-06-30"})
+        response = client.get("/data/reference",
+                              params={"identifiers": "LOUD,GHOST",
+                                      "fields": "market_cap",
+                                      "date": "2025-06-30"},
+                              headers=auth())
+        entries = {entry["identifier"]: entry["fields"]
+                   for entry in response.json()["entries"]}
+
+        assert entries["GHOST"]["market_cap"] is None
+        assert entries["GHOST"]["priced_from"] is None
