@@ -375,3 +375,98 @@ class TestSingleNameEndpointIsUnchanged:
         response = client.get("/data/reference/NOPE", headers=auth())
 
         assert response.status_code == 404
+
+
+class TestAnOptionalColumnTheStoreLacks:
+    """BN-209: asking for a derived money field 500'd on an ordinary store.
+
+    `_market_caps` named a fixed column list, `fetch_market_data` selects
+    strictly, and pandas raises `KeyError` for a column that is not there.
+    Nothing catches it — a `KeyError` is neither a `BeaconError` nor a
+    `ValueError` — so it escaped as a bare 500: twenty-one bytes, no envelope,
+    no code.
+
+    `FREE_FLOAT` is optional by this library's own contract, and `market_cap`
+    is price x shares and does not use it. It shared a column list with its
+    sibling field, so asking for one demanded the data for both.
+
+    The second half matters more than the crash. Fixing only the fetch would
+    have turned a loud failure into a quiet wrong number, because
+    `free_float_market_cap` assumed a float of 1.0 for a name it had no float
+    data for — returning the **full** cap under a free-float heading, equal to
+    `market_cap` and indistinguishable from a company with no restricted
+    stock. `MarketCapWeighted` refuses that same gap in so many words.
+    """
+
+    def client_over(self,
+                    tmp_path,
+                    columns: dict[str, float]) -> TestClient:
+        """A one-name store carrying only *columns* beside CLOSE."""
+        rows = []
+
+        for date in pd.bdate_range("2025-06-02", "2025-06-30"):
+            row = {"IDENTIFIER": "AAA", "DATE": date, "CLOSE": 100.0}
+            row.update(columns)
+            rows.append(row)
+
+        reference = pd.DataFrame([{"IDENTIFIER": "AAA",
+                                   "DATE_FROM": "2020-01-01",
+                                   "NAME": "AAA",
+                                   "CURRENCY": "USD",
+                                   "EXCHANGE": "XNYS"}])
+        fetcher = DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                              ReferenceData.from_dataframe(reference))
+        config = ServerConfig(auth_token=TOKEN, data_fetcher=fetcher,
+                              storage_root=tmp_path)
+
+        return TestClient(create_app(config), raise_server_exceptions=False)
+
+    def ask(self,
+            client: TestClient,
+            field: str):
+        response = client.get("/data/reference",
+                              params={"identifiers": "AAA", "fields": field,
+                                      "date": "2025-06-30"},
+                              headers=auth())
+        assert response.status_code == 200, response.text
+
+        return (response.json()["entries"][0].get("fields") or {}).get(field)
+
+    def test_market_cap_survives_a_store_with_no_free_float(self,
+                                                            tmp_path):
+        """It never needed that column. This was a 500."""
+        client = self.client_over(tmp_path, {"SHARES_OUTSTANDING": 1_000_000})
+
+        assert self.ask(client, "market_cap") == pytest.approx(100_000_000.0)
+
+    def test_free_float_cap_is_unknown_rather_than_the_full_cap(self,
+                                                                tmp_path):
+        """The quiet wrong number the crash was hiding."""
+        client = self.client_over(tmp_path, {"SHARES_OUTSTANDING": 1_000_000})
+
+        assert self.ask(client, "free_float_market_cap") is None
+
+    def test_a_known_float_still_scales_the_cap(self,
+                                                tmp_path):
+        """The behaviour that must not move."""
+        client = self.client_over(tmp_path, {"SHARES_OUTSTANDING": 1_000_000,
+                                             "FREE_FLOAT": 0.3})
+
+        assert self.ask(client, "free_float_market_cap") == pytest.approx(
+            30_000_000.0)
+
+    def test_a_cap_with_no_share_count_is_unknown_rather_than_a_500(self,
+                                                                    tmp_path):
+        client = self.client_over(tmp_path, {"FREE_FLOAT": 0.3})
+
+        assert self.ask(client, "market_cap") is None
+
+    def test_the_two_caps_differ_when_a_float_is_known(self,
+                                                       tmp_path):
+        """Pins the distinction the substitution erased: with the old 1.0
+        default these were the same number whenever float data was absent."""
+        client = self.client_over(tmp_path, {"SHARES_OUTSTANDING": 1_000_000,
+                                             "FREE_FLOAT": 0.3})
+
+        assert self.ask(client, "market_cap") != self.ask(
+            client, "free_float_market_cap")

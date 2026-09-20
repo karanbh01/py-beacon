@@ -248,7 +248,21 @@ def _market_caps(fetcher: DataFetcher,
     if not wanted:
         return {}
 
-    columns = ["CLOSE", "SHARES_OUTSTANDING", "FREE_FLOAT"]
+    # Narrowed to what the store actually has (BN-209). `fetch_market_data`
+    # selects strictly, so naming a column the store lacks raises `KeyError`
+    # and escapes as a bare 500 -- and `FREE_FLOAT` is optional by this
+    # library's own contract, so a store with prices and share counts and no
+    # free float is ordinary rather than broken. `market_cap` does not even
+    # use that column; it shares this list with its sibling field, so asking
+    # for one used to drag in the requirements of both.
+    #
+    # `adv_3m` below has always done the equivalent by passing no column list
+    # at all. Narrowing is kept rather than copied away because a wide store
+    # has no reason to ship every column to answer a question about three.
+    available = set(fetcher.market_columns)
+    columns: list[str] = [
+        name for name in ("CLOSE", "SHARES_OUTSTANDING", "FREE_FLOAT")
+        if name in available]
     start = (end - pd.DateOffset(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
     frame = fetcher.fetch_market_data(identifiers, start,
@@ -339,11 +353,21 @@ def _cap_fields(fetcher: DataFetcher,
 
     if FREE_FLOAT_MARKET_CAP in wanted:
         free_float = latest.get("FREE_FLOAT")
-        share = float(free_float) if pd.notna(free_float) else 1.0
 
-        fields[FREE_FLOAT_MARKET_CAP_LOCAL] = local_cap * share
-        fields[FREE_FLOAT_MARKET_CAP] = (None if converted_cap is None
-                                         else converted_cap * share)
+        # Unknown float is an unknown float-adjusted cap, not a float of one
+        # (BN-209). Assuming 100% returned the FULL cap under a free-float
+        # heading -- identical to `market_cap`, and indistinguishable from a
+        # name that genuinely has no restricted stock. `MarketCapWeighted`
+        # refuses the same gap in so many words: "using its full market cap
+        # instead would weight one name on a different basis from the rest."
+        # Two surfaces over one question must not answer it oppositely.
+        share = float(free_float) if pd.notna(free_float) else None
+
+        fields[FREE_FLOAT_MARKET_CAP_LOCAL] = (
+            None if share is None else local_cap * share)
+        fields[FREE_FLOAT_MARKET_CAP] = (
+            None if share is None or converted_cap is None
+            else converted_cap * share)
 
     return fields
 
