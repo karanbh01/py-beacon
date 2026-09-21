@@ -108,7 +108,10 @@ def build_router() -> APIRouter:
             # a reader who cannot see which assumption was in force has to
             # infer it -- which is exactly where these bugs have lived.
             fx_policy=(config.data_fetcher.fx_policy
-                       if config.data_fetcher is not None else None))
+                       if config.data_fetcher is not None else None),
+            max_price_staleness_days=(
+                config.data_fetcher.max_price_staleness_days
+                if config.data_fetcher is not None else None))
 
     return router
 

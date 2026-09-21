@@ -59,9 +59,32 @@ def universe() -> list[Equity]:
             for identifier in UNIVERSE_IDS]
 
 
+class NoStaleness:
+    """A fetcher double for rules that read no data.
+
+    These tests passed `None` as the fetcher, which the signature never
+    permitted -- it is annotated `DataFetcher` -- and which worked only for as
+    long as nothing in the funnel touched it. BN-211 added a staleness gate
+    that does, and twenty-four tests about rule composition broke on an
+    AttributeError.
+
+    A real object answering the one method the funnel calls, rather than a
+    guard in the funnel for a None that production never passes: a branch for
+    an impossible case is a place for a real bug to hide.
+    """
+
+    max_price_staleness_days = None
+
+    def stale_identifiers(self,
+                          identifiers,
+                          as_of):
+        return set()
+
+
 def run(rules) -> SelectionResult:
     """Select over the standard universe."""
-    return select_with_provenance(universe(), rules, DATE, data_fetcher=None)
+    return select_with_provenance(universe(), rules, DATE,
+                                  data_fetcher=NoStaleness())
 
 
 class TestSurvivors:
@@ -88,7 +111,8 @@ class TestSurvivors:
         assert result.survivor_ids == ["AAA", "DDD"]
 
     def test_an_empty_universe_survives_nothing(self):
-        result = select_with_provenance([], [Allow({"AAA"})], DATE, None)
+        result = select_with_provenance([], [Allow({"AAA"})], DATE,
+                                        NoStaleness())
 
         assert result.survivors == []
 
@@ -261,7 +285,13 @@ class TestCalculatorProjection:
             calendar="XNYS",
             universe_identifiers=UNIVERSE_IDS)
 
-        return IndexCalculator(definition, MagicMock())
+        # Explicit, for the reason the `mock_definition` fixture is: a bare
+        # MagicMock attribute is truthy, so an unset `stale_identifiers`
+        # returns a Mock the funnel then treats as a set of stale names.
+        data = MagicMock()
+        data.stale_identifiers.return_value = set()
+
+        return IndexCalculator(definition, data)
 
     def test_the_two_agree_on_survivors(self,
                                         calculator):

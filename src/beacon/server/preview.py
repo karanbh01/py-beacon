@@ -35,7 +35,10 @@ from ..asset.base import Asset
 from ..data.fetcher import DataFetcher
 from ..exceptions import InvalidRuleError
 from ..index.calculation import IndexCalculator, SelectionResult
-from ..index.calculation.selection import SelectionStep
+from ..index.calculation.selection import (
+    STALENESS_POSITION,
+    SelectionStep,
+)
 from ..index.derived import (
     OptimisedIndexDefinition,
     calculate_source,
@@ -88,11 +91,33 @@ def _as_preview_step(step: SelectionStep,
                        excluded=list(step.excluded))
 
 
+# The id the staleness rung is published under. Not a rule id from the
+# definition -- no definition declares this -- so it is a reserved name a
+# client can branch on, distinct from anything a user can call a rule.
+STALENESS_RULE_ID = "stale-price"
+
+
 def _exclusions_by_rule_id(selection: SelectionResult,
                            rule_ids: list[str]) -> dict[str, tuple[str, int]]:
-    """Translate positional provenance into ``id -> (rule_id, position)``."""
-    return {asset_id: (rule_ids[position - 1], position)
+    """Translate positional provenance into ``id -> (rule_id, position)``.
+
+    The staleness rung is not a rule and has no id in the definition, so it is
+    named explicitly rather than looked up (BN-211). Indexing `rule_ids` with
+    its negative position would have returned some other rule's id and
+    attributed the exclusion to a screen that never ran -- silently, since
+    Python is happy to index a list backwards.
+    """
+    return {asset_id: (_rule_id_at(position, rule_ids), position)
             for asset_id, position in selection.exclusions.items()}
+
+
+def _rule_id_at(position: int,
+                rule_ids: list[str]) -> str:
+    """The id of the rung at *position*, for the rungs that have one."""
+    if position == STALENESS_POSITION:
+        return STALENESS_RULE_ID
+
+    return rule_ids[position - 1]
 
 
 def build_preview(document: IndexDocument,

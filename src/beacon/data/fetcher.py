@@ -106,12 +106,40 @@ FX_POLICIES = (FX_CARRY_FORWARD, FX_EXACT_DAY)
 # existing number until somebody asks it to.
 DEFAULT_FX_POLICY = FX_CARRY_FORWARD
 
+# How far back the cheap first stage of a batch "last known bar" read reaches.
+# Nearly every name is answered from it; the ones that are not are read again
+# without a lower bound, which is rare and is the whole point of the split.
+RECENT_DAYS = 30
+
 # The classification column read when none is named. Sector is the one every
 # reference dataset carries and the one group constraints are usually built on.
 DEFAULT_SCHEME = "SECTOR"
 
 # Where instruments with no classification are collected, rather than dropped.
 UNCLASSIFIED = "UNCLASSIFIED"
+
+
+
+def _last_row_each(frame: pd.DataFrame) -> pd.DataFrame:
+    """Reduce a multi-identifier frame to one row per name: its latest.
+
+    Done once with a grouped tail rather than by slicing per name downstream.
+    That slicing is what made an unbounded read 32x slower -- `xs` over a
+    1.37-million-row frame is cheap once and ruinous five hundred times, and
+    only one row of each name's history is ever wanted.
+    """
+    if frame.empty or not isinstance(frame.index, pd.MultiIndex):
+        return frame
+
+    return frame.sort_index().groupby(level="IDENTIFIER", sort=False).tail(1)
+
+
+def _identifiers_in(frame: pd.DataFrame) -> set[str]:
+    """Which names a multi-identifier frame actually carries rows for."""
+    if frame.empty or not isinstance(frame.index, pd.MultiIndex):
+        return set()
+
+    return {str(name) for name in frame.index.get_level_values("IDENTIFIER")}
 
 
 class DataFetcher:
@@ -131,7 +159,8 @@ class DataFetcher:
                  reference_data: ReferenceData | None = None,
                  corporate_actions: CorporateActions | None = None,
                  features: FeatureData | None = None,
-                 fx_policy: str = DEFAULT_FX_POLICY):
+                 fx_policy: str = DEFAULT_FX_POLICY,
+                 max_price_staleness_days: int | None = None):
         if fx_policy not in FX_POLICIES:
             raise ValueError(
                 f"Unknown fx_policy: {fx_policy!r}. "
@@ -143,6 +172,23 @@ class DataFetcher:
         # because a per-call default is how five conversion sites came to
         # disagree in the first place.
         self.fx_policy = fx_policy
+
+        if (max_price_staleness_days is not None
+                and max_price_staleness_days < 1):
+            raise ValueError(
+                f"max_price_staleness_days must be at least 1 day, got "
+                f"{max_price_staleness_days!r}. Pass None to keep every name "
+                f"regardless of when it last traded.")
+
+        # How long a name may go without trading before it stops being worth
+        # holding (BN-211). None keeps everything, which is what this library
+        # always did -- so adopting the setting changes no index and no
+        # backtest until somebody asks it to.
+        #
+        # A modelling choice rather than a data property, and global rather
+        # than per-index on Karan's call: one answer for the whole
+        # installation, reaching index construction and backtests alike.
+        self.max_price_staleness_days = max_price_staleness_days
 
         self._market = market_data
         self._reference = reference_data
@@ -866,6 +912,119 @@ class DataFetcher:
         position = as_of_position(series.index, stamp)
 
         return None if position is None else float(series.iloc[position])
+
+    def latest_rows(self,
+                    identifiers: list[str],
+                    as_of: pd.Timestamp,
+                    columns: list[str] | None = None,
+                    recent_days: int = RECENT_DAYS) -> pd.DataFrame:
+        """One row per name: its most recent bar at or before *as_of*.
+
+        The batch "what is the last thing we know about these names" read,
+        shared by the reference endpoint and the staleness gate rather than
+        written twice (BN-211).
+
+        **Two stages, because the obvious version is thirty times slower.**
+        Measured over 500 names and ten years of daily bars: reading the
+        recent window costs 650 ms and reading the whole history costs 20.6
+        seconds. The fetch is not what differs -- identifier selection
+        dominates it either way -- it is that every per-name slice afterwards
+        then cuts a 1.37-million-row frame. So the recent window is read
+        first and answers almost every name, and only the stragglers are read
+        again without a lower bound.
+
+        Then the frame is reduced to one row per name **once**, with a grouped
+        tail, rather than sliced per name downstream. That is what makes even
+        an all-stale store cheap: 782 ms against 19.8 seconds.
+
+        Args:
+            identifiers: Names to look up.
+            as_of: The date to look back from, inclusive.
+            columns: Columns to read, or None for all of them.
+            recent_days: How far back the cheap first stage reaches.
+
+        Returns:
+            pd.DataFrame: MultiIndexed as the market data is, holding at most
+            one row per identifier. Names with no bar at or before *as_of* are
+            absent rather than present-and-empty.
+        """
+        end_str = pd.Timestamp(as_of).strftime("%Y-%m-%d")
+        recent = (pd.Timestamp(as_of)
+                  - pd.DateOffset(days=recent_days)).strftime("%Y-%m-%d")
+
+        frame = _last_row_each(
+            self.fetch_market_data(identifiers, recent, end_str, columns))
+        seen = _identifiers_in(frame)
+        missing = [name for name in identifiers if name not in seen]
+
+        if not missing:
+            return frame
+
+        older = _last_row_each(
+            self.fetch_market_data(missing, None, end_str, columns))
+
+        if older.empty:
+            return frame
+
+        if frame.empty:
+            return older
+
+        return pd.concat([frame, older]).sort_index()
+
+    def last_priced_on(self,
+                       identifiers: list[str],
+                       as_of: pd.Timestamp) -> dict[str, pd.Timestamp]:
+        """When each name last printed a bar at or before *as_of*.
+
+        Args:
+            identifiers: Names to look up.
+            as_of: The date to look back from.
+
+        Returns:
+            dict: identifier -> the date of its last bar. A name with no bar
+            at all is absent from the mapping, which is a different thing from
+            one whose last bar is old.
+        """
+        frame = self.latest_rows(identifiers, as_of)
+
+        if frame.empty or not isinstance(frame.index, pd.MultiIndex):
+            return {}
+
+        names = frame.index.get_level_values("IDENTIFIER")
+        dates = frame.index.get_level_values("DATE")
+
+        return {str(name): pd.Timestamp(date)
+                for name, date in zip(names, dates, strict=True)}
+
+    def stale_identifiers(self,
+                          identifiers: list[str],
+                          as_of: pd.Timestamp) -> set[str]:
+        """Which names have not traded recently enough to be worth holding.
+
+        Empty when no threshold is set, which is the default: staleness is
+        something an installation opts into, and until it does this costs one
+        comparison and reads nothing (BN-211).
+
+        A name with **no** price at all is not reported here. That is a
+        different condition with a different remedy -- the weighting already
+        refuses it by name -- and folding the two together would quietly
+        excuse a missing instrument as a quiet one.
+
+        Args:
+            identifiers: Names to test.
+            as_of: The date staleness is measured from.
+
+        Returns:
+            set: Identifiers whose last bar is older than the threshold.
+        """
+        if self.max_price_staleness_days is None:
+            return set()
+
+        stamp = pd.Timestamp(as_of)
+        priced = self.last_priced_on(identifiers, stamp)
+
+        return {name for name, date in priced.items()
+                if (stamp - date).days > self.max_price_staleness_days}
 
     def fx_rates_on(self,
                     from_currency: str,

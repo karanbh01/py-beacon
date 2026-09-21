@@ -23,6 +23,12 @@ def _mock_data_provider(prices: dict,
     """
     provider = MagicMock()
 
+    # Explicit: an unset `stale_identifiers` returns a Mock, which is truthy,
+    # so the engine reads it as "every name is stale" and rebalances into an
+    # empty target. Set here rather than guarded in the engine (BN-211).
+    provider.stale_identifiers.return_value = set()
+    provider.max_price_staleness_days = None
+
     def _fetch(identifier,
                start=None,
                end=None,

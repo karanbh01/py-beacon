@@ -185,6 +185,46 @@ class BacktestEngine(PricingMixin):
 
         return dates if isinstance(dates, dict) else {}
 
+    def _drop_stale(self,
+                    weights: dict[str, float],
+                    date: pd.Timestamp) -> dict[str, float]:
+        """Remove names that have not traded recently enough to hold (BN-211).
+
+        Applied to the *target* rather than to the book, so the ordinary
+        rebalance sells them: a stale name still has a last price, which is
+        what a delisted one does not, so it can be traded out through the
+        normal path. `_dispose_delisted` exists precisely because that path is
+        unavailable there, and the two conditions should not share a mechanism
+        just because they both end in a position being closed.
+
+        A no-op when no threshold is set, which is the default.
+
+        Weights are **renormalised** over what remains. Dropping a name and
+        leaving the rest as they were would put the difference into cash
+        silently and report a tracking gap against an index that holds it --
+        a smaller book, not a different one, which is the substitution this
+        codebase keeps removing. If a caller wants the cash they can say so by
+        weighting to less than one.
+        """
+        stale = self.data_provider.stale_identifiers(list(weights), date)
+
+        if not stale:
+            return weights
+
+        kept = {name: weight for name, weight in weights.items()
+                if name not in stale}
+        total = sum(kept.values())
+
+        logger.info("[%s] %d name(s) dropped from the target: no trade within "
+                    "%d days.", date.date(), len(stale),
+                    self.data_provider.max_price_staleness_days)
+
+        if total <= 0.0:
+            return kept
+
+        return {name: weight / total for name, weight in kept.items()}
+
+
     def _dispose_delisted(self,
                           portfolio: Portfolio,
                           date: pd.Timestamp,
@@ -588,6 +628,10 @@ class BacktestEngine(PricingMixin):
 
             # 2. Check for rebalance
             target_w = self._get_target_weights_for_date(date)
+
+            if target_w is not None:
+                target_w = self._drop_stale(target_w, date)
+
             if target_w is not None:
                 unfilled.extend(self._rebalance(portfolio, target_w, date))
                 # Re-price after rebalance

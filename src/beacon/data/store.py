@@ -311,7 +311,8 @@ def save(fetcher: DataFetcher,
 
 
 def load(path: Path,
-         fx_policy: str = DEFAULT_FX_POLICY) -> DataFetcher:
+         fx_policy: str = DEFAULT_FX_POLICY,
+         max_price_staleness_days: int | None = None) -> DataFetcher:
     """Read a store directory into a fetcher.
 
     Args:
@@ -357,7 +358,8 @@ def load(path: Path,
                 len(market.identifiers), manifest.source, path)
 
     fetcher = DataFetcher(market, reference, actions, features,
-                          fx_policy=fx_policy)
+                          fx_policy=fx_policy,
+                          max_price_staleness_days=max_price_staleness_days)
 
     # Stamped here because this is the only place that knows: the manifest says
     # who wrote the rows, and the path is what `/data/coverage` measures on

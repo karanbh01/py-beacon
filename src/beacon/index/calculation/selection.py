@@ -51,6 +51,21 @@ logger = logging.getLogger(__name__)
 # The rung representing the universe before any rule has been applied.
 UNIVERSE_POSITION = 0
 
+# The rung a stale-price exclusion is recorded at (BN-211). Negative so it
+# cannot collide with a rule's 1-based position, and so a consumer that maps
+# positions onto the definition's rules -- the preview does, by index -- has to
+# handle it deliberately rather than silently read the wrong rule's id.
+#
+# It sits before the rules because it is not one: the threshold is an
+# installation-wide setting rather than part of any index's methodology, and a
+# name nobody has priced for months is a data condition that every rule after
+# it would otherwise evaluate against a stale close.
+STALENESS_POSITION = -1
+
+# What the funnel calls that rung, so a reader of the provenance record sees
+# a reason rather than an unexplained drop.
+STALENESS_RULE_NAME = "StalePrice"
+
 
 @dataclass(frozen=True)
 class SelectionStep:
@@ -149,6 +164,26 @@ def select_with_provenance(universe: list[Asset],
     surviving = list(universe)
     steps = [SelectionStep(position=UNIVERSE_POSITION, remaining=len(surviving))]
     exclusions: dict[str, int] = {}
+
+    stale = data_fetcher.stale_identifiers(
+        [asset.asset_id for asset in surviving], current_date)
+
+    if stale:
+        surviving = [asset for asset in surviving
+                     if asset.asset_id not in stale]
+
+        for asset_id in stale:
+            exclusions[asset_id] = STALENESS_POSITION
+
+        steps.append(SelectionStep(position=STALENESS_POSITION,
+                                   rule_name=STALENESS_RULE_NAME,
+                                   remaining=len(surviving),
+                                   excluded=sorted(stale)))
+
+        logger.info(
+            "[%s] %d name(s) dropped: no trade within %d days.",
+            current_date.date(), len(stale),
+            data_fetcher.max_price_staleness_days)
 
     for position, rule in enumerate(rules, start=1):
         surviving, removed = _apply_rule(rule, surviving, current_date,

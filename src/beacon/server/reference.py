@@ -297,7 +297,11 @@ def _market_caps(fetcher: DataFetcher,
         name for name in ("CLOSE", "SHARES_OUTSTANDING", "FREE_FLOAT")
         if name in available]
 
-    frame = _priced_rows(fetcher, identifiers, end, columns)
+    # One row per name, read in two stages and reduced once. Lives on the
+    # fetcher since BN-211, because the staleness gate needs the same read
+    # and two copies of it would be two things to keep in step.
+    frame = fetcher.latest_rows(identifiers, end, columns,
+                                recent_days=LOOKBACK_DAYS)
 
     computed: dict[str, dict[str, Any]] = {}
 
@@ -321,80 +325,6 @@ def _market_caps(fetcher: DataFetcher,
     return computed
 
 
-
-def _priced_rows(fetcher: DataFetcher,
-                 identifiers: list[str],
-                 end: pd.Timestamp,
-                 columns: list[str]) -> pd.DataFrame:
-    """Rows to price each name from, reading further back only where needed.
-
-    The cap is no longer bounded by a day count (BN-210): a name that last
-    traded ninety days ago has a market cap, and refusing to compute one left
-    a weight standing next to a blank in the same row. What bounds it now is
-    the data's own coverage, and `priced_from` on the response says how old
-    the observation is, so staleness is visible rather than inferred.
-
-    **Two stages, because removing the bound naively is a 32x regression.**
-    Measured over 500 names and ten years of daily bars: the recent window
-    costs 650 ms and the whole history costs 20.6 seconds. The fetch itself is
-    no slower — the identifier selection dominates it — but every per-name
-    slice afterwards then cuts a 1.37-million-row frame instead of a
-    ten-thousand-row one, and there are five hundred of them. That is BN-190's
-    shape exactly: a cost with no visible loop, introduced by a tidy-up.
-
-    So the recent window is read first and answers almost every name, and only
-    the stragglers are read again without a lower bound. A store where nothing
-    is stale pays what it paid before.
-    """
-    recent = (end - pd.DateOffset(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
-    end_str = end.strftime("%Y-%m-%d")
-
-    frame = _last_row_each(
-        fetcher.fetch_market_data(identifiers, recent, end_str, columns))
-    seen = _identifiers_in(frame)
-    missing = [name for name in identifiers if name not in seen]
-
-    if not missing:
-        return frame
-
-    older = _last_row_each(
-        fetcher.fetch_market_data(missing, None, end_str, columns))
-
-    if older.empty:
-        return frame
-
-    if frame.empty:
-        return older
-
-    return pd.concat([frame, older]).sort_index()
-
-
-def _last_row_each(frame: pd.DataFrame) -> pd.DataFrame:
-    """Reduce a multi-identifier frame to one row per name: its latest.
-
-    Done once, with a grouped tail, rather than by slicing the frame per name
-    downstream. That slicing is what made the unbounded read 32x slower: `xs`
-    over a 1.37-million-row frame is cheap once and ruinous five hundred
-    times, and only one row of each name's history is ever read.
-
-    Measured over 500 names and ten years, with every name stale so the deep
-    read is unavoidable: 19.8 seconds before this, 1.1 after.
-    """
-    if frame.empty or not isinstance(frame.index, pd.MultiIndex):
-        return frame
-
-    return frame.sort_index().groupby(level="IDENTIFIER", sort=False).tail(1)
-
-
-def _identifiers_in(frame: pd.DataFrame) -> set[str]:
-    """Which names a multi-identifier frame actually carries rows for."""
-    if frame.empty:
-        return set()
-
-    if isinstance(frame.index, pd.MultiIndex):
-        return set(frame.index.get_level_values("IDENTIFIER"))
-
-    return set()
 
 
 def _cap_fields(fetcher: DataFetcher,

@@ -172,6 +172,16 @@ class HealthResponse(BaseModel):
                     "money under the two, and every conversion in the library "
                     "obeys whichever is set. Null when no data source is "
                     "configured, since nothing is being converted.")
+    max_price_staleness_days: int | None = Field(
+        default=None,
+        description="How long a name may go without trading before this "
+                    "installation drops it from an index and from a "
+                    "backtest's targets. Null means keep everything "
+                    "regardless, which is the default and what the library "
+                    "did before the setting existed. A modelling choice, not "
+                    "a preference: it changes index membership, so two runs "
+                    "either side of a change are different indices. Also null "
+                    "when no data source is configured.")
 
 
 class CalendarCoveragePayload(BaseModel):
