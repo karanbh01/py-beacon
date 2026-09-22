@@ -804,9 +804,6 @@ class DataFetcher:
                        date: str,
                        column: str) -> float | None:
         """Read a single market-data value for *identifier* on *date*."""
-        if column not in self._market.columns:
-            return None
-
         # Only when the warmed panel is for this exact session and genuinely
         # holds this name. Anything else -- another date, a name outside the
         # set it was built for -- goes to the data, because a panel that
@@ -814,7 +811,19 @@ class DataFetcher:
         panel = self._session_panel
 
         if panel is not None and panel.answers(identifier, date):
+            # No column check first: the panel answers None for a column it
+            # does not hold, which is the same answer the check gave (BN-215).
+            # Checking anyway was 358,000 membership tests a run to protect
+            # the 200 reads that miss the panel -- 99.94% of them asked a
+            # question whose answer this line already knew.
             return panel.value(identifier, column)
+
+        # Here the check is load-bearing. `get` selects columns strictly and
+        # raises `KeyError` for one the store lacks, and optional columns --
+        # FREE_FLOAT, SHARES_OUTSTANDING -- are allowed to be absent. That
+        # `KeyError` is exactly how #215 became a bare 500.
+        if column not in self._market.columns:
+            return None
 
         df = self._market.get(identifier, date, date, columns=[column])
         if df.empty:
