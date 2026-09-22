@@ -9,6 +9,7 @@ from beacon.backtest.engine import BacktestEngine, TradeInstruction
 from beacon.backtest.rules import BacktestModifier, DriftThresholdModifier
 from beacon.portfolio.base import Portfolio
 from beacon.testing import index_result_from_weights
+from conftest import wire_fetch_price
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -20,6 +21,7 @@ DATES = pd.bdate_range(start="2025-01-02", periods=5, freq="B")
 def _mock_data_provider(prices,
                         col="CLOSE"):
     provider = MagicMock()
+    wire_fetch_price(provider)
 
     def _fetch(identifier,
                start=None,

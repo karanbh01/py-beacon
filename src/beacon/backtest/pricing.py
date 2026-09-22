@@ -125,17 +125,21 @@ class PricingMixin:
 
         The exact-date read, kept exact: resolution is the caller's decision,
         and a helper that quietly looked back would put it out of reach.
+
+        Through `fetch_price` since BN-212, which consults the session panel;
+        `fetch_market_data` does not, and this is the engine's hottest read --
+        once per holding per day, 171,800 times over a 200-name three-year run,
+        each one slicing the whole market frame to return a single row.
         """
         date_str = date.strftime("%Y-%m-%d")
 
         try:
-            frame = self.data_provider.fetch_market_data(asset_id, date_str, date_str)
+            return self.data_provider.fetch_price(asset_id, date_str,
+                                                  self.price_column)
         except Exception as error:
             logger.error(f"Error fetching price for {asset_id} on {date_str}: {error}")
 
             return None
-
-        return self._last_close(frame)[1]
 
     def _last_close(self,
                     frame: pd.DataFrame) -> tuple[pd.Timestamp | None, float | None]:

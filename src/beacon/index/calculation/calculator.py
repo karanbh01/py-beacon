@@ -709,6 +709,14 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         level: float = self.definition.base_value
 
         for date in trading_days:
+            # One slice for the day, then every per-name read below is served
+            # from it (BN-212). The panel has existed since BN-190 and was
+            # wired into selection and weighting, which run at rebalances --
+            # roughly forty times over this loop's eight hundred. The daily
+            # valuation is the one that runs every session, and it was the one
+            # still reading name by name.
+            self._warm_holdings(units, date)
+
             # Today's holdings, valued. Empty on a day the index has no
             # holdings to value, which records no weights.
             values: dict[Asset, float] = {}
@@ -886,6 +894,29 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             daily_weights=daily_weights_frame(daily_records),
             calendar_coverage=coverage if coverage.is_partial else None,
         ).with_data(self.data)
+
+    def _warm_holdings(self,
+                       units: dict[Asset, float],
+                       date: pd.Timestamp) -> None:
+        """Read one session's rows for everything held, in a single slice.
+
+        A hint, and deliberately forgiving: a provider that does not implement
+        `warm_session` is a hand-assembled double, and the reads it serves all
+        answer identically without it. What it must not do is change an
+        answer, so nothing here is allowed to fail loudly -- and nothing here
+        can fail quietly either, because the panel only ever *replaces* a
+        slower read of the same rows.
+        """
+        if not units:
+            return
+
+        warm = getattr(self.data, "warm_session", None)
+
+        if warm is None:
+            return
+
+        warm([asset.asset_id for asset in units], date)
+
 
     def run_daily_calculation(self,
                               current_date: pd.Timestamp,

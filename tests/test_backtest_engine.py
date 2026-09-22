@@ -9,6 +9,7 @@ from beacon.backtest.engine import BacktestEngine, TradeInstruction
 from beacon.backtest.result import BacktestResult
 from beacon.portfolio.base import Portfolio
 from beacon.testing import index_result_from_weights
+from conftest import wire_fetch_price
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -28,6 +29,7 @@ def _mock_data_provider(prices: dict,
     # empty target. Set here rather than guarded in the engine (BN-211).
     provider.stale_identifiers.return_value = set()
     provider.max_price_staleness_days = None
+    wire_fetch_price(provider, col)
 
     def _fetch(identifier,
                start=None,

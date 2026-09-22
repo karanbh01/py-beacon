@@ -12,6 +12,7 @@ from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
 from beacon.index.result import IndexResult
 from beacon.index.schedule import sessions
+from conftest import wire_fetch_price
 
 # ---------------------------------------------------------------------------
 # Synthetic universe
@@ -55,6 +56,7 @@ PRICE_MAP = _build_price_series()
 def _make_mock_data():
     """Create a MagicMock DataFetcher wired to synthetic data."""
     data = MagicMock()
+    wire_fetch_price(data)
 
     known = {"ASSET_A": "Asset A", "ASSET_B": "Asset B"}
 

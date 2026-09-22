@@ -21,6 +21,7 @@ from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
 from beacon.index.schedule import sessions
 from beacon.portfolio.base import Portfolio
+from conftest import wire_fetch_price
 
 # ---------------------------------------------------------------------------
 # Synthetic universe: 2 assets, equal weight, monthly rebalance, ~3 months
@@ -66,6 +67,7 @@ def _make_data_provider():
     ]
     fetcher = DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)))
     provider = MagicMock()
+    wire_fetch_price(provider)
 
     def fetch_reference_data(identifier,
                              date=None,

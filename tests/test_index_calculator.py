@@ -10,6 +10,7 @@ from beacon.asset.equity import Equity
 from beacon.exceptions import CalculationError, UnexpectedCalculationError
 from beacon.index.calculation import IndexCalculator
 from beacon.index.result import IndexResult
+from conftest import wire_fetch_price
 
 
 @pytest.fixture
@@ -44,7 +45,10 @@ def mock_definition():
 
 @pytest.fixture
 def mock_data():
-    return MagicMock()
+    data = MagicMock()
+    wire_fetch_price(data)
+
+    return data
 
 
 @pytest.fixture

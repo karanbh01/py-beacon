@@ -142,6 +142,10 @@ class BacktestEngine(PricingMixin):
                                  portfolio: Portfolio,
                                  date: pd.Timestamp) -> None:
         """Fetch prices for all holdings and push into the portfolio."""
+        # One slice for the day's holdings, so the per-name reads below are
+        # served from it rather than each slicing the whole frame (BN-212).
+        self._warm_holdings(list(portfolio.holdings), date)
+
         prices: dict[str, float] = {}
         for asset_id in portfolio.holdings:
             price = self._fetch_price(asset_id, date)
@@ -152,6 +156,26 @@ class BacktestEngine(PricingMixin):
         # at wall-clock time -- an undated mark would make the recorded NAV
         # panel useless (flagged in BN-152, resolved here).
         portfolio.update_prices(prices, date)
+
+    def _warm_holdings(self,
+                       asset_ids: list[str],
+                       date: pd.Timestamp) -> None:
+        """Read one session's rows for *asset_ids* in a single slice.
+
+        A hint rather than a contract: every read it serves answers identically
+        without it, only slower, so a provider that does not implement it is
+        simply not accelerated. `getattr` for the same reason `_delisting_dates`
+        uses one -- the provider is an interface, and a hand-assembled double
+        need not offer an optimisation.
+        """
+        if not asset_ids:
+            return
+
+        warm = getattr(self.data_provider, "warm_session", None)
+
+        if warm is not None:
+            warm(asset_ids, date)
+
 
     def _delisting_dates(self) -> dict[str, pd.Timestamp]:
         """When each holding stops being listed, or an empty mapping.

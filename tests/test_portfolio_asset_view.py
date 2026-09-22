@@ -16,6 +16,7 @@ from beacon.exceptions import DataSourceError
 from beacon.portfolio.asset_view import PortfolioAssetView
 from beacon.portfolio.base import Portfolio, TradeInstruction
 from beacon.testing import dataset, index_result_from_weights
+from conftest import wire_fetch_price
 
 
 @pytest.fixture(autouse=True)
@@ -204,6 +205,7 @@ class TestTheEngineBindsItsRun:
 
         dates = pd.bdate_range("2025-01-02", periods=5, freq="B")
         dp = MagicMock()
+        wire_fetch_price(dp)
 
         def fetch(asset_id, start, end, columns=None):
             index = pd.DatetimeIndex([d for d in dates
