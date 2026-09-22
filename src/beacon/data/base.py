@@ -132,8 +132,24 @@ class MarketData:
 
     @property
     def columns(self) -> list[str]:
-        """Non-index column names."""
-        return list(self._df.columns)
+        """Non-index column names.
+
+        Cached on the frame's identity, like `identifiers` and for the same
+        reason (BN-214). `_market_scalar` asks `column not in market.columns`
+        on **every price read** -- 186,400 times over a 200-name three-year
+        run -- and this built a fresh list of strings each time to answer a
+        membership test.
+        """
+        cached: tuple[object, list[str]] | None = getattr(
+            self, "_columns_cache", None)
+
+        if cached is not None and cached[0] is self._df:
+            return cached[1]
+
+        values = [str(name) for name in self._df.columns]
+        self._columns_cache = (self._df, values)
+
+        return values
 
     @property
     def sessions(self) -> pd.DatetimeIndex:
@@ -206,7 +222,7 @@ class MarketData:
             DataFrame is built on the way. Empty for a date the data has no
             rows on.
         """
-        order, bounds = self._date_index()
+        order, bounds, identifiers, arrays = self._date_index()
         span = bounds.get(pd.Timestamp(date))
 
         if span is None:
@@ -219,27 +235,36 @@ class MarketData:
         # backwards makes the earliest win. That is what `get()` followed by
         # `.iloc[0]` already did, and a panel that disagreed with the read it
         # replaces would be a quieter bug than the slowness it fixes.
-        identifiers = self._df.index.get_level_values("IDENTIFIER").to_numpy()
         names = identifiers[rows][::-1]
 
-        values = {str(column): dict(zip(names,
-                                        self._df[column].to_numpy()[rows][::-1],
-                                        strict=True))
-                  for column in self._df.columns}
+        values = {column: dict(zip(names, array[rows][::-1], strict=True))
+                  for column, array in arrays.items()}
 
         return values, {str(name) for name in names}
 
-    def _date_index(self) -> tuple["np.ndarray", dict[pd.Timestamp, tuple[int, int]]]:
-        """Row positions grouped by date, built once per frame.
+    def _date_index(self) -> tuple["np.ndarray", dict[pd.Timestamp, tuple[int, int]],
+                                   "np.ndarray", dict[str, "np.ndarray"]]:
+        """Everything a session read needs, built once per frame.
 
-        Two things, and deliberately not a third. `order` sorts the frame's
-        rows by date, and `bounds` says where each date's run begins and ends
-        within it -- so a day's rows are `order[lo:hi]`, and finding them is a
-        dict lookup rather than a scan.
+        Four things, none of them a copy of the data:
 
-        What it does **not** hold is a sorted copy of the data. Storing sorted
-        columns would read 1.2x faster and duplicate every value: 1.2 GB over
-        six thousand names and twenty-five years, against 300 MB for the one
+        * `order` sorts the frame's row positions by date, and `bounds` says
+          where each date's run begins and ends within it -- so a day's rows
+          are `order[lo:hi]`, found by dict lookup rather than by scanning.
+        * `identifiers` and `arrays` are the frame's own buffers, converted
+          once. For float and integer columns `to_numpy()` is a view, so this
+          costs nothing and duplicates nothing.
+
+        The last two were originally converted inside `session_columns`, which
+        made them per-session work: 3.8 ms each time for the identifier array
+        alone, because it is a string (object) array and pandas scans all of
+        it for nulls on every conversion. Over 782 sessions that was 2.1 s,
+        more than a quarter of the whole calculation, to rebuild an array that
+        cannot change (BN-214).
+
+        What this still does **not** hold is a sorted copy of the data.
+        Storing sorted columns reads 1.2x faster and duplicates every value:
+        1.2 GB over six thousand names and twenty-five years, against one
         index array. Measured both; the gather is the better trade, and the
         difference is 0.017 ms against 0.014 on a read that was 13.5.
 
@@ -250,7 +275,7 @@ class MarketData:
         cached = getattr(self, "_date_index_cache", None)
 
         if cached is not None and cached[0] is self._df:
-            return cached[1], cached[2]
+            return cached[1], cached[2], cached[3], cached[4]
 
         dates = self._df.index.get_level_values("DATE").to_numpy()
         order = np.argsort(dates, kind="stable")
@@ -260,9 +285,13 @@ class MarketData:
         bounds = {pd.Timestamp(day): (int(edges[index]), int(edges[index + 1]))
                   for index, day in enumerate(unique)}
 
-        self._date_index_cache = (self._df, order, bounds)
+        identifiers = self._df.index.get_level_values("IDENTIFIER").to_numpy()
+        arrays = {str(column): self._df[column].to_numpy()
+                  for column in self._df.columns}
 
-        return order, bounds
+        self._date_index_cache = (self._df, order, bounds, identifiers, arrays)
+
+        return order, bounds, identifiers, arrays
 
 
     def get(self,
