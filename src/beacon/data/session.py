@@ -51,6 +51,23 @@ class SessionPanel:
         self._identifiers: set[str] = {str(name) for name in frame.index}
 
     @classmethod
+    def from_columns(cls,
+                     session: pd.Timestamp,
+                     values: dict[str, dict[str, object]],
+                     identifiers: set[str]) -> "SessionPanel":
+        """Build a panel from column dictionaries, with no frame in between.
+
+        `MarketData.session_columns` produces exactly what a panel holds, so
+        the warm path no longer constructs a DataFrame only to take it apart
+        again (BN-213). Building one cost more than the lookup it enabled.
+        """
+        panel = cls(session, pd.DataFrame())
+        panel._values = values
+        panel._identifiers = identifiers
+
+        return panel
+
+    @classmethod
     def from_market_frame(cls,
                           session: pd.Timestamp,
                           frame: pd.DataFrame) -> "SessionPanel":

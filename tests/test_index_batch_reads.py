@@ -95,6 +95,24 @@ class CountingMarket(MarketData):
 
         return super().get(identifier, start_date, end_date, columns)
 
+    def session_columns(self,
+                        date):
+        """Counted too, because since BN-213 this is how a session is read.
+
+        `warm_session` used to call `get` with the day on both bounds and take
+        the panel apart from the frame it returned. It now asks for the day's
+        columns directly, so a counter watching only `get` sees nothing and
+        reports zero reads for a batch that certainly happened.
+
+        The question this class exists to answer is "how many times did we go
+        to the frame for a session", and that is what it counts. Recording the
+        date rather than an identifier list: this read is not scoped to names,
+        which is the property the tests below are really about.
+        """
+        self.calls.append(date)
+
+        return super().session_columns(date)
+
 
 def counting_fetcher(rows: list[dict[str, object]] | None = None) -> DataFetcher:
     """A fetcher whose market reads are counted."""
@@ -179,10 +197,13 @@ class TestReadsOnce:
         MarketCapWeighted().calculate_weights(result.survivors, SESSION,
                                               fetcher, context)
 
-        # One batch for the rule's candidates; the weighting's names are a
-        # subset of those, on the same session, so it reads nothing again.
+        # One session read for the rule's candidates; the weighting's names
+        # are a subset of those, on the same session, so it reads nothing
+        # again. Since BN-213 that read is `session_columns`, which is scoped
+        # to the day rather than to a list of names -- so what is asserted is
+        # the count and the date, where it used to be the count and the names.
         assert len(market.calls) == 1
-        assert market.calls[0] == list(PRICES)
+        assert market.calls[0] == SESSION
 
     def test_read_count_is_flat_in_the_universe_size(self):
         """Two names or two hundred: the same number of frame reads."""

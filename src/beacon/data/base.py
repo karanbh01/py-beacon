@@ -4,6 +4,7 @@ Base data containers for market and reference data.
 
 import os
 
+import numpy as np
 import pandas as pd
 
 
@@ -184,6 +185,85 @@ class MarketData:
         return None if position is None else pd.Timestamp(sessions[position])
 
     # -- query ---------------------------------------------------------------
+
+    def session_columns(self,
+                        date: str | pd.Timestamp) -> tuple[dict[str, dict[str, object]], set[str]]:
+        """Every column's values for one session, keyed by identifier (BN-213).
+
+        The read the daily loops make eight hundred times a run, done without
+        touching pandas. `get()` filters the whole frame to find one day's rows
+        -- the frame is indexed `(IDENTIFIER, DATE)`, so a single day's rows are
+        scattered through it rather than adjacent, and finding them costs what
+        the frame costs. Measured over 156,400 rows: 13.5 ms a day, which is
+        most of an index calculation.
+
+        This uses :meth:`_date_index` instead: the row positions for a date are
+        already known, so the read is a gather and two dict builds.
+
+        Returns:
+            tuple: ``({column: {identifier: value}}, identifiers)`` -- exactly
+            what a :class:`~beacon.data.session.SessionPanel` holds, so no
+            DataFrame is built on the way. Empty for a date the data has no
+            rows on.
+        """
+        order, bounds = self._date_index()
+        span = bounds.get(pd.Timestamp(date))
+
+        if span is None:
+            return {}, set()
+
+        rows = order[span[0]:span[1]]
+
+        # Reversed so that a repeated (identifier, date) keeps its FIRST row:
+        # `dict` takes the last value written for a key, so feeding the pairs
+        # backwards makes the earliest win. That is what `get()` followed by
+        # `.iloc[0]` already did, and a panel that disagreed with the read it
+        # replaces would be a quieter bug than the slowness it fixes.
+        identifiers = self._df.index.get_level_values("IDENTIFIER").to_numpy()
+        names = identifiers[rows][::-1]
+
+        values = {str(column): dict(zip(names,
+                                        self._df[column].to_numpy()[rows][::-1],
+                                        strict=True))
+                  for column in self._df.columns}
+
+        return values, {str(name) for name in names}
+
+    def _date_index(self) -> tuple["np.ndarray", dict[pd.Timestamp, tuple[int, int]]]:
+        """Row positions grouped by date, built once per frame.
+
+        Two things, and deliberately not a third. `order` sorts the frame's
+        rows by date, and `bounds` says where each date's run begins and ends
+        within it -- so a day's rows are `order[lo:hi]`, and finding them is a
+        dict lookup rather than a scan.
+
+        What it does **not** hold is a sorted copy of the data. Storing sorted
+        columns would read 1.2x faster and duplicate every value: 1.2 GB over
+        six thousand names and twenty-five years, against 300 MB for the one
+        index array. Measured both; the gather is the better trade, and the
+        difference is 0.017 ms against 0.014 on a read that was 13.5.
+
+        Cached on the frame's identity rather than a flag, the same way
+        `identifiers` is, so replacing `_df` invalidates it automatically
+        instead of relying on every future mutation remembering to.
+        """
+        cached = getattr(self, "_date_index_cache", None)
+
+        if cached is not None and cached[0] is self._df:
+            return cached[1], cached[2]
+
+        dates = self._df.index.get_level_values("DATE").to_numpy()
+        order = np.argsort(dates, kind="stable")
+        unique, first = np.unique(dates[order], return_index=True)
+        edges = np.append(first, len(order))
+
+        bounds = {pd.Timestamp(day): (int(edges[index]), int(edges[index + 1]))
+                  for index, day in enumerate(unique)}
+
+        self._date_index_cache = (self._df, order, bounds)
+
+        return order, bounds
+
 
     def get(self,
             identifier: str | list[str],

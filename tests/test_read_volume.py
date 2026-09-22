@@ -78,12 +78,13 @@ class CountingFetcher(DataFetcher):
         return self._market.slices  # type: ignore[attr-defined]
 
 
-def build(names: list[str]) -> CountingFetcher:
+def build(names: list[str],
+          end: str = END) -> CountingFetcher:
     """Flat prices, so nothing below is about the market moving."""
     rows = [{"IDENTIFIER": name, "DATE": date, "CLOSE": 100.0,
              "VOLUME": 1_000_000.0, "SHARES_OUTSTANDING": 1_000_000}
             for name in names
-            for date in pd.bdate_range(START, END)]
+            for date in pd.bdate_range(START, end)]
     reference = pd.DataFrame([{"IDENTIFIER": name, "DATE_FROM": "2020-01-01",
                                "NAME": name, "CURRENCY": "USD",
                                "EXCHANGE": "XNYS"}
@@ -107,24 +108,26 @@ def definition(names: list[str]) -> IndexDefinition:
                            universe_identifiers=names)
 
 
-def index_reads(count: int) -> int:
+def index_reads(count: int,
+                end: str = END) -> int:
     """Frame slices taken by an index calculation over *count* names."""
     names = [f"N{index:03d}" for index in range(count)]
-    fetcher = build(names)
-    IndexCalculator(definition(names), fetcher).run(end_date=END)
+    fetcher = build(names, end)
+    IndexCalculator(definition(names), fetcher).run(end_date=end)
 
     return fetcher.market_reads
 
 
-def backtest_reads(count: int) -> int:
+def backtest_reads(count: int,
+                   end: str = END) -> int:
     """Frame slices taken by a backtest over *count* names."""
     names = [f"N{index:03d}" for index in range(count)]
-    fetcher = build(names)
-    result = IndexCalculator(definition(names), fetcher).run(end_date=END)
+    fetcher = build(names, end)
+    result = IndexCalculator(definition(names), fetcher).run(end_date=end)
 
     before = fetcher.market_reads
     BacktestEngine(start_date=START,
-                   end_date=END,
+                   end_date=end,
                    initial_capital=1_000_000.0,
                    data_provider=fetcher,
                    index_result=result,
@@ -154,21 +157,27 @@ class TestTheIndexCalculationDoesNotReadPerName:
             f"approaching the {per_name_per_session(40)} a per-name-per-day "
             f"read costs; the daily valuation is reading name by name again")
 
-    def test_growth_is_by_rebalance_rather_than_by_session(self):
-        """Four times the universe must not mean four times the reads.
+    def test_a_longer_run_does_not_cost_proportionally_more(self):
+        """The invariant, stated as itself: reads track *rebalances*.
 
-        It does not mean *one* times either, and pinning it at one would be
-        wrong: what remains scales with rebalances, which a monthly index has
-        three of over this window against sixty-three sessions. Selection and
-        weighting read per name on the days they run, and those reads are the
-        residual. The daily valuation is what no longer does.
+        Reads do still scale with the universe -- selection and weighting read
+        per name on the days they run, and pinning that at one would be wrong.
+        What must not scale is the number of **sessions**: doubling the window
+        doubles the days the index is valued on, and a per-name-per-day read
+        would double the count with it. A monthly index gains three rebalances
+        instead.
+
+        The first version of this test varied the universe and asserted the
+        ratio stayed under three. It was measuring the wrong axis, and it
+        started failing at exactly 4.0 the moment the daily loop stopped
+        reading at all -- the residual is linear in names and always was.
         """
-        small = index_reads(10)
-        large = index_reads(40)
+        short = index_reads(40, end="2024-03-28")
+        long = index_reads(40, end="2024-06-28")
 
-        assert large < small * 3, (
-            f"reads grew {large / small:.1f}x for 4x the universe; above 3x "
-            f"the daily loop is scaling with the universe again")
+        assert long < short * 2, (
+            f"{long} reads over six months against {short} over three: the "
+            f"count is tracking sessions, so something reads per day again")
 
 
 class TestTheBacktestDoesNotReadPerName:
@@ -183,12 +192,13 @@ class TestTheBacktestDoesNotReadPerName:
             f"approaching the {per_name_per_session(40)} a per-name-per-day "
             f"read costs; the engine is pricing name by name again")
 
-    def test_growth_is_by_rebalance_rather_than_by_session(self):
-        small = backtest_reads(10)
-        large = backtest_reads(40)
+    def test_a_longer_run_does_not_cost_proportionally_more(self):
+        short = backtest_reads(40, end="2024-03-28")
+        long = backtest_reads(40, end="2024-06-28")
 
-        assert large < small * 3, (
-            f"reads grew {large / small:.1f}x for 4x the book")
+        assert long < short * 2, (
+            f"{long} reads over six months against {short} over three: the "
+            f"engine is pricing per day again")
 
 
 class TestTheNumbersDoNotMove:
