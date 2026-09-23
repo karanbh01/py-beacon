@@ -12,6 +12,7 @@ import pandas as pd
 from ...asset.base import Asset
 from ...asset.equity import require_equity
 from ...data.fetcher import DataFetcher
+from ...data.free_float import require_free_float
 from ...exceptions import CalculationError
 from ..constructor import IndexDefinition
 
@@ -185,11 +186,15 @@ class CorporateActionsMixin:
 
         reduction_local = float(value) * shares
 
-        # Apply free-float factor if the weighting scheme uses it
+        # Float-adjusted through the same lookup and refusal as the weighting
+        # and the market values (BN-219). This used `if ff is not None`, so a
+        # missing value took the dividend off at full size and said nothing:
+        # the one path of three that answered a blank cell the other way.
         if getattr(self.definition.weighting_scheme, 'use_free_float', False):
-            ff = self.data.fetch_free_float_factor(equity.ticker, date_str)
-            if ff is not None:
-                reduction_local *= ff
+            reduction_local *= require_free_float(self.data,
+                                                  equity.ticker,
+                                                  date_str,
+                                                  "CorporateActionDivisor")
 
         # FX conversion to index currency, through the library's one lookup
         # (BN-207). This used to fetch `date_str..date_str` and take the single

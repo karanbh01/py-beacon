@@ -261,6 +261,14 @@ class HealthResponse(BaseModel):
                     "a preference: it changes index membership, so two runs "
                     "either side of a change are different indices. Also null "
                     "when no data source is configured.")
+    free_float_backfill_days: int | None = Field(
+        default=None,
+        description="How many days a free float carries forward over days "
+                    "with no reported value. Beyond it a float-adjusted index "
+                    "refuses rather than weight the name by its full market "
+                    "cap. 0 uses only a value dated that day; the default is "
+                    "90. A modelling choice: it decides which float a name "
+                    "is weighted by. Null when no data source is configured.")
 
 
 class CalendarCoveragePayload(BaseModel):

@@ -10,6 +10,7 @@ import pandas as pd
 from ...asset.base import Asset
 from ...asset.equity import Equity, require_equity
 from ...data.fetcher import DataFetcher
+from ...data.free_float import require_free_float
 from ...exceptions import CalculationError
 from ..constructor import IndexDefinition
 
@@ -214,19 +215,10 @@ class MarketValuesMixin:
         if not getattr(scheme, "use_free_float", False):
             return 1.0
 
-        factor = self.data.fetch_free_float_factor(asset.ticker, date_str)
-
-        if factor is None or not 0.0 <= factor <= 1.0:
-            raise CalculationError(
-                calculation_name="ConstituentMarketValues",
-                details=(f"'{scheme.scheme_name}' is float-adjusted but "
-                         f"{asset.ticker} has no usable free-float factor on "
-                         f"{date_str} (got {factor!r}). Using its full market "
-                         f"cap would weight it as though every share were "
-                         f"freely traded, which is a different index from the "
-                         f"one specified."))
-
-        return factor
+        return require_free_float(self.data,
+                                  asset.ticker,
+                                  date_str,
+                                  "ConstituentMarketValues")
 
     def asset_unit_value(self,
                          asset: Asset,

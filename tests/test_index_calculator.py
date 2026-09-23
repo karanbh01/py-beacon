@@ -924,7 +924,7 @@ class TestASubstitutedWeightingIsRefused:
         mock_data.fetch_shares_outstanding.return_value = 1000
         mock_data.fetch_free_float_factor.return_value = None
 
-        with pytest.raises(CalculationError, match="no usable free-float factor"):
+        with pytest.raises(CalculationError, match="needs a free float"):
             calculator._get_constituent_market_values(
                 {AAPL: 1.0}, pd.Timestamp("2025-03-03"))
 
@@ -950,7 +950,7 @@ class TestASubstitutedWeightingIsRefused:
             patch.object(calculator, 'select_constituents', return_value=[AAPL]),
             patch.object(calculator, 'calculate_constituent_weights',
                          return_value={AAPL: 1.0}),
-            pytest.raises(CalculationError, match="no usable free-float factor"),
+            pytest.raises(CalculationError, match="needs a free float"),
         ):
             calculator.run(end_date="2025-01-03")
 

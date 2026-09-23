@@ -17,6 +17,7 @@ from ..catalogue import (
     register,
 )
 from ..data.fetcher import DataFetcher
+from ..data.free_float import require_free_float
 from ..exceptions import CalculationError
 from .context import IndexContext
 
@@ -742,18 +743,10 @@ class MarketCapWeighted(WeightingSchemeBase):
         if not self.use_free_float:
             return asset_market_cap
 
-        free_float_factor = market_data_provider.fetch_free_float_factor(
-            asset.ticker, priced_str)
-
-        if free_float_factor is None or not 0.0 <= free_float_factor <= 1.0:
-            raise CalculationError(
-                calculation_name=self.scheme_name,
-                details=(f"{asset.ticker} has no usable FREE_FLOAT on "
-                         f"{priced_str}, and this index is free-float adjusted. "
-                         f"Using its full market cap instead would weight one "
-                         f"name on a different basis from the rest."))
-
-        return asset_market_cap * free_float_factor
+        return asset_market_cap * require_free_float(market_data_provider,
+                                                     asset.ticker,
+                                                     priced_str,
+                                                     self.scheme_name)
 
     def calculate_weights(self,
                           constituents: list[Asset],

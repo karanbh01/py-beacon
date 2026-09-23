@@ -112,6 +112,9 @@ def build_router() -> APIRouter:
                        if config.data_fetcher is not None else None),
             max_price_staleness_days=(
                 config.data_fetcher.max_price_staleness_days
+                if config.data_fetcher is not None else None),
+            free_float_backfill_days=(
+                config.data_fetcher.free_float_backfill_days
                 if config.data_fetcher is not None else None))
 
     return router

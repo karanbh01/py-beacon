@@ -55,6 +55,7 @@ from .base import MarketData, ReferenceData
 from .corporate_actions import CorporateActions
 from .features import FeatureData
 from .fetcher import DEFAULT_FX_POLICY, DataFetcher
+from .free_float import DEFAULT_FREE_FLOAT_BACKFILL_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -312,7 +313,9 @@ def save(fetcher: DataFetcher,
 
 def load(path: Path,
          fx_policy: str = DEFAULT_FX_POLICY,
-         max_price_staleness_days: int | None = None) -> DataFetcher:
+         max_price_staleness_days: int | None = None,
+         free_float_backfill_days: int = DEFAULT_FREE_FLOAT_BACKFILL_DAYS
+         ) -> DataFetcher:
     """Read a store directory into a fetcher.
 
     Args:
@@ -324,6 +327,11 @@ def load(path: Path,
             opened rather than written into it: the same rows converted under
             the other assumption are a legitimate second answer, and stamping
             one into the data would make it the only one (BN-207).
+        max_price_staleness_days: How long a name may go untraded before it
+            is dropped; None keeps everything (BN-211).
+        free_float_backfill_days: How far back a blank free float may take
+            the last reported value from (BN-219). Chosen at open for the
+            same reason as the two above.
 
     Returns:
         DataFetcher: Serving whatever the store holds.
@@ -359,7 +367,8 @@ def load(path: Path,
 
     fetcher = DataFetcher(market, reference, actions, features,
                           fx_policy=fx_policy,
-                          max_price_staleness_days=max_price_staleness_days)
+                          max_price_staleness_days=max_price_staleness_days,
+                          free_float_backfill_days=free_float_backfill_days)
 
     # Stamped here because this is the only place that knows: the manifest says
     # who wrote the rows, and the path is what `/data/coverage` measures on

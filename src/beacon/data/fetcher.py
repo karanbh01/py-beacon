@@ -13,6 +13,11 @@ import pandas as pd
 from .base import MarketData, ReferenceData, as_of_position
 from .corporate_actions import CorporateActions
 from .features import MAX_AGE_DAYS, FeatureData
+from .free_float import (
+    DEFAULT_FREE_FLOAT_BACKFILL_DAYS,
+    carried_forward,
+    validated_window,
+)
 from .session import SessionPanel
 
 # The datasets a fetcher can report freshness for. Named here so the server
@@ -160,7 +165,8 @@ class DataFetcher:
                  corporate_actions: CorporateActions | None = None,
                  features: FeatureData | None = None,
                  fx_policy: str = DEFAULT_FX_POLICY,
-                 max_price_staleness_days: int | None = None):
+                 max_price_staleness_days: int | None = None,
+                 free_float_backfill_days: int = DEFAULT_FREE_FLOAT_BACKFILL_DAYS):
         if fx_policy not in FX_POLICIES:
             raise ValueError(
                 f"Unknown fx_policy: {fx_policy!r}. "
@@ -189,6 +195,12 @@ class DataFetcher:
         # than per-index on Karan's call: one answer for the whole
         # installation, reaching index construction and backtests alike.
         self.max_price_staleness_days = max_price_staleness_days
+
+        # How many days a free float carries forward over blank cells
+        # (BN-219). The third global setting, on the same terms as the two
+        # above: it changes numbers, so it is chosen once and published. See
+        # `beacon.data.free_float` for why 90 and why there is no unlimited.
+        self.free_float_backfill_days = validated_window(free_float_backfill_days)
 
         self._market = market_data
         self._reference = reference_data
@@ -228,6 +240,10 @@ class DataFetcher:
         # index take longer than the rest of the suite put together. Cleared
         # whenever the market data underneath it is replaced.
         self._fx_series: dict[tuple[str, str], pd.Series] = {}
+        # Each name's observed free floats, blanks dropped, read once when a
+        # blank day first needs carrying over (BN-219). Cleared with the FX
+        # series on a merge, for the same reason.
+        self._free_float_history: dict[tuple[str, str], pd.Series] = {}
 
         # The session a methodology is currently walking a universe over, read
         # in one slice. One panel rather than a growing map of them: the reads
@@ -587,6 +603,7 @@ class DataFetcher:
         # cache held over the swap would answer out of the old frame. The
         # session panel is the same story one day wide.
         self._fx_series.clear()
+        self._free_float_history.clear()
         self._session_panel = None
         self.record_refresh(MARKET_DATASET)
 
@@ -778,12 +795,44 @@ class DataFetcher:
                                 identifier: str,
                                 date: str,
                                 column: str = "FREE_FLOAT") -> float | None:
-        """Return the free-float factor for *identifier* on *date*.
+        """Return the free-float factor in force for *identifier* on *date*.
 
-        Sourced from the *column* market-data field. Returns ``None`` if the
-        column is not present or there is no value on that date.
+        That day's value when there is one. Otherwise the last value before
+        it, if no older than `free_float_backfill_days` (BN-219): free float
+        moves on corporate events and reviews, so a blank cell means nothing
+        was reported, not that the float changed. Never a later value.
+
+        Returns ``None`` if the column is absent, or nothing was reported
+        within the window. Callers refuse through
+        :func:`~beacon.data.free_float.require_free_float` rather than
+        choosing a fallback of their own.
         """
-        return self._market_scalar(identifier, date, column)
+        today = self._market_scalar(identifier, date, column)
+
+        if today is not None or self.free_float_backfill_days == 0:
+            return today
+
+        return carried_forward(self._free_float_series(identifier, column),
+                               pd.Timestamp(date),
+                               self.free_float_backfill_days)
+
+    def _free_float_series(self,
+                           identifier: str,
+                           column: str) -> pd.Series:
+        """One name's reported free floats, blanks dropped, sorted by date."""
+        key = (identifier, column)
+
+        if key not in self._free_float_history:
+            if column not in self._market.columns:
+                history = pd.Series(dtype=float)
+            else:
+                frame = self._market.get(identifier, None, None, columns=[column])
+                history = (frame[column].dropna().sort_index()
+                           if not frame.empty else pd.Series(dtype=float))
+
+            self._free_float_history[key] = history
+
+        return self._free_float_history[key]
 
     def prices_on(self,
                   identifiers: list[str],
