@@ -107,6 +107,18 @@ class SessionPanel:
         """
         return date == self.stamp and identifier in self._identifiers
 
+    def column(self,
+               name: str) -> dict[str, object]:
+        """Every instrument's value in one column, identifier to value.
+
+        The whole day in one call, for a caller valuing a book rather than a
+        name (BN-218). Values are as stored -- NaN included -- because
+        deciding what a missing value means is the caller's business, and the
+        one caller that reads this, `DataFetcher.prices_on`, says so. Empty
+        for a column the page does not hold, on the same terms as `value`.
+        """
+        return self._values.get(name, {})
+
     def value(self,
               identifier: str,
               column: str) -> float | None:

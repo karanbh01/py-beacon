@@ -785,6 +785,52 @@ class DataFetcher:
         """
         return self._market_scalar(identifier, date, column)
 
+    def prices_on(self,
+                  identifiers: list[str],
+                  date: str,
+                  column: str = "CLOSE") -> dict[str, float | None]:
+        """:meth:`fetch_price` for many names on one day, in one read.
+
+        The batch face of the same answer (BN-218): warm the day's page once,
+        take the whole column from it, and convert NaN to None -- exactly what
+        `fetch_price` returns name by name. It exists because the daily
+        valuation asks the question 200 times a day, and every name paid for
+        a chain of four calls to reach a dict lookup.
+
+        A name the page does not answer for goes through `fetch_price` rather
+        than being assumed absent, so a panel that somehow missed it costs a
+        slower read instead of a wrong one.
+
+        Returns:
+            dict: identifier -> price, or None where there is none.
+        """
+        # Through `getattr`, like every other use of the hint: warming is an
+        # optimisation a provider may lack, and a batch read must still answer
+        # without it -- one name at a time, as `fetch_price` always did.
+        warm = getattr(self, "warm_session", None)
+
+        if callable(warm):
+            warm(identifiers, date)
+
+        panel = self._session_panel
+
+        if panel is None or panel.stamp != date:
+            return {name: self.fetch_price(name, date, column)
+                    for name in identifiers}
+
+        stored = panel.column(column)
+        prices: dict[str, float | None] = {}
+
+        for name in identifiers:
+            if not panel.answers(name, date):
+                prices[name] = self.fetch_price(name, date, column)
+                continue
+
+            value = stored.get(name)
+            prices[name] = None if value is None or pd.isna(value) else float(value)  # type: ignore[arg-type]
+
+        return prices
+
     def fetch_price(self,
                     identifier: str,
                     date: str,

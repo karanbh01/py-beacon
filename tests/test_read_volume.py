@@ -174,9 +174,14 @@ class TestTheIndexCalculationDoesNotReadPerName:
         """
         short = index_reads(40, end="2024-03-28")
         long = index_reads(40, end="2024-06-28")
+        added = (len(pd.bdate_range(START, "2024-06-28"))
+                 - len(pd.bdate_range(START, "2024-03-28")))
 
-        assert long < short * 2, (
-            f"{long} reads over six months against {short} over three: the "
+        # An increment rather than a ratio, because since BN-218 the count is
+        # zero: the rebalance path stopped slicing the frame, which was the
+        # last thing that did. `long < short * 2` then fails as `0 < 0`.
+        assert long - short < added, (
+            f"{long - short} extra reads for {added} extra sessions: the "
             f"count is tracking sessions, so something reads per day again")
 
 

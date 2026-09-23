@@ -52,3 +52,14 @@ def wire_fetch_price(provider,
         return None if pd.isna(value) else float(value)
 
     provider.fetch_price.side_effect = fetch_price
+
+    # BN-218 moved the daily valuation to a batch read. Derived from
+    # `fetch_price` rather than configured separately, so the two cannot
+    # disagree -- and this is the payoff of keeping the derivation here: the
+    # method moved, and one line changed instead of seven fixtures.
+    def prices_on(identifiers,
+                  date,
+                  column=price_column):
+        return {name: fetch_price(name, date, column) for name in identifiers}
+
+    provider.prices_on.side_effect = prices_on

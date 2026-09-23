@@ -62,6 +62,15 @@ class MarketValuesMixin:
         """
         constituent_market_values: dict[Asset, float] = {}
 
+        # One page for the rebalance session before the per-name reads below,
+        # so price, shares and float are all answered from it (BN-218). A
+        # no-op when the daily loop already warmed this session.
+        warm = getattr(self.data, "warm_session", None)
+
+        if warm is not None and constituents_with_weights:
+            warm([asset.asset_id for asset in constituents_with_weights],
+                 current_date)
+
         for asset in constituents_with_weights:
             equity = require_equity(asset, "ConstituentMarketValues", "be valued")
             constituent_market_values[asset] = self._asset_market_value(equity, current_date)
@@ -93,7 +102,18 @@ class MarketValuesMixin:
                 (BN-191).
         """
         date_str = current_date.strftime('%Y-%m-%d')
-        price_df = self.data.fetch_market_data(asset.ticker, date_str, date_str)
+
+        # A price, not a frame (BN-218). The rebalance-path twin of the read
+        # BN-212 fixed in `asset_unit_value`: `fetch_market_data` never
+        # consults the session panel, so every constituent at every rebalance
+        # sliced the whole frame for one row. BN-212 missed it by reading the
+        # profile by self time, where pandas' cost is spread thin across
+        # dozens of internals and no single line stands out; by cumulative
+        # time it was three quarters of the calculation. `fetch_price` answers
+        # None for an absent row, an absent column and a NaN alike -- the three
+        # cases the frame test used to spell out.
+        current_price = self.data.fetch_price(asset.ticker, date_str,
+                                              self.price_column)
 
         # BN-191, triaged as leave, because this total is a *scale* and not a
         # level: on the `run()` path it sets the units and the divisor together
@@ -106,14 +126,11 @@ class MarketValuesMixin:
         # (BN-184, BN-188), off the session the name last traded rather than an
         # exact date. The level-affecting twin of these two zeros is
         # `asset_unit_value`'s missing price, separated below.
-        if price_df.empty or self.price_column not in price_df.columns \
-                or pd.isna(price_df[self.price_column].iloc[0]):
+        if current_price is None:
             logger.warning(
                 f"_get_constituent_market_values: No price for {asset.ticker}. "
                 "Value is 0.")
             return 0.0
-
-        current_price = float(price_df[self.price_column].iloc[0])
 
         shares = self.data.fetch_shares_outstanding(asset.ticker, date_str)
 
@@ -432,11 +449,54 @@ class MarketValuesMixin:
             `None` now says "could not be priced" out loud, so the caller that
             must refuse it can while this one need not.
         """
+        # Batched rather than one `asset_unit_value` per holding (BN-218). The
+        # answer is the same, name for name -- refuse a non-equity, no price is
+        # 0.0 with the same warning, otherwise price x FX x units -- but the two
+        # expensive parts are asked the size of question they are. Prices come
+        # from the day's page in one read instead of a four-call chain per
+        # name, and an FX rate is a fact about a currency on a day, so a book
+        # of 200 names in three currencies needs three lookups rather than 200.
+        # 0.84 ms a day to 0.12 on the benchmark, identical to the last digit.
+        if not units:
+            return {}
+
+        date_str = current_date.strftime('%Y-%m-%d')
+        equities = {asset: require_equity(asset, "AssetUnitValue", "be valued")
+                    for asset in units}
+        tickers = [equity.ticker for equity in equities.values()]
+
+        # The batch read is a capability, not a contract -- a provider built by
+        # hand need not offer it, the same way it need not offer `warm_session`
+        # -- so one without it is asked name by name, as before.
+        batch = getattr(self.data, "prices_on", None)
+        prices = (batch(tickers, date_str, self.price_column) if callable(batch)
+                  else {ticker: self.data.fetch_price(ticker, date_str,
+                                                      self.price_column)
+                        for ticker in tickers})
+
+        rates: dict[str, float] = {}
         values: dict[Asset, float] = {}
 
         for asset, count in units.items():
-            unit_value = self.asset_unit_value(asset, current_date)
-            values[asset] = 0.0 if unit_value is None else count * unit_value
+            equity = equities[asset]
+            price = prices.get(equity.ticker)
+
+            if price is None:
+                logger.warning(
+                    f"asset_unit_value: No price for {equity.ticker} on {date_str}; "
+                    "it cannot be priced today.")
+                values[asset] = 0.0
+                continue
+
+            # Keyed on the currency, and computed only for a name that priced:
+            # `_fx_rate` refuses an unknown pair naming the asset, and asking it
+            # in the same order as before means the refusal names the same one.
+            currency = equity.currency.upper()
+
+            if currency not in rates:
+                rates[currency] = self._fx_rate(equity, current_date, date_str)
+
+            values[asset] = count * price * rates[currency]
 
         return values
 
