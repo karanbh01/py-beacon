@@ -48,6 +48,7 @@ from ..schemas import (
     OptimisationJobStatus,
     OptimisationRunRequest,
     SavedConstraintSet,
+    TolerantCollection,
     ValidationReport,
 )
 from ..store import DocumentStore
@@ -131,7 +132,7 @@ def build_optimise_router() -> APIRouter:
                                         validated(ConstraintSet),
                                         "constraint set")
 
-        return ConstraintSetCollection(constraint_sets=sets, skipped=skipped)
+        return ConstraintSetCollection(constraint_sets=sets, **TolerantCollection.skips(skipped))
 
     @router.post("/constraint-sets/validate", response_model=ValidationReport)
     def validate(body: ConstraintSet) -> ValidationReport:

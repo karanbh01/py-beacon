@@ -8,7 +8,13 @@ rather than to application state.
 from ..._optional import require
 from ...exceptions import DataNotFoundError
 from ..documents import load_document, read_collection, validated
-from ..schemas import Identifier, Watchlist, WatchlistCollection, WatchlistUpsert
+from ..schemas import (
+    Identifier,
+    TolerantCollection,
+    Watchlist,
+    WatchlistCollection,
+    WatchlistUpsert,
+)
 from ..store import DocumentStore
 
 require("fastapi", "The Beacon API server")
@@ -49,7 +55,7 @@ def build_watchlists_router() -> APIRouter:
                                               validated(Watchlist),
                                               "watchlist")
 
-        return WatchlistCollection(watchlists=watchlists, skipped=skipped)
+        return WatchlistCollection(watchlists=watchlists, **TolerantCollection.skips(skipped))
 
     @router.get("/{watchlist_id}", response_model=Watchlist)
     def get_watchlist(request: Request,

@@ -35,6 +35,7 @@ from ..schemas import (
     RenderRequest,
     ReportTemplateCollection,
     ReportTemplateDocument,
+    TolerantCollection,
 )
 from ..store import DocumentStore
 
@@ -138,7 +139,7 @@ def build_reports_router() -> APIRouter:
 
         return ReportTemplateCollection(templates=templates,
                                         built_in=list(BUILT_IN),
-                                        skipped=skipped)
+                                        **TolerantCollection.skips(skipped))
 
     @router.get("/templates/{template_id}", response_model=ReportTemplateDocument)
     def get_template(request: Request,

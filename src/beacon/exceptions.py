@@ -109,6 +109,18 @@ class ConfigurationError(BeaconError):
         self.config_param = config_param
         self.details = details
 
+class DocumentFromNewerBuildError(ConfigurationError):
+    """A stored document written by a newer py-beacon than this one (BN-201).
+
+    A `ConfigurationError` so every existing handler still catches it, and a
+    subclass so a listing can tell it apart from a damaged file. The two called
+    for opposite responses and were reported as one number: "could not be
+    read" invites restoring the file, when nothing is wrong with it and the
+    remedy is to upgrade the engine reading it -- the state two installs reach
+    when the engine and the app are updated on different machines.
+    """
+
+
 class ReportingError(BeaconError):
     """Raised when a report cannot be generated or written.
 

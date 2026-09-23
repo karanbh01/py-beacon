@@ -51,6 +51,7 @@ from ..schemas import (
     RuleTypes,
     SavedIndex,
     ScheduleView,
+    TolerantCollection,
     ValidationReport,
 )
 from ..store import DocumentStore
@@ -309,7 +310,7 @@ def build_indices_router() -> APIRouter:
                                            validated(IndexDocument),
                                            "index definition")
 
-        return IndexCollection(indices=indices, skipped=skipped)
+        return IndexCollection(indices=indices, **TolerantCollection.skips(skipped))
 
     # Declared before the "/{index_id}" routes so the literal path is not
     # swallowed as an index id. Static segments are matched first regardless,

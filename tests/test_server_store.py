@@ -181,7 +181,9 @@ class TestWatchlists:
     def test_starts_empty(self,
                           client):
         assert client.get("/data/watchlists", headers=auth()).json() == {
-            "watchlists": [], "skipped": 0}
+            "watchlists": [], "skipped": 0,
+            "skipped_causes": {"unparseable": 0, "from_newer_build": 0,
+                               "unrecognised": 0}}
 
     def test_put_then_get(self,
                           client):

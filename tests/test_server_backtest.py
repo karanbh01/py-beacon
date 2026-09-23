@@ -646,7 +646,11 @@ class TestTheListing:
         response = client.get("/beacon/backtests", headers=auth())
 
         assert response.status_code == 200
-        assert response.json() == {"backtests": [], "skipped": 0}
+        assert response.json() == {"backtests": [],
+                                   "skipped": 0,
+                                   "skipped_causes": {"unparseable": 0,
+                                                      "from_newer_build": 0,
+                                                      "unrecognised": 0}}
 
     def test_a_run_appears_with_a_parseable_utc_stamp(self,
                                                       module_client,

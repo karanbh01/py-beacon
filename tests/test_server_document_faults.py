@@ -56,6 +56,11 @@ from beacon.server.schemas import (
     Universe,
     Watchlist,
 )
+from beacon.server.store import (
+    CURRENT_SCHEMA_VERSION,
+    SCHEMA_VERSION_KEY,
+    DocumentStore,
+)
 
 TOKEN = "faults-token"
 HEADERS = {"Authorization": f"Bearer {TOKEN}"}
@@ -431,7 +436,9 @@ class TestTheRecordPairInParticular:
         """The wire change: a bare array had nowhere to put it."""
         body = listing(client, self.PAIR)
 
-        assert sorted(body) == ["backtests", "skipped"]
+        # `skipped_causes` since BN-201: the same documents as `skipped`, by
+        # cause, so the listing can say what to do about them.
+        assert sorted(body) == ["backtests", "skipped", "skipped_causes"]
 
     def test_the_skeletal_record_from_the_issue_is_no_longer_listed(self,
                                                                     client):
@@ -810,3 +817,94 @@ class TestTheDeleteCascadeSurvivesABadFile:
 
         assert response.status_code == 200, response.text
         assert store.read("keeper") is None
+
+
+class TestASkipSaysWhy:
+    """BN-201: `skipped` counted three different things as one.
+
+    A damaged file, a document from a newer py-beacon, and a document this
+    build's model no longer accepts all left a listing the same way and were
+    reported as one integer. beacon-ui rendered it as "N could not be read",
+    which names no cause -- so a reader completed the sentence themselves, and
+    "could not be read" invites restoring a file that may be perfectly fine.
+
+    The server already told two of the three apart before counting, and threw
+    the distinction away. Through the route, because what matters is what a
+    client can read, not what the counting function returns.
+    """
+
+    @pytest.fixture
+    def mixed(self,
+              tmp_path) -> TestClient:
+        """A universe collection holding one good document and one of each fault."""
+        config = ServerConfig(auth_token=TOKEN, storage_root=tmp_path)
+        client = TestClient(create_app(config), raise_server_exceptions=False)
+        directory = DocumentStore("universes", root=tmp_path).directory
+
+        client.put("/universes/good",
+                   json={"name": "Good", "identifiers": ["AAA"]},
+                   headers=HEADERS)
+
+        (directory / "damaged.json").write_text("{not json", encoding="utf-8")
+        (directory / "future.json").write_text(json.dumps(
+            {"id": "future", SCHEMA_VERSION_KEY: CURRENT_SCHEMA_VERSION + 1}),
+            encoding="utf-8")
+        (directory / "alien.json").write_text(json.dumps(
+            {"id": "alien", SCHEMA_VERSION_KEY: CURRENT_SCHEMA_VERSION}),
+            encoding="utf-8")
+
+        return client
+
+    def body(self,
+             client: TestClient) -> dict:
+        response = client.get("/universes", headers=HEADERS)
+        assert response.status_code == 200, response.text
+
+        return response.json()
+
+    def test_each_cause_is_counted_separately(self,
+                                              mixed):
+        assert self.body(mixed)["skipped_causes"] == {
+            "unparseable": 1, "from_newer_build": 1, "unrecognised": 1}
+
+    def test_the_total_is_still_published_and_agrees(self,
+                                                     mixed):
+        """`skipped` stays, so no existing client moves, and it is the sum."""
+        body = self.body(mixed)
+
+        assert body["skipped"] == 3
+        assert body["skipped"] == sum(body["skipped_causes"].values())
+
+    def test_the_readable_document_is_still_listed(self,
+                                                   mixed):
+        assert [row["id"] for row in self.body(mixed)["universes"]] == ["good"]
+
+    def test_a_newer_build_is_not_filed_as_damage(self,
+                                                  tmp_path):
+        """The ordering that matters: the newer-build error IS a
+        `ConfigurationError`, so a classifier checking the base first would
+        file it as damaged -- the confusion this exists to remove."""
+        config = ServerConfig(auth_token=TOKEN, storage_root=tmp_path)
+        client = TestClient(create_app(config), raise_server_exceptions=False)
+        directory = DocumentStore("universes", root=tmp_path).directory
+        (directory / "future.json").write_text(json.dumps(
+            {"id": "future", SCHEMA_VERSION_KEY: CURRENT_SCHEMA_VERSION + 1}),
+            encoding="utf-8")
+
+        causes = self.body(client)["skipped_causes"]
+
+        assert causes["from_newer_build"] == 1
+        assert causes["unparseable"] == 0
+
+    def test_every_tolerant_listing_publishes_the_breakdown(self,
+                                                            client):
+        """One base class, so a listing cannot publish a count its neighbours
+        do not. Checked against the spec rather than a list kept here."""
+        schemas = client.get("/openapi.json").json()["components"]["schemas"]
+        with_skipped = [name for name, schema in schemas.items()
+                        if "skipped" in schema.get("properties", {})]
+
+        assert with_skipped, "no listing publishes `skipped` at all"
+
+        for name in with_skipped:
+            assert "skipped_causes" in schemas[name]["properties"], name

@@ -54,7 +54,11 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from ..exceptions import ConfigurationError, DataNotFoundError
+from ..exceptions import (
+    ConfigurationError,
+    DataNotFoundError,
+    DocumentFromNewerBuildError,
+)
 from .store import DocumentStore
 
 logger = logging.getLogger(__name__)
@@ -100,6 +104,50 @@ def raw(document_id: str,
     one key has no reason to hold the whole document to a model.
     """
     return document
+
+
+@dataclass(frozen=True)
+class SkipCounts:
+    """How many documents a listing left out, and why (BN-201).
+
+    One integer used to cover three causes that call for different responses,
+    and a client could render only the sentence that fits none of them --
+    "could not be read" -- which invites restoring a file that may be fine.
+
+    Attributes:
+        unparseable: Not valid JSON, or a schema version nothing can migrate.
+            The file itself is damaged; restore or remove it.
+        from_newer_build: Written by a newer py-beacon than the one reading
+            it. Nothing is wrong with the file; upgrade the engine.
+        unrecognised: Valid JSON that this build's model does not accept. The
+            document and the engine disagree about its shape -- usually a
+            version gap the schema migrations do not cover.
+    """
+
+    unparseable: int = 0
+    from_newer_build: int = 0
+    unrecognised: int = 0
+
+    @property
+    def total(self) -> int:
+        """Every document left out, whatever the cause -- the old `skipped`."""
+        return self.unparseable + self.from_newer_build + self.unrecognised
+
+
+def _cause_of(error: Exception) -> str:
+    """Which `SkipCounts` field a read fault belongs to.
+
+    Ordered most specific first, because `DocumentFromNewerBuildError` *is* a
+    `ConfigurationError` and checking the base first would file every newer
+    document as damaged -- the confusion this exists to remove.
+    """
+    if isinstance(error, DocumentFromNewerBuildError):
+        return "from_newer_build"
+
+    if isinstance(error, ValidationError):
+        return "unrecognised"
+
+    return "unparseable"
 
 
 @dataclass(frozen=True)
@@ -198,7 +246,7 @@ def stored(store: DocumentStore,
 
 def read_collection(store: DocumentStore,
                     build: Callable[[str, dict[str, Any]], T],
-                    describe: str) -> tuple[list[T], int]:
+                    describe: str) -> tuple[list[T], SkipCounts]:
     """Read every document in a collection, skipping the unreadable ones.
 
     Args:
@@ -209,13 +257,14 @@ def read_collection(store: DocumentStore,
             "universe", "index definition".
 
     Returns:
-        tuple: ``(rows, skipped)``. The count is published by the response
+        tuple: ``(rows, skipped)``. The counts are published by the response
         model rather than only logged: a picker silently short by three is
         indistinguishable from a correct one, and the server is the only side
-        that knows.
+        that knows. Broken down by cause since BN-201, because this side also
+        knows *why*, and the client cannot work it out.
     """
     rows: list[T] = []
-    skipped = 0
+    causes = {"unparseable": 0, "from_newer_build": 0, "unrecognised": 0}
 
     for document_id in store.list_ids():
         try:
@@ -228,11 +277,13 @@ def read_collection(store: DocumentStore,
 
             rows.append(build(document_id, document))
         except UNREADABLE as error:
-            logger.warning("Skipping unreadable %s '%s': %s",
-                           describe, document_id, error)
-            skipped += 1
+            cause = _cause_of(error)
 
-    return rows, skipped
+            logger.warning("Skipping unreadable %s '%s' (%s): %s",
+                           describe, document_id, cause, error)
+            causes[cause] += 1
+
+    return rows, SkipCounts(**causes)
 
 
 def load_document(store: DocumentStore,

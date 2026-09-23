@@ -49,6 +49,7 @@ from ..schemas import (
     ExpressionNode,
     Finding,
     Identifier,
+    TolerantCollection,
     Universe,
     UniverseCollection,
     UniverseCreate,
@@ -403,7 +404,7 @@ def build_universes_router() -> APIRouter:
                                              _universe,
                                              "universe")
 
-        return UniverseCollection(universes=universes, skipped=skipped)
+        return UniverseCollection(universes=universes, **TolerantCollection.skips(skipped))
 
     @router.get("/{universe_id}", response_model=Universe)
     def get_universe(request: Request,

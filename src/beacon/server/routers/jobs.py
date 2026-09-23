@@ -18,9 +18,15 @@ from typing import Any
 
 from ..._optional import require
 from ...exceptions import DataNotFoundError
-from ..documents import read_collection
+from ..documents import SkipCounts, read_collection
 from ..jobs import PERSISTED_FIELDS, JobRegistry
-from ..schemas import AnyJobStatus, Identifier, JobCollection, JobStatus
+from ..schemas import (
+    AnyJobStatus,
+    Identifier,
+    JobCollection,
+    JobStatus,
+    TolerantCollection,
+)
 
 require("fastapi", "The Beacon API server")
 
@@ -50,7 +56,7 @@ def _job_row(document_id: str,
                                      for field in PERSISTED_FIELDS})
 
 
-def _persisted(registry: JobRegistry) -> tuple[list[JobStatus], int]:
+def _persisted(registry: JobRegistry) -> tuple[list[JobStatus], SkipCounts]:
     """Results persisted by an earlier process, skipping what cannot be read.
 
     Read here rather than in the registry (BN-178). The registry owns the
@@ -67,7 +73,7 @@ def _persisted(registry: JobRegistry) -> tuple[list[JobStatus], int]:
     store = registry.results
 
     if store is None:
-        return [], 0
+        return [], SkipCounts()
 
     rows, skipped = read_collection(store, _job_row, "job result")
 
@@ -107,7 +113,7 @@ def build_jobs_router() -> APIRouter:
         # listing with it, which is what every other collection does (BN-178).
         stored, skipped = _persisted(registry)
 
-        return JobCollection(jobs=live + stored, skipped=skipped)
+        return JobCollection(jobs=live + stored, **TolerantCollection.skips(skipped))
 
     # The per-kind union (BN-172): the result payload is declared here, which
     # is the endpoint a client reads it from. Constructed as a plain JobStatus

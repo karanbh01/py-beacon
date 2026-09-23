@@ -182,7 +182,12 @@ class TestSnapshotLookup:
         registry.submit("demo", produce)
         await registry.drain()
 
-        assert _persisted(registry) == ([], 0)
+        # A breakdown rather than a bare count since BN-201; nothing was
+        # skipped, so every cause is zero.
+        rows, skipped = _persisted(registry)
+
+        assert rows == []
+        assert skipped.total == 0
         assert len(store.list_ids()) == 1
 
 

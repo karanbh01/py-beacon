@@ -519,6 +519,11 @@ class TestEnvelopeExhaustiveness:
             "the same arrangement as PipelineValidationError, for a universe "
             "whose members are not in the loaded data: 422 / INVALID_RULE "
             "from the parent, with a finding naming each missing identifier",
+        "DocumentFromNewerBuildError":
+            "subclasses ConfigurationError to keep its 500 / "
+            "CONFIGURATION_ERROR mapping -- a store this build cannot read is "
+            "the operator's problem, not the caller's; the subclass exists so "
+            "a listing can count it as its own skip cause (BN-201)",
     }
 
     def test_every_subclass_is_mapped_or_deliberately_inherited(self):

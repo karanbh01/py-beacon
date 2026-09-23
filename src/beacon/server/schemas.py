@@ -38,6 +38,7 @@ from ..index.schedule import CalendarCoverage
 from ..optimise.config import MIN_TRACKING_ERROR
 from ..report.blocks import BLOCK_TYPES
 from ..universe import FROZEN, LIVE
+from .documents import SkipCounts
 from .serialisation import dataframe_to_payload, series_to_payload
 
 # What every listing says about the documents it could not read (BN-174).
@@ -52,6 +53,71 @@ SKIPPED_DESCRIPTION = ("Stored documents the server could not read, and so "
                        "collection is incomplete: the fault is logged "
                        "server-side, and each skipped document answers 404 "
                        "on its own route.")
+
+
+class SkippedCauses(BaseModel):
+    """Why a listing left documents out, one count per cause (BN-201).
+
+    `skipped` could only say *how many*, and the one sentence a client could
+    write over it -- "could not be read" -- invites restoring a file that may
+    be perfectly fine. Each cause has its own remedy, so each has its own
+    count and a description that names it.
+    """
+    unparseable: int = Field(
+        default=0,
+        description="Documents that are damaged: not valid JSON, or carrying "
+                    "a schema version nothing can migrate. The file itself is "
+                    "the problem -- restore it from a backup or remove it.")
+    from_newer_build: int = Field(
+        default=0,
+        description="Documents written by a newer py-beacon than the one "
+                    "serving this listing. Nothing is wrong with them: "
+                    "upgrading the engine will read them. The state two "
+                    "installs reach when the engine and the app are updated "
+                    "on different machines.")
+    unrecognised: int = Field(
+        default=0,
+        description="Documents that are valid JSON but that this engine's "
+                    "model does not accept -- the document and the engine "
+                    "disagree about its shape, usually a version gap the "
+                    "schema migrations do not cover. The server log names "
+                    "the field.")
+
+    @classmethod
+    def from_counts(cls,
+                    counts: SkipCounts) -> "SkippedCauses":
+        """Publish a listing's `SkipCounts`."""
+        return cls(unparseable=counts.unparseable,
+                   from_newer_build=counts.from_newer_build,
+                   unrecognised=counts.unrecognised)
+
+
+class TolerantCollection(BaseModel):
+    """A listing that leaves out what it cannot read, and says so.
+
+    The base of every collection the server lists from the store. The two
+    fields used to be written out seven times, identically, and adding a
+    second one would have meant fourteen -- which is how a listing ends up
+    publishing a count its neighbours do not (BN-201).
+    """
+    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
+    skipped_causes: SkippedCauses = Field(
+        default_factory=SkippedCauses,
+        description="The same documents as `skipped`, by cause, so the "
+                    "listing can say what to do about them. Its three counts "
+                    "sum to `skipped`.")
+
+    @staticmethod
+    def skips(counts: SkipCounts) -> dict[str, Any]:
+        """Both fields from one `SkipCounts`, so they cannot disagree.
+
+        Spread into a collection's constructor. Taking the total and the
+        breakdown from the same object is what keeps `skipped` equal to the
+        sum of its causes -- two arguments computed separately at seven call
+        sites is seven places for them to drift.
+        """
+        return {"skipped": counts.total,
+                "skipped_causes": SkippedCauses.from_counts(counts)}
 
 # A rate or proportion expressed as a fraction: 0.0523 is 5.23%. Kept as a
 # bare float rather than an object because it is arithmetic, not a quantity
@@ -743,7 +809,7 @@ class BacktestRecordRow(BaseModel):
                     "before they were stamped.")
 
 
-class BacktestRecordCollection(BaseModel):
+class BacktestRecordCollection(TolerantCollection):
     """Response of `GET /beacon/backtests`.
 
     An envelope rather than the bare array this used to return (BN-174). The
@@ -752,7 +818,6 @@ class BacktestRecordCollection(BaseModel):
     a listing that 500s: the client is told something complete that is not.
     """
     backtests: list[BacktestRecordRow]
-    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class PricesResponse(BaseModel):
@@ -1177,10 +1242,9 @@ class WatchlistUpsert(BaseModel):
                                    description="Instrument identifiers, in user order.")
 
 
-class WatchlistCollection(BaseModel):
+class WatchlistCollection(TolerantCollection):
     """Response of `GET /data/watchlists`."""
     watchlists: list[Watchlist]
-    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class RuleSpec(BaseModel):
@@ -1454,10 +1518,9 @@ class ValidationReport(BaseModel):
     findings: list[Finding]
 
 
-class IndexCollection(BaseModel):
+class IndexCollection(TolerantCollection):
     """Response of `GET /indices`."""
     indices: list[IndexDocument]
-    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class OptimiseRequest(BaseModel):
@@ -1555,7 +1618,7 @@ class ReportTemplateDocument(BaseModel):
         return blocks
 
 
-class ReportTemplateCollection(BaseModel):
+class ReportTemplateCollection(TolerantCollection):
     """Response of `GET /reports/templates`."""
     templates: list[ReportTemplateDocument]
     built_in: list[str] = Field(
@@ -1563,7 +1626,6 @@ class ReportTemplateCollection(BaseModel):
         description="Templates generated from a run rather than stored. These "
                     "can be rendered but not edited: they are code, not "
                     "documents.")
-    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class RenderRequest(BaseModel):
@@ -1939,10 +2001,9 @@ class ConstraintSet(BaseModel):
     constraints: list[ConstraintRow] = Field(default_factory=list)
 
 
-class ConstraintSetCollection(BaseModel):
+class ConstraintSetCollection(TolerantCollection):
     """Response of `GET /optimise/constraint-sets`."""
     constraint_sets: list[ConstraintSet]
-    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class SavedConstraintSet(BaseModel):
@@ -2504,10 +2565,9 @@ class UniverseCreate(BaseModel):
                     f"Only meaningful with a filter.")
 
 
-class UniverseCollection(BaseModel):
+class UniverseCollection(TolerantCollection):
     """Response of `GET /universes`."""
     universes: list[Universe]
-    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class UniverseMembers(BaseModel):
@@ -3349,7 +3409,7 @@ AnyJobStatus = (BacktestJobStatus
                 | JobStatus)
 
 
-class JobCollection(BaseModel):
+class JobCollection(TolerantCollection):
     """Response of `GET /jobs`.
 
     Untyped results on purpose: a listing spans every kind at once, so the
@@ -3357,7 +3417,6 @@ class JobCollection(BaseModel):
     anyway. `GET /jobs/{job_id}` is where the typed result lives.
     """
     jobs: list[JobStatus]
-    skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
 
 
 class DatasetCoverage(BaseModel):

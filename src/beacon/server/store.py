@@ -17,7 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from .._optional import require
-from ..exceptions import ConfigurationError, InvalidIdentifierError
+from ..exceptions import (
+    ConfigurationError,
+    DocumentFromNewerBuildError,
+    InvalidIdentifierError,
+)
 from ..index.schedule import DEFAULT_CALENDAR
 
 # Path segments that name an *endpoint*, and so cannot also name a document.
@@ -215,7 +219,7 @@ class DocumentStore:
         version = int(document.get(SCHEMA_VERSION_KEY, CURRENT_SCHEMA_VERSION))
 
         if version > CURRENT_SCHEMA_VERSION:
-            raise ConfigurationError(
+            raise DocumentFromNewerBuildError(
                 str(path),
                 f"document schema version {version} is newer than this "
                 f"application understands ({CURRENT_SCHEMA_VERSION}). "

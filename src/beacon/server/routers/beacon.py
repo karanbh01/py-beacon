@@ -40,6 +40,7 @@ from ..schemas import (
     Identifier,
     IndexDocument,
     OverviewView,
+    TolerantCollection,
     WeightsView,
 )
 from ..store import DocumentStore
@@ -221,7 +222,7 @@ def build_beacon_router() -> APIRouter:
             backtests=sorted(rows,
                              key=lambda row: row.run_at or "",
                              reverse=True),
-            skipped=skipped)
+            **TolerantCollection.skips(skipped))
 
     @router.get("/{index_id}/overview", response_model=OverviewView)
     def overview(request: Request,
