@@ -86,6 +86,7 @@ dev = [
 Homepage = "https://github.com/karanbh01/py-beacon"
 Source = "https://github.com/karanbh01/py-beacon"
 "Issue Tracker" = "https://github.com/karanbh01/py-beacon/issues"
+Changelog = "https://github.com/karanbh01/py-beacon/blob/main/CHANGELOG.md"
 
 [tool.pytest.ini_options]
 markers = [
@@ -224,5 +225,14 @@ path = "src/beacon/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/beacon"]
 
+# The engine serves its own changelog at GET /changelog, and an installed
+# engine has no repository beside it, so the wheel carries a copy. The root
+# file stays the only one anybody edits.
+[tool.hatch.build.targets.wheel.force-include]
+"CHANGELOG.md" = "beacon/CHANGELOG.md"
+
 [tool.hatch.build.targets.sdist]
-include = ["src/beacon", "tests", "examples", "README.md", "LICENSE.txt"]
+# Anchored with a leading slash: the patterns are gitignore-style, so a bare
+# "examples" also matched .hypothesis/examples and shipped a test cache.
+include = ["/src/beacon", "/tests", "/examples", "/README.md", "/LICENSE.txt",
+           "/CHANGELOG.md"]

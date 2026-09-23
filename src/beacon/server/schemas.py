@@ -231,6 +231,32 @@ class DataSourceStatus(BaseModel):
     identifiers: int = Field(description="Distinct identifiers in market data.")
 
 
+class ChangelogSectionView(BaseModel):
+    """One heading under a release and its items."""
+    heading: str = Field(description="Added, Changed, Fixed, Removed, "
+                                     "Deprecated or Security.")
+    items: list[str] = Field(description="One change each, as markdown.")
+
+
+class ChangelogEntryView(BaseModel):
+    """One release of the engine."""
+    version: str = Field(description="e.g. '0.1.0', or 'Unreleased'.")
+    date: str | None = Field(description="Release date, YYYY-MM-DD. Null "
+                                          "for Unreleased.")
+    sections: list[ChangelogSectionView] = Field(
+        description="What changed, grouped by kind of change. Empty for an "
+                    "Unreleased entry with nothing in it yet.")
+
+
+class ChangelogResponse(BaseModel):
+    """Response of `GET /changelog`."""
+    version: str = Field(description="The running engine's version, the "
+                                     "same value `/health` reports.")
+    entries: list[ChangelogEntryView] = Field(
+        description="Newest first, leaving out any with no changes listed. "
+                    "With `since`, only the releases after that version.")
+
+
 class HealthResponse(BaseModel):
     """Response of `GET /health`."""
     status: str = Field(description="'ok' when the process is serving.")

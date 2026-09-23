@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/karanbh01/py-beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/karanbh01/py-beacon/actions/workflows/ci.yml)
 
-![Beacon logo](./logo.svg)
+![Beacon logo](https://raw.githubusercontent.com/karanbh01/py-beacon/main/logo.svg)
 
 Beacon (***Be***t***a*** ***Con***structor) is a Python toolkit for end-to-end
 index, ETF, and Delta-1 derivatives development — from defining an index
@@ -80,18 +80,14 @@ Derivatives layer prices instruments off the levels an `IndexResult` produces.
 
 ## Installation
 
-Beacon targets Python 3.11+. Clone the repository and install it in editable
-mode (a virtual environment is recommended):
+Beacon needs Python 3.11 or later. Install it from PyPI:
 
 ```bash
-git clone https://github.com/karanbh01/py-beacon.git
-cd py-beacon
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e .
+pip install py-beacon
 ```
 
-The distribution is named `py-beacon`; the import package is `beacon`. Core
-dependencies (pandas, numpy, pydantic) are installed automatically.
+The distribution is named `py-beacon`; the import package is `beacon`. The
+core installs pandas, numpy, pydantic and exchange_calendars.
 
 Everything beyond the core pipeline lives behind an extra, so a plain install
 stays light:
@@ -100,17 +96,24 @@ stays light:
 | --- | --- | --- |
 | `data` | yfinance | Downloading market data |
 | `excel` | openpyxl | `ReportGenerator` Excel output |
+| `pdf` | reportlab | PDF reports |
 | `optimise` | scipy | Portfolio optimisation |
 | `plot` | matplotlib | Chart accessors on result objects |
-| `plot-interactive` | plotly | Interactive charts (planned) |
-| `server` | fastapi, uvicorn, orjson, websockets | The local API server |
+| `plot-interactive` | plotly | Reserved for interactive charts; not used yet |
+| `server` | fastapi, uvicorn, orjson, websockets, platformdirs, plus `optimise` and `pdf` | The local API server |
 | `dev` | pytest, ruff, mypy, pre-commit, hypothesis | Contributing |
 
 Install one with `pip install "py-beacon[plot]"`, or several with
 `pip install "py-beacon[plot,data]"`. Using a feature without its extra raises
-an error naming the extra to install. To run the test suite:
+an error naming the extra to install.
+
+To work on Beacon itself, clone the repository and install it in editable
+mode with the development extra:
 
 ```bash
+git clone https://github.com/karanbh01/py-beacon.git
+cd py-beacon
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 pytest
 ```
@@ -126,14 +129,14 @@ pre-commit install --hook-type pre-push   # strict type check on push
 tool-enforced — signature layout follows a reviewed convention rather than a
 formatter, so `ruff format` is deliberately not part of the hook set.
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the conventions, the issue and
-commit format, and the release process, and [CHANGELOG.md](./CHANGELOG.md) for
+See [CONTRIBUTING.md](https://github.com/karanbh01/py-beacon/blob/main/CONTRIBUTING.md) for the conventions, the issue and
+commit format, and the release process, and [CHANGELOG.md](https://github.com/karanbh01/py-beacon/blob/main/CHANGELOG.md) for
 what has changed.
 
 ## Running the API server
 
 ```bash
-pip install -e ".[server]"
+pip install "py-beacon[server]"
 python -m beacon.server --port 0 --token dev
 ```
 
@@ -289,7 +292,7 @@ python -m beacon.server --port 0 --token dev       # picks it up automatically
 
 `--extended-universe` doubles the universe to 10,000 names and
 `--long-history` reaches back past every crisis the generator models. See
-[docs/serving-data.md](docs/serving-data.md) for what each costs.
+[docs/serving-data.md](https://github.com/karanbh01/py-beacon/blob/main/docs/serving-data.md) for what each costs.
 
 Prices reproduce the stylized facts of equity returns rather than being a
 random walk: volatility clustering (GJR-GARCH), fat tails (Student-t
@@ -336,7 +339,7 @@ surface is still settling. Breaking changes are recorded under **Changed** or
 **Removed** in the changelog. From 1.0 onward, a deprecated name keeps working
 for at least one minor release with a `DeprecationWarning` naming its
 replacement, and removals only land in a major release; the full policy is in
-[CONTRIBUTING.md](./CONTRIBUTING.md#versioning-and-deprecation-policy).
+[CONTRIBUTING.md](https://github.com/karanbh01/py-beacon/blob/main/CONTRIBUTING.md#versioning-and-deprecation-policy).
 
 ## Quickstart
 
@@ -420,4 +423,4 @@ print("Tracking error:    ", round(summary["tracking_error"], 6))
 ```
 
 For a derivatives walkthrough — pricing an `IndexFuture` off an `IndexResult` —
-see [`examples/futures_pricing_example.py`](./examples/futures_pricing_example.py).
+see [`examples/futures_pricing_example.py`](https://github.com/karanbh01/py-beacon/blob/main/examples/futures_pricing_example.py).

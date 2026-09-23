@@ -7,16 +7,19 @@ authenticates every route with a bearer token the client generated, and holds
 no state of its own beyond the data source it was handed.
 """
 import logging
-from typing import Any
+from dataclasses import asdict
+from typing import Annotated, Any
 
 from .. import __version__
 from .._optional import require
+from ..changelog import entries as changelog_entries
+from ..changelog import newer_than
 from ..data.fetcher import MARKET_DATASET
 from .config import LOCALHOST_ORIGIN_PATTERN, ServerConfig
 
 require("fastapi", "The Beacon API server")
 
-from fastapi import APIRouter, Depends, FastAPI, Request  # noqa: E402
+from fastapi import APIRouter, Depends, FastAPI, Query, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from .errors import register_exception_handlers  # noqa: E402
@@ -40,7 +43,13 @@ from .routers.universes import (  # noqa: E402
     GLOBAL_ID,
     seed_global_universe,
 )
-from .schemas import DataSourceStatus, ErrorEnvelope, HealthResponse  # noqa: E402
+from .schemas import (  # noqa: E402
+    ChangelogEntryView,
+    ChangelogResponse,
+    DataSourceStatus,
+    ErrorEnvelope,
+    HealthResponse,
+)
 from .security import verify_bearer_token  # noqa: E402
 from .store import DocumentStore  # noqa: E402
 
@@ -89,6 +98,26 @@ def build_router() -> APIRouter:
     """
     router = APIRouter(dependencies=[Depends(verify_bearer_token)],
                        responses=ERROR_RESPONSES)
+
+    @router.get("/changelog", response_model=ChangelogResponse)
+    def changelog(since: Annotated[
+            str | None,
+            Query(description="A version the client has already shown, "
+                              "e.g. '0.1.0'. Only releases after it are "
+                              "returned.")] = None) -> ChangelogResponse:
+        # Served by the engine rather than bundled with the app, so the notes
+        # are for the engine actually running (BN-222).
+        # An entry with nothing under it -- the Unreleased heading between
+        # releases -- is left out, so the app never shows an empty release.
+        entries = [entry for entry in changelog_entries() if entry.sections]
+
+        if since is not None:
+            entries = newer_than(entries, since)
+
+        return ChangelogResponse(
+            version=__version__,
+            entries=[ChangelogEntryView.model_validate(asdict(entry))
+                     for entry in entries])
 
     @router.get("/health", response_model=HealthResponse)
     def health(request: Request) -> HealthResponse:

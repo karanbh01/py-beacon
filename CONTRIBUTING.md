@@ -99,25 +99,48 @@ suite must stay green.
 
 ## Releasing
 
-1. Update `__version__` in `src/beacon/__init__.py`.
-2. Move the `[Unreleased]` entries in [CHANGELOG.md](CHANGELOG.md) under the
-   new version heading.
-3. Tag `vX.Y.Z`. The tag must match `__version__` — the release workflow
-   checks this and fails the build otherwise.
-4. The workflow builds the wheel and sdist, runs `twine check`, verifies the
-   wheel installs and imports, and creates a **draft** GitHub release with both
-   artifacts and the changelog section as the body.
-5. Review and publish the draft. Publishing triggers the documentation deploy.
+A release goes to GitHub and to PyPI. The workflow is
+`.github/workflows/release.yml`.
 
-PyPI publishing is wired but disabled while the repository is private.
+1. Keep `CHANGELOG.md` current as work lands: one short line per change under
+   `## [Unreleased]`, in plain English, with no em-dashes. The engine serves
+   this file at `GET /changelog` and the app shows it to users.
+2. Set `__version__` in `src/beacon/__init__.py`, and rename `[Unreleased]` to
+   `## [X.Y.Z] - YYYY-MM-DD`, with a fresh empty `[Unreleased]` above it.
+   `tests/test_changelog.py` fails if the version has no dated section.
+3. Dry run: run the Release workflow by hand (Actions, Release, Run
+   workflow) on `main`. It publishes to TestPyPI and installs the package
+   back from there. TestPyPI accepts each version once, so do this before
+   tagging.
+4. Tag `vX.Y.Z` and push the tag. The tag must match `__version__`. The
+   workflow builds the wheel and sdist, checks them, installs the wheel, and
+   creates a draft GitHub release with both files and the changelog section.
+5. Review the draft and publish it. Publishing uploads the draft's own files
+   to PyPI and deploys the documentation.
+
+A version on PyPI can never be uploaded again, even after deleting it. If a
+release is wrong, fix it and release the next patch version.
+
+PyPI and TestPyPI use trusted publishing, so no token is stored anywhere.
+Each has a publisher registered for this repository, the workflow
+`release.yml`, and the environment `pypi` or `testpypi`.
 
 ## Versioning and deprecation policy
 
 Beacon follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-While the major version is `0`, the public API may change in any release — the
+While the major version is `0`, the public API may change in any release. The
 project is pre-1.0 and the surface is still settling. Breaking changes are
 recorded under **Changed** or **Removed** in the changelog.
+
+Before 1.0, what bumps which number:
+
+- **Minor** (`0.2.0`): any change to what the API server sends or accepts,
+  additions included, and any breaking change to the Python API. The app reads
+  the engine's version from `/health`, so a minor version is what it can
+  require.
+- **Patch** (`0.1.1`): fixes and internal changes that leave the wire and the
+  Python API as they were.
 
 ### Deprecation policy
 

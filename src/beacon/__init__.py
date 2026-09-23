@@ -3,7 +3,7 @@
 Beacon — an end-to-end toolkit for index, ETF, and Delta-1 derivatives
 development.
 """
-__version__ = "0.0.2"
+__version__ = "0.1.0"
 
 from . import derivatives
 from .derivatives import (
