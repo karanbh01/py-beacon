@@ -388,7 +388,7 @@ class TestMissingExtra:
                                    capture_output=True, text=True, check=False)
 
         assert completed.returncode != 0
-        assert 'py-beacon[pdf]' in completed.stderr
+        assert 'py-beacon-kit[pdf]' in completed.stderr
         assert "MissingDependencyError" in completed.stderr
 
     def test_the_block_model_needs_no_extra(self):

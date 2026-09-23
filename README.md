@@ -83,11 +83,12 @@ Derivatives layer prices instruments off the levels an `IndexResult` produces.
 Beacon needs Python 3.11 or later. Install it from PyPI:
 
 ```bash
-pip install py-beacon
+pip install py-beacon-kit
 ```
 
-The distribution is named `py-beacon`; the import package is `beacon`. The
-core installs pandas, numpy, pydantic and exchange_calendars.
+The distribution is named `py-beacon-kit` (`py-beacon` is too close to an
+existing PyPI project); the import package is `beacon`. The core installs
+pandas, numpy, pydantic and exchange_calendars.
 
 Everything beyond the core pipeline lives behind an extra, so a plain install
 stays light:
@@ -103,8 +104,8 @@ stays light:
 | `server` | fastapi, uvicorn, orjson, websockets, platformdirs, plus `optimise` and `pdf` | The local API server |
 | `dev` | pytest, ruff, mypy, pre-commit, hypothesis | Contributing |
 
-Install one with `pip install "py-beacon[plot]"`, or several with
-`pip install "py-beacon[plot,data]"`. Using a feature without its extra raises
+Install one with `pip install "py-beacon-kit[plot]"`, or several with
+`pip install "py-beacon-kit[plot,data]"`. Using a feature without its extra raises
 an error naming the extra to install.
 
 To work on Beacon itself, clone the repository and install it in editable
@@ -136,7 +137,7 @@ what has changed.
 ## Running the API server
 
 ```bash
-pip install "py-beacon[server]"
+pip install "py-beacon-kit[server]"
 python -m beacon.server --port 0 --token dev
 ```
 

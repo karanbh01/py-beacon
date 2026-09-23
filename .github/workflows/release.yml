@@ -136,7 +136,7 @@ jobs:
   # TestPyPI refuses a version it already holds, like PyPI, so each version
   # can be dry-run once. Run it before tagging.
   #
-  # Needs a trusted publisher on test.pypi.org: project py-beacon, owner
+  # Needs a trusted publisher on test.pypi.org: project py-beacon-kit, owner
   # karanbh01, repository py-beacon, workflow release.yml, environment
   # testpypi.
   testpypi:
@@ -179,7 +179,7 @@ jobs:
             /tmp/fromtest/bin/pip install --quiet \
               --index-url https://test.pypi.org/simple/ \
               --extra-index-url https://pypi.org/simple/ \
-              "py-beacon[server]==$version" && break
+              "py-beacon-kit[server]==$version" && break
             echo "not on the index yet; waiting"; sleep 30
           done
           /tmp/fromtest/bin/python -c "import beacon; assert beacon.__version__ == '$version', beacon.__version__; print('installed', beacon.__version__)"
@@ -188,7 +188,7 @@ jobs:
   # The real upload, when the reviewed draft release is published. It uploads
   # the files attached to that release rather than building again.
   #
-  # Needs a trusted publisher on pypi.org: project py-beacon, owner
+  # Needs a trusted publisher on pypi.org: project py-beacon-kit, owner
   # karanbh01, repository py-beacon, workflow release.yml, environment pypi.
   publish:
     name: publish to PyPI

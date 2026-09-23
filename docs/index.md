@@ -103,7 +103,7 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e .
 ```
 
-The distribution is named `py-beacon`; the import package is `beacon`. Core
+The distribution is named `py-beacon-kit`; the import package is `beacon`. Core
 dependencies (pandas, numpy, pydantic) are installed automatically.
 
 Everything beyond the core pipeline lives behind an extra, so a plain install
@@ -120,8 +120,8 @@ stays light:
 | `docs` | mkdocs-material, mkdocstrings[python] | Building this documentation site |
 | `dev` | pytest, ruff, mypy, pre-commit, hypothesis | Contributing |
 
-Install one with `pip install "py-beacon[plot]"`, or several with
-`pip install "py-beacon[plot,data]"`. Using a feature without its extra
+Install one with `pip install "py-beacon-kit[plot]"`, or several with
+`pip install "py-beacon-kit[plot,data]"`. Using a feature without its extra
 raises an error naming the extra to install.
 
 ## Quickstart

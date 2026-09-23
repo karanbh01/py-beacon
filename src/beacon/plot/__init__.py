@@ -13,7 +13,7 @@ knows how to draw itself and nothing else grows a chart method.
 
 Needs matplotlib, which ships in the `plot` extra:
 
-    pip install "py-beacon[plot]"
+    pip install "py-beacon-kit[plot]"
 
 **Importing `beacon` costs nothing extra.** The accessor is a descriptor that
 resolves on first access, so matplotlib is imported when a chart is drawn and

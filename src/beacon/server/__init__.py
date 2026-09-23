@@ -4,7 +4,7 @@ The local Beacon API server.
 
 Requires the ``server`` extra:
 
-    pip install "py-beacon[server]"
+    pip install "py-beacon-kit[server]"
 
 Importing this subpackage pulls in FastAPI, so the guard fires here and names
 the extra rather than letting a bare ImportError surface. The rest of Beacon

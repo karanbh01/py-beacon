@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "py-beacon"
+name = "py-beacon-kit"
 dynamic = ["version"]
 description = "End-to-end tool kit for index, ETF & Delta-1 derivatives development"
 readme = "README.md"
@@ -52,21 +52,21 @@ optimise = ["scipy"]
 plot = ["matplotlib>=3.10,<3.11"]
 plot-interactive = ["plotly"]         # placeholder extra; backend lands in BN-83
 # The server mounts the optimiser and report routers, which import scipy and
-# reportlab at module scope. So `pip install "py-beacon[server]"` has to bring
+# reportlab at module scope. So `pip install "py-beacon-kit[server]"` has to bring
 # those too, or the extra promises a server that cannot start. The alternative
 # — mounting routers conditionally on what is installed — would make the API
 # surface vary by installation, and the client contract with it.
 server = ["fastapi", "uvicorn[standard]", "orjson", "websockets", "platformdirs",
-          "py-beacon[optimise]", "py-beacon[pdf]"]
+          "py-beacon-kit[optimise]", "py-beacon-kit[pdf]"]
 # The gallery renders the frontier and optimiser charts, so building the
 # docs needs the optimiser as well as matplotlib.
-docs = ["mkdocs-material", "mkdocstrings[python]", "py-beacon[plot]",
-        "py-beacon[optimise]"]
+docs = ["mkdocs-material", "mkdocstrings[python]", "py-beacon-kit[plot]",
+        "py-beacon-kit[optimise]"]
 dev = [
-  "py-beacon[server]",   # the server tests exercise the real app
-  "py-beacon[optimise]", # and the optimiser tests solve real problems
-  "py-beacon[pdf]",      # and the report tests render real documents
-  "py-beacon[plot]",     # and the chart tests draw real figures
+  "py-beacon-kit[server]",   # the server tests exercise the real app
+  "py-beacon-kit[optimise]", # and the optimiser tests solve real problems
+  "py-beacon-kit[pdf]",      # and the report tests render real documents
+  "py-beacon-kit[plot]",     # and the chart tests draw real figures
   "pytest-mpl",          # image regression over every chart
   "pytest",
   "pytest-asyncio",      # the job registry is driven on an event loop

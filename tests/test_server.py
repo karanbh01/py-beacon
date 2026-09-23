@@ -862,7 +862,7 @@ class TestOptionalDependencyGuard:
                                    check=False)
 
         assert completed.returncode == 0, completed.stderr
-        assert 'pip install "py-beacon[server]"' in completed.stdout
+        assert 'pip install "py-beacon-kit[server]"' in completed.stdout
 
 
 class TestLauncherProcess:

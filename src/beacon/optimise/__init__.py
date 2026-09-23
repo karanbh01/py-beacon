@@ -8,7 +8,7 @@ index business meets first.
 
 Solving needs scipy, which ships in the ``optimise`` extra:
 
-    pip install "py-beacon[optimise]"
+    pip install "py-beacon-kit[optimise]"
 
 Importing this package does not (BN-166): constraints, configs and results are
 descriptions, and describing a problem is core work — `Backtest.run` names

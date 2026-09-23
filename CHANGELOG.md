@@ -8,7 +8,7 @@ Before 1.0, any release may change the API.
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-09-23
+## [0.1.0] - 2026-09-24
 
 The first release.
 

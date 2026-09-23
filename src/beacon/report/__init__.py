@@ -7,7 +7,7 @@ is made of — and needs nothing beyond the standard library, so a client can
 build templates and persist them through `DocumentStore` with no PDF library
 installed. `pdf` renders one, and is the only part behind the `pdf` extra:
 
-    pip install "py-beacon[pdf]"
+    pip install "py-beacon-kit[pdf]"
 
 Complementary to the Excel reporting in `beacon.portfolio.reporting` rather
 than a replacement for it: a spreadsheet is for numbers someone will pick up

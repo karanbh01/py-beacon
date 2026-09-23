@@ -223,7 +223,7 @@ class DocumentStore:
                 str(path),
                 f"document schema version {version} is newer than this "
                 f"application understands ({CURRENT_SCHEMA_VERSION}). "
-                "Upgrade py-beacon to read it.")
+                "Upgrade py-beacon-kit to read it.")
 
         while version < CURRENT_SCHEMA_VERSION:
             migrate = MIGRATIONS.get(version)

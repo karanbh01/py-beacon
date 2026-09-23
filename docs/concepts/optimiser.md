@@ -7,7 +7,7 @@ meets an objective subject to constraints you state.
 Lives in `beacon.optimise`, behind the `optimise` extra (scipy).
 
 ```bash
-pip install "py-beacon[optimise]"
+pip install "py-beacon-kit[optimise]"
 ```
 
 ## The shape of a problem

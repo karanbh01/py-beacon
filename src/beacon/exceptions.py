@@ -145,7 +145,7 @@ class MissingDependencyError(BeaconError, ImportError):
                  extra: str):
         message = (f"{feature} requires the '{module_name}' package, which is "
                    f"not installed. Install it with: "
-                   f'pip install "py-beacon[{extra}]"')
+                   f'pip install "py-beacon-kit[{extra}]"')
         super().__init__(message)
         self.module_name = module_name
         self.feature = feature

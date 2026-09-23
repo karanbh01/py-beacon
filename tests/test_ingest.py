@@ -432,7 +432,7 @@ class TestMissingExtra:
 
         monkeypatch.setattr(importlib, "import_module", refuse)
 
-        with pytest.raises(MissingDependencyError, match=r"py-beacon\[data\]"):
+        with pytest.raises(MissingDependencyError, match=r"py-beacon-kit\[data\]"):
             yfinance_downloader()
 
     def test_the_reference_downloader_names_the_extra(self,
@@ -446,7 +446,7 @@ class TestMissingExtra:
 
         monkeypatch.setattr(importlib, "import_module", refuse)
 
-        with pytest.raises(MissingDependencyError, match=r"py-beacon\[data\]"):
+        with pytest.raises(MissingDependencyError, match=r"py-beacon-kit\[data\]"):
             yfinance_reference_downloader()
 
     def test_the_module_imports_without_the_extra(self):

@@ -63,7 +63,7 @@ class TestRequireFailure:
 
         assert "Excel reporting" in message
         assert GUARDED_MODULE in message
-        assert f'pip install "py-beacon[{GUARDED_EXTRA}]"' in message
+        assert f'pip install "py-beacon-kit[{GUARDED_EXTRA}]"' in message
 
     def test_carries_structured_fields(self):
         with pytest.raises(MissingDependencyError) as excinfo:
@@ -192,7 +192,7 @@ class TestGuardedFeatures:
         monkeypatch.setattr(importlib, "import_module", fake_import(raises=True))
 
         with pytest.raises(MissingDependencyError,
-                           match=r'py-beacon\[excel\]'):
+                           match=r'py-beacon-kit\[excel\]'):
             ReportGenerator().generate_performance_report_excel(
                 performance_data=None,
                 report_path="unused.xlsx")
@@ -218,7 +218,7 @@ class TestGuardedFeatures:
             check=False)
 
         assert completed.returncode != 0
-        assert 'py-beacon[optimise]' in completed.stderr
+        assert 'py-beacon-kit[optimise]' in completed.stderr
         assert "MissingDependencyError" in completed.stderr
 
 
@@ -263,7 +263,7 @@ class TestExtrasAreDeclared:
 
 
 class TestTheServerExtraIsSelfSufficient:
-    """`pip install "py-beacon[server]"` must give a server that starts.
+    """`pip install "py-beacon-kit[server]"` must give a server that starts.
 
     The server mounts the optimiser and report routers, which import scipy and
     reportlab at module scope, so the `server` extra has to bring those too.
@@ -301,5 +301,5 @@ class TestTheServerExtraIsSelfSufficient:
         with pyproject.open("rb") as handle:
             server = tomllib.load(handle)["project"]["optional-dependencies"]["server"]
 
-        assert "py-beacon[optimise]" in server
-        assert "py-beacon[pdf]" in server
+        assert "py-beacon-kit[optimise]" in server
+        assert "py-beacon-kit[pdf]" in server
