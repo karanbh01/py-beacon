@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 # Market-data column names read by the rules/schemes below.
 _PRICE_COLUMN = "CLOSE"
 _VOLUME_COLUMN = "VOLUME"
+_SHARES_COLUMN = "SHARES_OUTSTANDING"
+_FREE_FLOAT_COLUMN = "FREE_FLOAT"
 
 
 def _equity_tickers(assets: list[Asset]) -> list[str]:
@@ -130,6 +132,23 @@ class EligibilityRuleBase(ABC):
     def __init__(self,
                  rule_name: str):
         self.rule_name = rule_name
+
+    def required_columns(self) -> frozenset[str]:
+        """The market-data columns this rule reads, declared up front (BN-217).
+
+        Checked against the dataset before a run does any work, so a store
+        with no SHARES_OUTSTANDING column is refused on day zero as "this rule
+        needs SHARES_OUTSTANDING and the dataset has none" -- rather than on
+        the first rebalance as "N0 has no SHARES_OUTSTANDING on 2024-01-02",
+        which is true, and sends a reader to inspect one company whose data is
+        fine.
+
+        Empty by default rather than abstract, so a rule written outside this
+        package keeps working. It is then simply not checked up front, and
+        fails where it always did -- at the first read -- with the message it
+        always had. Every rule shipped here declares its own.
+        """
+        return frozenset()
 
     def prepare(self,  # noqa: B027 — an optional hook, not part of the interface
                 candidates: list[Asset],
@@ -243,6 +262,10 @@ class MarketCapRule(EligibilityRuleBase):
         if (min_market_cap is not None and max_market_cap is not None
                 and min_market_cap > max_market_cap):
             raise ValueError("min_market_cap cannot be greater than max_market_cap.")
+
+    def required_columns(self) -> frozenset[str]:
+        """A cap is price times shares, so both, whichever bound is set."""
+        return frozenset({_PRICE_COLUMN, _SHARES_COLUMN})
 
     def prepare(self,
                 candidates: list[Asset],
@@ -363,6 +386,26 @@ class LiquidityRule(EligibilityRuleBase):
         if lookback_days <= 0:
             raise ValueError("lookback_days must be positive.")
 
+    def required_columns(self) -> frozenset[str]:
+        """Volume for either threshold, and the close too for a value one.
+
+        Declared from the thresholds actually set, because they read different
+        things. And declared at all because of what a missing VOLUME column
+        used to do here: `is_eligible` treats it as "not liquid enough" and
+        excludes the name, so a store without the column excluded **every**
+        name, and the run failed as "index holds nothing on its base date"
+        with no mention of volume anywhere. A reader loosened the threshold.
+        """
+        needed: set[str] = set()
+
+        if self.min_avg_daily_volume is not None:
+            needed.add(_VOLUME_COLUMN)
+
+        if self.min_avg_daily_value is not None:
+            needed.update({_PRICE_COLUMN, _VOLUME_COLUMN})
+
+        return frozenset(needed)
+
     def is_eligible(self,
                     asset: Asset,
                     current_date: pd.Timestamp,
@@ -456,6 +499,16 @@ class WeightingSchemeBase(ABC):
                  scheme_name: str):
         self.scheme_name = scheme_name
 
+    def required_columns(self) -> frozenset[str]:
+        """The market-data columns this scheme reads, declared up front.
+
+        The same contract as :meth:`EligibilityRuleBase.required_columns`, and
+        derived from the scheme's own inputs where they change what it reads:
+        a scheme's parameters *are* the declaration, so nothing asks a store
+        for a column the configured scheme does not use (BN-217).
+        """
+        return frozenset()
+
     @abstractmethod
     def calculate_weights(self,
                           constituents: list[Asset],
@@ -520,6 +573,20 @@ class MarketCapWeighted(WeightingSchemeBase):
                  use_free_float: bool = False):
         super().__init__(scheme_name="MarketCapWeighted")
         self.use_free_float = use_free_float
+
+    def required_columns(self) -> frozenset[str]:
+        """Price and shares, and free float only when this scheme uses it.
+
+        `use_free_float` is the declaration: every free-float read in a run is
+        behind it, so a scheme that is not float-adjusted never asks the store
+        for the column and must not be refused for lacking it.
+        """
+        needed = {_PRICE_COLUMN, _SHARES_COLUMN}
+
+        if self.use_free_float:
+            needed.add(_FREE_FLOAT_COLUMN)
+
+        return frozenset(needed)
 
     def _session_for(self,
                      current_date: pd.Timestamp,
@@ -744,6 +811,15 @@ class EqualWeighted(WeightingSchemeBase):
     """
     def __init__(self) -> None:
         super().__init__(scheme_name="EqualWeighted")
+
+    def required_columns(self) -> frozenset[str]:
+        """Nothing: equal weights are decided without reading the market.
+
+        Stated rather than inherited, so the absence is a decision a reader
+        can see. The index still needs a price column to value its holdings
+        daily, but that is the calculator's requirement, not this scheme's.
+        """
+        return frozenset()
 
     def calculate_weights(self,
                           constituents: list[Asset],

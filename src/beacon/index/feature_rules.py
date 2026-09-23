@@ -118,6 +118,16 @@ class FeatureRule(EligibilityRuleBase):
         self.on_missing = on_missing
         self.max_age_days = max_age_days
 
+    def required_columns(self) -> frozenset[str]:
+        """No market columns: a feature is read from the features table.
+
+        Stated rather than inherited, so the absence is visibly a decision.
+        Whether the named feature exists is a real question with the same
+        shape as a missing column, but it is asked of a different table, and
+        this check deliberately covers market data only (BN-217).
+        """
+        return frozenset()
+
     def is_eligible(self,
                     asset: Asset,
                     current_date: pd.Timestamp,

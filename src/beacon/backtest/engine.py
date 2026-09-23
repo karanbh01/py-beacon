@@ -7,6 +7,7 @@ import logging
 import pandas as pd
 
 from ..data.fetcher import DataFetcher
+from ..index.requirements import require_price_column
 from ..index.result import IndexResult
 from ..index.schedule import SESSION_UNIT, sessions
 from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
@@ -592,7 +593,15 @@ class BacktestEngine(PricingMixin):
 
         Returns:
             BacktestResult
+
+        Raises:
+            CalculationError: If the dataset has no column to price positions
+                from, checked before the first trade rather than discovered at
+                it (BN-217).
         """
+        require_price_column(self.data_provider, self.price_column,
+                             "The backtest")
+
         logger.info(
             f"Starting backtest from {self.start_date.date()} to "
             f"{self.end_date.date()} with capital {self.initial_capital:.2f}"

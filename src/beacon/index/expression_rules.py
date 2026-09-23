@@ -49,7 +49,8 @@ from ..catalogue import SELECTION, Display, register
 from ..data.features import MAX_AGE_DAYS
 from ..data.fetcher import DataFetcher
 from ..exceptions import ExpressionError, InvalidRuleError
-from ..expressions.core import Expression, from_dict
+from ..expressions.core import Expression, fields_in, from_dict
+from ..expressions.namespaces import market_columns_for
 from ..expressions.resolve import resolve
 from .context import IndexContext
 from .feature_rules import EXCLUDE, INCLUDE, ON_MISSING
@@ -108,6 +109,18 @@ class ExpressionRule(EligibilityRuleBase):
         self.expression = expression
         self.on_missing = on_missing
         self.max_age_days = max_age_days
+
+    def required_columns(self) -> frozenset[str]:
+        """The market columns the expression reads, derived from its tree.
+
+        An expression's needs are whatever it references, so they come from
+        `fields_in` rather than being written out -- and a derived field is
+        expanded into what it is computed from, because a screen on
+        `market_cap` needs CLOSE and SHARES_OUTSTANDING, not a column called
+        MARKET_CAP that no store has (BN-217). Reference and feature fields
+        read other tables and add nothing here.
+        """
+        return market_columns_for(fields_in(self._tree))
 
     @classmethod
     def from_expression(cls,

@@ -76,6 +76,19 @@ MARKET_COLUMNS = (
 # because a caller should not have to know which is which.
 DERIVED_COLUMNS = ("adv_3m", "market_cap", "free_float_market_cap")
 
+# The stored market columns each derived field is computed from (BN-217).
+#
+# Declared here, beside the derived fields themselves, because this is the one
+# place that knows what they are made of. A screen on `market_cap` looks like
+# it needs a column called MARKET_CAP, and the store has none -- what it needs
+# is CLOSE and SHARES_OUTSTANDING, and asking the dataset for the first would
+# either fail wrongly or pass a check that proves nothing.
+DERIVED_REQUIRES: dict[str, tuple[str, ...]] = {
+    "adv_3m": ("VOLUME",),
+    "market_cap": ("CLOSE", "SHARES_OUTSTANDING"),
+    "free_float_market_cap": ("CLOSE", "SHARES_OUTSTANDING", "FREE_FLOAT"),
+}
+
 # Declared reference dimensions.
 REFERENCE_COLUMNS = (
     "name", "sector", "sub_industry", "region", "exchange", "currency",
@@ -238,3 +251,33 @@ def column_for(field: Field) -> str:
         return field.name
 
     return field.name.upper()
+
+
+def market_columns_for(fields: list[Field]) -> frozenset[str]:
+    """The stored market columns a set of fields reads (BN-217).
+
+    Stored market fields name their column directly. Derived ones are expanded
+    through :data:`DERIVED_REQUIRES` into what they are computed from.
+    Reference, action and feature fields read other tables and contribute
+    nothing here -- a market-column check has nothing to say about them.
+
+    Args:
+        fields: Typically ``fields_in(expression)`` for a rule's tree.
+
+    Returns:
+        frozenset: Upper-case market column names.
+    """
+    needed: set[str] = set()
+
+    for field in fields:
+        if field.namespace != MARKET:
+            continue
+
+        derived = DERIVED_REQUIRES.get(field.name)
+
+        if derived is not None:
+            needed.update(derived)
+        else:
+            needed.add(column_for(field))
+
+    return frozenset(needed)

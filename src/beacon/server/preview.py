@@ -160,6 +160,11 @@ def _pipeline_preview(document: IndexDocument,
     date = pd.Timestamp(as_of) if as_of else pd.Timestamp(definition.base_date)
     calculator = IndexCalculator(definition, fetcher)
 
+    # The same up-front check `run` makes (BN-217). A preview is the first
+    # place a user meets a definition that cannot run on their data, so it is
+    # the place the reason matters most.
+    calculator.require_columns()
+
     universe = calculator.resolve_universe(date)
 
     # `build_index_definition` above refuses an optimiser-derived document, so

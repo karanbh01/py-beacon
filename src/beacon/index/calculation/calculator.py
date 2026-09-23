@@ -15,6 +15,7 @@ from ...exceptions import CalculationError, UnexpectedCalculationError
 from ..capping import CapReport, apply_cap
 from ..constructor import IndexDefinition
 from ..context import IndexContext
+from ..requirements import require_columns
 from ..result import IndexResult, daily_weights_frame
 from ..schedule import calendar_coverage, describe_bounds, effective_date, sessions
 from .corporate_actions import CorporateActionsMixin
@@ -558,7 +559,12 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
 
         Raises:
             ValueError: If *end_date* is not provided or precedes the base date.
+            CalculationError: If the dataset lacks a column the definition
+                reads -- checked before any work, rather than discovered at the
+                first read and reported as one company's problem (BN-217).
         """
+        self.require_columns()
+
         base_date = self.definition.base_date
         pd_start = pd.Timestamp(start_date) if start_date else base_date
         if end_date is None:
@@ -894,6 +900,20 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             daily_weights=daily_weights_frame(daily_records),
             calendar_coverage=coverage if coverage.is_partial else None,
         ).with_data(self.data)
+
+    def require_columns(self) -> None:
+        """Refuse up front if the dataset cannot support this definition.
+
+        Public because the constituent preview runs a definition without
+        calling `run`, and deserves the same answer: a preview of a
+        market-cap index over a store with no share counts should say so,
+        not fail on the first name it tries to price.
+
+        Raises:
+            CalculationError: Naming each missing column and what needs it.
+        """
+        require_columns(self.definition, self.data, self.price_column)
+
 
     def _warm_holdings(self,
                        units: dict[Asset, float],
