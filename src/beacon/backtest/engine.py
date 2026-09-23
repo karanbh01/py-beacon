@@ -657,6 +657,24 @@ class BacktestEngine(PricingMixin):
                 target_w = self._drop_stale(target_w, date)
 
             if target_w is not None:
+                # Step 1 prepares the day's page from what is *held*, and on
+                # the first day nothing is, so `_warm_holdings` returns without
+                # building one and every opening purchase went to the full frame
+                # -- 200 trips in a 200-name run (BN-216). Warming from the names
+                # being traded makes the first rebalance hit the page like every
+                # other.
+                #
+                # Not, as first claimed, a problem for names *entering* at later
+                # rebalances: since BN-213 a page holds every instrument on its
+                # session, not only the ones asked for, so a new entrant is
+                # already on it. Measured with 50 new names a quarter for twelve
+                # quarters: 100 trips before this change, all of them the
+                # opening purchase. Held-plus-target is kept anyway because it
+                # states what the rebalance needs, and stays correct if a page
+                # is ever narrowed back to the names requested.
+                self._warm_holdings(sorted(set(portfolio.holdings) | set(target_w)),
+                                    date)
+
                 unfilled.extend(self._rebalance(portfolio, target_w, date))
                 # Re-price after rebalance
                 self._update_portfolio_prices(portfolio, date)

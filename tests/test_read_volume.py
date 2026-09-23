@@ -193,11 +193,23 @@ class TestTheBacktestDoesNotReadPerName:
             f"read costs; the engine is pricing name by name again")
 
     def test_a_longer_run_does_not_cost_proportionally_more(self):
+        """Stated as an increment rather than a ratio, because the count can
+        be zero -- and since BN-216 it is.
+
+        The ratio form, `long < short * 2`, failed as `0 < 0` the moment the
+        opening purchase stopped missing the page: a backtest over a fixed
+        universe now makes no frame reads at all. What must not happen is the
+        extra months costing reads per day, so the extra reads are bounded by
+        the extra sessions -- fewer than one per added day. A per-name-per-day
+        read would add forty per day here.
+        """
         short = backtest_reads(40, end="2024-03-28")
         long = backtest_reads(40, end="2024-06-28")
+        added = (len(pd.bdate_range(START, "2024-06-28"))
+                 - len(pd.bdate_range(START, "2024-03-28")))
 
-        assert long < short * 2, (
-            f"{long} reads over six months against {short} over three: the "
+        assert long - short < added, (
+            f"{long - short} extra reads for {added} extra sessions: the "
             f"engine is pricing per day again")
 
 
