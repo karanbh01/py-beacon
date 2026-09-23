@@ -81,7 +81,8 @@ class ServerConfig:
                          host: str = "127.0.0.1",
                          port: int = 0,
                          data_fetcher: DataFetcher | None = None,
-                         cors_origins: tuple[str, ...] | None = None
+                         cors_origins: tuple[str, ...] | None = None,
+                         storage_root: Path | None = None
                          ) -> "ServerConfig":
         """Build a config, taking the token from the environment if not given.
 
@@ -93,6 +94,8 @@ class ServerConfig:
             data_fetcher: Data source to serve, or None.
             cors_origins: Exact origins to allow. None resolves them from the
                 environment and the defaults.
+            storage_root: Where saved documents live. None uses the platform
+                app-data location.
 
         Returns:
             ServerConfig: The assembled configuration.
@@ -110,7 +113,8 @@ class ServerConfig:
                    port=port,
                    data_fetcher=data_fetcher,
                    cors_origins=(cors_origins if cors_origins is not None
-                                 else resolve_cors_origins()))
+                                 else resolve_cors_origins()),
+                   storage_root=storage_root)
 
 
 def resolve_cors_origins(explicit: list[str] | None = None) -> tuple[str, ...]:

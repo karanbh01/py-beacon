@@ -710,9 +710,9 @@ class TestAWriteCanFixWhatAReadCannotServe:
                               json={"name": "Hijacked", "identifiers": ["AAA"]},
                               headers=HEADERS)
 
-        assert removed.status_code == 422, removed.text
+        assert removed.status_code == 409, removed.text
         assert "read-only" in removed.json()["error"]["message"]
-        assert replaced.status_code == 422, replaced.text
+        assert replaced.status_code == 409, replaced.text
         assert "read-only" in replaced.json()["error"]["message"]
         assert store_of(client, UNIVERSES).read("seeded-one")["source"] == "seeded"
 

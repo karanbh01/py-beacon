@@ -121,8 +121,11 @@ class TestTheBatchForm:
 
     def test_naming_nothing_is_refused(self,
                                        client):
+        """422 rather than the 404 it was: `identifiers` is required in the
+        spec now (BN-131), so leaving it out is a malformed request, refused
+        where every other missing parameter is."""
         assert client.get("/data/features",
-                          headers=HEADERS).status_code == 404
+                          headers=HEADERS).status_code == 422
 
     def test_the_batch_is_bounded(self,
                                   client):

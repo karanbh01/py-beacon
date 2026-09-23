@@ -21,7 +21,35 @@ seven fixtures each asserting that `fetch_market_data` is the whole of how a
 price is read. This derives one from the other in one place, so the next method
 to move has one fixture to update rather than seven.
 """
+from collections.abc import Iterator
+
 import pandas as pd
+import platformdirs
+import pytest
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_test_touches_the_real_app_data(tmp_path_factory: pytest.TempPathFactory
+                                       ) -> Iterator[None]:
+    """Point every default app-data location at a throwaway directory.
+
+    The document store, the market-data store and the index cache all default
+    to `platformdirs.user_data_dir`. Any test that built a server without
+    passing `storage_root` wrote into the developer's real store -- found when
+    sixty job results from a day of suite runs turned up there beside real
+    work. Patching the one function all three call closes every such path at
+    once, including ones not written yet.
+    """
+    root = tmp_path_factory.mktemp("app-data")
+
+    def user_data_dir(appname: str | None = None,
+                      *args: object,
+                      **kwargs: object) -> str:
+        return str(root / (appname or ""))
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(platformdirs, "user_data_dir", user_data_dir)
+        yield
 
 
 def wire_fetch_price(provider,

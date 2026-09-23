@@ -46,6 +46,7 @@ from ..schemas import (
     MODE_LIVE,
     SOURCE_SEEDED,
     SOURCE_USER,
+    ErrorEnvelope,
     ExpressionNode,
     Finding,
     Identifier,
@@ -60,7 +61,7 @@ from ..store import DocumentStore
 
 require("fastapi", "The Beacon API server")
 
-from fastapi import APIRouter, Query, Request, Response, status  # noqa: E402
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status  # noqa: E402
 
 COLLECTION = "universes"
 
@@ -310,14 +311,28 @@ def _members_for(request: Request,
     return members
 
 
+READ_ONLY_RESPONSE: dict[int | str, dict[str, Any]] = {
+    409: {"model": ErrorEnvelope,
+          "description": "The universe was seeded from the dataset and is "
+                         "read-only."}}
+
+
 def _refuse_if_seeded(document: dict[str, Any],
                       universe_id: str) -> None:
-    """Stop an edit to a generator-written universe."""
+    """Stop an edit to a generator-written universe.
+
+    409 rather than the 422 it was. Nothing in the request is wrong -- the
+    same body would be accepted against any other id -- so telling the client
+    its request failed validation sent it looking at the wrong thing, and the
+    fuzz run read it as the server refusing a request its spec allows
+    (BN-131). The target's state is what refuses, which is what 409 says.
+    """
     if document.get("source") == SOURCE_SEEDED:
-        raise InvalidRuleError(
-            f"universe '{universe_id}'",
-            "it was written by the data generator and is read-only. Copy it "
-            "with POST /universes to make an editable version.")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Universe '{universe_id}' was written by the data "
+                   f"generator and is read-only. Copy it with POST /universes "
+                   f"to make an editable version.")
 
 
 def load_universe(request: Request,
@@ -466,7 +481,9 @@ def build_universes_router() -> APIRouter:
 
         return universe
 
-    @router.put("/{universe_id}", response_model=Universe)
+    @router.put("/{universe_id}",
+                response_model=Universe,
+                responses=READ_ONLY_RESPONSE)
     def put_universe(request: Request,
                      universe_id: Identifier,
                      body: UniverseUpsert) -> Universe:
@@ -503,7 +520,9 @@ def build_universes_router() -> APIRouter:
 
         return universe
 
-    @router.delete("/{universe_id}", status_code=status.HTTP_204_NO_CONTENT)
+    @router.delete("/{universe_id}",
+                   status_code=status.HTTP_204_NO_CONTENT,
+                   responses=READ_ONLY_RESPONSE)
     def delete_universe(request: Request,
                         universe_id: Identifier) -> Response:
         """Remove a universe, whether or not the server can read it.

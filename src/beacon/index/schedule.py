@@ -507,9 +507,32 @@ def calendar_region(calendar: str) -> tuple[str, str]:
     Atlantic, Africa, Pacific, and two on bare UTC, which report "UTC" as their
     own region rather than being forced into a continent they do not have.
     """
-    zone = str(exchange_calendars.get_calendar(calendar).tz)
+    zone = _timezone_of(calendar)
 
     return zone.split("/", maxsplit=1)[0], zone
+
+
+def _timezone_of(calendar: str) -> str:
+    """A calendar's IANA timezone, without building the calendar.
+
+    `get_calendar` computes every session over its whole default range, about
+    0.12s a calendar, so listing all 102 took 12 seconds and a client asking
+    for the dropdown timed out (BN-131, found by the fuzz run). The timezone
+    is a class attribute and needs none of that, so it is read off the class.
+
+    The class is found through the dispatcher's factory table, which is
+    private -- hence the fallback: a calendar registered as an instance
+    rather than a class, or a package release that renames the table, costs
+    speed and nothing else.
+    """
+    dispatcher = exchange_calendars.calendar_utils.global_calendar_dispatcher
+    factories = getattr(dispatcher, "_calendar_factories", {})
+    factory = factories.get(dispatcher.resolve_alias(calendar))
+
+    if factory is not None:
+        return str(factory.tz)
+
+    return str(exchange_calendars.get_calendar(calendar).tz)
 
 
 def is_known_calendar(calendar: str) -> bool:

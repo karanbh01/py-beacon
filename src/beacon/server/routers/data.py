@@ -73,6 +73,7 @@ from ..serialisation import dataframe_to_payload
 require("fastapi", "The Beacon API server")
 
 from fastapi import APIRouter, Query, Request, Response, status  # noqa: E402
+from pydantic import StringConstraints  # noqa: E402
 
 # Resolutions this router can honestly serve. The stored data is the native
 # frequency; the other two are derived by taking each period's last
@@ -115,6 +116,16 @@ DatasetsQuery = Annotated[
 IdentifiersQuery = Annotated[
     list[str] | None,
     Query(description="Identifiers to look up. Repeat the parameter or "
+                      f"comma-separate; at most {MAX_BATCH} per call.")]
+# The batch reads cannot answer without a name, and said so only at runtime --
+# a 422 from one and a 404 from the other -- while the spec called the
+# parameter optional. Required here, so the spec says what the code enforces
+# (BN-131). The runtime checks stay: `?identifiers=,` passes this and names
+# nobody.
+RequiredIdentifiersQuery = Annotated[
+    list[Annotated[str, StringConstraints(min_length=1)]],
+    Query(min_length=1,
+          description="Identifiers to look up. Repeat the parameter or "
                       f"comma-separate; at most {MAX_BATCH} per call.")]
 FieldsQuery = Annotated[
     list[str] | None,
@@ -477,7 +488,7 @@ def build_data_router() -> APIRouter:
     # makes the batch form the obvious default rather than an afterthought.
     @router.get("/reference", response_model=BatchReferenceResponse)
     def reference_batch(request: Request,
-                        identifiers: IdentifiersQuery = None,
+                        identifiers: RequiredIdentifiersQuery,
                         date: AsOfQuery = None,
                         fields: FieldsQuery = None,
                         currency: CurrencyQuery = None) -> BatchReferenceResponse:
@@ -595,7 +606,7 @@ def build_data_router() -> APIRouter:
 
     @router.get("/features", response_model=FeatureBatchResponse)
     def features_batch(request: Request,
-                       identifiers: IdentifiersQuery = None,
+                       identifiers: RequiredIdentifiersQuery,
                        date: AsOfQuery = None,
                        fields: FieldsQuery = None,
                        type: TypeQuery = None) -> FeatureBatchResponse:

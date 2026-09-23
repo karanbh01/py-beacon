@@ -360,7 +360,7 @@ class TestRenderingAStoredTemplate:
         response = client.post("/reports/render",
                                json={"template_id": "empty"}, headers=auth())
 
-        assert response.status_code == 500
+        assert response.status_code == 409
         assert "no blocks" in response.json()["error"]["message"]
 
     def test_content_that_does_not_fit_fails_the_job(self,

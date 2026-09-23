@@ -124,13 +124,13 @@ class TestTheSeededGlobalUniverse:
         response = client.put(f"/universes/{GLOBAL_ID}", headers=HEADERS,
                               json={"name": "Mine", "identifiers": known[:1]})
 
-        assert response.status_code == 422
+        assert response.status_code == 409
         assert "read-only" in response.json()["error"]["message"]
 
     def test_it_cannot_be_deleted(self,
                                   client):
         assert client.delete(f"/universes/{GLOBAL_ID}",
-                             headers=HEADERS).status_code == 422
+                             headers=HEADERS).status_code == 409
 
     def test_the_refusal_says_how_to_proceed(self,
                                              client,

@@ -55,6 +55,7 @@ from ..weights import build_weights
 require("fastapi", "The Beacon API server")
 
 from fastapi import APIRouter, Query, Request, status  # noqa: E402
+from pydantic import StringConstraints  # noqa: E402
 
 BenchmarkQuery = Annotated[
     str | None,
@@ -74,7 +75,11 @@ StartQuery = Annotated[str | None,
                        Query(description="Inclusive start date, YYYY-MM-DD.")]
 EndQuery = Annotated[str | None,
                      Query(description="Inclusive end date, YYYY-MM-DD.")]
-IdsQuery = Annotated[list[str],
+# Each id non-empty in the spec as well as in the store's check, so a client
+# reading the document knows `?ids=` names nothing (BN-131). "Two or more"
+# stays a runtime check: `min_length=2` would be true but would turn a
+# coded DATA_NOT_FOUND saying how many were given into a bare validation error.
+IdsQuery = Annotated[list[Annotated[str, StringConstraints(min_length=1)]],
                      Query(description="Index ids to compare, two or more.")]
 
 

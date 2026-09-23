@@ -356,9 +356,7 @@ def build_indices_router() -> APIRouter:
 
         return ValidationReport(valid=not has_errors(findings), findings=findings)
 
-    @router.post("/preview",
-                 response_model=PreviewResponse,
-                 responses={422: {"model": ValidationReport}})
+    @router.post("/preview", response_model=PreviewResponse)
     def preview_document(request: Request,
                          body: PreviewDocumentRequest) -> PreviewResponse:
         # The draft route. Its by-id sibling below reads what is *stored*, so

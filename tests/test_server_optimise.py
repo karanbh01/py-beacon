@@ -297,6 +297,20 @@ class TestConstraintSetValidation:
 
         assert response.status_code == 422
 
+    def test_the_refusal_carries_its_findings_as_data(self,
+                                                      client):
+        """BN-131: the findings arrived printed into the message as a Python
+        dict, under code HTTP_ERROR. Now the same shape the index editor gets."""
+        response = client.put("/optimise/constraint-sets/broken",
+                              json={"id": "broken", "name": "Broken",
+                                    "constraints": [{"type": "Nope", "params": {}}]},
+                              headers=auth())
+        error = response.json()["error"]
+
+        assert error["code"] == "INVALID_RULE"
+        assert any(finding["code"] == "UNKNOWN_CONSTRAINT_TYPE"
+                   for finding in error["detail"]["findings"])
+
 
 class TestRun:
 

@@ -118,7 +118,9 @@ class TestDatesAreCheckedAtTheEdge:
     """Date fields were plain strings, so anything reached the parser."""
 
     @pytest.mark.parametrize("value", ["", "0000-00-00", "2024-02-31",
-                                       "not-a-date", "2024-1-5"])
+                                       "not-a-date", "2024-1-5",
+                                       "೨೦೨೪-01-05",
+                                       "1500-01-01"])
     def test_an_unusable_date_is_refused(self,
                                          client,
                                          value):
@@ -205,13 +207,47 @@ class TestAValueErrorIsNotAServerFault:
 class TestAMalformedBlockIsRefusedOnSave:
     """`{"blocks": [{}]}` reached the renderer and came back as 500."""
 
+    @pytest.mark.parametrize("block", [{}, {"kind": {}}, {"kind": ["text"]}])
     def test_an_unknown_block_kind_is_refused(self,
-                                              client):
+                                              client,
+                                              block):
+        """`{"kind": {}}` was a 500: an unhashable kind raised TypeError on
+        the membership test meant to refuse it (BN-131)."""
         response = client.put("/reports/templates/t1", headers=HEADERS,
                               json={"name": "T", "template_id": "t1",
-                                    "blocks": [{}]})
+                                    "blocks": [block]})
 
         assert response.status_code == 422
+
+    @pytest.mark.parametrize(("block", "reason"), [
+        ({"kind": "table"}, "missing its 'columns' field"),
+        ({"kind": "table", "columns": ["a"], "rows": [["1", "2"]]}, "2 cells"),
+        ({"kind": "text", "body": "x", "bogus": 1}, "bogus"),
+    ])
+    def test_a_known_kind_it_cannot_build_is_refused_by_position(self,
+                                                                 client,
+                                                                 block,
+                                                                 reason):
+        """A valid `kind` gets past the schema, so the block model is the
+        next thing to see the block -- and `{"kind": "table"}` raised
+        `KeyError: 'columns'` there, a 500 (BN-131)."""
+        response = client.put("/reports/templates/t4", headers=HEADERS,
+                              json={"name": "T", "template_id": "t4",
+                                    "blocks": [{"kind": "text", "body": "ok"},
+                                               block]})
+        message = response.json()["error"]["message"]
+
+        assert response.status_code == 422
+        assert "block 1" in message
+        assert reason in message
+
+    def test_the_spec_says_what_a_block_kind_is(self,
+                                                client):
+        schema = client.get("/openapi.json").json()["components"]["schemas"]
+        item = schema["ReportTemplateDocument"]["properties"]["blocks"]["items"]
+
+        assert item["required"] == ["kind"]
+        assert "text" in item["properties"]["kind"]["enum"]
 
     def test_the_error_names_the_position_and_the_options(self,
                                                           client):
@@ -380,6 +416,53 @@ class TestReservedIdentifiers:
             assert response.status_code in (200, 201), identifier
 
 
+class TestAMissingMethodIsA405:
+    """BN-131: `PUT /indices/validate` fell through to `PUT /indices/{id}`.
+
+    The router counts a parameter matching the literal text as a match, so a
+    method a fixed path does not support was answered by its parameterised
+    sibling -- 422 for the body, or the reserved-id refusal -- when the truth
+    is that the verb does not exist there. Derived from the spec, so a fixed
+    path added later is covered without being listed.
+    """
+
+    VERBS = ("GET", "POST", "PUT", "DELETE", "PATCH")
+
+    def test_every_fixed_path_refuses_its_undocumented_verbs(self,
+                                                             client):
+        paths = client.get("/openapi.json").json()["paths"]
+        wrong = []
+
+        for path, operations in paths.items():
+            if "{" in path:
+                continue
+
+            for verb in self.VERBS:
+                if verb.lower() in operations:
+                    continue
+
+                response = client.request(verb, path, headers=HEADERS)
+
+                if response.status_code != 405 or "allow" not in response.headers:
+                    wrong.append(f"{verb} {path} -> {response.status_code}")
+
+        assert not wrong, wrong
+
+    def test_the_refusal_is_in_the_envelope(self,
+                                            client):
+        response = client.put("/optimise/constraint-sets/validate",
+                              headers=HEADERS, json={})
+
+        assert response.json()["error"]["code"] == "METHOD_NOT_ALLOWED"
+        assert response.headers["allow"] == "POST"
+
+    def test_a_documented_verb_is_untouched(self,
+                                            client):
+        """Guards the test above: refusing everything would pass it."""
+        assert client.get("/indices/calendars",
+                          headers=HEADERS).status_code == 200
+
+
 class TestTheFrequencyStaysAStringOnPurpose:
     """Declaring the four cadences would silence a fuzz finding and cost the
     thing the finding was protecting.
@@ -413,6 +496,85 @@ class TestTheFrequencyStaysAStringOnPurpose:
         field = spec["components"]["schemas"]["IndexDocument"]["properties"]
 
         assert "enum" not in field["rebalancing_frequency"]
+
+
+class TestWhatTheFuzzerStillFlagsOnPurpose:
+    """The residue of "API rejected schema-compliant request", each a call.
+
+    The rule applied to every one: tighten the spec where it can say the rule
+    plainly; keep it looser than the code where the refusal carries a coded
+    reason the spec could not. What is left is one of three kinds.
+
+    **Depends on the loaded data.** An unknown reference column, an identifier
+    the dataset does not carry. The spec is fixed at startup and cannot know
+    either, and the refusal lists what is available.
+
+    **Relates two fields.** `end_date` after `start_date`; an index document
+    carrying a pipeline or a derivation; a universe carrying identifiers or a
+    filter. JSON Schema can spell the last two with `anyOf` over `required`
+    sets, and generated clients turn that into types nobody can use -- for a
+    model the editor is built on, that is the wrong trade.
+
+    **Would need contortion to state.** `currency` accepts blank for the
+    default, any case, and surrounding space; a pattern saying all that is
+    harder to read than the sentence it answers with.
+
+    The catalogue-driven `type` fields -- constraint types, rule types -- stay
+    free strings for the reason `TestTheFrequencyStaysAStringOnPurpose` gives,
+    and block kinds became an enum only because `BLOCK_TYPES` is a fixed dict.
+
+    Each is pinned to its coded refusal, so the answer a client gets instead
+    of a schema error is itself held in place.
+    """
+
+    @pytest.mark.parametrize(("path", "params", "fragment"), [
+        ("/data/reference", {"identifiers": "AAA", "currency": "null"},
+         "not a currency code"),
+        ("/data/reference/AAA", {"fields": "null"},
+         "unknown reference column"),
+    ])
+    def test_a_data_dependent_query_is_refused_with_its_reason(self,
+                                                               client,
+                                                               path,
+                                                               params,
+                                                               fragment):
+        response = client.get(path, headers=HEADERS, params=params)
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_RULE"
+        assert fragment in response.json()["error"]["message"]
+
+    def test_a_universe_naming_nobody_says_so(self,
+                                              client):
+        response = client.post("/universes", headers=HEADERS,
+                               json={"name": "Nobody", "mode": "frozen"})
+        findings = response.json()["error"]["detail"]["findings"]
+
+        assert response.status_code == 422
+        assert [finding["code"] for finding in findings] == ["EMPTY_UNIVERSE"]
+
+    def test_a_universe_naming_unknown_members_names_them(self,
+                                                          client):
+        response = client.post("/universes", headers=HEADERS,
+                               json={"name": "Ghosts", "identifiers": ["ZZZ"]})
+        findings = response.json()["error"]["detail"]["findings"]
+
+        assert response.status_code == 422
+        assert findings[0]["code"] == "UNKNOWN_IDENTIFIER"
+        assert "ZZZ" in findings[0]["message"]
+
+    def test_an_index_with_neither_pipeline_nor_derivation_says_which(self,
+                                                                     client):
+        response = client.post("/indices/validate", headers=HEADERS,
+                               json={"id": "X", "name": "X",
+                                     "base_date": "2024-01-02",
+                                     "base_value": 1000.0, "calendar": "XNYS",
+                                     "currency": "USD",
+                                     "rebalancing_frequency": "MONTHLY"})
+        message = str(response.json()["error"]["detail"])
+
+        assert response.status_code == 422
+        assert "pipeline, universe are missing" in message
 
 
 class TestValidationErrorsSerialise:

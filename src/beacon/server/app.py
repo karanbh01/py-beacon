@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from .errors import register_exception_handlers  # noqa: E402
 from .jobs import JobRegistry  # noqa: E402
+from .methods import LiteralPathMethods  # noqa: E402
 from .routers import (  # noqa: E402
     build_beacon_router,
     build_coverage_router,
@@ -192,6 +193,9 @@ def create_app(config: ServerConfig) -> FastAPI:
     app.state.jobs = JobRegistry(
         result_store=DocumentStore("job_results", root=config.storage_root))
 
+    # Added before CORS so CORS wraps it: a 405 without CORS headers reaches
+    # a browser as an opaque network failure rather than as a 405.
+    app.add_middleware(LiteralPathMethods, api=app)
     app.add_middleware(CORSMiddleware,
                        allow_origins=list(config.cors_origins),
                        allow_origin_regex=LOCALHOST_ORIGIN_PATTERN,

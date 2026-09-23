@@ -35,7 +35,8 @@ from typing import Any
 
 import pandas as pd
 
-from ..exceptions import DataNotFoundError, ReportingError
+from .._optional import require
+from ..exceptions import DataNotFoundError
 from ..report.blocks import (
     BarChart,
     Chart,
@@ -50,6 +51,10 @@ from ..report.blocks import (
 from ..report.pdf import render
 from .jobs import ProgressReporter
 from .schemas import RenderRequest, RenderResult
+
+require("fastapi", "The Beacon API server")
+
+from fastapi import HTTPException, status  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +222,14 @@ def ensure_renderable(template: ReportTemplate) -> None:
     renderer's answer, and it gives a better one — naming the block that
     overflowed — so it is left to say it.
     """
+    # 409 rather than the 500 ReportingError gave: nothing failed, and the
+    # server was reporting itself broken over an empty template (BN-131). Not
+    # 422 either, because nothing in the request is wrong -- the same body
+    # renders any template that has content. The stored template's state is
+    # what refuses, which is the same call as the read-only GLOBAL universe.
     if not template.blocks:
-        raise ReportingError(
-            f"template '{template.template_id}' has no blocks, so it would "
-            f"render an empty page.")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Template '{template.template_id}' has no blocks, so it "
+                   f"would render an empty page. Add a block and save it "
+                   f"first.")

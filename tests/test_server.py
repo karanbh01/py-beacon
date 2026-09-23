@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 from typing import ClassVar
+from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
@@ -280,6 +281,35 @@ class TestLauncher:
         finally:
             sock.close()
 
+    def test_a_taken_port_is_refused_rather_than_shared(self):
+        """On Windows, SO_REUSEADDR let a second server bind a port already in
+        use, and the two split incoming requests between them. A local fuzz
+        run was answered partly by two stale servers from weeks earlier,
+        running old code, and reported their bugs as current."""
+        first = bind_socket("127.0.0.1", 0)
+        try:
+            port = first.getsockname()[1]
+
+            with pytest.raises(OSError):
+                bind_socket("127.0.0.1", port).close()
+        finally:
+            first.close()
+
+    def test_documents_directory_reaches_the_config(self,
+                                                    tmp_path,
+                                                    monkeypatch):
+        """Without it, a fuzz run against a throwaway data store still wrote
+        its documents into the real app-data store."""
+        seen = {}
+        monkeypatch.setattr("beacon.server.__main__.create_app",
+                            lambda config: seen.setdefault("config", config))
+        monkeypatch.setattr("beacon.server.__main__.uvicorn.Server",
+                            MagicMock())
+
+        main(["--token", "t", "--documents", str(tmp_path)])
+
+        assert seen["config"].storage_root == tmp_path
+
     def test_missing_token_exits_with_2(self,
                                         monkeypatch,
                                         capsys):
@@ -358,6 +388,27 @@ class TestErrorEnvelope:
 
     def test_specific_mapping_beats_the_catch_all(self):
         assert classify(DataNotFoundError("x"))[1] == "DATA_NOT_FOUND"
+
+    def test_a_fault_outside_the_library_still_gets_the_envelope(self):
+        """BN-131: a `KeyError` that escaped every guard used to reach the
+        client as `text/plain` "Internal Server Error" -- no code, no message,
+        and a content type the spec does not document. It now carries the code
+        the same fault gets when it escapes a background job."""
+        app = create_app(ServerConfig(auth_token=TOKEN))
+
+        @app.get("/boom")
+        def boom() -> None:
+            raise KeyError("CLOSE")
+
+        response = TestClient(app, raise_server_exceptions=False).get(
+            "/boom", headers=auth())
+        error = response.json()["error"]
+
+        assert response.status_code == 500
+        assert response.headers["content-type"] == "application/json"
+        assert error["code"] == "UNEXPECTED_CALCULATION_FAILURE"
+        assert error["detail"]["original_type"] == "KeyError"
+        assert error["detail"]["calculation_name"] == "GET /boom"
 
 
 class TestARefusalAndACrashAreDifferentCodes:

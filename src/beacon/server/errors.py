@@ -279,6 +279,24 @@ def register_exception_handlers(app: "FastAPI") -> None:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content=_envelope(ARGUMENT_CODE, str(exc)))
 
+    # Last, and for anything the handlers above do not claim. Without it a
+    # fault that escaped every guard reached the client as `text/plain`
+    # "Internal Server Error": no envelope, no code, nothing a client could
+    # branch on, and an undocumented content type besides (BN-131). It goes
+    # through `failure_envelope`, so an escaped fault publishes
+    # UNEXPECTED_CALCULATION_FAILURE with its `original_type` -- the same code
+    # the same fault gets when it escapes a background job.
+    #
+    # Starlette still re-raises after sending this, so the traceback reaches
+    # the server log exactly as before; this changes only what the client sees.
+    @app.exception_handler(Exception)
+    async def handle_unexpected(request: Request,
+                                exc: Exception) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": failure_envelope(
+                exc, f"{request.method} {request.url.path}")})
+
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request,
                                       exc: RequestValidationError) -> JSONResponse:

@@ -26,6 +26,7 @@ implementation is wrong: the third Friday of April 2025 is Good Friday, and the
 """
 import inspect
 import json
+import time
 
 import exchange_calendars
 import pandas as pd
@@ -1148,11 +1149,30 @@ class TestPublishedCalendars:
         """Stated as a test because the whole argument for deriving the region
         is that no table exists to fall out of date. A mapping that exists will
         be used."""
-        source = inspect.getsource(schedule.calendar_region)
+        source = (inspect.getsource(schedule.calendar_region)
+                  + inspect.getsource(schedule._timezone_of))
 
-        assert "get_calendar" in source
+        assert ".tz" in source
         assert not any(word in source
                        for word in ("European", "American", "Asian"))
+
+    @pytest.mark.parametrize("code", ["XNYS", "XLON", "ASX", "BMF", "24/7"])
+    def test_the_class_timezone_is_the_built_calendars(self,
+                                                       code):
+        """The shortcut reads the class instead of building the calendar
+        (BN-131). Checked across all 102 when it was written; a sample
+        including two aliases and a UTC calendar pins it here."""
+        assert (schedule.calendar_region(code)[1]
+                == str(exchange_calendars.get_calendar(code).tz))
+
+    def test_listing_every_region_builds_no_calendar(self):
+        """It took 12 seconds, and the fuzz run's client gave up at 10."""
+        started = time.perf_counter()
+
+        for code in schedule.known_calendars():
+            schedule.calendar_region(code)
+
+        assert time.perf_counter() - started < 1.0
 
     def test_it_needs_no_data_source(self, client):
         """Like `/indices/rule-types`: it describes what the library can do,
@@ -1164,11 +1184,16 @@ class TestPublishedCalendars:
     def test_it_is_not_swallowed_as_an_index_id(self, client):
         """`calendars` sits beside `/indices/{index_id}`, so it is reserved —
         otherwise `PUT /indices/calendars` would store a document there and the
-        URL would mean different things by verb."""
+        URL would mean different things by verb.
+
+        405 since BN-131: the path exists and PUT is not one of its methods,
+        which is what the answer should say. The reservation still stands
+        behind it for any route that reaches the store."""
         response = client.put("/indices/calendars", json=document(id="calendars"),
                               headers=auth())
 
-        assert response.status_code == 422
+        assert response.status_code == 405
+        assert response.headers["allow"] == "GET, HEAD"
 
 
 class TestCalendarCoverage:

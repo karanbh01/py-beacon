@@ -18,6 +18,7 @@ from pydantic import (
     Field,
     RootModel,
     SerializerFunctionWrapHandler,
+    WithJsonSchema,
     field_validator,
     model_serializer,
     model_validator,
@@ -134,11 +135,22 @@ Pct = Annotated[float, Field(description="Fraction, not percent: 0.0523 means 5.
 # can see what a date is instead of discovering it.
 #
 # The pattern is the *shape*, which is what belongs in the OpenAPI document —
-# a client can read `^\d{4}-\d{2}-\d{2}$` and know what to send. It cannot
-# express whether a date exists, so `0000-00-00` and `2024-02-31` satisfy it
-# and then fail in the parser. The validator below closes that, because a
-# request that cannot be parsed is still the client's error and answering 500
-# would be a lie about whose fault it was.
+# a client can read it and know what to send. It was `^\d{4}-\d{2}-\d{2}$`,
+# which the fuzz run kept satisfying with `0000-00-00`: shaped right, refused
+# by the validator, and so reported as the server rejecting a request its own
+# spec allowed. It now bounds what a regex can: months 01-12, days 01-31, and
+# years 1700-2199, inside the range a pandas timestamp can hold (1677-2262)
+# rather than the four digits a year could spell. `format: date` says the rest
+# to a reader that honours it.
+#
+# `[0-9]`, never `\d`: both regex engines read `\d` as any Unicode digit, and
+# pandas parses a year written in Kannada digits as happily as one in ASCII,
+# so the fuzz run priced a swap ending in one.
+#
+# What neither the pattern nor the format can say is how long each month is,
+# so `2024-02-31` still passes both and fails in the validator below -- a 422
+# with the reason, because a request that cannot be parsed is still the
+# client's error and answering 500 would be a lie about whose fault it was.
 # What a stored document's identifier may contain.
 #
 # The server already refused anything else -- a document id becomes a
@@ -152,7 +164,7 @@ Pct = Annotated[float, Field(description="Fraction, not percent: 0.0523 means 5.
 # ever used one in an identifier.
 IDENTIFIER_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
-ISO_DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
+ISO_DATE_PATTERN = r"^(1[7-9]|2[01])[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
 def _real_date(value: str) -> str:
     """Reject a well-shaped string that is not a date anyone could observe."""
     try:
@@ -164,6 +176,7 @@ def _real_date(value: str) -> str:
 
 
 IsoDate = Annotated[str, Field(pattern=ISO_DATE_PATTERN,
+                               json_schema_extra={"format": "date"},
                                description="Calendar date, YYYY-MM-DD."),
                     AfterValidator(_real_date)]
 Identifier = Annotated[str, Field(pattern=IDENTIFIER_PATTERN,
@@ -1589,7 +1602,17 @@ class ReportTemplateDocument(BaseModel):
     page: dict[str, Any] = Field(
         default_factory=dict,
         description="Page setup: size, orientation, margin.")
-    blocks: list[dict[str, Any]] = Field(
+    # Each item published as "an object whose `kind` is one of these", and
+    # nothing more: the same scope as the validator below, now readable from
+    # the spec. `[{}]` used to satisfy the published schema and be refused
+    # here, which the fuzz run reported as a compliant request rejected
+    # (BN-131). The contents stay free-form for the reason given above.
+    blocks: list[Annotated[dict[str, Any], WithJsonSchema({
+        "type": "object",
+        "required": ["kind"],
+        "properties": {"kind": {"type": "string",
+                                "enum": sorted(BLOCK_TYPES)}},
+        "additionalProperties": True})]] = Field(
         default_factory=list,
         description="Content, drawn top to bottom. Each carries a `kind`, "
                     f"one of: {', '.join(sorted(BLOCK_TYPES))}.")
@@ -1610,7 +1633,9 @@ class ReportTemplateDocument(BaseModel):
         for position, block in enumerate(blocks):
             kind = block.get("kind")
 
-            if kind not in BLOCK_TYPES:
+            # The type first: `{"kind": {}}` raised TypeError on the set
+            # lookup below, and answered 500 (BN-131).
+            if not isinstance(kind, str) or kind not in BLOCK_TYPES:
                 raise ValueError(
                     f"block {position} has kind {kind!r}; expected one of "
                     f"{', '.join(sorted(BLOCK_TYPES))}")
@@ -1630,9 +1655,9 @@ class ReportTemplateCollection(TolerantCollection):
 
 class RenderRequest(BaseModel):
     """Body of `POST /reports/render`."""
-    template_id: str = Field(
+    template_id: Identifier = Field(
         description="A stored template, or a built-in such as FACTSHEET-A4.")
-    index_id: str | None = Field(
+    index_id: Identifier | None = Field(
         default=None,
         description="Required for a built-in template, which is generated from "
                     "that index's latest completed backtest. Ignored for a "
@@ -1657,50 +1682,61 @@ class RenderResult(BaseModel):
                     "gives two `rendered_at` values over identical content.")
 
 
+# A number that must arrive as a number. Lax mode reads JSON `false` as 0.0,
+# and the fuzz run priced a future with `time_to_expiry: false` -- a 200 for a
+# contract expiring now, from a request the spec says is malformed (BN-131). A
+# pricer is where that matters most: the answer looks like an answer.
+#
+# Per field rather than `strict=True` on the model, because FastAPI validates
+# a body in Python mode, where a strict model also refuses a JSON array for a
+# tuple -- and `dividends` is a list of pairs. An integer is still a number.
+Number = Annotated[float, Field(strict=True)]
+
+
 class FuturesPriceRequest(BaseModel):
     """Body of `POST /derivatives/futures/price`.
 
     Stateless: every input the calculation needs is here, and nothing is read
     from or written to storage.
     """
-    spot: float = Field(gt=0.0, description="Spot price of the underlying.")
-    risk_free_rate: float = Field(
+    spot: Number = Field(gt=0.0, description="Spot price of the underlying.")
+    risk_free_rate: Number = Field(
         default=0.0,
         description="Continuously compounded financing rate. Ignored when "
                     "`curve` is supplied.")
-    curve: dict[str, float] | None = Field(
+    curve: dict[str, Number] | None = Field(
         default=None,
         description="Zero-rate pillars as {tenor_in_years: rate}. A flat curve "
                     "and a scalar rate give identical answers, so supplying "
                     "one changes nothing unless the curve has shape.")
-    dividend_yield: float = Field(
+    dividend_yield: Number = Field(
         default=0.0, description="Continuous dividend yield.")
-    borrow_cost: float = Field(
+    borrow_cost: Number = Field(
         default=0.0, description="Continuous borrow or financing spread.")
-    dividends: list[tuple[float, float]] | None = Field(
+    dividends: list[tuple[Number, Number]] | None = Field(
         default=None,
         description="Discrete cash dividends as (years_to_ex, amount). When "
                     "present these are used instead of the continuous yield: "
                     "the two are different models of the same thing and "
                     "applying both would double-count.")
     valuation_date: IsoDate | None = Field(default=None, description="YYYY-MM-DD.")
-    expiry: str | None = Field(default=None, description="YYYY-MM-DD.")
-    time_to_expiry: float | None = Field(
+    expiry: IsoDate | None = Field(default=None, description="YYYY-MM-DD.")
+    time_to_expiry: Number | None = Field(
         default=None,
         description="Years to expiry. Dates win when both are given, being the "
                     "less ambiguous statement.")
-    contract_multiplier: float = Field(
+    contract_multiplier: Number = Field(
         default=1.0, description="Index points per contract.")
-    contracts: float = Field(default=1.0, description="Number of contracts.")
-    market_price: float | None = Field(
+    contracts: Number = Field(default=1.0, description="Number of contracts.")
+    market_price: Number | None = Field(
         default=None,
         description="Quoted price, for the basis and implied repo. Both are "
                     "null without one rather than computed against the "
                     "theoretical value, which would make them identically "
                     "zero.")
-    grid_tenors: list[float] | None = Field(
+    grid_tenors: list[Number] | None = Field(
         default=None, description="Rows of the sensitivity grid, in years.")
-    grid_rates: list[float] | None = Field(
+    grid_rates: list[Number] | None = Field(
         default=None, description="Columns of the sensitivity grid.")
 
 
@@ -1754,10 +1790,10 @@ class TrsPriceRequest(BaseModel):
     currency: str = Field(default="USD")
     start_date: IsoDate
     end_date: IsoDate
-    notional: float = Field(gt=0.0)
-    spread_bps: float = Field(default=0.0)
+    notional: Number = Field(gt=0.0)
+    spread_bps: Number = Field(default=0.0)
     reference_rate: str = Field(default="SOFR", description="Name of the index.")
-    reference_rate_value: float = Field(
+    reference_rate_value: Number = Field(
         default=0.0, description="Its current fixing, as a decimal.")
     payment_frequency: str = Field(default="QUARTERLY")
     reset_type: str = Field(
@@ -1767,10 +1803,10 @@ class TrsPriceRequest(BaseModel):
     valuation_date: IsoDate
     last_reset_date: IsoDate | None = Field(
         default=None, description="Defaults to the start date.")
-    spot: float = Field(gt=0.0, description="Underlying level today.")
-    initial_price: float = Field(
+    spot: Number = Field(gt=0.0, description="Underlying level today.")
+    initial_price: Number = Field(
         gt=0.0, description="Level at inception or last reset.")
-    dividend_yield: float = Field(
+    dividend_yield: Number = Field(
         default=0.0,
         description="Continuous dividend yield on the underlying, used **only** "
                     "for the breakeven table, alongside `futures_prices` and "
@@ -1779,12 +1815,12 @@ class TrsPriceRequest(BaseModel):
                     "`spot` against `initial_price`, and that ratio already "
                     "carries whatever the underlying paid. Sending it without "
                     "`futures_prices` changes nothing in the response.")
-    time_to_expiry: float | None = Field(
+    time_to_expiry: Number | None = Field(
         default=None, description="Needed for the breakeven table.")
-    futures_prices: list[float] | None = Field(
+    futures_prices: list[Number] | None = Field(
         default=None,
         description="Prices to compute breakeven spreads against.")
-    curve: dict[str, float] | None = Field(
+    curve: dict[str, Number] | None = Field(
         default=None,
         description="Zero-rate pillars for projecting future periods. The "
                     "current period always accrues at the rate already fixed "
@@ -2173,8 +2209,9 @@ class ConstraintTypes(BaseModel):
 
 class OptimisationRunRequest(BaseModel):
     """Body of `POST /optimise/runs`."""
-    index_id: str = Field(description="Index whose weights are the target.")
-    constraint_set_id: str = Field(description="Constraint set to solve under.")
+    index_id: Identifier = Field(description="Index whose weights are the target.")
+    constraint_set_id: Identifier = Field(
+        description="Constraint set to solve under.")
     as_of: str | None = Field(
         default=None,
         description="Which rebalance to target, YYYY-MM-DD. Defaults to the "

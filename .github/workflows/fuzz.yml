@@ -51,11 +51,16 @@ jobs:
       # code rather than a Python traceback. The JUnit report carries the
       # request that caused it, and the server's own log is uploaded beside
       # it, which covers the same ground.
+      #
+      # `--documents` keeps what the fuzzer saves out of the app-data store.
+      # Harmless on a fresh runner; run locally without it, a sweep writes
+      # dozens of junk documents into the developer's real store.
       - name: Start the server
         run: |
           python -m beacon.server \
             --host 127.0.0.1 --port 8765 \
-            --token fuzz-token --data .fuzzstore > fuzz-server.log 2>&1 &
+            --token fuzz-token --data .fuzzstore \
+            --documents .fuzzdocs > fuzz-server.log 2>&1 &
 
       # `--wait-for-schema` does the readiness wait, so there is no sleep to
       # tune and no race to lose on a slow runner.

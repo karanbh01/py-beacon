@@ -30,6 +30,7 @@ from ..constraints import (
     label_map,
     validate_constraint_set,
 )
+from ..definitions import PipelineValidationError
 from ..documents import load_document, read_collection, validated
 from ..jobs import JobRegistry
 from ..optimisation import (
@@ -56,7 +57,7 @@ from ..types import specs_for
 
 require("fastapi", "The Beacon API server")
 
-from fastapi import APIRouter, HTTPException, Query, Request, status  # noqa: E402
+from fastapi import APIRouter, Query, Request, status  # noqa: E402
 
 RiskFreeQuery = Annotated[
     float, Query(description="Rate the tangency point is measured against.")]
@@ -146,8 +147,7 @@ def build_optimise_router() -> APIRouter:
         return _constraint_set(request, set_id)
 
     @router.put("/constraint-sets/{set_id}",
-                response_model=SavedConstraintSet,
-                responses={422: {"model": ValidationReport}})
+                response_model=SavedConstraintSet)
     def put_set(request: Request,
                 set_id: Identifier,
                 body: ConstraintSet) -> SavedConstraintSet:
@@ -229,12 +229,16 @@ def build_optimise_router() -> APIRouter:
     return router
 
 
-def _rejected(findings: list[Any]) -> Any:
-    """A 422 carrying the validation report.
+def _rejected(findings: list[Any]) -> PipelineValidationError:
+    """A 422 carrying every finding, as structured data.
 
-    Raised rather than returned so the error handler renders it in the same
-    envelope as every other failure, with the findings intact.
+    Was an `HTTPException` whose detail was the report: the handler for those
+    renders `str(detail)`, so a client received code HTTP_ERROR and a Python
+    dict printed into the message -- the findings present and unparseable
+    (BN-131, found by the fuzz run). The index editor's error already carried
+    its findings in the envelope's `detail`, so this uses it and the two
+    editors read the same shape.
     """
-    return HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        detail=ValidationReport(valid=False, findings=findings).model_dump())
+    return PipelineValidationError("constraint set",
+                                   "it has errors",
+                                   findings)

@@ -85,6 +85,12 @@ def build_parser() -> argparse.ArgumentParser:
                         default=None,
                         help="data-store directory to serve; falls back to "
                              "$BEACON_DATA_PATH, then the app-data store")
+    parser.add_argument("--documents",
+                        type=Path,
+                        default=None,
+                        help="directory for saved documents (indices, "
+                             "universes, job results); defaults to the "
+                             "app-data location")
     parser.add_argument("--cors-origin",
                         action="append",
                         default=None,
@@ -113,7 +119,18 @@ def bind_socket(host: str,
         socket.socket: The bound, listening socket.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    # SO_REUSEADDR means different things on the two platforms. On POSIX it
+    # only lets a restart rebind past TIME_WAIT. On Windows it lets a second
+    # process bind a port another is already listening on, and the two then
+    # share incoming connections at random -- found when a fuzz run was
+    # answered partly by two stale servers from weeks earlier. Windows gets
+    # the opposite option instead, so a taken port fails loudly at bind.
+    if sys.platform == "win32":
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
     sock.bind((host, port))
     sock.listen()
 
@@ -150,7 +167,8 @@ def main(argv: list[str] | None = None) -> int:
             host=args.host,
             port=args.port,
             data_fetcher=fetcher,
-            cors_origins=resolve_cors_origins(args.cors_origins))
+            cors_origins=resolve_cors_origins(args.cors_origins),
+            storage_root=args.documents)
     except (ValueError, ConfigurationError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

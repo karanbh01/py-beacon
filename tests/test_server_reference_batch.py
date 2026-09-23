@@ -100,6 +100,16 @@ class TestRequestValidation:
         response = client.get("/data/reference", headers=auth())
 
         assert response.status_code == 422
+        assert (response.json()["error"]["detail"]["errors"][0]["loc"]
+                == ["query", "identifiers"])
+
+    def test_an_empty_list_is_still_rejected_with_the_reason(self, client):
+        """The spec cannot see inside a comma-separated value, so the runtime
+        check stays for `?identifiers=,`, which is present and names nobody."""
+        response = client.get("/data/reference", headers=auth(),
+                              params={"identifiers": ","})
+
+        assert response.status_code == 422
         assert "at least one identifier" in response.text
 
     def test_too_many_identifiers_is_rejected(self, client):

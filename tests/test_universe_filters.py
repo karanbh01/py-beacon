@@ -244,6 +244,18 @@ class TestTheApi:
 
         assert response.status_code == 422
 
+    def test_a_field_that_is_never_compared_is_refused(self,
+                                                       client):
+        """BN-131, found by the fuzz run: a bare field is a valid node, so it
+        passed the wire model, then the resolver raised `TypeError` and the
+        request answered a plain-text 500. A field is not a condition."""
+        response = self.created(client, name="Bare",
+                                filter=data.market.close.to_dict())
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_EXPRESSION"
+        assert "not a comparison" in response.json()["error"]["message"]
+
     def test_an_unknown_mode_is_refused(self,
                                         client):
         response = self.created(client, name="Odd", mode="sometimes",

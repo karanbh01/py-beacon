@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from ..._optional import require
-from ...exceptions import DataNotFoundError
-from ...report.blocks import ReportTemplate
+from ...exceptions import DataNotFoundError, InvalidRuleError, ReportingError
+from ...report.blocks import ReportTemplate, block_from_dict
 from ..documents import load_document, read_collection
 from ..jobs import JobRegistry
 from ..reports import (
@@ -30,6 +30,7 @@ from ..reports import (
     render_path,
 )
 from ..schemas import (
+    ErrorEnvelope,
     Identifier,
     RenderJobStatus,
     RenderRequest,
@@ -159,6 +160,7 @@ def build_reports_router() -> APIRouter:
         # Round-tripped through the block model on the way in, so a malformed
         # block is refused at save rather than at render — by which point the
         # person who wrote it has moved on.
+        _refuse_unbuildable(payload["blocks"])
         template = ReportTemplate.from_dict(payload)
         _store(request).write(template_id, template.to_dict())
 
@@ -179,7 +181,10 @@ def build_reports_router() -> APIRouter:
     # attach a task to.
     @router.post("/render",
                  response_model=RenderJobStatus,
-                 status_code=status.HTTP_202_ACCEPTED)
+                 status_code=status.HTTP_202_ACCEPTED,
+                 responses={409: {"model": ErrorEnvelope,
+                                  "description": "The stored template has no "
+                                                 "blocks to render."}})
     async def submit_render(request: Request,
                             body: RenderRequest) -> RenderJobStatus:
         # The template is resolved and checked before the job is submitted, so
@@ -216,3 +221,27 @@ def _as_document(entry: dict[str, Any]) -> dict[str, Any]:
     """A stored template with only the fields the wire model carries."""
     return {key: value for key, value in entry.items()
             if key in {"template_id", "name", "page", "blocks"}}
+
+
+def _refuse_unbuildable(blocks: list[dict[str, Any]]) -> None:
+    """Refuse a block its kind cannot be built from, naming which one.
+
+    The schema checks only `kind`, so `{"kind": "table"}` passed it and then
+    raised `KeyError: 'columns'` inside the block model -- a 500 for a block
+    missing a field (BN-131, found by the fuzz run). A block's own checks --
+    a table row wider than its header -- raise `ReportingError`, which is a
+    500 at render and the caller's mistake at save. Built one at a time here
+    so the refusal can say which block, which is the part a person with a
+    long template needs.
+    """
+    for position, block in enumerate(blocks):
+        try:
+            block_from_dict(block)
+        except KeyError as error:
+            raise InvalidRuleError(
+                f"block {position} ({block.get('kind')})",
+                f"it is missing its {error} field") from error
+        except (TypeError, ValueError, ReportingError) as error:
+            raise InvalidRuleError(
+                f"block {position} ({block.get('kind')})",
+                str(error)) from error

@@ -36,6 +36,7 @@ import pandas as pd
 from ..analysis.liquidity import TRAILING_MONTHS, average_daily_volume
 from ..data.features import MAX_AGE_DAYS
 from ..data.fetcher import DataFetcher
+from ..exceptions import ExpressionError
 from .core import (
     ALL,
     ANY,
@@ -127,8 +128,13 @@ def resolve(expression: Expression,
 
     # A bare `Field` is not a question. Reaching here means an expression was
     # built but never compared, which is a mistake worth surfacing rather than
-    # answering arbitrarily.
-    raise TypeError(f"cannot resolve {expression!r}: it is not a comparison.")
+    # answering arbitrarily. `ExpressionError` rather than `TypeError`: the
+    # expression may have come from a request, and a `TypeError` has no
+    # mapping, so a universe filter of a bare field answered a plain-text 500
+    # where it should have been told its filter was not a condition (BN-131).
+    raise ExpressionError(
+        f"cannot resolve {expression!r}: it is not a comparison. A screen "
+        f"must compare a field to a value, e.g. `market_cap > 1e9`.")
 
 
 def _compare(comparison: Comparison,
