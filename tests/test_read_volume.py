@@ -244,3 +244,110 @@ class TestTheNumbersDoNotMove:
         result = IndexCalculator(definition(names), fetcher).run(end_date=END)
 
         assert not result.index_levels.empty
+
+
+class CountingCalls(DataFetcher):
+    """Counts the per-name price reads and the rate lookups (BN-220)."""
+
+    def __init__(self,
+                 *args,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        self.price_calls = 0
+        self.rate_calls = 0
+
+    def fetch_price(self,
+                    identifier,
+                    date,
+                    column="CLOSE"):
+        self.price_calls += 1
+
+        return super().fetch_price(identifier, date, column)
+
+    def fx_rate_on(self,
+                   from_currency,
+                   to_currency,
+                   date):
+        self.rate_calls += 1
+
+        return super().fx_rate_on(from_currency, to_currency, date)
+
+
+def two_currency_book(names: int = 20) -> tuple[CountingCalls, object]:
+    """Half the names in GBP, with a rate that moves, and an index over them."""
+    identifiers = [f"N{index:03d}" for index in range(names)]
+    dates = pd.bdate_range(START, END)
+    rows = [{"IDENTIFIER": name, "DATE": date, "CLOSE": 100.0 + day,
+             "VOLUME": 1e6, "SHARES_OUTSTANDING": 1e6}
+            for name in identifiers
+            for day, date in enumerate(dates)]
+    rows += [{"IDENTIFIER": "GBPUSD", "DATE": date, "RATE": 1.25 + day / 1000}
+             for day, date in enumerate(dates)]
+    reference = pd.DataFrame([{"IDENTIFIER": name, "DATE_FROM": "2020-01-01",
+                               "NAME": name,
+                               "CURRENCY": "GBP" if index % 2 else "USD",
+                               "EXCHANGE": "XNYS"}
+                              for index, name in enumerate(identifiers)])
+    fetcher = CountingCalls(MarketData.from_dataframe(pd.DataFrame(rows)),
+                            ReferenceData.from_dataframe(reference))
+    result = IndexCalculator(definition(identifiers), fetcher).run(end_date=END)
+
+    return fetcher, result
+
+
+def backtest_over(fetcher: DataFetcher,
+                  result) -> pd.Series:
+    run = BacktestEngine(start_date=START,
+                         end_date=END,
+                         initial_capital=1_000_000.0,
+                         data_provider=fetcher,
+                         index_result=result,
+                         calendar="XNYS").run()
+
+    return run.trading_nav
+
+
+class TestTheBacktestValuesItsBookInOneRead:
+    """BN-220: the engine priced each holding separately every day and
+    converted each separately too. The day's closes now come in one batch
+    read, and a rate is looked up once per currency per day."""
+
+    def test_the_daily_valuation_does_not_price_name_by_name(self):
+        fetcher, result = two_currency_book()
+        fetcher.price_calls = 0
+
+        backtest_over(fetcher, result)
+
+        # Rebalance instructions still price per name, on a handful of days.
+        assert fetcher.price_calls < 20 * SESSIONS // 4, fetcher.price_calls
+
+    def test_a_rate_is_looked_up_once_per_currency_per_day(self):
+        fetcher, result = two_currency_book()
+        fetcher.rate_calls = 0
+
+        backtest_over(fetcher, result)
+
+        # Ten GBP holdings: per holding this would be 10 a day.
+        assert fetcher.rate_calls < 3 * SESSIONS, fetcher.rate_calls
+
+    def test_a_provider_without_the_batch_read_gets_the_same_book(self):
+        """`prices_on` is a capability. Without it, name by name, as before."""
+        fetcher, result = two_currency_book()
+        batched = backtest_over(fetcher, result)
+
+        fetcher.prices_on = None  # type: ignore[assignment,method-assign]
+        unbatched = backtest_over(fetcher, result)
+
+        pd.testing.assert_series_equal(batched, unbatched)
+
+    def test_a_failed_batch_read_falls_back_to_the_same_book(self):
+        fetcher, result = two_currency_book()
+        batched = backtest_over(fetcher, result)
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("batch unavailable")
+
+        fetcher.prices_on = broken  # type: ignore[method-assign]
+        fallen_back = backtest_over(fetcher, result)
+
+        pd.testing.assert_series_equal(batched, fallen_back)

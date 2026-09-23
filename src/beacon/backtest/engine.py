@@ -143,15 +143,17 @@ class BacktestEngine(PricingMixin):
                                  portfolio: Portfolio,
                                  date: pd.Timestamp) -> None:
         """Fetch prices for all holdings and push into the portfolio."""
-        # One slice for the day's holdings, so the per-name reads below are
-        # served from it rather than each slicing the whole frame (BN-212).
-        self._warm_holdings(list(portfolio.holdings), date)
+        # One slice for the day's holdings, so a name that misses the batch
+        # read is still served from it rather than slicing the whole frame
+        # (BN-212). `prices_on` warms the same page, and keeps it when it
+        # already covers these names.
+        holdings = list(portfolio.holdings)
+        self._warm_holdings(holdings, date)
 
-        prices: dict[str, float] = {}
-        for asset_id in portfolio.holdings:
-            price = self._fetch_price(asset_id, date)
-            if price is not None:
-                prices[asset_id] = price
+        # The whole book in one read, FX once per currency (BN-220).
+        prices = {asset_id: price
+                  for asset_id, price in self._prices_for(holdings, date).items()
+                  if price is not None}
 
         # Dated, so the history row lands on the simulated day rather than
         # at wall-clock time -- an undated mark would make the recorded NAV

@@ -86,12 +86,45 @@ class PricingMixin:
             CalculationError: If *date* falls outside the data's coverage
                 entirely and the name had no bar on it.
         """
-        raw = self._close_on(asset_id, date)
+        return self._priced(asset_id, date, self._close_on(asset_id, date), {})
 
+    def _prices_for(self,
+                    asset_ids: list[str],
+                    date: pd.Timestamp) -> dict[str, float | None]:
+        """:meth:`_fetch_price` for every holding on one day (BN-220).
+
+        The same answers, read the way BN-218 reads the index's book: every
+        close from the day's page in one call, and FX once per currency rather
+        than once per holding. Only the exact-day close is batched. A name
+        without one goes through the same resolution as before -- delisting,
+        session, carried bar, recorded gap -- because that is one name on a
+        bad day, not the hot path.
+        """
+        closes = self._closes_on(asset_ids, date)
+        rates: dict[str, float] = {}
+
+        return {asset_id: self._priced(asset_id, date, closes.get(asset_id), rates)
+                for asset_id in asset_ids}
+
+    def _priced(self,
+                asset_id: str,
+                date: pd.Timestamp,
+                raw: float | None,
+                rates: dict[str, float]) -> float | None:
+        """Everything :meth:`_fetch_price` does once the exact-day close is read.
+
+        Args:
+            asset_id: The holding.
+            date: The day being marked.
+            raw: Its unconverted close on *date*, or None if it printed none.
+            rates: The day's rates by currency, filled as they are looked up.
+                Shared across a day's holdings, so each currency is converted
+                once; a fresh dict for a single read.
+        """
         if raw is not None:
             self._last_bars[asset_id] = (date, raw)
 
-            return raw * self._rate_for(asset_id, date)
+            return raw * self._rate_for(asset_id, date, rates)
 
         # A name whose listing has ended has no price rather than a stale one.
         # Its holding is settled by `_dispose_delisted` from reference data,
@@ -116,7 +149,7 @@ class PricingMixin:
         if self._market_was_open(date, session):
             self._record_gap(asset_id, date, bar_date)
 
-        return bar_price * self._rate_for(asset_id, date)
+        return bar_price * self._rate_for(asset_id, date, rates)
 
     def _close_on(self,
                   asset_id: str,
@@ -140,6 +173,28 @@ class PricingMixin:
             logger.error(f"Error fetching price for {asset_id} on {date_str}: {error}")
 
             return None
+
+    def _closes_on(self,
+                   asset_ids: list[str],
+                   date: pd.Timestamp) -> dict[str, float | None]:
+        """:meth:`_close_on` for many names, in one read where possible.
+
+        `prices_on` is a capability, not a contract, as it is for the index
+        (BN-218): a provider without it is read name by name. So is one whose
+        batch read fails -- the per-name read logs and answers None for each
+        name it cannot read, which is what this path always did.
+        """
+        batch = getattr(self.data_provider, "prices_on", None)
+
+        if callable(batch):
+            try:
+                return dict(batch(asset_ids, date.strftime("%Y-%m-%d"),
+                                  self.price_column))
+            except Exception as error:
+                logger.error("Batch price read failed on %s, reading name by "
+                             "name: %s", date.date(), error)
+
+        return {asset_id: self._close_on(asset_id, date) for asset_id in asset_ids}
 
     def _last_close(self,
                     frame: pd.DataFrame) -> tuple[pd.Timestamp | None, float | None]:
@@ -298,7 +353,8 @@ class PricingMixin:
 
     def _rate_for(self,
                   asset_id: str,
-                  date: pd.Timestamp) -> float:
+                  date: pd.Timestamp,
+                  rates: dict[str, float] | None = None) -> float:
         """FX from an asset's listing currency into the book's, on *date*.
 
         Resolving *which* currencies are involved is the engine's own business
@@ -330,6 +386,14 @@ class PricingMixin:
         up in a NAV-level test: a one-name book comes out identical whether
         the rate is right, wrong, or invented.
 
+        Args:
+            asset_id: The holding being converted.
+            date: The day of the conversion.
+            rates: The day's rates by currency, when a whole book is being
+                valued (BN-220). A rate is a fact about a currency on a day,
+                not about a holding, so it is looked up once and read from
+                here for every other holding in that currency.
+
         Raises:
             CalculationError: If no rate exists on or before *date*. A book
                 that cannot convert a holding cannot state its NAV in its own
@@ -341,9 +405,15 @@ class PricingMixin:
         if currency is None or currency == self.currency:
             return 1.0
 
+        if rates is not None and currency in rates:
+            return rates[currency]
+
         rate = self.data_provider.fx_rate_on(currency, self.currency, date)
 
         if rate is not None:
+            if rates is not None:
+                rates[currency] = rate
+
             return rate
 
         raise CalculationError(
