@@ -30,8 +30,8 @@ from ..constraints import (
     label_map,
     validate_constraint_set,
 )
-from ..definitions import PipelineValidationError
 from ..documents import load_document, read_collection, validated
+from ..errors import FindingsError
 from ..jobs import JobRegistry
 from ..optimisation import (
     build_exposures,
@@ -229,7 +229,7 @@ def build_optimise_router() -> APIRouter:
     return router
 
 
-def _rejected(findings: list[Any]) -> PipelineValidationError:
+def _rejected(findings: list[Any]) -> FindingsError:
     """A 422 carrying every finding, as structured data.
 
     Was an `HTTPException` whose detail was the report: the handler for those
@@ -239,6 +239,4 @@ def _rejected(findings: list[Any]) -> PipelineValidationError:
     its findings in the envelope's `detail`, so this uses it and the two
     editors read the same shape.
     """
-    return PipelineValidationError("constraint set",
-                                   "it has errors",
-                                   findings)
+    return FindingsError("constraint set", "it has errors", findings)

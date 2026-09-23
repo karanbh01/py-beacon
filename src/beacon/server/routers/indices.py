@@ -26,12 +26,12 @@ from ...index.schedule import (
 )
 from ..config import ServerConfig
 from ..definitions import (
-    PipelineValidationError,
     build_definition,
     has_errors,
     validate_document,
 )
 from ..documents import load_document, raw, read_collection, stored, validated
+from ..errors import FindingsError
 from ..jobs import JobRegistry
 from ..preview import build_preview
 from ..schemas import (
@@ -375,7 +375,7 @@ def build_indices_router() -> APIRouter:
         # at, not as a 500 from the derivation.
         findings = validate_document(resolved)
         if has_errors(findings):
-            raise PipelineValidationError(f"index definition '{resolved.id}'",
+            raise FindingsError(f"index definition '{resolved.id}'",
                                           "the rule pipeline has errors",
                                           findings)
 
@@ -556,7 +556,7 @@ def build_indices_router() -> APIRouter:
         findings = validate_document(resolved)
 
         if has_errors(findings):
-            raise PipelineValidationError(f"index definition '{index_id}'",
+            raise FindingsError(f"index definition '{index_id}'",
                                           "the rule pipeline has errors",
                                           findings)
 

@@ -42,22 +42,6 @@ from .schemas import (
 from .store import DocumentStore
 
 
-class PipelineValidationError(InvalidRuleError):
-    """An invalid pipeline, carrying every finding.
-
-    Subclasses InvalidRuleError so the existing exception mapping gives it 422
-    and the INVALID_RULE code without a new registration. The findings ride
-    along as an instance attribute, which is what the error envelope reads to
-    build its structured `detail` — so the client receives every problem at
-    once rather than a single message for the whole form.
-    """
-    def __init__(self,
-                 rule_description: str,
-                 reason: str,
-                 findings: list[Finding]):
-        super().__init__(rule_description, reason)
-        self.findings = [finding.model_dump() for finding in findings]
-
 # Selection rules and weighting schemes come from the catalogue the classes
 # register themselves in (BN-117), not from a list here. There used to be four
 # tables — which rules exist, what each accepts, and two more mapping names to

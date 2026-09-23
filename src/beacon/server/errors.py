@@ -25,9 +25,36 @@ from ..exceptions import (
     ReportingError,
     UnexpectedCalculationError,
 )
-from .schemas import ErrorDetail, ErrorEnvelope
+from .schemas import ErrorDetail, ErrorEnvelope, Finding
 
 logger = logging.getLogger(__name__)
+
+
+class FindingsError(InvalidRuleError):
+    """A refusal that carries every finding, not one message for the form.
+
+    Subclasses `InvalidRuleError` for its 422 / INVALID_RULE mapping, with no
+    registration of its own. The findings ride along as an attribute, which
+    `_beacon_detail` puts into the envelope's `detail`, so a client can point
+    at each bad rule, member or row.
+
+    One class since BN-221. There were three -- for index pipelines,
+    universes and feature imports -- each a copy of the others and each
+    docstring saying so, and constraint sets had started borrowing the
+    pipeline one under a name that did not fit them.
+
+    Args:
+        subject: What was refused, e.g. "universe" or "index definition 'X'".
+            Published as `rule_description`.
+        reason: Why, in a phrase. Published as `reason`.
+        findings: Every problem found.
+    """
+    def __init__(self,
+                 subject: str,
+                 reason: str,
+                 findings: list[Finding]):
+        super().__init__(subject, reason)
+        self.findings = [finding.model_dump() for finding in findings]
 
 require("fastapi", "The Beacon API server")
 

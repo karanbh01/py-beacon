@@ -31,12 +31,12 @@ from ...data.store import flatten_index
 from ...exceptions import (
     ConfigurationError,
     DataNotFoundError,
-    InvalidRuleError,
 )
 from ...expressions.catalogue import describe_fields
 from ...expressions.namespaces import NAMESPACES
 from ..config import ServerConfig
 from ..documents import read_collection, validated
+from ..errors import FindingsError
 from ..reference import (
     DEFAULT_CURRENCY,
     MAX_BATCH,
@@ -244,28 +244,14 @@ def _standing_date(fetcher: DataFetcher,
     return str(fetcher.date_range[1].strftime("%Y-%m-%d"))
 
 
-class FeatureImportError(InvalidRuleError):
-    """An invalid import, carrying every finding.
-
-    The same arrangement `PipelineValidationError` and
-    `UniverseValidationError` use: `InvalidRuleError` already maps to 422 with
-    the INVALID_RULE code, and the error envelope reads `findings` off the
-    exception to build its structured detail.
-    """
-    def __init__(self,
-                 findings: list[Finding]):
-        super().__init__("feature import", "some rows are not valid")
-        self.findings = [finding.model_dump() for finding in findings]
-
-
-def _feature_findings(findings: list[Finding]) -> FeatureImportError:
+def _feature_findings(findings: list[Finding]) -> FindingsError:
     """A rejection carrying findings, in the shape the editor renders.
 
     The same argument the universe member validation made: telling somebody a
     thousand-row upload is wrong without saying which row is not an error
     message.
     """
-    return FeatureImportError(findings)
+    return FindingsError("feature import", "some rows are not valid", findings)
 
 # Whole-dataset browsing. Bounded on purpose: the default synthetic store is
 # 11.8M market rows, and an unbounded dump is not something a client can

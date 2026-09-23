@@ -555,21 +555,15 @@ class TestEnvelopeExhaustiveness:
     # Inheriting a parent's mapping is a legitimate choice; forgetting to map
     # something is not, and only this list distinguishes them.
     DELIBERATELY_INHERITED: ClassVar[dict[str, str]] = {
-        "PipelineValidationError":
+        "FindingsError":
             "subclasses InvalidRuleError to inherit its 422 / INVALID_RULE "
-            "mapping, and adds structured findings to the envelope detail",
-        "FeatureImportError":
-            "the same arrangement again, for an import whose rows name "
-            "instruments the loaded data does not carry: 422 / INVALID_RULE "
-            "from InvalidRuleError, with a finding naming each bad row",
+            "mapping, and adds structured findings to the envelope detail. "
+            "One class for index pipelines, universes, feature imports and "
+            "constraint sets since BN-221, which folded three copies",
         "UnknownDatasetError":
             "subclasses ExpressionError to inherit its 422 / "
             "INVALID_EXPRESSION mapping, and AttributeError so that "
             "`hasattr(data, 'typo')` answers False rather than raising",
-        "UniverseValidationError":
-            "the same arrangement as PipelineValidationError, for a universe "
-            "whose members are not in the loaded data: 422 / INVALID_RULE "
-            "from the parent, with a finding naming each missing identifier",
         "DocumentFromNewerBuildError":
             "subclasses ConfigurationError to keep its 500 / "
             "CONFIGURATION_ERROR mapping -- a store this build cannot read is "

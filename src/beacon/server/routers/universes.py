@@ -41,6 +41,7 @@ from ...expressions.core import from_dict
 from ...universe import where
 from ..config import ServerConfig
 from ..documents import load_document, raw, read_collection, stored, validated
+from ..errors import FindingsError
 from ..schemas import (
     MODE_FROZEN,
     MODE_LIVE,
@@ -127,25 +128,9 @@ def slug(name: str) -> str:
     return reduced.strip("-")[:64]
 
 
-class UniverseValidationError(InvalidRuleError):
-    """An invalid universe, carrying every finding.
-
-    The same shape `PipelineValidationError` uses for index definitions, and
-    for the same reason: `InvalidRuleError` already maps to 422 with the
-    INVALID_RULE code, and the error envelope reads `findings` off the
-    exception to build its structured detail. A client receives every bad
-    identifier at once rather than one message for the whole list.
-    """
-    def __init__(self,
-                 reason: str,
-                 findings: list[Finding]):
-        super().__init__("universe", reason)
-        self.findings = [finding.model_dump() for finding in findings]
-
-
-def _rejected(findings: list[Finding]) -> UniverseValidationError:
+def _rejected(findings: list[Finding]) -> FindingsError:
     """A rejection carrying findings, in the shape the index editor renders."""
-    return UniverseValidationError("its members are not valid", findings)
+    return FindingsError("universe", "its members are not valid", findings)
 
 
 def _resolve_members(request: Request,
