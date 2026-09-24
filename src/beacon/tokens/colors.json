@@ -110,6 +110,15 @@
         "dark": "figma"
       }
     },
+    "working": {
+      "description": "Work in flight — the footer dot while a background process runs. Not accent: accent means \"this is the active thing\", and a job running is a state of the app rather than a selection. Not danger: nothing is wrong.",
+      "light": "#b5741f",
+      "dark": "#d9954a",
+      "source": {
+        "light": "new",
+        "dark": "new"
+      }
+    },
     "chrome-border": {
       "description": "Menu bar, sidebar and footer edges; chip strokes at 0.5px.",
       "light": "#b1997d",
