@@ -362,11 +362,19 @@ class AttributionPlots(ChartMethods):
         ax.grid(axis="x")
         ax.grid(axis="y", visible=False)
 
+        # A residual inside the result's own reconciliation tolerance is
+        # rounding, and printed as a number it was noise that changed with the
+        # numpy build: "5.4e-15" on one machine, "5.6e-15" on another, which
+        # failed the chart comparison on nothing but the last digit (BN-222).
+        # So it reads 0 when the result says it reconciles, and the number
+        # only when there is something left over worth seeing.
+        residual = "0" if result.reconciles() else f"{result.residual:.1e}"
+
         drawn = sum(values)
         note = (f"Contributions shown sum to {drawn:.2%}"
                 f"{f'; {dropped} smaller not shown' if dropped else ''}"
                 f". Total return {result.total_return:.2%}, "
-                f"residual {result.residual:.1e}.")
+                f"residual {residual}.")
 
         drags = [(name, value) for name, value in
                  (("Cap drag", result.cap_drag), ("Cost drag", result.cost_drag))

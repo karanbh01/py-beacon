@@ -389,6 +389,18 @@ class TestAttributionChart:
 
         assert stated == pytest.approx(drawn, abs=5e-5)
 
+    def test_a_reconciling_residual_reads_as_zero(self,
+                                                  attribution):
+        """Printed as a number it was rounding noise that differed by numpy
+        build, "5.4e-15" against "5.6e-15", and failed the image comparison
+        on its last digit (BN-222)."""
+        assert attribution.reconciles()
+
+        note = attribution.plot.contributions().texts[-1].get_text()
+
+        assert "residual 0." in note
+        assert "e-1" not in note
+
     def test_the_total_matches_the_result(self,
                                           attribution):
         ax = attribution.plot.contributions()
