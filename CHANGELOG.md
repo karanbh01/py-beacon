@@ -4,7 +4,7 @@ What changed in each release of py-beacon. The newest release is first.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the version numbers follow [Semantic Versioning](https://semver.org/).
-Before 1.0, any release may change the API.
+Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 

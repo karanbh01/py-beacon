@@ -334,12 +334,12 @@ store.save(fetcher, Path("~/beacon-data").expanduser(), source="local")
 
 ## Versioning
 
-Beacon follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-While the major version is `0` the public API may change in any release — the
-surface is still settling. Breaking changes are recorded under **Changed** or
-**Removed** in the changelog. From 1.0 onward, a deprecated name keeps working
-for at least one minor release with a `DeprecationWarning` naming its
-replacement, and removals only land in a major release; the full policy is in
+Beacon follows standard [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+From 1.0, a major version is a breaking change, a minor adds without breaking,
+and a patch fixes. Before 1.0 the API is still settling: a breaking change bumps
+the minor version (`0.1` to `0.2`), and additions and fixes bump the patch.
+From 1.0 onward, anything deprecated keeps working with a warning for at least
+one minor release, and removals wait for the next major. The full policy is in
 [CONTRIBUTING.md](https://github.com/karanbh01/py-beacon/blob/main/CONTRIBUTING.md#versioning-and-deprecation-policy).
 
 ## Quickstart

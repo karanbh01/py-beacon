@@ -104,7 +104,9 @@ A release goes to GitHub and to PyPI. The workflow is
 
 1. Keep `CHANGELOG.md` current as work lands: one short line per change under
    `## [Unreleased]`, in plain English, with no em-dashes. The engine serves
-   this file at `GET /changelog` and the app shows it to users.
+   this file at `GET /changelog` and the app shows it to users. Say so when a
+   change moves information out of an error message into structured detail:
+   a client that shows only the message does not break, it just says less.
 2. Set `__version__` in `src/beacon/__init__.py`, and rename `[Unreleased]` to
    `## [X.Y.Z] - YYYY-MM-DD`, with a fresh empty `[Unreleased]` above it.
    `tests/test_changelog.py` fails if the version has no dated section.
@@ -127,20 +129,37 @@ Each has a publisher registered for this repository, the workflow
 
 ## Versioning and deprecation policy
 
-Beacon follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Beacon follows standard [Semantic Versioning](https://semver.org/spec/v2.0.0.html):
+`X.Y.Z`. "The API" means both the public Python API (anything in a
+subpackage's `__all__`) and what the API server sends and accepts.
 
-While the major version is `0`, the public API may change in any release. The
-project is pre-1.0 and the surface is still settling. Breaking changes are
-recorded under **Changed** or **Removed** in the changelog.
+From 1.0:
 
-Before 1.0, what bumps which number:
+- **X (major)**: a change that can break existing users. Removing or renaming
+  a function, field or endpoint, changing a type or a meaning, making an
+  optional parameter required, or answering the same request with a different
+  status code.
+- **Y (minor)**: additions that break nobody. A new endpoint, function,
+  optional parameter or field, or a setting whose default changes nothing.
+- **Z (patch)**: fixes and performance work that change no API.
 
-- **Minor** (`0.2.0`): any change to what the API server sends or accepts,
-  additions included, and any breaking change to the Python API. The app reads
-  the engine's version from `/health`, so a minor version is what it can
-  require.
-- **Patch** (`0.1.1`): fixes and internal changes that leave the wire and the
-  Python API as they were.
+Majors should be rare, as they are for pandas. That comes from how change is
+made, not from avoiding it:
+
+- **Add rather than change.** A new field or function beside the old one, not
+  a changed old one.
+- **Deprecate before removing.** See the policy below.
+- **Batch the breaks.** Removals wait for the next major and land together.
+  A change that cannot carry a warning, such as a different status code for
+  the same request, waits for a major too.
+
+Before 1.0 (now), the API is still settling and everything shifts down one
+place: a breaking change bumps Y (`0.1` to `0.2`), and additions and fixes bump
+Z. 1.0.0 is the point the API is considered solid.
+
+A client checks compatibility with two comparisons: the same X, and at least
+the Y it was built against. beacon-ui reads the engine's version from
+`/health`.
 
 ### Deprecation policy
 
