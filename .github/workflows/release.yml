@@ -163,25 +163,41 @@ jobs:
           uv build
           uvx twine check dist/*
 
+      # skip-existing, here only: a version TestPyPI already holds is left as
+      # it is, so the dry run can be run again to recheck the install step
+      # after the upload itself has succeeded. The PyPI job stays strict.
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
 
-      # Dependencies come from real PyPI: TestPyPI holds few of them, and
-      # some it does hold are unrelated uploads under the same names. The
-      # index can take a minute to show a new file, hence the retries.
+      # Only our own file comes from TestPyPI. Its dependencies come from real
+      # PyPI, as they will for a user: TestPyPI holds unrelated uploads under
+      # some of the same names, and the first dry run failed installing one
+      # of those, a broken package that had nothing to do with this one.
+      #
+      # The index can take a minute to show a new file, so the download is
+      # retried; if it never appears, the step fails rather than carrying on.
       - name: Install it back from TestPyPI
         run: |
           version=$(grep -oP '^__version__ = "\K[^"]+' src/beacon/__init__.py)
           python -m venv /tmp/fromtest
+
           for attempt in 1 2 3 4 5 6; do
-            /tmp/fromtest/bin/pip install --quiet \
-              --index-url https://test.pypi.org/simple/ \
-              --extra-index-url https://pypi.org/simple/ \
-              "py-beacon-kit[server]==$version" && break
+            if /tmp/fromtest/bin/pip download --no-deps --dest /tmp/fromtest-dl \
+                 --index-url https://test.pypi.org/simple/ \
+                 "py-beacon-kit==$version"; then
+              break
+            fi
+            if [ "$attempt" = 6 ]; then
+              echo "py-beacon-kit $version never appeared on TestPyPI"; exit 1
+            fi
             echo "not on the index yet; waiting"; sleep 30
           done
+
+          wheel=$(ls /tmp/fromtest-dl/*.whl)
+          /tmp/fromtest/bin/pip install "${wheel}[server]"
           /tmp/fromtest/bin/python -c "import beacon; assert beacon.__version__ == '$version', beacon.__version__; print('installed', beacon.__version__)"
           /tmp/fromtest/bin/python -c "import beacon.server; from beacon.changelog import entries; print(len(entries()), 'changelog entries')"
 
