@@ -20,9 +20,6 @@ The first release.
 - Write selection rules as expressions, such as `data.market.market_cap > 1e9`, including rules on company fundamentals and other features.
 - Backtest a portfolio that trades to the index weights, with transaction costs, drift thresholds and a benchmark.
 - Read results with tracking error, attribution, risk, concentration and drift, and draw them as charts.
-- Optimise an index under constraints (position limits, group limits, turnover, number of names), with the efficient frontier and factor exposures.
-- Estimate risk models with shrinkage, and split risk and active risk by constituent.
-- Price index futures, ETF futures and total return swaps, with carry, roll and a sensitivity grid.
 - Hold names in several currencies. Prices are converted with FX rates.
 - Load data from files, generate a realistic synthetic dataset, or download prices with yfinance. Data is kept in a local store that reports its coverage and age.
 - Three settings, shown on `/health`: whether a missing FX rate carries forward, when a stale price drops a name, and how long a free float carries forward (90 days by default).
