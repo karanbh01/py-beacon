@@ -86,9 +86,8 @@ Beacon needs Python 3.11 or later. Install it from PyPI:
 pip install py-beacon-kit
 ```
 
-The distribution is named `py-beacon-kit` (`py-beacon` is too close to an
-existing PyPI project); the import package is `beacon`. The core installs
-pandas, numpy, pydantic and exchange_calendars.
+In code, import it as `beacon`. The core installs pandas, numpy, pydantic
+and exchange_calendars.
 
 Everything beyond the core pipeline lives behind an extra, so a plain install
 stays light:
