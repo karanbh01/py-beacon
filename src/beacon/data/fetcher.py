@@ -5,11 +5,13 @@ Accepts single identifiers or lists and passes through column names as-is.
 """
 
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
 
+from . import fx
 from .base import MarketData, ReferenceData, as_of_position
 from .corporate_actions import CorporateActions
 from .features import MAX_AGE_DAYS, FeatureData
@@ -19,6 +21,8 @@ from .free_float import (
     validated_window,
 )
 from .session import SessionPanel
+
+logger = logging.getLogger(__name__)
 
 # The datasets a fetcher can report freshness for. Named here so the server
 # and the fetcher cannot drift apart on the spelling.
@@ -240,6 +244,8 @@ class DataFetcher:
         # index take longer than the rest of the suite put together. Cleared
         # whenever the market data underneath it is replaced.
         self._fx_series: dict[tuple[str, str], pd.Series] = {}
+        # How each cached pair was found: direct, inverse, or a cross (BN-235).
+        self._fx_routes: dict[tuple[str, str], str | None] = {}
         # Each name's observed free floats, blanks dropped, read once when a
         # blank day first needs carrying over (BN-219). Cleared with the FX
         # series on a merge, for the same reason.
@@ -603,6 +609,7 @@ class DataFetcher:
         # cache held over the swap would answer out of the old frame. The
         # session panel is the same story one day wide.
         self._fx_series.clear()
+        self._fx_routes.clear()
         self._free_float_history.clear()
         self._session_panel = None
         self.record_refresh(MARKET_DATASET)
@@ -948,6 +955,52 @@ class DataFetcher:
         rate_col = column if column in df.columns else df.columns[0]
         return df[rate_col]
 
+    def fx_route(self,
+                 from_currency: str,
+                 to_currency: str) -> str | None:
+        """How a rate for this pair is found: direct, inverse or a cross.
+
+        Returns:
+            str | None: "direct" for a stored pair, "inverse" for one over the
+            stored reverse pair, "cross via USD" for a rate built from two
+            legs, "same currency" when no conversion is needed, and None when
+            no rate can be found.
+        """
+        if from_currency.upper() == to_currency.upper():
+            return "same currency"
+
+        pair = (from_currency.upper(), to_currency.upper())
+        self._rate_series(*pair)
+
+        return self._fx_routes[pair]
+
+    def _rate_series(self,
+                     source: str,
+                     target: str) -> pd.Series:
+        """The rate series for a pair, found once and cached (BN-235).
+
+        The one place a pair is resolved, for both :meth:`fx_rate_on` and
+        :meth:`fx_rates_on`: the stored pair, else its inverse, else a cross
+        through USD. See `beacon.data.fx`.
+        """
+        pair = (source, target)
+
+        if pair not in self._fx_series:
+            series, route = fx.rate_series(
+                lambda a, b: self.fetch_fx_rates(a, b).sort_index(),
+                source, target, exact_day=self.fx_policy == FX_EXACT_DAY)
+
+            self._fx_series[pair] = series
+            self._fx_routes[pair] = route
+
+            # Once per pair, not per day: a derived rate is correct but worth
+            # knowing about, since it is not a quote anyone published.
+            if route not in (None, fx.DIRECT):
+                logger.info("No %s%s pair is stored; converting %s to %s by "
+                            "%s.", source, target, source, target, route)
+
+        return self._fx_series[pair]
+
     def fx_rate_on(self,
                    from_currency: str,
                    to_currency: str,
@@ -993,10 +1046,7 @@ class DataFetcher:
 
         pair = (from_currency.upper(), to_currency.upper())
 
-        if pair not in self._fx_series:
-            self._fx_series[pair] = self.fetch_fx_rates(*pair).sort_index()
-
-        series = self._fx_series[pair]
+        series = self._rate_series(*pair)
 
         if series.empty:
             return None
@@ -1165,10 +1215,7 @@ class DataFetcher:
 
         pair = (from_currency.upper(), to_currency.upper())
 
-        if pair not in self._fx_series:
-            self._fx_series[pair] = self.fetch_fx_rates(*pair).sort_index()
-
-        series = self._fx_series[pair]
+        series = self._rate_series(*pair)
 
         if series.empty:
             return None
