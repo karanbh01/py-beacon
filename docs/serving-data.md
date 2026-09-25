@@ -124,6 +124,29 @@ Both expansion flags widen a default rather than overruling a value you named:
 an explicit `--assets` beats `--extended-universe`, and an explicit `--start`
 beats `--long-history`.
 
+### Extending a store to today
+
+Generating again with a later end date would change every past price, because
+the whole history is drawn from one random stream. To bring a store up to
+date without that, extend it:
+
+```bash
+python -m beacon.synthetic --extend PATH               # up to today
+python -m beacon.synthetic --extend PATH --end 2026-06-30
+```
+
+The market carries on from where the store stops: each name from its last
+close and share count, each exchange rate from its last rate, with new
+listings, delistings, dividends, splits and features at the same rates as
+before. The rows already in the store are never changed; new rows are added
+after them. The only records that change are ones that describe a state:
+a name that delists gets its end date, a dividend whose pay date arrives
+becomes paid, and next earnings dates move forward.
+
+The same store extended to the same date always gives the same data. Stores
+generated before py-beacon 0.1.2 cannot be extended, because they lack the
+generator settings saved beside the data; generate a new one.
+
 `--long-history` is anchored to the crisis dates rather than to a round number
 of years, because those dates are fixed while a rolling window moves — "25
 years back from today" already clipped the start of the dot-com unwind, and by

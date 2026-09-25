@@ -170,7 +170,7 @@ def build(universe: pd.DataFrame,
         "FISCAL_YEAR_END": rng.choice(FISCAL_YEAR_ENDS, size=count,
                                       p=[0.7, 0.12, 0.1, 0.08]),
         "DIVIDEND_FREQUENCY": _frequencies(yields, rng),
-        "NEXT_EARNINGS": _next_earnings(as_of, count, rng),
+        "NEXT_EARNINGS": next_earnings(as_of, count, rng),
     }, index=pd.Index(identifiers, name="IDENTIFIER"))
 
     # Founded before listing, by construction rather than by a second draw --
@@ -252,9 +252,9 @@ def _frequencies(yields: np.ndarray,
             for yield_, frequency in zip(yields, drawn, strict=True)]
 
 
-def _next_earnings(as_of: pd.Timestamp,
-                   count: int,
-                   rng: np.random.Generator) -> list[pd.Timestamp]:
+def next_earnings(as_of: pd.Timestamp,
+                  count: int,
+                  rng: np.random.Generator) -> list[pd.Timestamp]:
     """The next reporting date, forward of the panel's end."""
     offsets = rng.integers(MIN_DAYS_TO_EARNINGS, MAX_DAYS_TO_EARNINGS,
                            size=count)

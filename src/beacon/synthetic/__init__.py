@@ -17,6 +17,9 @@ Or from the command line, writing a store the server auto-loads:
 
     python -m beacon.synthetic --assets 512 --start 2019-12-31 --seed 42
 
+A generated store can later be extended to a new date without changing its
+history: `extend(path)`, or `python -m beacon.synthetic --extend PATH`.
+
 Nothing generated here resembles a real company: names are ``Company A`` …
 and every ticker carries a ``CMP`` prefix, which makes a collision with a real
 listing impossible rather than merely improbable.
@@ -35,14 +38,17 @@ from .dataset import (
     generate,
     write,
 )
+from .extend import Extension, extend
 
 __all__ = [
     "DEFAULT_ASSETS",
     "DEFAULT_END",
     "DEFAULT_SEED",
     "DEFAULT_START",
+    "Extension",
     "SyntheticConfig",
     "SyntheticDataset",
+    "extend",
     "generate",
     "write",
 ]

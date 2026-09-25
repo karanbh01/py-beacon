@@ -63,13 +63,17 @@ CLOSE_COLUMN = "CLOSE"
 
 def build(dates: pd.DatetimeIndex,
           rng: np.random.Generator,
-          regimes: tuple[Regime, ...] = CRISES) -> pd.DataFrame:
+          regimes: tuple[Regime, ...] = CRISES,
+          start_from: dict[str, float] | None = None) -> pd.DataFrame:
     """Generate one rate series per non-base currency.
 
     Args:
         dates: The panel's business days.
         rng: Seeded generator.
         regimes: Dated episodes, for the flight-to-quality drift.
+        start_from: The rate each pair starts from, where known. An
+            extension passes the last stored rates, so each path carries on
+            from where it stopped rather than from the pair's usual level.
 
     Returns:
         pd.DataFrame: Long-form, with IDENTIFIER/DATE and the rate in both
@@ -86,7 +90,8 @@ def build(dates: pd.DatetimeIndex,
 
     frames = []
     for identifier, initial, volatility in pairs:
-        rate = _path(rng, steps, volatility, lift, initial)
+        rate = _path(rng, steps, volatility, lift,
+                     (start_from or {}).get(identifier, initial))
 
         # Written into CLOSE as well as RATE, so a pair charts like any other
         # identifier (BN-145).

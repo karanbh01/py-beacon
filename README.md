@@ -294,6 +294,9 @@ python -m beacon.server --port 0 --token dev       # picks it up automatically
 `--long-history` reaches back past every crisis the generator models. See
 [docs/serving-data.md](https://github.com/karanbh01/py-beacon/blob/main/docs/serving-data.md) for what each costs.
 
+`python -m beacon.synthetic --extend PATH` brings a generated store up to
+today without changing any day it already holds.
+
 Prices reproduce the stylized facts of equity returns rather than being a
 random walk: volatility clustering (GJR-GARCH), fat tails (Student-t
 innovations), negative skew, and a market/sector factor structure that puts

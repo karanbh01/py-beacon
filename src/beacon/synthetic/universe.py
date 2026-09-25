@@ -200,8 +200,86 @@ def build(count: int,
         the reference fields and the parameters the return process needs.
     """
     tickers = identifiers(count)
-    positions = np.arange(count)
 
+    volatility, market_share, sector_share, region_share, prices = (
+        _draw_profile(count, rng))
+
+    # Zipf on the ranks: the largest name is `count ** (1 / shape)` times the
+    # smallest, with lognormal noise so the curve is not identical every run.
+    # Shuffled afterwards because rank would otherwise track position, and
+    # position decides sector -- which would make every universe's biggest
+    # company a Communication Services name.
+    ranks = np.arange(1, count + 1)
+    market_cap = (MIN_MARKET_CAP
+                  * (count / ranks) ** (1.0 / PARETO_SHAPE)
+                  * np.exp(rng.normal(0.0, CAP_JITTER, size=count)))
+    rng.shuffle(market_cap)
+
+    frame = _assemble(tickers, np.arange(count), rng,
+                      volatility=volatility,
+                      market_share=market_share,
+                      sector_share=sector_share,
+                      region_share=region_share,
+                      prices=prices,
+                      market_cap=market_cap)
+
+    if dates is not None and len(dates) > 0:
+        lives = listings.draw(count, dates, rng,
+                              delisting_rate=delisting_rate,
+                              listing_rate=listing_rate,
+                              alpha=frame["alpha"].to_numpy())
+        frame["listed_from"] = lives["listed_from"].to_numpy()
+        frame["listed_to"] = lives["listed_to"].to_numpy()
+
+    return frame
+
+
+def newcomers(first_position: int,
+              count: int,
+              rng: np.random.Generator,
+              universe_size: int) -> pd.DataFrame:
+    """Names that join after a store was generated, drawn like the originals.
+
+    Their tickers carry on the sequence (a universe of 512 names continues
+    at position 512), and each takes a size rank drawn uniformly from the
+    original universe, so newcomers are sized like the names already there
+    rather than all small or all large.
+
+    Args:
+        first_position: The position of the first newcomer.
+        count: How many.
+        rng: Seeded generator.
+        universe_size: The size of the universe the store was generated
+            with, which sets the size profile.
+
+    Returns:
+        pd.DataFrame: As :func:`build` without listed lives, which the caller
+        draws.
+    """
+    positions = np.arange(first_position, first_position + count)
+    tickers = [f"{TICKER_PREFIX}{ticker_suffix(int(position))}"
+               for position in positions]
+
+    volatility, market_share, sector_share, region_share, prices = (
+        _draw_profile(count, rng))
+
+    ranks = rng.integers(1, max(universe_size, 1) + 1, size=count)
+    market_cap = (MIN_MARKET_CAP
+                  * (max(universe_size, 1) / ranks) ** (1.0 / PARETO_SHAPE)
+                  * np.exp(rng.normal(0.0, CAP_JITTER, size=count)))
+
+    return _assemble(tickers, positions, rng,
+                     volatility=volatility,
+                     market_share=market_share,
+                     sector_share=sector_share,
+                     region_share=region_share,
+                     prices=prices,
+                     market_cap=market_cap)
+
+
+def _draw_profile(count: int,
+                  rng: np.random.Generator) -> tuple[np.ndarray, ...]:
+    """Volatility, the three variance shares and the starting price."""
     volatility = MIN_VOLATILITY + (MAX_VOLATILITY - MIN_VOLATILITY) * rng.beta(
         *VOLATILITY_BETA, size=count)
 
@@ -218,16 +296,21 @@ def build(count: int,
 
     prices = MIN_PRICE + (MAX_PRICE - MIN_PRICE) * rng.beta(1.6, 3.0, size=count)
 
-    # Zipf on the ranks: the largest name is `count ** (1 / shape)` times the
-    # smallest, with lognormal noise so the curve is not identical every run.
-    # Shuffled afterwards because rank would otherwise track position, and
-    # position decides sector -- which would make every universe's biggest
-    # company a Communication Services name.
-    ranks = np.arange(1, count + 1)
-    market_cap = (MIN_MARKET_CAP
-                  * (count / ranks) ** (1.0 / PARETO_SHAPE)
-                  * np.exp(rng.normal(0.0, CAP_JITTER, size=count)))
-    rng.shuffle(market_cap)
+    return volatility, market_share, sector_share, region_share, prices
+
+
+def _assemble(tickers: list[str],
+              positions: np.ndarray,
+              rng: np.random.Generator,
+              **drawn: np.ndarray) -> pd.DataFrame:
+    """The universe frame, from the draws above and the ones made here.
+
+    Shared by :func:`build` and :func:`newcomers`, so a newcomer has every
+    column an original name has. The draws here happen in a fixed order, and
+    that order is part of what a seed produces.
+    """
+    count = len(tickers)
+    market_cap = drawn["market_cap"]
 
     yields = MAX_DIVIDEND_YIELD * rng.beta(2.0, 4.0, size=count)
     yields[rng.uniform(size=count) < NON_PAYER_FRACTION] = 0.0
@@ -247,12 +330,12 @@ def build(count: int,
         # of them while appearing to answer both.
         "COUNTRY_LISTING": venues["COUNTRY_LISTING"].to_numpy(),
         "COUNTRY_DOMICILE": regions.domiciles(assigned, rng),
-        "volatility": volatility,
-        "market_share": market_share,
-        "sector_share": sector_share,
-        "region_share": region_share,
+        "volatility": drawn["volatility"],
+        "market_share": drawn["market_share"],
+        "sector_share": drawn["sector_share"],
+        "region_share": drawn["region_share"],
         "alpha": rng.normal(0.0, ALPHA_SPREAD, size=count),
-        "initial_price": prices,
+        "initial_price": drawn["prices"],
         # Drawn on a USD scale and converted, so the *size* distribution is
         # global while the quoted price stays local. Without this a name's
         # rank in the universe would depend on its exchange rate.
@@ -275,14 +358,6 @@ def build(count: int,
     # both would let a name carry a share count its own price contradicts.
     frame["shares_outstanding"] = np.round(frame["market_cap"]
                                            / frame["initial_price"])
-
-    if dates is not None and len(dates) > 0:
-        lives = listings.draw(count, dates, rng,
-                              delisting_rate=delisting_rate,
-                              listing_rate=listing_rate,
-                              alpha=frame["alpha"].to_numpy())
-        frame["listed_from"] = lives["listed_from"].to_numpy()
-        frame["listed_to"] = lives["listed_to"].to_numpy()
 
     return frame
 

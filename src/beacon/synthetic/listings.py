@@ -259,3 +259,42 @@ def _sample(inner: pd.DatetimeIndex,
     drawn[happens] = inner[positions[happens]]
 
     return drawn
+
+
+def joining(count: int,
+            dates: pd.DatetimeIndex,
+            rng: np.random.Generator,
+            listing_rate: float = ANNUAL_LISTING_RATE,
+            regimes: tuple[Regime, ...] = CRISES) -> pd.DatetimeIndex:
+    """When each of *count* new names lists, over an extension's dates.
+
+    Timed like the original listings: suppressed in a crisis, so issuance
+    dries up when the market falls.
+    """
+    if count == 0:
+        return pd.DatetimeIndex([])
+
+    hazard = _hazard(dates, listing_rate, CRISIS_LISTING_MULTIPLIER, regimes)
+    positions = rng.choice(len(dates), size=count, p=hazard / hazard.sum())
+
+    return pd.DatetimeIndex(dates[positions])
+
+
+def leaving(alpha: np.ndarray,
+            dates: pd.DatetimeIndex,
+            rng: np.random.Generator,
+            delisting_rate: float = ANNUAL_DELISTING_RATE,
+            regimes: tuple[Regime, ...] = CRISES) -> pd.DatetimeIndex:
+    """When each listed name leaves over an extension's dates, NaT if it stays.
+
+    The same hazard as the original delistings, clustered in crises and
+    tilted towards the weakest names by their alpha.
+    """
+    if delisting_rate <= 0.0 or len(alpha) == 0:
+        return pd.DatetimeIndex([pd.NaT] * len(alpha))
+
+    drawn = _sample(dates, len(alpha), rng, delisting_rate,
+                    CRISIS_FAILURE_MULTIPLIER, regimes, pd.NaT,
+                    propensity=_weakness(alpha))
+
+    return pd.DatetimeIndex(pd.to_datetime(drawn))

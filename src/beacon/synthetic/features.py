@@ -256,17 +256,32 @@ def _fundamentals(universe: pd.DataFrame,
                 # Published after the panel ends, so nobody ever knew it.
                 continue
 
-            period = f"{quarter.year}Q{quarter.quarter}"
-            detail = f"period ending {quarter.date()}, reported {period}"
-
-            records += [
-                (identifier, known, "pe_ratio", pe, detail),
-                (identifier, known, "eps", float(close) / pe, detail),
-                (identifier, known, "pb_ratio", pb, detail),
-                (identifier, known, "debt_to_equity", debt_equity, detail),
-            ]
+            records += _quarterly(identifier, known, quarter, float(close),
+                                  (pe, pb, debt_equity))
 
     return _frame(records, FUNDAMENTALS)
+
+
+def _detail(quarter: pd.Timestamp) -> str:
+    """How a quarterly row names its period."""
+    return (f"period ending {quarter.date()}, "
+            f"reported {quarter.year}Q{quarter.quarter}")
+
+
+def _quarterly(identifier: str,
+               known: pd.Timestamp,
+               quarter: pd.Timestamp,
+               close: float,
+               multiples: tuple[float, float, float]
+               ) -> list[tuple[str, pd.Timestamp, str, float, str]]:
+    """One name's four ratios for one quarter."""
+    pe, pb, debt_equity = multiples
+    detail = _detail(quarter)
+
+    return [(identifier, known, "pe_ratio", pe, detail),
+            (identifier, known, "eps", close / pe, detail),
+            (identifier, known, "pb_ratio", pb, detail),
+            (identifier, known, "debt_to_equity", debt_equity, detail)]
 
 
 def _alternative(universe: pd.DataFrame,
@@ -313,26 +328,35 @@ def _alternative(universe: pd.DataFrame,
             if known > dates[-1]:
                 continue
 
-            # Sentiment follows returns rather than leading them, which is
-            # what the research finds and what keeps this from being a
-            # free signal nobody could have traded.
-            sentiment = float(np.tanh(
-                SENTIMENT_RETURN_SENSITIVITY * drift * 21
-                + rng.normal(0.0, SENTIMENT_NOISE)))
-
-            # Attention spikes on movement in either direction: a collapse
-            # draws readers as readily as a rally.
-            views = base_views * float(np.exp(abs(drift) * 40.0)
-                                       * rng.lognormal(0.0, 0.3))
-
-            records += [
-                (identifier, known, "x_sentiment", sentiment,
-                 f"month ending {month.date()}"),
-                (identifier, known, "wikipedia_views", round(views),
-                 f"month ending {month.date()}"),
-            ]
+            records += _monthly(identifier, known, month, base_views,
+                                drift, rng)
 
     return _frame(records, ALTERNATIVE)
+
+
+def _monthly(identifier: str,
+             known: pd.Timestamp,
+             month: pd.Timestamp,
+             base_views: float,
+             drift: float,
+             rng: np.random.Generator) -> list[tuple[str, pd.Timestamp, str, float, str]]:
+    """One name's sentiment and page views for one month."""
+    # Sentiment follows returns rather than leading them, which is what the
+    # research finds and what keeps this from being a free signal nobody
+    # could have traded.
+    sentiment = float(np.tanh(
+        SENTIMENT_RETURN_SENSITIVITY * drift * 21
+        + rng.normal(0.0, SENTIMENT_NOISE)))
+
+    # Attention spikes on movement in either direction: a collapse draws
+    # readers as readily as a rally.
+    views = base_views * float(np.exp(abs(drift) * 40.0)
+                               * rng.lognormal(0.0, 0.3))
+
+    return [(identifier, known, "x_sentiment", sentiment,
+             f"month ending {month.date()}"),
+            (identifier, known, "wikipedia_views", round(views),
+             f"month ending {month.date()}")]
 
 
 def _frame(records: list[tuple[str, pd.Timestamp, str, float, str]],
@@ -350,3 +374,119 @@ def _frame(records: list[tuple[str, pd.Timestamp, str, float, str]],
         "VALUE": [record[3] for record in records],
         "DETAIL": [record[4] for record in records],
     })
+
+
+# How far before an extension's first date a quarter can end and still be
+# reported inside it.
+LOOKBACK_DAYS = MAX_LAG_DAYS + 7
+
+
+def carry_on(stored: pd.DataFrame,
+             universe: pd.DataFrame,
+             joined: pd.Index,
+             closes: pd.DataFrame,
+             after: pd.Timestamp,
+             rng: np.random.Generator) -> pd.DataFrame:
+    """Feature rows that become known after *after*, for an extension.
+
+    A name keeps the multiples and coverage its stored rows show. A quarter
+    that ended before *after* but had not been reported by then is reported
+    now, with its lag drawn from what remains of the usual range, so no row
+    lands on a date the store has already passed.
+
+    Args:
+        stored: The store's feature rows.
+        universe: Every name that can report, with SECTOR and market_cap.
+        joined: The names listing in this extension, which draw their
+            coverage and multiples as the originals did.
+        closes: Wide closes from `LOOKBACK_DAYS` before *after* to the
+            extension's last date.
+        after: The last date already in the store.
+        rng: Seeded generator.
+    """
+    dates = pd.DatetimeIndex(closes.index)
+    fundamentals = _carry_on_fundamentals(stored, universe, joined, closes,
+                                          after, rng)
+
+    returns = closes.pct_change(fill_method=None)
+    drifts = returns.rolling(21, min_periods=1).mean()
+    months = [pd.Timestamp(month) for month in pd.date_range(
+        after - pd.Timedelta(days=ALTERNATIVE_LAG_DAYS), dates[-1], freq="ME")]
+    drifts = drifts.reindex(drifts.index.union(months)).ffill().loc[months]
+
+    views = stored.loc[stored["FIELD"] == "wikipedia_views"]
+    base = np.exp(np.log(views["VALUE"].clip(lower=1.0))
+                  .groupby(views["IDENTIFIER"]).mean())
+
+    caps = universe["market_cap"]
+    for identifier in joined:
+        if rng.uniform() < ALTERNATIVE_COVERAGE:
+            base[identifier] = float(1_000 * np.log10(caps[identifier]
+                                                      / caps.min() + 10.0)
+                                     * rng.lognormal(0.0, 0.5))
+
+    records = []
+    for identifier in sorted(set(base.index) & set(drifts.columns)):
+        for month in months:
+            known = month + pd.Timedelta(days=ALTERNATIVE_LAG_DAYS)
+            drift = float(drifts.at[month, identifier])
+
+            if after < known <= dates[-1] and np.isfinite(drift):
+                records += _monthly(identifier, known, month,
+                                    float(base[identifier]), drift, rng)
+
+    return pd.concat([fundamentals, _frame(records, ALTERNATIVE)],
+                     ignore_index=True)
+
+
+def _carry_on_fundamentals(stored: pd.DataFrame,
+                           universe: pd.DataFrame,
+                           joined: pd.Index,
+                           closes: pd.DataFrame,
+                           after: pd.Timestamp,
+                           rng: np.random.Generator) -> pd.DataFrame:
+    """The quarterly ratios for an extension (see `carry_on`)."""
+    dates = pd.DatetimeIndex(closes.index)
+    ratios = stored.loc[stored["FIELD"].isin(["pe_ratio", "pb_ratio",
+                                              "debt_to_equity"])]
+    multiples = (ratios.groupby(["IDENTIFIER", "FIELD"])["VALUE"].first()
+                 .unstack().reindex(columns=["pe_ratio", "pb_ratio",
+                                             "debt_to_equity"]))
+
+    for identifier in joined:
+        if rng.uniform() < FUNDAMENTAL_COVERAGE:
+            sector = str(universe.loc[identifier, "SECTOR"])
+            multiples.loc[identifier, ["pe_ratio", "pb_ratio",
+                                       "debt_to_equity"]] = [
+                _multiple(sector, SECTOR_PE, rng),
+                _multiple(sector, SECTOR_PB, rng),
+                _multiple(sector, SECTOR_DEBT_EQUITY, rng)]
+
+    reported = set(zip(ratios["IDENTIFIER"], ratios["DETAIL"], strict=True))
+    quarters = [pd.Timestamp(quarter) for quarter in pd.date_range(
+        after - pd.Timedelta(days=LOOKBACK_DAYS), dates[-1], freq="QE")]
+
+    records = []
+    for identifier in sorted(set(multiples.index) & set(closes.columns)):
+        held = multiples.loc[identifier]
+
+        for quarter in quarters:
+            row = as_of_position(dates, quarter)
+            close = np.nan if row is None else closes[identifier].iloc[row]
+            earliest = max(MIN_LAG_DAYS, (after - quarter).days + 1)
+
+            if ((identifier, _detail(quarter)) in reported
+                    or not np.isfinite(close) or close <= 0
+                    or earliest >= MAX_LAG_DAYS):
+                continue
+
+            known = quarter + pd.Timedelta(days=int(
+                rng.integers(earliest, MAX_LAG_DAYS)))
+
+            if known <= dates[-1]:
+                records += _quarterly(identifier, known, quarter, float(close),
+                                      (float(held["pe_ratio"]),
+                                       float(held["pb_ratio"]),
+                                       float(held["debt_to_equity"])))
+
+    return _frame(records, FUNDAMENTALS)

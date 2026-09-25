@@ -22,6 +22,13 @@ a misleading one about the application.
 Pass both ``--start`` and ``--end`` when reproducibility matters — the seed
 fixes the draw, not the calendar.
 
+## Extending a store
+
+    python -m beacon.synthetic --extend PATH [--end DATE]
+
+carries a store generated earlier on to ``--end`` (default today), keeping
+every day it already holds. See `beacon.synthetic.extend`.
+
 ## The two expansion flags
 
 ``--extended-universe`` doubles the universe to 10,000 names.
@@ -50,6 +57,7 @@ from .dataset import (
     SyntheticConfig,
     write,
 )
+from .extend import extend
 from .regimes import CRISES
 
 logger = logging.getLogger(__name__)
@@ -188,6 +196,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", type=Path, default=None,
                         help="store directory (default: the location "
                              "`python -m beacon.server` auto-loads)")
+    parser.add_argument("--extend", type=Path, default=None, metavar="PATH",
+                        help="instead of generating, carry the store at PATH "
+                             "on to --end (default: today), keeping every day "
+                             "it already holds")
 
     return parser
 
@@ -242,6 +254,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
+    if args.extend is not None:
+        return _extend(args.extend, args.end, args.progress)
+
     start, end = resolve_window(args.start, args.end, args.long_history)
     assets = resolve_assets(args.assets, args.extended_universe)
 
@@ -270,6 +285,26 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Wrote {assets:,} identifiers from {start} to {end} "
           f"(seed {args.seed}) to {written}.")
+
+    return 0
+
+
+def _extend(path: Path,
+            end: str | None,
+            progress: bool) -> int:
+    """Extend a store and report what was added."""
+    try:
+        added = extend(path, end, _print_progress if progress else _quiet)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if added.sessions == 0:
+        print(f"{path} already reaches {end or 'today'}; nothing to add.")
+    else:
+        print(f"Extended {path} by {added.sessions} session(s), {added.first} "
+              f"to {added.last}: {added.listed} listed, {added.delisted} "
+              f"delisted.")
 
     return 0
 

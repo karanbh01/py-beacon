@@ -37,7 +37,7 @@ from ..data.features import FeatureData
 from ..data.fetcher import DataFetcher
 from ..index.schedule import DEFAULT_CALENDAR, is_known_calendar, sessions
 from . import features as features_module
-from . import fx, listings, prices, profiles, returns, universe
+from . import fx, listings, prices, profiles, returns, state, universe
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +247,9 @@ def write(config: SyntheticConfig,
           progress: Progress = _silent) -> Path:
     """Generate a dataset and write it as a Beacon data store.
 
+    The store also keeps what an extension needs to carry it on later (see
+    `beacon.synthetic.extend`).
+
     Args:
         config: What to generate.
         path: Store directory, created if absent.
@@ -259,6 +262,21 @@ def write(config: SyntheticConfig,
 
     progress(0.80, "Saving the store")
     written = store.save(dataset.fetcher(), path, source=store.SOURCE_SYNTHETIC)
+    state.save(written, settings_of(config), dataset.universe)
     progress(1.0, "Done")
 
     return written
+
+
+def settings_of(config: SyntheticConfig) -> state.Settings:
+    """The generator state a store made with *config* starts from."""
+    return state.Settings(seed=config.seed,
+                          assets=config.assets,
+                          start=config.start,
+                          end=config.end,
+                          calendar=config.calendar,
+                          risk_free_rate=config.risk_free_rate,
+                          equity_premium=config.equity_premium,
+                          delisting_rate=config.delisting_rate,
+                          listing_rate=config.listing_rate,
+                          features=config.features)

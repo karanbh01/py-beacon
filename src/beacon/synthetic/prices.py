@@ -147,12 +147,13 @@ def review_dates(dates: pd.DatetimeIndex) -> pd.DatetimeIndex:
 
 
 def _split_paths(pre_split: pd.DataFrame,
-                 dates: pd.DatetimeIndex) -> tuple[pd.DataFrame, list[dict[str, object]]]:
+                 calendar: pd.DatetimeIndex) -> tuple[pd.DataFrame, list[dict[str, object]]]:
     """Walk the annual reviews, splitting names whose price has run away.
 
     Args:
         pre_split: The price path before any split is applied.
-        dates: The panel's dates.
+        calendar: The sessions the review schedule is read from: the panel's
+            own dates, or longer (see `build`).
 
     Returns:
         tuple: A cumulative-split-factor frame aligned to ``pre_split``, and
@@ -161,7 +162,7 @@ def _split_paths(pre_split: pd.DataFrame,
     factor = pd.DataFrame(1.0, index=pre_split.index, columns=pre_split.columns)
     actions: list[dict[str, object]] = []
 
-    for review in review_dates(dates):
+    for review in review_dates(calendar).intersection(pre_split.index):
         # The price as it would be *quoted* that day: the raw path divided by
         # the splits already applied. Reviewing the raw path instead would keep
         # splitting a name that had already been brought back down.
@@ -185,12 +186,13 @@ def _split_paths(pre_split: pd.DataFrame,
 
 
 def _dividend_fractions(universe: pd.DataFrame,
-                        dates: pd.DatetimeIndex) -> pd.DataFrame:
+                        dates: pd.DatetimeIndex,
+                        calendar: pd.DatetimeIndex) -> pd.DataFrame:
     """The ex-date price drop, as a fraction of price, per name and date."""
     fractions = pd.DataFrame(0.0, index=dates, columns=universe.index)
     quarterly = universe["dividend_yield"].to_numpy() / 4.0
 
-    for date in dividend_dates(dates):
+    for date in dividend_dates(calendar).intersection(dates):
         fractions.loc[date] = quarterly
 
     return fractions
@@ -199,7 +201,9 @@ def _dividend_fractions(universe: pd.DataFrame,
 def build(universe: pd.DataFrame,
           returns: pd.DataFrame,
           rng: np.random.Generator,
-          block_size: int = BLOCK_SIZE) -> tuple[pd.DataFrame, pd.DataFrame]:
+          block_size: int = BLOCK_SIZE,
+          calendar: pd.DatetimeIndex | None = None
+          ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the market-data panel and the corporate-action history.
 
     Names are processed in blocks. This is where the memory actually goes:
@@ -219,6 +223,11 @@ def build(universe: pd.DataFrame,
         rng: Seeded generator.
         block_size: How many names to process at a time. Affects peak memory
             and nothing else.
+        calendar: The sessions the dividend and split-review schedules are
+            read from. Defaults to the panel's own dates. An extension passes
+            sessions reaching back before its first date, so a month or year
+            the existing data already began is not given a second ex-date or
+            review.
 
     Returns:
         tuple: Long-form market data with IDENTIFIER/DATE and OHLCV plus
@@ -228,10 +237,13 @@ def build(universe: pd.DataFrame,
     # gaps, ranges and volume must not depend on how the work was divided.
     children = rng.spawn(len(universe))
     step = max(block_size, 1)
+    schedule = (calendar if calendar is not None
+                else pd.DatetimeIndex(returns.index))
 
     blocks = [_build_block(universe.iloc[start:start + step],
                            returns.iloc[:, start:start + step],
-                           children[start:start + step])
+                           children[start:start + step],
+                           schedule)
               for start in range(0, len(universe), step)]
 
     return (pd.concat([market for market, _ in blocks], ignore_index=True),
@@ -241,18 +253,19 @@ def build(universe: pd.DataFrame,
 def _build_block(universe: pd.DataFrame,
                  returns: pd.DataFrame,
                  children: list[np.random.Generator],
+                 calendar: pd.DatetimeIndex,
                  ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Everything `build` does, for one block of names."""
     dates = pd.DatetimeIndex(returns.index)
 
-    drops = _dividend_fractions(universe, dates)
+    drops = _dividend_fractions(universe, dates, calendar)
 
     # One multiplicative path carrying both the economic return and the ex-date
     # drop, so the close and the dividend cannot drift apart.
     multipliers = (1.0 + returns) * (1.0 - drops)
     pre_split = multipliers.cumprod() * universe["initial_price"].to_numpy()
 
-    factor, split_actions = _split_paths(pre_split, dates)
+    factor, split_actions = _split_paths(pre_split, calendar)
 
     # The dividend is the drop, measured against the price before it — and then
     # divided by the split factor, because the recorded amount has to be quoted
@@ -340,9 +353,18 @@ def _volume(universe: pd.DataFrame,
             returns: pd.DataFrame,
             factor: pd.DataFrame,
             children: list[np.random.Generator]) -> pd.DataFrame:
-    """Log-normal volume, lifted on days with a large move."""
+    """Log-normal volume, lifted on days with a large move.
+
+    A `turnover` column in *universe*, where it holds a value, replaces the
+    drawn one: an extension carries each name on at the turnover its history
+    shows.
+    """
     turnover = np.array([child.uniform(MIN_TURNOVER, MAX_TURNOVER)
                          for child in children])
+
+    if "turnover" in universe:
+        known = universe["turnover"].to_numpy(dtype=float)
+        turnover = np.where(np.isfinite(known), known, turnover)
     base = universe["shares_outstanding"].to_numpy() * turnover
 
     daily_volatility = universe["volatility"].to_numpy() / np.sqrt(252.0)
