@@ -78,6 +78,17 @@ jobs:
           # /changelog). A wheel without it would answer 500 there.
           /tmp/smoke/bin/python -c "from beacon.changelog import entries; import beacon; assert beacon.__version__ in [e.version for e in entries()], 'no changelog section for this version in the wheel'"
 
+      # The API description of exactly this release, for clients that generate
+      # types from it (beacon-ui). Exported from the wheel just built, with the
+      # server extra, not from the source tree, so it describes what shipped.
+      # Attached to the GitHub release only; the PyPI job uploads just the
+      # wheel and source archive.
+      - name: Export the OpenAPI spec from the built wheel
+        run: |
+          uv pip install --python /tmp/smoke/bin/python "$(ls dist/*.whl)[server]"
+          /tmp/smoke/bin/python scripts/export_openapi.py dist/openapi.json
+          /tmp/smoke/bin/python -c "import json; spec = json.load(open('dist/openapi.json')); print(spec['info']['version'], len(spec['paths']), 'paths')"
+
       # Pulls this version's section out of CHANGELOG.md (Keep a Changelog
       # format). CHANGELOG.md arrives with BN-62; until then, and for any tag
       # with no matching section, this writes nothing and the release falls
@@ -125,6 +136,7 @@ jobs:
           files: |
             dist/*.whl
             dist/*.tar.gz
+            dist/openapi.json
           body_path: ${{ steps.changelog.outputs.have_notes == 'true' && 'release-notes.md' || '' }}
           generate_release_notes: ${{ steps.changelog.outputs.have_notes != 'true' }}
           fail_on_unmatched_files: true

@@ -116,7 +116,8 @@ A release goes to GitHub and to PyPI. The workflow is
    tagging.
 4. Tag `vX.Y.Z` and push the tag. The tag must match `__version__`. The
    workflow builds the wheel and sdist, checks them, installs the wheel, and
-   creates a draft GitHub release with both files and the changelog section.
+   creates a draft GitHub release with both files, the `openapi.json` of that exact
+   build, and the changelog section.
 5. Review the draft and publish it. Publishing uploads the draft's own files
    to PyPI and deploys the documentation.
 
