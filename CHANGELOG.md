@@ -8,6 +8,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-25
+
 ### Added
 
 - `DataFetcher.fx_route` says how a currency pair is converted: from a stored rate, its inverse, or a cross through USD.
@@ -41,5 +43,6 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/karanbh01/py-beacon/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/karanbh01/py-beacon/releases/tag/v0.1.0
