@@ -59,6 +59,10 @@ class ServerConfig:
             path is exercisable without a network.
         storage_root: Base directory for persisted documents. None uses the
             platform app-data location; tests point it at a temporary path.
+        data_store_id: The registered data store `data_fetcher` came from,
+            or None (BN-236).
+        data_store_name: A name to show for the data being served: the
+            store's name, or where unregistered data came from.
     """
     auth_token: str
     host: str = "127.0.0.1"
@@ -67,6 +71,8 @@ class ServerConfig:
     market_downloader: Downloader | None = None
     cors_origins: tuple[str, ...] = field(default=DEFAULT_CORS_ORIGINS)
     storage_root: Path | None = None
+    data_store_id: str | None = None
+    data_store_name: str | None = None
 
     def __post_init__(self) -> None:
         if not self.auth_token:
@@ -82,7 +88,9 @@ class ServerConfig:
                          port: int = 0,
                          data_fetcher: DataFetcher | None = None,
                          cors_origins: tuple[str, ...] | None = None,
-                         storage_root: Path | None = None
+                         storage_root: Path | None = None,
+                         data_store_id: str | None = None,
+                         data_store_name: str | None = None
                          ) -> "ServerConfig":
         """Build a config, taking the token from the environment if not given.
 
@@ -96,6 +104,8 @@ class ServerConfig:
                 environment and the defaults.
             storage_root: Where saved documents live. None uses the platform
                 app-data location.
+            data_store_id: The registered store the data came from, if any.
+            data_store_name: A name to show for the data being served.
 
         Returns:
             ServerConfig: The assembled configuration.
@@ -114,7 +124,9 @@ class ServerConfig:
                    data_fetcher=data_fetcher,
                    cors_origins=(cors_origins if cors_origins is not None
                                  else resolve_cors_origins()),
-                   storage_root=storage_root)
+                   storage_root=storage_root,
+                   data_store_id=data_store_id,
+                   data_store_name=data_store_name)
 
 
 def resolve_cors_origins(explicit: list[str] | None = None) -> tuple[str, ...]:

@@ -176,6 +176,18 @@ class JobRegistry:
             except asyncio.QueueFull:
                 logger.warning("Dropping event for a subscriber whose queue is full.")
 
+    def publish_data_loaded(self,
+                            store_id: str,
+                            name: str) -> None:
+        """Announce that the engine now serves a different data store (BN-236).
+
+        A client holding anything derived from the data (lists of names,
+        coverage, previews) should refetch it: every dataset may have changed
+        at once.
+        """
+        self.publish({"type": "data.loaded",
+                      "store": {"id": store_id, "name": name}})
+
     def publish_data_freshness(self,
                                dataset: str,
                                detail: dict[str, Any] | None = None) -> None:

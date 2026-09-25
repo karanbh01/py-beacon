@@ -22,9 +22,9 @@ from typing import Annotated, Any
 
 from ..._optional import require
 from ...data.fetcher import DataFetcher
-from ...exceptions import ConfigurationError, DataNotFoundError
+from ...exceptions import DataNotFoundError
+from ..active_data import require_data
 from ..backtests import build_backtest_job
-from ..config import ServerConfig
 from ..documents import load_document, read_collection, validated
 from ..jobs import JobRegistry
 from ..runs import snapshot_at, snapshots_from
@@ -136,15 +136,8 @@ def _record_row(index_id: str,
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
-    """Return the process's data source, or fail with a mapped error."""
-    config: ServerConfig = request.app.state.config
-    if config.data_fetcher is None:
-        raise ConfigurationError(
-            "data_source",
-            "This server was started without a data source, so a backtest "
-            "cannot be run. Restart it with one configured.")
-
-    return config.data_fetcher
+    """The loaded data, or 409 NO_DATA_LOADED (see `active_data`)."""
+    return require_data(request, "a backtest cannot be run")
 
 
 def build_beacon_router() -> APIRouter:

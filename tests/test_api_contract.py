@@ -72,7 +72,7 @@ SELF_EVIDENT_FIELDS = {"index_id", "name"}
 # case that made BN-181 worth filing: a NEW field shipping silent, where two
 # components can hold different meanings for it indefinitely and the divergence
 # surfaces only when behaviour changes underneath both.
-SILENT_FIELD_CEILING = 180
+SILENT_FIELD_CEILING = 174
 
 # The date- and time-shaped fields BN-181 described, written out rather than
 # derived so that losing one is a failure rather than a number that still adds
@@ -743,7 +743,7 @@ class TestJobResultPayloadsArePublished:
 
         assert [arm["$ref"].rsplit("/", 1)[-1] for arm in schema["anyOf"]] == [
             "BacktestJobStatus", "OptimisationJobStatus", "RenderJobStatus",
-            "RiskModelJobStatus", "SyncJobStatus", "JobStatus"]
+            "RiskModelJobStatus", "SyncJobStatus", "LoadJobStatus", "JobStatus"]
 
     def test_the_served_payload_is_the_declared_one(self,
                                                    client):

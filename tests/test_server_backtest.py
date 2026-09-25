@@ -153,16 +153,16 @@ class TestSubmission:
         assert response.status_code == 404
         assert client.get("/jobs", headers=auth()).json()["jobs"] == []
 
-    def test_without_a_data_source_is_a_configuration_error(self,
-                                                            tmp_path):
+    def test_without_data_is_refused_until_a_store_is_loaded(self,
+                                                             tmp_path):
         config = ServerConfig(auth_token=TOKEN, storage_root=tmp_path)
         with TestClient(create_app(config), raise_server_exceptions=False) as bare:
             bare.post("/indices", json=index_document(), headers=auth())
 
             response = bare.post("/beacon/BT/backtest", json={}, headers=auth())
 
-        assert response.status_code == 500
-        assert response.json()["error"]["code"] == "CONFIGURATION_ERROR"
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "NO_DATA_LOADED"
 
     def test_requires_authentication(self,
                                      client):

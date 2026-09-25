@@ -352,8 +352,8 @@ class TestEndpointBehaviour:
                                      client):
         assert client.post("/indices/PREVIEW/preview", json={}).status_code == 401
 
-    def test_without_a_data_source_is_a_configuration_error(self,
-                                                            tmp_path):
+    def test_without_data_is_refused_until_a_store_is_loaded(self,
+                                                             tmp_path):
         """Preview evaluates real rules, so it cannot run without data."""
         config = ServerConfig(auth_token=TOKEN, storage_root=tmp_path)
         client = TestClient(create_app(config), raise_server_exceptions=False)
@@ -361,8 +361,8 @@ class TestEndpointBehaviour:
 
         response = client.post("/indices/PREVIEW/preview", json={}, headers=auth())
 
-        assert response.status_code == 500
-        assert response.json()["error"]["code"] == "CONFIGURATION_ERROR"
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "NO_DATA_LOADED"
 
     def test_documented_in_openapi(self,
                                    client):

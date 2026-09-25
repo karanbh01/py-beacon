@@ -14,7 +14,7 @@ import pandas as pd
 from ... import catalogue
 from ..._optional import require
 from ...data.fetcher import DataFetcher
-from ...exceptions import ConfigurationError, DataNotFoundError, InvalidRuleError
+from ...exceptions import DataNotFoundError, InvalidRuleError
 from ...index.schedule import (
     DEFAULT_CALENDAR,
     DISPLAY_NAMES,
@@ -24,7 +24,7 @@ from ...index.schedule import (
     next_rebalance,
     rebalance_dates,
 )
-from ..config import ServerConfig
+from ..active_data import require_data
 from ..definitions import (
     build_definition,
     has_errors,
@@ -103,19 +103,8 @@ def load_index(request: Request,
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
-    """Return the process's data source, or fail with a mapped error.
-
-    Preview evaluates real rules against real prices, so unlike the CRUD
-    endpoints it cannot run without one.
-    """
-    config: ServerConfig = request.app.state.config
-    if config.data_fetcher is None:
-        raise ConfigurationError(
-            "data_source",
-            "This server was started without a data source, so a constituent "
-            "preview cannot be derived. Restart it with one configured.")
-
-    return config.data_fetcher
+    """The loaded data, or 409 NO_DATA_LOADED (see `active_data`)."""
+    return require_data(request, "a constituent preview cannot be derived")
 
 
 def _resolve_universe(request: Request,

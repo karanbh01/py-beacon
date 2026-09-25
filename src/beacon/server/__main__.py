@@ -47,8 +47,8 @@ from .config import (
     TOKEN_ENV_VAR,
     ServerConfig,
     resolve_cors_origins,
-    resolve_data_source,
 )
+from .data_stores import resolve_startup
 
 logger = logging.getLogger(__name__)
 
@@ -161,14 +161,19 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
-        fetcher, origin = resolve_data_source(args.data)
+        # Before the port is announced, as it always was: a client that has
+        # read BEACON_PORT may call at once, and must find the data loaded.
+        startup = resolve_startup(args.data, args.documents)
+        origin = startup.origin
         config = ServerConfig.from_environment(
             token=args.token,
             host=args.host,
             port=args.port,
-            data_fetcher=fetcher,
+            data_fetcher=startup.fetcher,
             cors_origins=resolve_cors_origins(args.cors_origins),
-            storage_root=args.documents)
+            storage_root=args.documents,
+            data_store_id=startup.store_id,
+            data_store_name=startup.store_name)
     except (ValueError, ConfigurationError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

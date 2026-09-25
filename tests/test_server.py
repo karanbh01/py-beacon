@@ -166,13 +166,18 @@ class TestHealth:
                                    client):
         body = client.get("/health", headers=auth()).json()
 
-        assert body["data_source"] == {"configured": False, "identifiers": 0}
+        assert body["data_source"] == {"configured": False, "identifiers": 0,
+                                       "store_id": None, "store_name": None,
+                                       "loading": False}
 
     def test_with_a_data_source(self,
                                 client_with_data):
         body = client_with_data.get("/health", headers=auth()).json()
 
-        assert body["data_source"] == {"configured": True, "identifiers": len(ASSETS)}
+        assert body["data_source"] == {"configured": True,
+                                       "identifiers": len(ASSETS),
+                                       "store_id": None, "store_name": None,
+                                       "loading": False}
 
     def test_cache_age_is_null(self,
                                client):

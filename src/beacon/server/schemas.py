@@ -226,9 +226,23 @@ class TableFrame(BaseModel):
 
 
 class DataSourceStatus(BaseModel):
-    """Whether this process has a data source, and how much it covers."""
-    configured: bool = Field(description="True when a DataFetcher is attached.")
+    """Whether data is loaded, how much, and from where."""
+    configured: bool = Field(description="True when data is loaded.")
     identifiers: int = Field(description="Distinct identifiers in market data.")
+    store_id: str | None = Field(
+        default=None,
+        description="The registered data store being served. Null when "
+                    "nothing is loaded, or when the data came from `--data` "
+                    "or `BEACON_DATA_PATH` rather than a registered store.")
+    store_name: str | None = Field(
+        default=None,
+        description="A name for what is being served: the store's name, or "
+                    "where unregistered data came from. Null when nothing is "
+                    "loaded.")
+    loading: bool = Field(
+        default=False,
+        description="True while a data store is being loaded. The data "
+                    "served until it finishes is the previous store's.")
 
 
 class ChangelogSectionView(BaseModel):
@@ -3398,7 +3412,8 @@ class JobStatusOf(BaseModel, Generic[ResultT]):
     Not used as a response model directly — the parametrisations below are,
     and `JobStatus` is the untyped one that existing callers keep using.
     """
-    job_id: str
+    job_id: str = Field(description="The job's id: poll GET /jobs/{job_id}, "
+                                    "or watch it on the event socket.")
     kind: str = Field(description="What the job is, e.g. 'backtest'.")
     status: str = Field(
         description="pending, running, succeeded, failed or cancelled. The "
@@ -3452,6 +3467,22 @@ class SyncJobStatus(JobStatusOf[SyncJobResult]):
     """A `sync:{dataset}` job. `result` summarises what was fetched."""
 
 
+class LoadResult(BaseModel):
+    """Result payload of a completed `load:{store_id}` job (BN-236)."""
+    store_id: str = Field(description="The store now being served.")
+    name: str = Field(description="Its display name.")
+    identifiers: int = Field(description="Distinct identifiers in its market "
+                                         "data.")
+    start: str | None = Field(default=None,
+                              description="Earliest date held, ISO 8601.")
+    end: str | None = Field(default=None,
+                            description="Latest date held, ISO 8601.")
+
+
+class LoadJobStatus(JobStatusOf[LoadResult]):
+    """A `load:{store_id}` job. `result` describes the store now served."""
+
+
 # The response of `GET /jobs/{job_id}`: one arm per job kind, so a client reads
 # a real type off `result` instead of casting against nothing.
 #
@@ -3477,6 +3508,7 @@ AnyJobStatus = (BacktestJobStatus
                 | RenderJobStatus
                 | RiskModelJobStatus
                 | SyncJobStatus
+                | LoadJobStatus
                 | JobStatus)
 
 

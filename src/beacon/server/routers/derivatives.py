@@ -15,7 +15,7 @@ from typing import Annotated
 
 from ..._optional import require
 from ...data.fetcher import DataFetcher
-from ...exceptions import ConfigurationError
+from ..active_data import require_data
 from ..derivatives import (
     build_roll,
     build_term_structure,
@@ -49,15 +49,8 @@ ExpiryQuery = Annotated[str, Query(description="Contract expiry, YYYY-MM-DD.")]
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
-    """The process's data source, or a mapped error."""
-    fetcher = request.app.state.config.data_fetcher
-    if fetcher is None:
-        raise ConfigurationError(
-            "data_source",
-            "This server was started without a data source, so an index "
-            "cannot be priced. Restart it with one configured.")
-
-    return fetcher  # type: ignore[no-any-return]
+    """The loaded data, or 409 NO_DATA_LOADED (see `active_data`)."""
+    return require_data(request, "an index cannot be priced")
 
 
 def build_derivatives_router() -> APIRouter:

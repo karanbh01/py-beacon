@@ -367,8 +367,8 @@ class TestCoverage:
         assert all(d["configured"] is False for d in datasets)
         assert all(d["identifiers"] == 0 for d in datasets)
 
-    def test_sync_without_a_data_source_reports_500(self,
-                                                    tmp_path):
+    def test_sync_without_data_is_refused(self,
+                                          tmp_path):
         """Used to be a 501: no ingestion path existed at all.
 
         BN-100 built one, so the honest failure here is now about this server
@@ -382,7 +382,7 @@ class TestCoverage:
 
         response = bare.post("/data/coverage/market/sync", headers=auth())
 
-        assert response.status_code == 500
+        assert response.status_code == 409
 
     def test_sync_unknown_dataset_is_404(self,
                                          client):

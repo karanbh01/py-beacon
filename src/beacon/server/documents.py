@@ -48,6 +48,7 @@ server calls it — the tolerance is applied here, where the model is known, and
 a test asserts that no server code reads a collection strictly again.
 """
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
@@ -332,3 +333,20 @@ def _absent(describe: str,
     logger.warning("Answering not-found for unreadable %s: %s", describe, error)
 
     return DataNotFoundError(describe, source=source)
+
+
+def slug(name: str) -> str:
+    """Derive a document id from a display name.
+
+    Shared by universes and data stores, so both turn a name into an id the
+    same way.
+
+    Lower-cased, runs of non-alphanumerics collapsed to one dash, trimmed:
+    "My Tech Names!" becomes "my-tech-names", which is what appears in the URL.
+
+    Returns an empty string when nothing survives. A name of pure punctuation
+    has no identifier, and the caller refuses it rather than inventing one.
+    """
+    reduced = re.sub(r"[^a-z0-9]+", "-", name.strip().lower())
+
+    return reduced.strip("-")[:64]

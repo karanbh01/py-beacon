@@ -24,7 +24,6 @@ produced, so a fresh workspace has something to select. It is marked
 regenerating would discard whatever had been changed. Refusing now beats
 losing it later.
 """
-import re
 from typing import Annotated, Any
 
 import pandas as pd
@@ -32,15 +31,14 @@ import pandas as pd
 from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import (
-    ConfigurationError,
     DataNotFoundError,
     ExpressionError,
     InvalidRuleError,
 )
 from ...expressions.core import from_dict
 from ...universe import where
-from ..config import ServerConfig
-from ..documents import load_document, raw, read_collection, stored, validated
+from ..active_data import current_data, require_data
+from ..documents import load_document, raw, read_collection, slug, stored, validated
 from ..errors import FindingsError
 from ..schemas import (
     MODE_FROZEN,
@@ -114,20 +112,6 @@ def _store(request: Request) -> DocumentStore:
 _universe = validated(Universe)
 
 
-def slug(name: str) -> str:
-    """Derive an identifier from a display name.
-
-    Lower-cased, runs of non-alphanumerics collapsed to one dash, trimmed:
-    "My Tech Names!" becomes "my-tech-names", which is what appears in the URL.
-
-    Returns an empty string when nothing survives. A name of pure punctuation
-    has no identifier, and the caller refuses it rather than inventing one.
-    """
-    reduced = re.sub(r"[^a-z0-9]+", "-", name.strip().lower())
-
-    return reduced.strip("-")[:64]
-
-
 def _rejected(findings: list[Finding]) -> FindingsError:
     """A rejection carrying findings, in the shape the index editor renders."""
     return FindingsError("universe", "its members are not valid", findings)
@@ -172,7 +156,7 @@ def _resolve_members(request: Request,
             path=path, severity="error", code="EMPTY_UNIVERSE",
             message="A universe must name at least one identifier.")])
 
-    fetcher = getattr(request.app.state.config, "data_fetcher", None)
+    fetcher = current_data(request)
 
     if fetcher is None:
         # Nothing to check against. A server started without a data source can
@@ -207,21 +191,8 @@ def _resolve_members(request: Request,
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
-    """The process's data source, or a mapped error.
-
-    Defined here rather than imported from the data router, matching what the
-    other routers do: the CRUD endpoints work without a data source, but a
-    filter cannot be resolved without one.
-    """
-    config: ServerConfig = request.app.state.config
-
-    if config.data_fetcher is None:
-        raise ConfigurationError(
-            "data_source",
-            "This server was started without a data source, so a universe "
-            "filter cannot be resolved. Restart it with one configured.")
-
-    return config.data_fetcher
+    """The loaded data, or 409 NO_DATA_LOADED (see `active_data`)."""
+    return require_data(request, "a universe filter cannot be resolved")
 
 
 def _standing(request: Request) -> pd.Timestamp:

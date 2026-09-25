@@ -22,6 +22,8 @@ require("fastapi", "The Beacon API server")
 from fastapi import APIRouter, Depends, FastAPI, Query, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
+from .active_data import ActiveData, active_data  # noqa: E402
+from .data_stores import StoreRegistry  # noqa: E402
 from .errors import register_exception_handlers  # noqa: E402
 from .jobs import JobRegistry  # noqa: E402
 from .methods import LiteralPathMethods  # noqa: E402
@@ -36,6 +38,7 @@ from .routers import (  # noqa: E402
     build_optimise_router,
     build_reports_router,
     build_risk_router,
+    build_stores_router,
     build_universes_router,
     build_watchlists_router,
 )
@@ -77,17 +80,20 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-def _describe_data_source(config: ServerConfig) -> DataSourceStatus:
-    """Summarise the configured data source for /health.
+def _describe_data_source(holder: ActiveData) -> DataSourceStatus:
+    """Summarise the data being served, for /health.
 
-    Returns the same shape whether or not a source is present, so the client
-    can read it without branching on null.
+    Returns the same shape whether or not data is loaded, so the client can
+    read it without branching on null.
     """
-    if config.data_fetcher is None:
-        return DataSourceStatus(configured=False, identifiers=0)
+    fetcher = holder.fetcher
 
-    return DataSourceStatus(configured=True,
-                            identifiers=len(config.data_fetcher.identifiers))
+    return DataSourceStatus(
+        configured=fetcher is not None,
+        identifiers=len(fetcher.identifiers) if fetcher is not None else 0,
+        store_id=holder.store_id,
+        store_name=holder.store_name if fetcher is not None else None,
+        loading=holder.loading)
 
 
 def build_router() -> APIRouter:
@@ -121,30 +127,31 @@ def build_router() -> APIRouter:
 
     @router.get("/health", response_model=HealthResponse)
     def health(request: Request) -> HealthResponse:
-        config: ServerConfig = request.app.state.config
+        holder = active_data(request)
+        fetcher = holder.fetcher
 
         return HealthResponse(
             status="ok",
             version=__version__,
-            data_source=_describe_data_source(config),
+            data_source=_describe_data_source(holder),
             # Real since BN-99: the market data's age in seconds, counted from
             # whenever it was last loaded or synced. Null only when there is no
             # data source, because then there is nothing whose age could be
             # reported.
-            cache_age=(config.data_fetcher.age_seconds(MARKET_DATASET)
-                       if config.data_fetcher is not None else None),
+            cache_age=(fetcher.age_seconds(MARKET_DATASET)
+                       if fetcher is not None else None),
             # Published because it changes numbers (BN-207). A client showing
             # a converted figure is showing the result of an assumption, and
             # a reader who cannot see which assumption was in force has to
             # infer it -- which is exactly where these bugs have lived.
-            fx_policy=(config.data_fetcher.fx_policy
-                       if config.data_fetcher is not None else None),
+            fx_policy=(fetcher.fx_policy
+                       if fetcher is not None else None),
             max_price_staleness_days=(
-                config.data_fetcher.max_price_staleness_days
-                if config.data_fetcher is not None else None),
+                fetcher.max_price_staleness_days
+                if fetcher is not None else None),
             free_float_backfill_days=(
-                config.data_fetcher.free_float_backfill_days
-                if config.data_fetcher is not None else None))
+                fetcher.free_float_backfill_days
+                if fetcher is not None else None))
 
     return router
 
@@ -203,6 +210,13 @@ def create_app(config: ServerConfig) -> FastAPI:
     # select from, so one covering everything is written as soon as data is
     # loaded. Marked seeded, and therefore read-only -- it derives from the
     # data, so an edit would be discarded the next time the data changed.
+    # The data being served, which a data store can replace while the engine
+    # runs (BN-236). Starts as whatever the launcher loaded.
+    app.state.active_data = ActiveData(fetcher=config.data_fetcher,
+                                       store_id=config.data_store_id,
+                                       store_name=config.data_store_name)
+    app.state.data_stores = StoreRegistry(config.storage_root)
+
     if config.data_fetcher is not None:
         seeded = seed_global_universe(app.state.universe_store,
                                       config.data_fetcher)
@@ -250,6 +264,7 @@ def create_app(config: ServerConfig) -> FastAPI:
                    build_jobs_router(),
                    build_optimise_router(),
                    build_risk_router(),
+                   build_stores_router(),
                    build_reports_router(),
                    build_derivatives_router(),
                    build_beacon_router()):

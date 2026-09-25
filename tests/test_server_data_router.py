@@ -151,13 +151,13 @@ class TestPrices:
                                      client):
         assert client.get("/data/prices/AAA").status_code == 401
 
-    def test_no_data_source_is_a_server_configuration_error(self,
-                                                            client_without_data):
+    def test_no_data_is_refused_until_a_store_is_loaded(self,
+                                                        client_without_data):
         """The request was fine; the process is not configured to answer it."""
         response = client_without_data.get("/data/prices/AAA", headers=auth())
 
-        assert response.status_code == 500
-        assert response.json()["error"]["code"] == "CONFIGURATION_ERROR"
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "NO_DATA_LOADED"
 
     def test_adjusted_parameter_is_advertised(self,
                                               client):
@@ -313,9 +313,9 @@ class TestCorporateActionsEndpoint:
                                         client):
         assert client.get("/data/corporate-actions/AAA").status_code == 401
 
-    def test_it_reports_a_missing_data_source(self,
-                                              client_without_data):
+    def test_it_reports_that_no_data_is_loaded(self,
+                                               client_without_data):
         response = client_without_data.get("/data/corporate-actions/AAA",
                                            headers=auth())
 
-        assert response.status_code == 500
+        assert response.status_code == 409

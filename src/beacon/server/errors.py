@@ -22,6 +22,7 @@ from ..exceptions import (
     InvalidIdentifierError,
     InvalidRuleError,
     MissingDependencyError,
+    NoDataLoadedError,
     ReportingError,
     UnexpectedCalculationError,
 )
@@ -72,6 +73,9 @@ from starlette.exceptions import HTTPException  # noqa: E402
 # specific subclass must come first, since lookup walks this in sequence.
 EXCEPTION_MAPPING: tuple[tuple[type[BeaconError], int, str], ...] = (
     (DataNotFoundError, status.HTTP_404_NOT_FOUND, "DATA_NOT_FOUND"),
+    # No data loaded yet: the request is fine and the engine's state refuses
+    # it, which is what 409 says. The caller fixes it by loading a store.
+    (NoDataLoadedError, status.HTTP_409_CONFLICT, "NO_DATA_LOADED"),
     (InvalidIdentifierError, status.HTTP_422_UNPROCESSABLE_CONTENT,
      "INVALID_IDENTIFIER"),
     (InvalidRuleError, status.HTTP_422_UNPROCESSABLE_CONTENT, "INVALID_RULE"),

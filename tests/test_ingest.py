@@ -385,12 +385,12 @@ class TestSyncEndpoint:
                                         client):
         assert client.post("/data/coverage/market/sync").status_code == 401
 
-    def test_a_server_without_data_reports_500(self):
+    def test_a_server_without_data_refuses_to_sync(self):
         config = ServerConfig(auth_token=TOKEN, market_downloader=fake_downloader)
         bare = TestClient(create_app(config), raise_server_exceptions=False)
 
         assert bare.post("/data/coverage/market/sync",
-                         headers=auth()).status_code == 500
+                         headers=auth()).status_code == 409
 
     def test_nothing_to_sync_is_a_404(self):
         empty = MarketData.from_dataframe(

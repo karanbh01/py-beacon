@@ -143,8 +143,8 @@ class TestRequestValidation:
         response = client.get("/data/reference",
                               params={"identifiers": "AAA"}, headers=auth())
 
-        assert response.status_code == 500
-        assert response.json()["error"]["code"] == "CONFIGURATION_ERROR"
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "NO_DATA_LOADED"
 
 
 class TestBatchShape:

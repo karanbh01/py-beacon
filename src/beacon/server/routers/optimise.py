@@ -22,7 +22,8 @@ from typing import Annotated, Any
 from ... import catalogue
 from ..._optional import require
 from ...data.fetcher import DataFetcher
-from ...exceptions import ConfigurationError, DataNotFoundError
+from ...exceptions import DataNotFoundError
+from ..active_data import require_data
 from ..constraints import (
     build_constraints,
     constraint_types,
@@ -70,15 +71,8 @@ def _store(request: Request) -> DocumentStore:
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
-    """The process's data source, or a mapped error."""
-    fetcher = request.app.state.config.data_fetcher
-    if fetcher is None:
-        raise ConfigurationError(
-            "data_source",
-            "This server was started without a data source, so an "
-            "optimisation cannot be run. Restart it with one configured.")
-
-    return fetcher  # type: ignore[no-any-return]
+    """The loaded data, or 409 NO_DATA_LOADED (see `active_data`)."""
+    return require_data(request, "an optimisation cannot be run")
 
 
 def _constraint_set(request: Request,

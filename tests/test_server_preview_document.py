@@ -257,7 +257,7 @@ class TestRouting:
 
         assert response.status_code == 401
 
-    def test_it_needs_a_data_source(self, tmp_path):
+    def test_it_needs_data_loaded(self, tmp_path):
         """Preview evaluates real rules against real prices."""
         started = TestClient(create_app(ServerConfig(
             auth_token=TOKEN, storage_root=tmp_path)),
@@ -265,5 +265,5 @@ class TestRouting:
 
         response = preview_document(started, document())
 
-        assert response.status_code == 500
-        assert response.json()["error"]["code"] == "CONFIGURATION_ERROR"
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "NO_DATA_LOADED"

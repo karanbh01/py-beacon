@@ -29,12 +29,11 @@ from ...data.identifiers import (
 )
 from ...data.store import flatten_index
 from ...exceptions import (
-    ConfigurationError,
     DataNotFoundError,
 )
 from ...expressions.catalogue import describe_fields
 from ...expressions.namespaces import NAMESPACES
-from ..config import ServerConfig
+from ..active_data import current_data, require_data
 from ..documents import read_collection, validated
 from ..errors import FindingsError
 from ..reference import (
@@ -143,31 +142,8 @@ CurrencyQuery = Annotated[
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
-    """Return the process's data source, or fail with a mapped error.
-
-    Args:
-        request: The incoming request.
-
-    Returns:
-        DataFetcher: The configured source.
-
-    Raises:
-        ConfigurationError: When the process was started without one. This
-            maps to 500 rather than 404 — the request was fine, the server is
-            not configured to answer it.
-    """
-    # app.state is untyped, so pin the config back to its real type before
-    # reading through it.
-    config: ServerConfig = request.app.state.config
-
-    fetcher = config.data_fetcher
-    if fetcher is None:
-        raise ConfigurationError(
-            "data_source",
-            "This server was started without a data source, so data endpoints "
-            "cannot be served. Restart it with one configured.")
-
-    return fetcher
+    """The loaded data, or 409 NO_DATA_LOADED (see `active_data`)."""
+    return require_data(request, "this data cannot be read")
 
 
 def _resample(frame: pd.DataFrame,
@@ -407,8 +383,7 @@ def build_data_router() -> APIRouter:
         # misconfigured" render as very different things in a client, and an
         # empty suggestion list must not look like a broken install — so a
         # data-less server answers 200 with an empty list.
-        config: ServerConfig = request.app.state.config
-        index = _identifier_index(request, config.data_fetcher)
+        index = _identifier_index(request, current_data(request))
 
         found = index.search(query=q,
                              limit=limit,

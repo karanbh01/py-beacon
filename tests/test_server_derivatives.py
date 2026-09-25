@@ -579,7 +579,7 @@ class TestWithoutADataSource:
 
         assert response.status_code == 200
 
-    def test_index_reads_report_the_missing_source(self):
+    def test_index_reads_report_that_no_data_is_loaded(self):
         with tempfile.TemporaryDirectory() as path:
             config = ServerConfig(auth_token=TOKEN, storage_root=Path(path))
 
@@ -589,7 +589,7 @@ class TestWithoutADataSource:
                                     params={"expiries": ["2026-03-20"]},
                                     headers=auth())
 
-        assert response.status_code == 500
+        assert response.status_code == 409
 
 
 class TestOpenApi:

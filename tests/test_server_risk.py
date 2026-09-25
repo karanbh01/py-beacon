@@ -301,7 +301,7 @@ class TestReads:
 
 class TestWithoutADataSource:
 
-    def test_estimation_reports_a_missing_data_source(self):
+    def test_estimation_reports_that_no_data_is_loaded(self):
         with tempfile.TemporaryDirectory() as storage:
             config = ServerConfig(auth_token=TOKEN, storage_root=Path(storage))
 
@@ -311,7 +311,7 @@ class TestWithoutADataSource:
                                        json={"identifiers": ["AAA", "BBB"]},
                                        headers=auth())
 
-        assert response.status_code == 500
+        assert response.status_code == 409
 
 
 class TestOpenApi:

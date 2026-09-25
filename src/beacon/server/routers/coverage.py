@@ -35,6 +35,7 @@ from ...data.ingest import (
     yfinance_downloader,
     yfinance_reference_downloader,
 )
+from ..active_data import current_data, require_data
 from ..config import ServerConfig
 from ..jobs import JobRegistry, ProgressReporter
 from ..schemas import (
@@ -265,8 +266,7 @@ def build_coverage_router() -> APIRouter:
 
     @router.get("", response_model=CoverageResponse)
     def coverage(request: Request) -> CoverageResponse:
-        config: ServerConfig = request.app.state.config
-        fetcher = config.data_fetcher
+        fetcher = current_data(request)
 
         path = fetcher.store_path if fetcher else None
 
@@ -298,12 +298,7 @@ def build_coverage_router() -> APIRouter:
                 detail=f"Unknown dataset '{dataset}'. Known: {', '.join(DATASETS)}.")
 
         config: ServerConfig = request.app.state.config
-        fetcher = config.data_fetcher
-        if fetcher is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="This server was started without a data source, so there "
-                       "is nothing to sync into.")
+        fetcher = require_data(request, "there is nothing to sync into")
 
         settings = body if body is not None else SyncRequest()
         identifiers = list(settings.identifiers) or fetcher.identifiers

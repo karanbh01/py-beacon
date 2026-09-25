@@ -15,7 +15,8 @@ from typing import Any
 
 from ..._optional import require
 from ...data.fetcher import DataFetcher
-from ...exceptions import ConfigurationError, DataNotFoundError
+from ...exceptions import DataNotFoundError
+from ..active_data import require_data
 from ..jobs import JobRegistry
 from ..risk import build_estimation_job
 from ..schemas import (
@@ -36,15 +37,8 @@ KIND = "risk"
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
-    """The process's data source, or a mapped error."""
-    fetcher = request.app.state.config.data_fetcher
-    if fetcher is None:
-        raise ConfigurationError(
-            "data_source",
-            "This server was started without a data source, so a risk model "
-            "cannot be estimated. Restart it with one configured.")
-
-    return fetcher  # type: ignore[no-any-return]
+    """The loaded data, or 409 NO_DATA_LOADED (see `active_data`)."""
+    return require_data(request, "a risk model cannot be estimated")
 
 
 def _universe(request: Request,

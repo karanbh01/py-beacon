@@ -109,6 +109,26 @@ class ConfigurationError(BeaconError):
         self.config_param = config_param
         self.details = details
 
+class NoDataLoadedError(BeaconError):
+    """Raised when something needs market data and none is loaded (BN-236).
+
+    The engine can run with no data: it starts empty until a data store is
+    loaded, and everything that does not read data keeps working. This is the
+    answer for everything that does. It is a state the caller can change by
+    loading a store, not a server fault, so it maps to 409, not 500.
+
+    Args:
+        purpose: What could not be done, completing "No data is loaded, so
+            ...", e.g. "a backtest cannot be run".
+    """
+    def __init__(self,
+                 purpose: str):
+        self.purpose = purpose
+
+        super().__init__(f"No data is loaded, so {purpose}. Load a data "
+                         f"store first.")
+
+
 class DocumentFromNewerBuildError(ConfigurationError):
     """A stored document written by a newer py-beacon than this one (BN-201).
 
