@@ -65,8 +65,8 @@ def _registry(request: Request) -> StoreRegistry:
     return registry
 
 
-def _record(request: Request,
-            store_id: str) -> dict[str, Any]:
+def record_or_404(request: Request,
+                  store_id: str) -> dict[str, Any]:
     """A store's record, or 404 naming it."""
     record = _registry(request).get(store_id)
 
@@ -126,6 +126,18 @@ def remove_managed_folder(app: FastAPI,
     shutil.rmtree(target, ignore_errors=True)
 
 
+def refuse_if_refreshing(request: Request,
+                         record: dict[str, Any]) -> None:
+    """Refuse to load or forget a store while a refresh is rewriting it (409)."""
+    refreshing: set[str] = request.app.state.refreshing
+
+    if record["id"] in refreshing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"'{record['name']}' is refreshing. Wait for it to "
+                   f"finish.")
+
+
 def _refuse_if_registered(registry: StoreRegistry,
                           location: Path | str,
                           kind: str) -> None:
@@ -137,6 +149,29 @@ def _refuse_if_registered(registry: StoreRegistry,
             status_code=status.HTTP_409_CONFLICT,
             detail=f"{location} is already registered as "
                    f"'{existing['name']}' ({existing['id']}).")
+
+
+def _yahoo_finding(message: str) -> Finding:
+    return Finding(path="refresh_from", rule_id=None, severity="error",
+                   code="REFRESH_SOURCE_UNSUITABLE", message=message)
+
+
+def _refuse_yahoo_for_synthetic(path: Path,
+                                refresh_from: str) -> None:
+    """Refuse Yahoo Finance as the refresh source of synthetic data (422).
+
+    Its tickers are invented, so Yahoo has nothing for them, and mixing
+    downloaded prices into a generated market would make it neither.
+    """
+    if refresh_from != "yfinance" or not data_store.exists(path):
+        return
+
+    if data_store.read_manifest(path).source == data_store.SOURCE_SYNTHETIC:
+        raise FindingsError("data store", "it cannot refresh from Yahoo "
+                            "Finance", [_yahoo_finding(
+                                "Synthetic data has invented tickers that "
+                                "Yahoo Finance does not know. It refreshes "
+                                "by extending instead.")])
 
 
 def build_stores_router() -> APIRouter:
@@ -182,26 +217,40 @@ def build_stores_router() -> APIRouter:
         path = Path(body.path)
         _refuse_unless_a_store(path)
         _refuse_if_registered(registry, path, "folder")
+        _refuse_yahoo_for_synthetic(path, body.refresh_from)
 
-        return _view(request, registry.create(body.name, path, "folder"))
+        return _view(request, registry.create(body.name, path, "folder",
+                                              refresh_from=body.refresh_from))
 
     @router.get("/{store_id}", response_model=DataStore)
     def get_store(request: Request,
                   store_id: Identifier) -> DataStore:
-        return _view(request, _record(request, store_id))
+        return _view(request, record_or_404(request, store_id))
 
     @router.patch("/{store_id}", response_model=DataStore)
-    def rename_store(request: Request,
+    def update_store(request: Request,
                      store_id: Identifier,
                      body: DataStoreUpdate) -> DataStore:
-        _record(request, store_id)
-        renamed = _registry(request).rename(store_id, body.name)
+        """Rename a store, or change where a refresh takes its data from."""
+        record = record_or_404(request, store_id)
+
+        if body.refresh_from == "yfinance":
+            if record["kind"] == "postgres":
+                raise FindingsError("data store", "it cannot refresh from "
+                                    "Yahoo Finance", [_yahoo_finding(
+                                        "A database is read-only, so it "
+                                        "cannot take downloaded data.")])
+
+            _refuse_yahoo_for_synthetic(Path(record["path"]), "yfinance")
+
+        updated = _registry(request).update(store_id, name=body.name,
+                                            refresh_from=body.refresh_from)
         holder = active_data(request)
 
-        if holder.store_id == store_id and renamed is not None:
-            holder.store_name = renamed["name"]
+        if holder.store_id == store_id and updated is not None:
+            holder.store_name = updated["name"]
 
-        return _view(request, _record(request, store_id))
+        return _view(request, record_or_404(request, store_id))
 
     @router.delete("/{store_id}",
                    status_code=status.HTTP_204_NO_CONTENT,
@@ -214,7 +263,8 @@ def build_stores_router() -> APIRouter:
         engine created (`managed`) has its folder deleted too, since nothing
         else knows it is there.
         """
-        record = _record(request, store_id)
+        record = record_or_404(request, store_id)
+        refuse_if_refreshing(request, record)
 
         if active_data(request).store_id == store_id:
             raise HTTPException(
@@ -237,7 +287,8 @@ def build_stores_router() -> APIRouter:
                  responses=CONFLICT_RESPONSE)
     async def activate_store(request: Request,
                              store_id: Identifier) -> LoadJobStatus:
-        record = _record(request, store_id)
+        record = record_or_404(request, store_id)
+        refuse_if_refreshing(request, record)
 
         if not available(record):
             raise HTTPException(

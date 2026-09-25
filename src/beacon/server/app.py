@@ -37,6 +37,7 @@ from .routers import (  # noqa: E402
     build_indices_router,
     build_jobs_router,
     build_optimise_router,
+    build_refresh_router,
     build_reports_router,
     build_risk_router,
     build_stores_router,
@@ -225,6 +226,9 @@ def create_app(config: ServerConfig) -> FastAPI:
     # render folder is.
     app.state.managed_store_root = DocumentStore(
         "data_store_files", root=config.storage_root).directory
+    # Stores being refreshed right now, which cannot be loaded or forgotten
+    # until their refresh finishes (BN-240).
+    app.state.refreshing = set()
 
     if config.data_fetcher is not None:
         seeded = seed_global_universe(app.state.universe_store,
@@ -274,6 +278,7 @@ def create_app(config: ServerConfig) -> FastAPI:
                    build_optimise_router(),
                    build_risk_router(),
                    build_stores_router(),
+                   build_refresh_router(),
                    build_synthetic_router(),
                    build_importing_router(),
                    build_reports_router(),

@@ -8,13 +8,11 @@ null age means the dataset is not loaded at all, which is a different statement
 from "loaded and never refreshed"; see
 `docs/decisions/0002-caching-and-data-freshness.md`.
 
-`POST /{dataset}/sync` returned 501 until BN-100 gave the library an ingestion
-path. It is a job now: fetching several hundred identifiers over a network is
-exactly the long-running work the job machinery exists for, and holding an HTTP
-connection open for it would be the wrong shape.
+`POST /{dataset}/sync` is deprecated (BN-240). It downloaded from Yahoo
+Finance into memory; now it refreshes the active store from its own source,
+through `POST /data/stores/{store_id}/refresh`.
 """
 import logging
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ..._optional import require
@@ -27,23 +25,15 @@ from ...data.fetcher import (
     STALE_AFTER_SECONDS,
     DataFetcher,
 )
-from ...data.ingest import (
-    Downloader,
-    IngestResult,
-    ingest_market_data,
-    ingest_reference_data,
-    yfinance_downloader,
-    yfinance_reference_downloader,
-)
-from ..active_data import ActiveData, active_data, current_data, require_data
-from ..config import ServerConfig
-from ..jobs import JobRegistry, ProgressReporter
+from ..active_data import active_data, current_data, require_data
+from ..data_stores import StoreRegistry
 from ..schemas import (
     CoverageResponse,
     DatasetCoverage,
-    SyncJobStatus,
+    RefreshJobStatus,
     SyncRequest,
 )
+from .refresh import submit_refresh
 
 require("fastapi", "The Beacon API server")
 
@@ -57,9 +47,8 @@ ACTIONS = ACTIONS_DATASET
 FEATURES = FEATURES_DATASET
 FX = FX_DATASET
 
-# Syncable datasets. Corporate actions are reported by coverage but not
-# synced: nothing downloads them yet, and offering a sync that cannot run
-# would be a button that always fails.
+# The datasets the deprecated sync route accepts in its path. Any of them
+# refreshes the whole store.
 DATASETS = (MARKET, REFERENCE)
 
 
@@ -283,134 +272,38 @@ def build_coverage_router() -> APIRouter:
     # worker thread, where there is no running event loop for the registry to
     # attach a task to.
     @router.post("/{dataset}/sync",
-                 response_model=SyncJobStatus,
-                 status_code=status.HTTP_202_ACCEPTED)
+                 response_model=RefreshJobStatus,
+                 status_code=status.HTTP_202_ACCEPTED,
+                 deprecated=True)
     async def sync(request: Request,
                    dataset: str,
-                   body: SyncRequest | None = None) -> SyncJobStatus:
-        # Dataset, data source and identifier list are all resolved before the
-        # job is submitted, so a bad request fails immediately with a proper
-        # error rather than becoming a job that fails a moment later for the
-        # client to discover.
+                   body: SyncRequest | None = None) -> RefreshJobStatus:
+        """Refresh the store being served. Deprecated: use
+        `POST /data/stores/{store_id}/refresh`.
+
+        Kept so existing clients work. It refreshes the whole active store
+        from its own source, whichever dataset is named; the body's fields
+        are ignored. It no longer downloads from Yahoo Finance unless the
+        store is set to refresh from it.
+        """
         if dataset not in DATASETS:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Unknown dataset '{dataset}'. Known: {', '.join(DATASETS)}.")
 
-        config: ServerConfig = request.app.state.config
-        fetcher = require_data(request, "there is nothing to sync into")
+        require_data(request, "there is nothing to sync")
+        store_id = active_data(request).store_id
+        registry: StoreRegistry = request.app.state.data_stores
+        record = registry.get(store_id) if store_id is not None else None
 
-        settings = body if body is not None else SyncRequest()
-        identifiers = list(settings.identifiers) or fetcher.identifiers
-        if not identifiers:
+        if record is None:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Nothing to sync: no identifiers were supplied and the "
-                       "loaded dataset is empty.")
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The data being served was named when the engine "
+                       "started rather than registered as a store, so it has "
+                       "no source to refresh from. Register it as a store to "
+                       "refresh it.")
 
-        registry: JobRegistry = request.app.state.jobs
-        job = registry.submit(
-            f"sync:{dataset}",
-            build_sync_job(dataset, identifiers, settings, fetcher, registry,
-                           active_data(request),
-                           config.market_downloader))
-
-        return SyncJobStatus(**job.snapshot())
+        return submit_refresh(request, record)
 
     return router
-
-
-def build_sync_job(dataset: str,
-                   identifiers: list[str],
-                   settings: SyncRequest,
-                   fetcher: DataFetcher,
-                   registry: JobRegistry,
-                   holder: ActiveData,
-                   downloader: Downloader | None
-                   ) -> Callable[[ProgressReporter], Awaitable[dict[str, Any]]]:
-    """Build the coroutine that runs a sync.
-
-    Args:
-        dataset: MARKET or REFERENCE.
-        identifiers: What to fetch.
-        settings: Window and options from the request.
-        fetcher: The data source to merge into.
-        registry: Used to publish the freshness event on completion.
-        holder: The engine's data holder, whose `data_version` changes when
-            the merge changes the data it serves.
-        downloader: Injected source. None builds the yfinance-backed one, and
-            that is where a missing `data` extra surfaces — inside the job, so
-            it reaches the client as a failed job carrying the install message
-            rather than as an import error at startup.
-
-    Returns:
-        A coroutine function suitable for JobRegistry.submit.
-    """
-    async def run(report: ProgressReporter) -> dict[str, Any]:
-        await report(0.0, f"Syncing {len(identifiers)} identifier(s).")
-
-        seen: list[tuple[int, int, str]] = []
-
-        def note(done: int, total: int, identifier: str) -> None:
-            # Recorded rather than awaited: the ingestion loop is synchronous
-            # and cannot await, so progress is collected as it happens and
-            # published once the fetch returns. Making the whole ingest path
-            # async for the sake of a progress bar would be the tail wagging
-            # the dog, and it would drag asyncio into a library function that
-            # has no other reason to know about it.
-            seen.append((done, total, identifier))
-
-        result = _run_ingestion(dataset, identifiers, settings, downloader, note)
-
-        for done, total, identifier in seen[-1:]:
-            await report(done / total, f"Fetched {identifier} ({done}/{total}).")
-
-        added = _merge(dataset, fetcher, result)
-
-        await report(1.0, f"Synced {len(result.fetched)} of {len(identifiers)}.")
-
-        # A new data version only if this is still the data being served: a
-        # store loaded meanwhile has its own version, which this merge did
-        # not touch.
-        version = (holder.data_changed() if holder.fetcher is fetcher
-                   else holder.data_version)
-
-        # Announced only once the data is actually queryable, so a client that
-        # refetches on the event cannot beat the merge to it.
-        registry.publish_data_freshness(dataset,
-                                        {"identifiers": len(result.fetched),
-                                         "rows_added": added,
-                                         "data_version": version})
-
-        return {**result.summary(), "dataset": dataset, "rows_added": added}
-
-    return run
-
-
-def _run_ingestion(dataset: str,
-                   identifiers: list[str],
-                   settings: SyncRequest,
-                   downloader: Downloader | None,
-                   note: Callable[[int, int, str], None]) -> IngestResult:
-    """Fetch the requested dataset."""
-    if dataset == REFERENCE:
-        return ingest_reference_data(identifiers,
-                                     yfinance_reference_downloader(),
-                                     on_progress=note)
-
-    return ingest_market_data(identifiers,
-                              downloader if downloader is not None
-                              else yfinance_downloader(),
-                              start=settings.start,
-                              end=settings.end,
-                              on_progress=note)
-
-
-def _merge(dataset: str,
-           fetcher: DataFetcher,
-           result: IngestResult) -> int:
-    """Fold the fetched data into the live source."""
-    if dataset == REFERENCE:
-        return fetcher.merge_reference_data(result.reference)
-
-    return fetcher.merge_market_data(result.market)

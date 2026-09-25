@@ -150,9 +150,11 @@ A data source is resolved at startup, in this order:
 
 1. `--data <path>` — an explicit store directory
 2. `$BEACON_DATA_PATH`
-3. the app-data store, auto-loaded if one has been written there
-4. nothing — the server starts data-less and the data endpoints report
-   `CONFIGURATION_ERROR` until a sync populates one
+3. the active data store, the one served last time
+4. the app-data store, registered as "Synthetic data" the first time it is
+   found
+5. nothing: the server starts without data, and a request that needs data
+   answers 409 `NO_DATA_LOADED` until a store is loaded
 
 The branch that ran is logged immediately after the port announcement, so an
 empty client is diagnosed by reading the log rather than by guessing. The first
@@ -258,7 +260,8 @@ alphabetical within each — because once `limit` is applied a client cannot
 re-rank what it was not sent.
 
 Served from an index built once and cached against a fingerprint of the
-datasets' refresh times, so a sync invalidates it and nothing else does. A
+datasets' refresh times, so loading or refreshing data invalidates it and
+nothing else does. A
 server with no data returns `200` with an empty list rather than an error:
 "nothing matches" and "this engine is misconfigured" are different statements.
 

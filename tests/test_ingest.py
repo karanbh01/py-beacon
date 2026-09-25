@@ -1,5 +1,9 @@
 # tests/test_ingest.py
-"""BN-100: data ingestion and the sync job."""
+"""BN-100: data ingestion.
+
+The server side, which used to be the sync job, is
+tests/test_server_refresh.py since BN-240.
+"""
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
@@ -306,134 +310,6 @@ class TestMerge:
         assert source.fetch_classification("AAA") == "Technology"
 
 
-class TestSyncEndpoint:
-
-    def test_it_returns_a_job(self,
-                              client):
-        response = client.post("/data/coverage/market/sync",
-                               json={"identifiers": ["AAA", "BBB"]},
-                               headers=auth())
-
-        assert response.status_code == 202
-        assert response.json()["kind"] == "sync:market"
-
-    def test_the_job_lands_the_data(self,
-                                    client,
-                                    fetcher):
-        """The acceptance criterion, end to end."""
-        job_id = client.post("/data/coverage/market/sync",
-                             json={"identifiers": ["AAA", "BBB"]},
-                             headers=auth()).json()["job_id"]
-        client.portal.call(client.app.state.jobs.drain)
-
-        result = client.get(f"/jobs/{job_id}", headers=auth()).json()
-
-        assert result["status"] == "succeeded"
-        assert result["result"]["fetched"] == 2
-        assert "AAA" in fetcher.identifiers
-
-    def test_a_sync_gives_the_data_a_new_version(self,
-                                                 client):
-        """The rows it merged change the data, so a client comparing
-        `data_version` must see a new value (BN-236)."""
-        before = client.get("/health", headers=auth()).json()[
-            "data_source"]["data_version"]
-
-        client.post("/data/coverage/market/sync",
-                    json={"identifiers": ["AAA"]}, headers=auth())
-        client.portal.call(client.app.state.jobs.drain)
-
-        after = client.get("/health", headers=auth()).json()[
-            "data_source"]["data_version"]
-
-        assert after != before
-
-    def test_the_job_reports_failures_without_failing(self,
-                                                      client):
-        """A partial sync succeeded at something and should say so."""
-        job_id = client.post("/data/coverage/market/sync",
-                             json={"identifiers": ["AAA", DELISTED]},
-                             headers=auth()).json()["job_id"]
-        client.portal.call(client.app.state.jobs.drain)
-
-        result = client.get(f"/jobs/{job_id}", headers=auth()).json()
-
-        assert result["status"] == "succeeded"
-        assert result["result"]["failed"] == 1
-        assert DELISTED in result["result"]["errors"]
-
-    def test_an_empty_body_resyncs_what_is_loaded(self,
-                                                  client):
-        """The common case: refresh what I have."""
-        job_id = client.post("/data/coverage/market/sync",
-                             headers=auth()).json()["job_id"]
-        client.portal.call(client.app.state.jobs.drain)
-
-        result = client.get(f"/jobs/{job_id}", headers=auth()).json()
-
-        assert result["result"]["identifiers"] == ["ZZZ"]
-
-    def test_a_freshness_event_is_published(self,
-                                            client):
-        """Announced only once the data is queryable, so a client refetching
-        on the event cannot beat the merge to it."""
-        registry = client.app.state.jobs
-        queue = client.portal.call(_subscribe, registry)
-
-        client.post("/data/coverage/market/sync",
-                    json={"identifiers": ["AAA"]}, headers=auth())
-        client.portal.call(registry.drain)
-
-        events = client.portal.call(_drain_queue, queue)
-        freshness = [event for event in events if event["type"] == "data.freshness"]
-
-        assert freshness
-        assert freshness[0]["dataset"] == "market"
-        assert freshness[0]["detail"]["identifiers"] == 1
-
-    def test_an_unknown_dataset_is_a_404(self,
-                                         client):
-        response = client.post("/data/coverage/fundamentals/sync", headers=auth())
-
-        assert response.status_code == 404
-
-    def test_it_requires_authentication(self,
-                                        client):
-        assert client.post("/data/coverage/market/sync").status_code == 401
-
-    def test_a_server_without_data_refuses_to_sync(self):
-        config = ServerConfig(auth_token=TOKEN, market_downloader=fake_downloader)
-        bare = TestClient(create_app(config), raise_server_exceptions=False)
-
-        assert bare.post("/data/coverage/market/sync",
-                         headers=auth()).status_code == 409
-
-    def test_nothing_to_sync_is_a_404(self):
-        empty = MarketData.from_dataframe(
-            pd.DataFrame(columns=["IDENTIFIER", "DATE", "CLOSE"]))
-        config = ServerConfig(auth_token=TOKEN,
-                              data_fetcher=DataFetcher(empty),
-                              market_downloader=fake_downloader)
-        client = TestClient(create_app(config), raise_server_exceptions=False)
-
-        assert client.post("/data/coverage/market/sync",
-                           headers=auth()).status_code == 404
-
-    def test_coverage_reflects_the_sync(self,
-                                        client):
-        before = client.get("/data/coverage", headers=auth()).json()
-        market_before = next(d for d in before["datasets"] if d["dataset"] == "market")
-
-        client.post("/data/coverage/market/sync",
-                    json={"identifiers": ["AAA", "BBB"]}, headers=auth())
-        client.portal.call(client.app.state.jobs.drain)
-
-        after = client.get("/data/coverage", headers=auth()).json()
-        market_after = next(d for d in after["datasets"] if d["dataset"] == "market")
-
-        assert market_after["identifiers"] > market_before["identifiers"]
-
-
 class TestMissingExtra:
 
     def test_the_market_downloader_names_the_extra(self,
@@ -503,20 +379,6 @@ class TestIngestResult:
         assert not result.succeeded
 
 
-async def _subscribe(registry):
-    """Subscribe from inside the app's event loop."""
-    return registry.subscribe()
-
-
-async def _drain_queue(queue):
-    """Read everything currently queued."""
-    events = []
-    while not queue.empty():
-        events.append(queue.get_nowait())
-
-    return events
-
-
 class FakeTicker:
     """Stands in for yfinance.Ticker, matching the two attributes used."""
 
@@ -582,24 +444,6 @@ class TestYFinanceDownloaders:
         result = ingest_reference_data(["AAA"], yfinance_reference_downloader())
 
         assert result.reference.iloc[0]["NAME"] == "AAA Corp"
-
-    def test_the_reference_sync_endpoint_runs(self,
-                                              fetcher):
-        """The reference branch of the sync job, end to end."""
-        config = ServerConfig(auth_token=TOKEN, data_fetcher=fetcher)
-
-        with TestClient(create_app(config),
-                        raise_server_exceptions=False) as client:
-            job_id = client.post("/data/coverage/reference/sync",
-                                 json={"identifiers": ["AAA"]},
-                                 headers=auth()).json()["job_id"]
-            client.portal.call(client.app.state.jobs.drain)
-            result = client.get(f"/jobs/{job_id}", headers=auth()).json()
-
-        assert result["status"] == "succeeded"
-        assert result["result"]["dataset"] == "reference"
-        assert fetcher.fetch_classification("AAA", scheme="NAME") == "AAA Corp"
-
 
 class TestEmptyReferenceIngest:
 
@@ -685,24 +529,6 @@ class TestFreshness:
         bare = TestClient(create_app(config))
 
         assert bare.get("/health", headers=auth()).json()["cache_age"] is None
-
-    def test_a_sync_moves_the_reported_age(self,
-                                           client,
-                                           fetcher):
-        fetcher.record_refresh(MARKET_DATASET,
-                               datetime.now(UTC) - timedelta(hours=3))
-        before = client.get("/data/coverage", headers=auth()).json()["datasets"]
-        stale = next(d for d in before if d["dataset"] == "market")["cache_age"]
-
-        client.post("/data/coverage/market/sync",
-                    json={"identifiers": ["AAA"]}, headers=auth())
-        client.portal.call(client.app.state.jobs.drain)
-
-        after = client.get("/data/coverage", headers=auth()).json()["datasets"]
-        fresh = next(d for d in after if d["dataset"] == "market")["cache_age"]
-
-        assert stale > 3600
-        assert fresh < 60
 
     def test_coverage_carries_the_timestamp_as_well_as_the_age(self,
                                                                client):

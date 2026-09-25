@@ -15,6 +15,7 @@ from .importing import build_importing_router
 from .indices import build_indices_router
 from .jobs import build_events_router, build_jobs_router
 from .optimise import build_optimise_router
+from .refresh import build_refresh_router
 from .reports import build_reports_router
 from .risk import build_risk_router
 from .stores import build_stores_router
@@ -32,6 +33,7 @@ __all__ = [
     "build_indices_router",
     "build_jobs_router",
     "build_optimise_router",
+    "build_refresh_router",
     "build_reports_router",
     "build_risk_router",
     "build_stores_router",

@@ -72,8 +72,9 @@ In order, stopping at the first that answers:
 | --- | --- | --- |
 | 1 | `--data <path>` | **Exit 2.** Asking for a store that cannot be read is a mistake worth stopping for. |
 | 2 | `$BEACON_DATA_PATH` | **Exit 2**, same reasoning. |
-| 3 | The app-data store | **Warn and continue.** A corrupt store must not leave the client unable to start the server that would replace it. |
-| 4 | Nothing | The server starts data-less, as it always did. |
+| 3 | The active data store, the one served last time | **Warn and start without data.** A damaged store must not stop the engine from starting and offering another. |
+| 4 | The app-data store, registered as "Synthetic data" the first time it is found | **Warn and start without data**, same reasoning. |
+| 5 | Nothing | The engine starts without data, and a store can be loaded later. |
 
 The branch that ran is logged immediately after the port announcement:
 
@@ -90,10 +91,34 @@ returns it.
 
 ## When there is no data at all
 
-The server **still starts**. `/health` reports `configured: false` and the data
-endpoints return `CONFIGURATION_ERROR`, which is what a client should branch
-on. Refusing to start would leave the client unable to run the sync that would
-populate it — the failure would prevent its own cure.
+The server **still starts**. `/health` reports `configured: false`, and a
+request that needs data answers 409 `NO_DATA_LOADED`, which is what a client
+should branch on. Data can then be loaded while the engine runs: activate a
+registered store, generate synthetic data, or import files.
+
+## Refreshing a store
+
+`POST /data/stores/{id}/refresh` brings a store up to date from its own
+source, as a job:
+
+| Store | What a refresh does |
+| --- | --- |
+| Synthetic data | Extends it to today (or to `end`), keeping every day it holds |
+| A folder | Reads it again, picking up files changed outside the engine |
+| A database | Reads its tables again |
+| Imported files | Nothing: import them again instead (409) |
+
+A folder store can instead choose to refresh from Yahoo Finance, by setting
+`refresh_from` to `yfinance` when it is registered or later with `PATCH`. Its
+refresh then downloads new prices for its instruments and saves them into the
+folder. This needs the `data` extra, and is never the default.
+
+Whatever a refresh changes is saved, so it survives a restart. If the store is
+the one being served, the engine serves the refreshed data and announces it
+with `data.loaded`. Each store in `GET /data/stores` says what a refresh would
+do in its `refresh` field, which is null when there is nothing to refresh.
+`POST /data/coverage/{dataset}/sync` still works but is deprecated: it
+refreshes the store being served.
 
 ## Generating a store
 

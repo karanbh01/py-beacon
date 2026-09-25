@@ -158,7 +158,8 @@ def _generate_job(app: FastAPI,
         registry: StoreRegistry = app.state.data_stores
 
         try:
-            await _run_generator(config, partial, report)
+            shutil.rmtree(partial, ignore_errors=True)
+            await run_synthetic(command(config, partial), report)
             partial.rename(final)
         except BaseException:
             # Failed or cancelled: nothing half-written stays behind, in the
@@ -192,19 +193,29 @@ async def _report(report: ProgressReporter,
     await report(fraction, stage)
 
 
-async def _run_generator(config: SyntheticConfig,
-                         out: Path,
-                         report: ProgressReporter) -> None:
-    """Run the generator in a child process, reporting its progress.
+def extend_command(path: Path,
+                   end: str | None) -> list[str]:
+    """The command line that extends the synthetic store at *path*."""
+    arguments = [sys.executable, "-m", "beacon.synthetic", "--progress",
+                 "--extend", str(path)]
+
+    return [*arguments, "--end", end] if end is not None else arguments
+
+
+async def run_synthetic(arguments: list[str],
+                        report: ProgressReporter) -> None:
+    """Run `python -m beacon.synthetic` in a child process, reporting progress.
+
+    Used to generate a store and to extend one (BN-240), for the reasons in
+    the module docstring.
 
     Raises:
-        CalculationError: If the generator exits unsuccessfully, carrying the
+        CalculationError: If the command exits unsuccessfully, carrying the
             end of its own output.
     """
     loop = asyncio.get_running_loop()
-    shutil.rmtree(out, ignore_errors=True)
 
-    process = subprocess.Popen(command(config, out),
+    process = subprocess.Popen(arguments,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT,
                                text=True,

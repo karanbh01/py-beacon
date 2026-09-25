@@ -14,6 +14,21 @@ from .schemas import Identifier, IsoDate, LoadJobStatus, TolerantCollection
 # database read through tables or views in the import layout.
 StoreKind = Literal["folder", "postgres"]
 
+# Where a refresh takes a store's new data from: its own source, or, for a
+# folder that chooses it, Yahoo Finance.
+RefreshSource = Literal["source", "yfinance"]
+
+# What refreshing a store does, by what the store is.
+RefreshAction = Literal["extend", "reread", "download"]
+
+REFRESH_FROM_DESCRIPTION = (
+    "Where a refresh takes new data from. 'source' (the default) uses the "
+    "store's own source: synthetic data is extended to today, a folder or "
+    "database is read again. 'yfinance' downloads new prices for the store's "
+    "instruments from Yahoo Finance and saves them into its folder; it needs "
+    "the `data` extra, and only a folder store that is not synthetic data "
+    "can choose it.")
+
 
 class PostgresConnection(BaseModel):
     """Where a Postgres store's tables or views are. Read-only."""
@@ -63,6 +78,8 @@ class DataStoreCreate(BaseModel):
     connection: PostgresConnection | None = Field(
         default=None,
         description="For a Postgres database: where to connect.")
+    refresh_from: RefreshSource = Field(default="source",
+                                        description=REFRESH_FROM_DESCRIPTION)
 
     @model_validator(mode="after")
     def _one_location(self) -> "DataStoreCreate":
@@ -73,14 +90,28 @@ class DataStoreCreate(BaseModel):
         if self.kind == "postgres" and self.connection is None:
             raise ValueError("a postgres store needs a connection")
 
+        if self.kind == "postgres" and self.refresh_from == "yfinance":
+            raise ValueError("a database is read-only, so it cannot refresh "
+                             "from Yahoo Finance")
+
         return self
 
 
 class DataStoreUpdate(BaseModel):
-    """Body of `PATCH /data/stores/{store_id}`."""
-    name: str = Field(min_length=1, max_length=80,
-                      description="The new display name. The id does not "
-                                  "change.")
+    """Body of `PATCH /data/stores/{store_id}`. Omitted fields are unchanged."""
+    name: str | None = Field(default=None, min_length=1, max_length=80,
+                             description="The new display name. The id does "
+                                         "not change.")
+    refresh_from: RefreshSource | None = Field(
+        default=None, description=REFRESH_FROM_DESCRIPTION)
+
+
+class RefreshRequest(BaseModel):
+    """Body of `POST /data/stores/{store_id}/refresh`. Optional."""
+    end: str | None = Field(
+        default=None, pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="For synthetic data, the date to extend to, YYYY-MM-DD. "
+                    "Defaults to today. Ignored by other stores.")
 
 
 class DataStore(BaseModel):
@@ -118,6 +149,16 @@ class DataStore(BaseModel):
                     "synthetic data, in its own folder. Deleting a managed "
                     "store deletes its files; deleting any other store only "
                     "forgets it and leaves the folder alone.")
+    refresh_from: RefreshSource = Field(default="source",
+                                        description=REFRESH_FROM_DESCRIPTION)
+    refresh: RefreshAction | None = Field(
+        default=None,
+        description="What `POST /data/stores/{id}/refresh` would do: 'extend' "
+                    "synthetic data to today, 'reread' a folder or database, "
+                    "or 'download' from Yahoo Finance. Null when there is "
+                    "nothing to refresh: imported files (import again "
+                    "instead), synthetic data generated before py-beacon "
+                    "0.1.2, or a store that cannot be read.")
 
 
 class DataStoreCollection(TolerantCollection):

@@ -1282,7 +1282,11 @@ class CorporateActionsResponse(BaseModel):
 
 
 class SyncRequest(BaseModel):
-    """Body of `POST /data/coverage/{dataset}/sync`."""
+    """Body of `POST /data/coverage/{dataset}/sync`.
+
+    Deprecated with the endpoint. Its fields are accepted and ignored: a sync
+    now refreshes the whole active store from its own source.
+    """
     identifiers: list[str] = Field(
         default_factory=list,
         description="What to fetch. Empty re-syncs everything already loaded, "
@@ -2450,7 +2454,7 @@ MODE_LIVE = LIVE
 #
 # The two decisions turn on one fact about the discriminating value, and they
 # are not inconsistent. A job `kind` carries its subject — `backtest:TECH10`,
-# `sync:market` — so no `mapping` can be written, and a bare `discriminator`
+# `refresh:my-data` — so no `mapping` can be written, and a bare `discriminator`
 # would claim the value names a schema when it names an index. Here `node` is a
 # plain closed literal, so every arm can pin it with `Literal`, pydantic can
 # narrow on it, and the emitted `mapping` is complete and true. A generator
@@ -3386,28 +3390,6 @@ class BacktestRunResult(BaseModel):
         default_factory=list, description=REBALANCE_PRICING_DESCRIPTION)
 
 
-class SyncJobResult(BaseModel):
-    """Result payload of a completed data sync.
-
-    The narrowest honest description of what the sync job returns (BN-172):
-    `IngestResult.summary()` plus the two fields the job adds. Deliberately a
-    count-and-identifier summary rather than the data — the rows went into the
-    fetcher, and a client reads them back through the data endpoints.
-    """
-    dataset: str = Field(description="Which dataset was synced: market or reference.")
-    fetched: int = Field(description="Identifiers that returned data.")
-    failed: int = Field(description="Identifiers that did not.")
-    rows: int = Field(description="Market-data rows fetched.")
-    rows_added: int = Field(
-        description="Rows actually merged in, which is fewer than `rows` "
-                    "whenever the fetch overlapped data already held.")
-    identifiers: list[str] = Field(
-        default_factory=list, description="The identifiers that succeeded.")
-    errors: dict[str, str] = Field(
-        default_factory=dict,
-        description="Identifier to the reason it did not come back.")
-
-
 ResultT = TypeVar("ResultT")
 
 
@@ -3473,10 +3455,6 @@ class RiskModelJobStatus(JobStatusOf[RiskModelView]):
     """A `risk:{model_id}` job. `result` is the estimated model."""
 
 
-class SyncJobStatus(JobStatusOf[SyncJobResult]):
-    """A `sync:{dataset}` job. `result` summarises what was fetched."""
-
-
 class LoadResult(BaseModel):
     """Result payload of a completed `load:{store_id}` job (BN-236)."""
     store_id: str = Field(description="The store now being served.")
@@ -3506,13 +3484,37 @@ class GenerateJobStatus(JobStatusOf[GenerateResult]):
     """A `generate:{store_id}` job. `result` describes the new store."""
 
 
+class RefreshResult(BaseModel):
+    """Result payload of a completed `refresh:{store_id}` job (BN-240)."""
+    store_id: str = Field(description="The store refreshed.")
+    name: str = Field(description="Its display name.")
+    action: Literal["extend", "reread", "download"] = Field(
+        description="What the refresh did: extended synthetic data, read a "
+                    "folder or database again, or downloaded from Yahoo "
+                    "Finance.")
+    end: str | None = Field(
+        default=None,
+        description="The last date the store holds now, ISO 8601, when "
+                    "known.")
+    rows_added: int | None = Field(
+        default=None,
+        description="For a download, the market rows added. Null otherwise.")
+    served: bool = Field(
+        description="Whether the engine now serves the refreshed data. True "
+                    "when the store was the one being served.")
+
+
+class RefreshJobStatus(JobStatusOf[RefreshResult]):
+    """A `refresh:{store_id}` job. `result` says what changed."""
+
+
 # The response of `GET /jobs/{job_id}`: one arm per job kind, so a client reads
 # a real type off `result` instead of casting against nothing.
 #
 # A plain union rather than a pydantic discriminated one, and that is forced
 # rather than chosen: `Field(discriminator="kind")` needs each arm to pin the
 # field to a `Literal`, but a kind carries its subject — `backtest:my-index`,
-# `sync:market` — so the discriminating value is the *prefix*, which pydantic
+# `refresh:my-data` — so the discriminating value is the *prefix*, which pydantic
 # cannot express. Reshaping the kind strings would break a public contract
 # that clients already read, so the union discriminates by shape: the arms
 # have disjoint required fields, every modelled payload is exactly its model's
@@ -3530,9 +3532,9 @@ AnyJobStatus = (BacktestJobStatus
                 | OptimisationJobStatus
                 | RenderJobStatus
                 | RiskModelJobStatus
-                | SyncJobStatus
                 | LoadJobStatus
                 | GenerateJobStatus
+                | RefreshJobStatus
                 | JobStatus)
 
 

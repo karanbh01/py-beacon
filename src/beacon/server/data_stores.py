@@ -4,7 +4,8 @@
 BN-236. A data store holds one dataset. Users name their stores ("Synthetic
 data", "My data"), one is active at a time, and the engine remembers which,
 so the next start serves the same data. A store is a py-beacon data folder
-today; Postgres joins in BN-241.
+or, since BN-241, a Postgres database. Since BN-240 each can be refreshed from
+its own source (`refresh_plan`).
 
 The registry is saved with the engine's other documents (indices, universes),
 so it lives wherever `--documents` points.
@@ -39,10 +40,11 @@ from ..data import postgres
 from ..data import store as data_store
 from ..data.fetcher import DataFetcher
 from ..exceptions import ConfigurationError
+from ..synthetic import state as synthetic_state
 from .config import resolve_data_source
 from .documents import UNREADABLE, SkipCounts, read_collection, slug
 from .store import DocumentStore
-from .store_schemas import DataStore
+from .store_schemas import DataStore, RefreshAction
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,9 @@ class StoreRecord(BaseModel):
     # For a Postgres store: host, port, database, schema, user and the
     # password's environment variable. Never the password.
     connection: dict[str, Any] | None = None
+    # Where a refresh takes new data from (BN-240): the store's own source,
+    # or Yahoo Finance for a folder that chose it.
+    refresh_from: str = "source"
 
 
 def _now() -> str:
@@ -159,7 +164,8 @@ class StoreRegistry:
                kind: str = "folder",
                managed: bool = False,
                store_id: str | None = None,
-               connection: dict[str, Any] | None = None) -> dict[str, Any]:
+               connection: dict[str, Any] | None = None,
+               refresh_from: str = "source") -> dict[str, Any]:
         """Register a store, with an id derived from its name unless given.
 
         *path* is a folder for a folder store; for a database it is the
@@ -171,22 +177,29 @@ class StoreRegistry:
                                 path=location,
                                 created_at=_now(),
                                 managed=managed,
-                                connection=connection).model_dump(),
+                                connection=connection,
+                                refresh_from=refresh_from).model_dump(),
                   "id": store_id or self.new_id(name)}
         self._write(record)
 
         return record
 
-    def rename(self,
+    def update(self,
                store_id: str,
-               name: str) -> dict[str, Any] | None:
-        """Change a store's display name. Its id stays as it was."""
+               name: str | None = None,
+               refresh_from: str | None = None) -> dict[str, Any] | None:
+        """Change a store's display name or refresh source. Its id stays."""
         record = self.get(store_id)
 
         if record is None:
             return None
 
-        record["name"] = name.strip()
+        if name is not None:
+            record["name"] = name.strip()
+
+        if refresh_from is not None:
+            record["refresh_from"] = refresh_from
+
         self._write(record)
 
         return record
@@ -269,6 +282,41 @@ def postgres_source(record: dict[str, Any]) -> postgres.PostgresSource:
     return postgres.PostgresSource(**record["connection"])
 
 
+def refresh_plan(record: dict[str, Any]) -> tuple[RefreshAction | None, str]:
+    """What refreshing a store would do, and if nothing, why not.
+
+    Returns:
+        tuple: The action ("extend", "reread" or "download"), or None with a
+        sentence saying why the store has nothing to refresh.
+    """
+    if record["kind"] == "postgres":
+        return "reread", ""
+
+    path = Path(record["path"])
+
+    try:
+        source = data_store.read_manifest(path).source
+    except ConfigurationError:
+        return None, f"The store '{record['name']}' cannot be read."
+
+    if source == data_store.SOURCE_SYNTHETIC:
+        if synthetic_state.exists(path):
+            return "extend", ""
+
+        return None, (f"'{record['name']}' was generated before py-beacon "
+                      f"0.1.2 and cannot be extended. Generate new synthetic "
+                      f"data instead.")
+
+    if record.get("refresh_from") == "yfinance":
+        return "download", ""
+
+    if source == data_store.SOURCE_IMPORTED:
+        return None, (f"'{record['name']}' holds imported files, which have "
+                      f"nothing to refresh. Import them again instead.")
+
+    return "reread", ""
+
+
 def available(record: dict[str, Any]) -> bool:
     """Whether a store can be loaded now, as far as can be told cheaply.
 
@@ -298,7 +346,8 @@ def describe(record: dict[str, Any],
                          active=record["id"] == active_id,
                          created_at=record["created_at"],
                          last_loaded_at=record.get("last_loaded_at"),
-                         managed=False)
+                         managed=False,
+                         refresh=refresh_plan(record)[0])
 
     path = Path(record["path"])
     readable = data_store.exists(path)
@@ -325,7 +374,9 @@ def describe(record: dict[str, Any],
                      active=record["id"] == active_id,
                      created_at=record["created_at"],
                      last_loaded_at=record.get("last_loaded_at"),
-                     managed=record.get("managed", False))
+                     managed=record.get("managed", False),
+                     refresh_from=record.get("refresh_from", "source"),
+                     refresh=refresh_plan(record)[0] if readable else None)
 
 
 @dataclass(frozen=True)
