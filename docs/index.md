@@ -132,80 +132,58 @@ external dependencies) and copy-paste runnable:
 
 ```python
 import logging
+
 import pandas as pd
+
+from beacon.backtest.engine import BacktestEngine
+from beacon.data.base import MarketData, ReferenceData
+from beacon.data.fetcher import DataFetcher
+from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
-from beacon.index.calculation import IndexCalculator
-from beacon.backtest.engine import BacktestEngine
 from beacon.index.schedule import sessions
 
-logging.getLogger("beacon").setLevel(logging.ERROR)  # keep the demo output clean
+logging.getLogger("beacon").setLevel(logging.ERROR)  # keep the output short
 
-# --- 1. Synthetic market data: two assets over ~3 months of sessions ---
-ASSETS = ["AAA", "BBB"]
-# The index's own sessions, which is what the calculator walks: XNYS is
-# shut on three weekdays in this window, so a business-day range would
-# hold days the index has no level on.
-DAYS = sessions(pd.Timestamp("2024-01-02"), pd.Timestamp("2024-03-29"),
-                "XNYS")
+# 1. Data: two stocks priced on every New York Stock Exchange session.
+days = sessions(pd.Timestamp("2024-01-02"), pd.Timestamp("2024-03-28"), "XNYS")
+growth = {"AAA": 0.10, "BBB": 0.20}  # each stock's rise over the period
 
-def price(asset,
-          day):
-    frac = DAYS.get_loc(day) / (len(DAYS) - 1)
-    return (100 * 1.10 ** frac) if asset == "AAA" else (50 * 1.20 ** frac)
+market = MarketData.from_dataframe(pd.DataFrame([
+    {"IDENTIFIER": name, "DATE": day, "SHARES_OUTSTANDING": 1_000,
+     "CLOSE": 100 * (1 + rise) ** (step / (len(days) - 1))}
+    for name, rise in growth.items()
+    for step, day in enumerate(days)
+]))
+reference = ReferenceData.from_dataframe(pd.DataFrame([
+    {"IDENTIFIER": name, "NAME": name, "CURRENCY": "USD",
+     "EXCHANGE": "XNYS", "DATE_FROM": "2020-01-01"}
+    for name in growth
+]))
+data = DataFetcher(market, reference)
 
-class QuickData:
-    """Tiny in-memory provider satisfying the calculator + engine data APIs."""
-    def fetch_reference_data(self,
-                             identifier,
-                             date=None):
-        return pd.DataFrame(
-            {"NAME": [identifier], "CURRENCY": ["USD"], "EXCHANGE": ["NYSE"]},
-            index=pd.Index([identifier], name="IDENTIFIER"))
-    def fetch_market_data(self,
-                          identifier,
-                          start=None,
-                          end=None,
-                          columns=None):
-        p = price(identifier, pd.Timestamp(start))
-        return pd.DataFrame({"CLOSE": [p]}, index=pd.Index([pd.Timestamp(start)], name="DATE"))
-    def fetch_shares_outstanding(self,
-                                 ticker,
-                                 date):
-        return 1_000
-    def delisting_dates(self):
-        return {}  # nothing in this universe stops being listed
-
-data = QuickData()
-
-# --- 2. Define the index: equal-weight, rebalanced monthly ---
+# 2. The index: equal weight, rebalanced monthly on the NYSE calendar.
 definition = IndexDefinition(
     index_id="DEMO", index_name="Demo Equal-Weight Index",
     base_date="2024-01-02", base_value=1000.0, currency="USD",
     eligibility_rules=[], weighting_scheme=EqualWeighted(),
     rebalancing_frequency="MONTHLY", calendar="XNYS",
-    universe_identifiers=ASSETS,
+    universe_identifiers=list(growth),
 )
-
-# --- 3. Calculate the index ---
-index_result = IndexCalculator(definition, data).run(end_date="2024-03-29")
+index_result = IndexCalculator(definition, data).run(end_date="2024-03-28")
 print("Final index level:", round(index_result.index_levels.iloc[-1], 2))
 
-# --- 4. Backtest a portfolio that tracks the index ---
+# 3. A backtest of a portfolio that trades to the index's weights.
 backtest = BacktestEngine(
-    start_date="2024-01-02", end_date="2024-03-29",
+    start_date="2024-01-02", end_date="2024-03-28",
     initial_capital=1_000_000.0, data_provider=data,
     index_result=index_result, calendar="XNYS",
 ).run()
 
-# --- 5. View results ---
 summary = backtest.summary()
-print("Total return:      ", round(summary["total_return"], 4))
-print("Annualised return: ", round(summary["annualised_return"], 4))
-print("Tracking error:    ", round(summary["tracking_error"], 6))
+print("Total return:  ", round(summary["total_return"], 4))
+print("Tracking error:", round(summary["tracking_error"], 6))
 ```
 
-For a derivatives walkthrough — pricing an `IndexFuture` off an
-`IndexResult` — see
-[`examples/futures_pricing_example.py`](https://github.com/karanbh01/py-beacon/blob/main/examples/futures_pricing_example.py)
-in the repository.
+The [example notebooks](https://github.com/karanbh01/py-beacon/tree/main/examples)
+go further: backtest analysis, index futures, and optimised indices.

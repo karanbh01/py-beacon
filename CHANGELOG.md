@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Fixed
+
+- The quickstart in the README and on the docs home page runs again.
+
 ## [0.1.0] - 2026-09-24
 
 The first release.
