@@ -221,7 +221,7 @@ def build_stores_router() -> APIRouter:
         claim_loading(request)
         jobs: JobRegistry = request.app.state.jobs
         job = jobs.submit(f"load:{store_id}",
-                          _load_job(request.app, record))
+                          load_store_job(request.app, record))
 
         return LoadJobStatus(**job.snapshot())
 
@@ -288,7 +288,7 @@ def claim_loading(request: Request) -> None:
     holder.loading = True
 
 
-def _load_job(app: FastAPI,
+def load_store_job(app: FastAPI,
               record: dict[str, Any]) -> Any:
     """The coroutine that loads a store and starts serving it."""
 

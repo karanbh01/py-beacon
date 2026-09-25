@@ -33,6 +33,7 @@ from .routers import (  # noqa: E402
     build_data_router,
     build_derivatives_router,
     build_events_router,
+    build_importing_router,
     build_indices_router,
     build_jobs_router,
     build_optimise_router,
@@ -274,6 +275,7 @@ def create_app(config: ServerConfig) -> FastAPI:
                    build_risk_router(),
                    build_stores_router(),
                    build_synthetic_router(),
+                   build_importing_router(),
                    build_reports_router(),
                    build_derivatives_router(),
                    build_beacon_router()):

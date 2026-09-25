@@ -567,6 +567,10 @@ class TestEnvelopeExhaustiveness:
             "mapping, and adds structured findings to the envelope detail. "
             "One class for index pipelines, universes, feature imports and "
             "constraint sets since BN-221, which folded three copies",
+        "DataImportError":
+            "subclasses InvalidRuleError to inherit its 422 / INVALID_RULE "
+            "mapping, and carries one finding per problem in the findings "
+            "shape the other refusals use, with sheet, row and column added",
         "UnknownDatasetError":
             "subclasses ExpressionError to inherit its 422 / "
             "INVALID_EXPRESSION mapping, and AttributeError so that "

@@ -184,6 +184,11 @@ def skip_counts(client,
         if response.status_code != 200:
             continue
 
+        # A listing is JSON. A download (the import template is a workbook)
+        # is not a listing, and has no count to report.
+        if not response.headers.get("content-type", "").startswith("application/json"):
+            continue
+
         body = response.json()
 
         if isinstance(body, dict) and isinstance(body.get("skipped"), int):

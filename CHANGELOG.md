@@ -13,6 +13,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - Named data stores. Register a data folder under a name you choose, see every store at `GET /data/stores`, and switch which one the engine serves. The engine remembers the active store and serves it again on the next start.
 - Generate synthetic data from the engine: `POST /data/synthetic` creates a new store with the size, dates and seed you choose (end date defaulting to today), and serves it when it is ready. It runs as a job with progress, and gives exactly the same data as `python -m beacon.synthetic` with the same settings.
 - `python -m beacon.synthetic --progress` prints a line at each stage, for a program running it.
+- Import your own data from CSV files or an Excel workbook: `POST /data/import` checks every row and saves a new store, or refuses with one finding per problem naming its sheet, row and column. `GET /data/import/template` downloads a blank template, and `beacon.data.importing.load_files` does the same from Python. Dates are read as YYYY-MM-DD only, so a date cannot be read as the wrong day.
+- The `server` extra now includes `excel`, for Excel import.
 - The engine can start without any data and load a store later. Loading runs as a job with progress, and the event socket announces `data.loaded` when the new data is being served.
 
 ### Changed

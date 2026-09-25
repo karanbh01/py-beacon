@@ -98,6 +98,7 @@ DATA_PATH_ENV_VAR = "BEACON_DATA_PATH"
 SOURCE_SYNTHETIC = "synthetic"
 SOURCE_LOCAL = "local"
 SOURCE_YFINANCE = "yfinance"
+SOURCE_IMPORTED = "imported"
 
 # Passed to every to_csv call. Without the line terminator the same frame
 # written on two platforms differs in every row.

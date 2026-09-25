@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .schemas import Identifier, IsoDate, TolerantCollection
+from .schemas import Identifier, IsoDate, LoadJobStatus, TolerantCollection
 
 # What a store is, physically. Postgres joins in BN-241.
 StoreKind = Literal["folder"]
@@ -18,8 +18,9 @@ StoreKind = Literal["folder"]
 # other way.
 STORE_SOURCE_DESCRIPTION = (
     "Where the rows came from, as the store records it: 'synthetic' for "
-    "generated data, 'yfinance' for downloaded prices, 'local' for a folder "
-    "written another way. Null when the store cannot be read.")
+    "generated data, 'imported' for data loaded from files, 'yfinance' for "
+    "downloaded prices, 'local' for a folder written another way. Null when "
+    "the store cannot be read.")
 
 
 class DataStoreCreate(BaseModel):
@@ -133,4 +134,30 @@ class GenerateSyntheticRequest(BaseModel):
     activate: bool = Field(
         default=True,
         description="Serve the new store as soon as it is written.")
+
+
+class ImportRequest(BaseModel):
+    """Body of `POST /data/import`: load CSV files or an Excel workbook."""
+    name: str = Field(default="Imported data", min_length=1, max_length=80,
+                      description="Display name for the new store.")
+    paths: list[str] = Field(
+        min_length=1,
+        description="Absolute paths on the machine the engine runs on: CSV "
+                    "files named after their sheet (market.csv, "
+                    "reference.csv, ...), or one Excel workbook with those "
+                    "sheets. `GET /data/import/template` has the layout.")
+    activate: bool = Field(default=True,
+                           description="Load the new store as soon as it is "
+                                       "saved.")
+
+
+class ImportResult(BaseModel):
+    """Response of `POST /data/import`."""
+    store: DataStore = Field(description="The new store, saved and "
+                                         "registered.")
+    load_job: LoadJobStatus | None = Field(
+        default=None,
+        description="The job loading it, when `activate` was set and no "
+                    "other load was running. Null otherwise: the store is "
+                    "saved and can be activated later.")
 
