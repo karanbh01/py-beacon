@@ -44,8 +44,11 @@ that already has two, and would make every store byte-unique.
 import gzip
 import json
 import logging
+import zlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 import pandas as pd
 
@@ -56,6 +59,8 @@ from .corporate_actions import CorporateActions
 from .features import FeatureData
 from .fetcher import DEFAULT_FX_POLICY, DataFetcher
 from .free_float import DEFAULT_FREE_FLOAT_BACKFILL_DAYS
+
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -259,9 +264,41 @@ def _write_frame(frame: pd.DataFrame,
 
 
 def _read_frame(path: Path) -> pd.DataFrame:
-    """Read one gzipped CSV back."""
-    with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
-        return pd.read_csv(handle)
+    """Read one gzipped CSV back.
+
+    Raises:
+        ConfigurationError: If the file cannot be read, naming it (BN-233).
+            A truncated or non-gzip file used to escape as `EOFError` or
+            `BadGzipFile`, which neither startup branch catches, so a damaged
+            store stopped the server with a traceback instead of the clean
+            refusal or warning the startup rules promise.
+    """
+    try:
+        with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
+            return pd.read_csv(handle)
+    except (OSError, EOFError, zlib.error, UnicodeDecodeError,
+            pd.errors.ParserError, pd.errors.EmptyDataError) as error:
+        raise ConfigurationError(
+            "data_store",
+            f"{path.name} in {path.parent} cannot be read: {error}.") from error
+
+
+def _build(path: Path,
+           frame: pd.DataFrame,
+           build: Callable[[pd.DataFrame], T]) -> T:
+    """Turn a file's rows into data, naming the file if they don't fit.
+
+    Raises:
+        ConfigurationError: If the rows lack a required column or hold values
+            of the wrong kind.
+    """
+    try:
+        return build(frame)
+    except (KeyError, ValueError, TypeError) as error:
+        raise ConfigurationError(
+            "data_store",
+            f"{path.name} in {path.parent} does not hold the rows a data "
+            f"store needs: {error}.") from error
 
 
 def save(fetcher: DataFetcher,
@@ -348,19 +385,24 @@ def load(path: Path,
 
     manifest = read_manifest(path)
 
-    market = MarketData.from_dataframe(_read_frame(path / MARKET_FILE))
+    market = _build(path / MARKET_FILE, _read_frame(path / MARKET_FILE),
+                    MarketData.from_dataframe)
 
     reference = None
     if (path / REFERENCE_FILE).is_file():
-        reference = ReferenceData.from_dataframe(_read_frame(path / REFERENCE_FILE))
+        reference = _build(path / REFERENCE_FILE,
+                           _read_frame(path / REFERENCE_FILE),
+                           ReferenceData.from_dataframe)
 
     actions = None
     if (path / ACTIONS_FILE).is_file():
-        actions = CorporateActions.from_dataframe(_read_frame(path / ACTIONS_FILE))
+        actions = _build(path / ACTIONS_FILE, _read_frame(path / ACTIONS_FILE),
+                         CorporateActions.from_dataframe)
 
     features = None
     if (path / FEATURES_FILE).is_file():
-        features = FeatureData.from_dataframe(_read_frame(path / FEATURES_FILE))
+        features = _build(path / FEATURES_FILE, _read_frame(path / FEATURES_FILE),
+                          FeatureData.from_dataframe)
 
     logger.info("Loaded %d identifier(s) from the %s data store at %s.",
                 len(market.identifiers), manifest.source, path)

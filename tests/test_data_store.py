@@ -309,6 +309,58 @@ class TestResolutionFailures:
         assert "could not be read" in caplog.text
 
 
+class TestADamagedFileIsRefusedByName:
+    """BN-233: a damaged data file used to escape as `EOFError` or
+    `BadGzipFile`, which no startup branch catches, so the server stopped with
+    a traceback. It is now a `ConfigurationError` naming the file, which the
+    startup rules handle: exit 2 when named explicitly, a warning otherwise."""
+
+    @pytest.mark.parametrize("damage", [
+        pytest.param(lambda data: data[: len(data) // 2], id="truncated"),
+        pytest.param(lambda data: b"not gzip at all", id="not-gzip"),
+    ])
+    def test_an_unreadable_file_names_itself(self,
+                                             saved,
+                                             damage):
+        market = saved / store.MARKET_FILE
+        market.write_bytes(damage(market.read_bytes()))
+
+        with pytest.raises(ConfigurationError, match=store.MARKET_FILE):
+            store.load(saved)
+
+    def test_rows_missing_a_required_column_name_the_file(self,
+                                                          saved):
+        with gzip.open(saved / store.MARKET_FILE, "wt", encoding="utf-8") as handle:
+            handle.write("SOMETHING,ELSE\n1,2\n")
+
+        with pytest.raises(ConfigurationError, match=store.MARKET_FILE):
+            store.load(saved)
+
+    def test_named_explicitly_it_exits_two_with_a_message(self,
+                                                          saved,
+                                                          capsys):
+        (saved / store.MARKET_FILE).write_bytes(b"not gzip at all")
+
+        code = main(["--token", TOKEN, "--data", str(saved)])
+
+        assert code == 2
+        assert store.MARKET_FILE in capsys.readouterr().err
+
+    def test_found_automatically_it_warns_and_starts_without_data(self,
+                                                                  saved,
+                                                                  monkeypatch,
+                                                                  caplog):
+        (saved / store.MARKET_FILE).write_bytes(b"not gzip at all")
+        monkeypatch.delenv(store.DATA_PATH_ENV_VAR, raising=False)
+        monkeypatch.setattr(store, "default_path", lambda: saved)
+
+        with caplog.at_level(logging.WARNING):
+            fetcher, _ = resolve_data_source(None)
+
+        assert fetcher is None
+        assert store.MARKET_FILE in caplog.text
+
+
 class TestLauncher:
     """The command line beacon-ui actually spawns."""
 
