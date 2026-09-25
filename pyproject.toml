@@ -43,6 +43,8 @@ dependencies = ["pandas", "numpy", "pydantic>=2", "exchange_calendars"]
 [project.optional-dependencies]
 data = ["yfinance"]
 excel = ["openpyxl"]
+# Read-only Postgres data stores.
+postgres = ["psycopg[binary]"]
 pdf = ["reportlab"]
 optimise = ["scipy"]
 # Pinned to a minor series: chart image regression compares rendered
@@ -67,6 +69,7 @@ dev = [
   "py-beacon-kit[optimise]", # and the optimiser tests solve real problems
   "py-beacon-kit[pdf]",      # and the report tests render real documents
   "py-beacon-kit[plot]",     # and the chart tests draw real figures
+  "py-beacon-kit[postgres]", # and the Postgres store tests connect for real in CI
   "pytest-mpl",          # image regression over every chart
   "pytest",
   "pytest-asyncio",      # the job registry is driven on an event loop

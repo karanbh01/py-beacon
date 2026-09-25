@@ -6,12 +6,37 @@ module to, and which these models do not need to live beside.
 """
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .schemas import Identifier, IsoDate, LoadJobStatus, TolerantCollection
 
-# What a store is, physically. Postgres joins in BN-241.
-StoreKind = Literal["folder"]
+# What a store is, physically: a py-beacon data folder, or a Postgres
+# database read through tables or views in the import layout.
+StoreKind = Literal["folder", "postgres"]
+
+
+class PostgresConnection(BaseModel):
+    """Where a Postgres store's tables or views are. Read-only."""
+    host: str = Field(min_length=1, description="The database server.")
+    port: int = Field(default=5432, ge=1, le=65535,
+                      description="The server's port.")
+    database: str = Field(min_length=1, description="The database name.")
+    schema_name: str = Field(
+        default="public", alias="schema", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+        description="The schema holding tables or views named market, "
+                    "reference, and optionally fx, corporate_actions and "
+                    "features, with the import template's columns.")
+    user: str = Field(min_length=1,
+                      description="The user to connect as. Read access is "
+                                  "all it needs.")
+    password_env: str | None = Field(
+        default=None,
+        description="The environment variable holding the password, read "
+                    "each time the engine connects. The password itself is "
+                    "never sent to the engine or saved. Null when the server "
+                    "needs none.")
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 # Where a store's rows came from, from the store's own manifest: the
 # synthetic generator, a download, a file import, or a folder written some
@@ -30,10 +55,25 @@ class DataStoreCreate(BaseModel):
                                   "basis of the store's id.")
     kind: StoreKind = Field(default="folder",
                             description="'folder' for a py-beacon data "
-                                        "folder.")
-    path: str = Field(min_length=1,
-                      description="The folder, as an absolute path on the "
-                                  "machine the engine runs on.")
+                                        "folder, 'postgres' for a database.")
+    path: str | None = Field(
+        default=None, min_length=1,
+        description="For a folder: its absolute path on the machine the "
+                    "engine runs on.")
+    connection: PostgresConnection | None = Field(
+        default=None,
+        description="For a Postgres database: where to connect.")
+
+    @model_validator(mode="after")
+    def _one_location(self) -> "DataStoreCreate":
+        """A folder needs a path, a database a connection."""
+        if self.kind == "folder" and self.path is None:
+            raise ValueError("a folder store needs a path")
+
+        if self.kind == "postgres" and self.connection is None:
+            raise ValueError("a postgres store needs a connection")
+
+        return self
 
 
 class DataStoreUpdate(BaseModel):
@@ -49,7 +89,12 @@ class DataStore(BaseModel):
                                        "created with.")
     name: str = Field(description="Display name.")
     kind: StoreKind = Field(description="What the store is physically.")
-    path: str = Field(description="Where the store is.")
+    path: str = Field(description="Where the store is: a folder, or a "
+                                  "database described without its "
+                                  "password.")
+    connection: PostgresConnection | None = Field(
+        default=None,
+        description="For a Postgres store, its connection details.")
     source: str | None = Field(default=None,
                                description=STORE_SOURCE_DESCRIPTION)
     size_bytes: int | None = Field(

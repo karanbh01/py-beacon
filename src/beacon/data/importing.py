@@ -18,7 +18,6 @@ sheet, row and column, so the files can be fixed in one pass.
 zip of CSV files.
 """
 import io
-import re
 import zipfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -26,9 +25,11 @@ from pathlib import Path
 import pandas as pd
 
 from .._optional import require
-from ..exceptions import InvalidRuleError
 from . import layout
 from .fetcher import DataFetcher
+from .layout import DataImportError
+
+__all__ = ["DataImportError", "load_files", "read", "template"]
 
 EXCEL_SUFFIXES = (".xlsx", ".xlsm")
 CSV_SUFFIX = ".csv"
@@ -50,58 +51,6 @@ EXAMPLES: dict[str, dict[str, object]] = {
     "features": {"IDENTIFIER": "AAA", "DATE": "2024-01-02", "FIELD": "revenue",
                  "VALUE": 1_000_000, "TYPE": "fundamentals"},
 }
-
-
-class DataImportError(InvalidRuleError):
-    """The supplied data has problems, and nothing was loaded.
-
-    Attributes:
-        problems: Up to `layout.MAX_PROBLEMS` of them, each naming its sheet,
-            row and column.
-        total: How many problems there are in all.
-        findings: The same problems in the shape every other refusal with
-            findings uses (`path`, `severity`, `code`, `message`), plus
-            `sheet`, `row` and `column`. This is what the API server sends.
-    """
-    def __init__(self,
-                 problems: list[layout.Problem],
-                 total: int):
-        self._problems = problems
-        self.total = total
-        self.findings = [_finding(problem) for problem in problems]
-
-        super().__init__("data import",
-                         f"{total} problem(s) in the supplied data")
-
-    @property
-    def problems(self) -> list[layout.Problem]:
-        return self._problems
-
-
-def _finding(problem: layout.Problem) -> dict[str, object]:
-    """A problem as a finding: "market, row 4, DATE" and the rest."""
-    place = [problem.sheet]
-
-    if problem.row is not None:
-        place.append(f"row {problem.row}")
-
-    if problem.column is not None:
-        place.append(problem.column)
-
-    return {"path": ", ".join(place),
-            "rule_id": None,
-            "severity": "error",
-            "code": problem.code,
-            "message": problem.message,
-            "sheet": problem.sheet,
-            "row": problem.row,
-            "column": problem.column}
-
-
-def sheet_name(raw: str) -> str:
-    """A sheet or file name as the layout spells it: "Corporate Actions" is
-    `corporate_actions`."""
-    return re.sub(r"[\s\-]+", "_", raw.strip().lower())
 
 
 def read(paths: Iterable[str | Path]) -> tuple[dict[str, pd.DataFrame],
@@ -197,22 +146,13 @@ def _read_one(path: Path) -> dict[str, pd.DataFrame]:
     suffix = path.suffix.lower()
 
     if suffix == CSV_SUFFIX:
-        return {sheet_name(path.stem): _tidy(pd.read_csv(path, dtype=str))}
+        return {layout.sheet_name(path.stem): layout.tidy(pd.read_csv(path, dtype=str))}
 
     if suffix in EXCEL_SUFFIXES:
         require("openpyxl", "Excel import")
         workbook = pd.read_excel(path, sheet_name=None, dtype=str)
 
-        return {sheet_name(name): _tidy(frame) for name, frame in workbook.items()}
+        return {layout.sheet_name(name): layout.tidy(frame) for name, frame in workbook.items()}
 
     raise ValueError(f"it is not a CSV ({CSV_SUFFIX}) or Excel "
                      f"({', '.join(EXCEL_SUFFIXES)}) file")
-
-
-def _tidy(frame: pd.DataFrame) -> pd.DataFrame:
-    """Column names in the layout's spelling, rows numbered from zero, and
-    fully blank rows (a common spreadsheet leftover) dropped."""
-    frame = frame.rename(columns=lambda column: sheet_name(str(column)).upper())
-    frame = frame.dropna(how="all")
-
-    return frame.reset_index(drop=True)

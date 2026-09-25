@@ -16,10 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from ..._optional import require
+from ...data import postgres
 from ...data import store as data_store
 from ...exceptions import DataNotFoundError
 from ..active_data import ActiveData, active_data
-from ..data_stores import StoreRegistry, describe, load
+from ..data_stores import StoreRegistry, available, describe, load
 from ..errors import FindingsError
 from ..jobs import JobRegistry, ProgressReporter
 from ..schemas import (
@@ -125,6 +126,19 @@ def remove_managed_folder(app: FastAPI,
     shutil.rmtree(target, ignore_errors=True)
 
 
+def _refuse_if_registered(registry: StoreRegistry,
+                          location: Path | str,
+                          kind: str) -> None:
+    """Refuse a folder or database that already has a store (409)."""
+    existing = registry.find_by_path(location, kind)
+
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{location} is already registered as "
+                   f"'{existing['name']}' ({existing['id']}).")
+
+
 def build_stores_router() -> APIRouter:
     """Build the /data/stores router."""
     router = APIRouter(prefix="/data/stores", tags=["data stores"])
@@ -144,19 +158,32 @@ def build_stores_router() -> APIRouter:
                  responses=CONFLICT_RESPONSE)
     def register_store(request: Request,
                        body: DataStoreCreate) -> DataStore:
+        """Register a folder or a database, checking it can be read first.
+
+        A database is connected to and read in full before it is registered,
+        so a store that is registered is one that loaded at least once. Its
+        problems are refused with one finding each, as an import's are.
+        """
+        registry = _registry(request)
+
+        if body.kind == "postgres":
+            assert body.connection is not None
+            connection = body.connection.model_dump(by_alias=True)
+            source = postgres.PostgresSource(**connection)
+            location = source.describe()
+            _refuse_if_registered(registry, location, "postgres")
+            postgres.load(source)
+
+            return _view(request, registry.create(body.name, location,
+                                                  "postgres",
+                                                  connection=connection))
+
+        assert body.path is not None
         path = Path(body.path)
         _refuse_unless_a_store(path)
+        _refuse_if_registered(registry, path, "folder")
 
-        existing = _registry(request).find_by_path(path)
-
-        if existing is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"{path} is already registered as "
-                       f"'{existing['name']}' ({existing['id']}).")
-
-        return _view(request, _registry(request).create(body.name, path,
-                                                        body.kind))
+        return _view(request, registry.create(body.name, path, "folder"))
 
     @router.get("/{store_id}", response_model=DataStore)
     def get_store(request: Request,
@@ -212,11 +239,13 @@ def build_stores_router() -> APIRouter:
                              store_id: Identifier) -> LoadJobStatus:
         record = _record(request, store_id)
 
-        if not data_store.exists(Path(record["path"])):
+        if not available(record):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"The store '{record['name']}' cannot be read: "
-                       f"nothing usable at {record['path']}.")
+                       + ("its password variable is not set."
+                          if record["kind"] == "postgres"
+                          else f"nothing usable at {record['path']}."))
 
         claim_loading(request)
         jobs: JobRegistry = request.app.state.jobs

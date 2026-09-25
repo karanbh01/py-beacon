@@ -35,6 +35,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from ..data import postgres
 from ..data import store as data_store
 from ..data.fetcher import DataFetcher
 from ..exceptions import ConfigurationError
@@ -67,6 +68,9 @@ class StoreRecord(BaseModel):
     # folder, whose files it owns and removes when the store is forgotten.
     # False for a folder the user registered, which is never touched.
     managed: bool = False
+    # For a Postgres store: host, port, database, schema, user and the
+    # password's environment variable. Never the password.
+    connection: dict[str, Any] | None = None
 
 
 def _now() -> str:
@@ -115,12 +119,19 @@ class StoreRegistry:
             return None
 
     def find_by_path(self,
-                     path: Path) -> dict[str, Any] | None:
-        """The store registered for this folder, if any."""
-        wanted = path.resolve()
+                     path: Path | str,
+                     kind: str = "folder") -> dict[str, Any] | None:
+        """The store registered for this folder or database, if any."""
+        wanted: Path | str = Path(path).resolve() if kind == "folder" else str(path)
 
         for record in self.records():
-            if Path(record["path"]).resolve() == wanted:
+            if record["kind"] != kind:
+                continue
+
+            found: Path | str = (Path(record["path"]).resolve()
+                                 if kind == "folder" else record["path"])
+
+            if found == wanted:
                 return record
 
         return None
@@ -144,16 +155,23 @@ class StoreRegistry:
 
     def create(self,
                name: str,
-               path: Path,
+               path: Path | str,
                kind: str = "folder",
                managed: bool = False,
-               store_id: str | None = None) -> dict[str, Any]:
-        """Register a store, with an id derived from its name unless given."""
+               store_id: str | None = None,
+               connection: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Register a store, with an id derived from its name unless given.
+
+        *path* is a folder for a folder store; for a database it is the
+        connection described without its password.
+        """
+        location = str(Path(path).resolve()) if kind == "folder" else str(path)
         record = {**StoreRecord(name=name.strip(),
                                 kind=kind,
-                                path=str(path.resolve()),
+                                path=location,
                                 created_at=_now(),
-                                managed=managed).model_dump(),
+                                managed=managed,
+                                connection=connection).model_dump(),
                   "id": store_id or self.new_id(name)}
         self._write(record)
 
@@ -240,12 +258,48 @@ def load(record: dict[str, Any],
     Raises:
         ConfigurationError: If the store cannot be read.
     """
+    if record["kind"] == "postgres":
+        return postgres.load(postgres_source(record), **settings)
+
     return data_store.load(Path(record["path"]), **settings)
+
+
+def postgres_source(record: dict[str, Any]) -> postgres.PostgresSource:
+    """The database a Postgres store's record points at."""
+    return postgres.PostgresSource(**record["connection"])
+
+
+def available(record: dict[str, Any]) -> bool:
+    """Whether a store can be loaded now, as far as can be told cheaply.
+
+    A folder must hold a store. A database is only checked for its password
+    variable: connecting on every listing would make the list as slow as the
+    slowest database in it, so a database that is down is found when it is
+    loaded.
+    """
+    if record["kind"] == "postgres":
+        return not postgres_source(record).password_missing()
+
+    return data_store.exists(Path(record["path"]))
 
 
 def describe(record: dict[str, Any],
              active_id: str | None) -> DataStore:
-    """A store's listing row, read from its folder without loading it."""
+    """A store's listing row, read without loading it."""
+    if record["kind"] == "postgres":
+        return DataStore(id=record["id"],
+                         name=record["name"],
+                         kind="postgres",
+                         path=record["path"],
+                         connection=record["connection"],
+                         source="database",
+                         size_bytes=None,
+                         readable=available(record),
+                         active=record["id"] == active_id,
+                         created_at=record["created_at"],
+                         last_loaded_at=record.get("last_loaded_at"),
+                         managed=False)
+
     path = Path(record["path"])
     readable = data_store.exists(path)
     source: str | None = None

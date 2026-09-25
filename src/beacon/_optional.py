@@ -25,6 +25,7 @@ EXTRA_FOR_MODULE = {
     "orjson": "server",
     "platformdirs": "server",
     "plotly": "plot-interactive",
+    "psycopg": "postgres",
     "reportlab": "pdf",
     "scipy": "optimise",
     "uvicorn": "server",

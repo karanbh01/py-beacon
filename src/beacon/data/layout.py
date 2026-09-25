@@ -22,11 +22,14 @@ Extra columns are kept, so a reference sheet can carry any descriptive fields.
 so a user can fix a file in one pass. Nothing is loaded from sheets that fail
 it: a partly valid import is refused whole rather than half-loaded.
 """
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 import pandas as pd
 
+from ..exceptions import InvalidRuleError
 from .base import MarketData, ReferenceData
 from .corporate_actions import ACTION_TYPES, STATUSES, CorporateActions
 from .features import FeatureData
@@ -136,6 +139,67 @@ class Problem:
     message: str
 
 
+class DataImportError(InvalidRuleError):
+    """The supplied data has problems, and nothing was loaded.
+
+    Attributes:
+        problems: Up to `MAX_PROBLEMS` of them, each naming its sheet,
+            row and column.
+        total: How many problems there are in all.
+        findings: The same problems in the shape every other refusal with
+            findings uses (`path`, `severity`, `code`, `message`), plus
+            `sheet`, `row` and `column`. This is what the API server sends.
+    """
+    def __init__(self,
+                 problems: list[Problem],
+                 total: int):
+        self._problems = problems
+        self.total = total
+        self.findings = [_finding(problem) for problem in problems]
+
+        super().__init__("data import",
+                         f"{total} problem(s) in the supplied data")
+
+    @property
+    def problems(self) -> list[Problem]:
+        return self._problems
+
+
+def _finding(problem: Problem) -> dict[str, object]:
+    """A problem as a finding: "market, row 4, DATE" and the rest."""
+    place = [problem.sheet]
+
+    if problem.row is not None:
+        place.append(f"row {problem.row}")
+
+    if problem.column is not None:
+        place.append(problem.column)
+
+    return {"path": ", ".join(place),
+            "rule_id": None,
+            "severity": "error",
+            "code": problem.code,
+            "message": problem.message,
+            "sheet": problem.sheet,
+            "row": problem.row,
+            "column": problem.column}
+
+
+def sheet_name(raw: str) -> str:
+    """A sheet or file name as the layout spells it: "Corporate Actions" is
+    `corporate_actions`."""
+    return re.sub(r"[\s\-]+", "_", raw.strip().lower())
+
+
+def tidy(frame: pd.DataFrame) -> pd.DataFrame:
+    """Column names in the layout's spelling, rows numbered from zero, and
+    fully blank rows (a common spreadsheet leftover) dropped."""
+    frame = frame.rename(columns=lambda column: sheet_name(str(column)).upper())
+    frame = frame.dropna(how="all")
+
+    return frame.reset_index(drop=True)
+
+
 def check(sheets: dict[str, pd.DataFrame]) -> tuple[list[Problem], int]:
     """Every problem in the supplied sheets.
 
@@ -169,11 +233,17 @@ def check(sheets: dict[str, pd.DataFrame]) -> tuple[list[Problem], int]:
     return problems[:MAX_PROBLEMS], len(problems)
 
 
-def to_fetcher(sheets: dict[str, pd.DataFrame]) -> DataFetcher:
+def to_fetcher(sheets: dict[str, pd.DataFrame],
+               **settings: Any) -> DataFetcher:
     """Build the data from sheets that passed `check`.
 
     FX pairs become market-data identifiers named by the pair, which is how
     every stored dataset holds them.
+
+    Args:
+        sheets: The checked sheets.
+        **settings: Passed to `DataFetcher`: `fx_policy`,
+            `max_price_staleness_days`, `free_float_backfill_days`.
     """
     market = _parsed(MARKET, sheets[MARKET.name])
 
@@ -203,7 +273,8 @@ def to_fetcher(sheets: dict[str, pd.DataFrame]) -> DataFetcher:
                        ReferenceData.from_dataframe(
                            _parsed(REFERENCE, sheets[REFERENCE.name])),
                        actions,
-                       features)
+                       features,
+                       **settings)
 
 
 def _parsed(sheet: Sheet,
