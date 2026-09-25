@@ -165,6 +165,7 @@ class TestHealth:
     def test_without_a_data_source(self,
                                    client):
         body = client.get("/health", headers=auth()).json()
+        body["data_source"].pop("data_version")
 
         assert body["data_source"] == {"configured": False, "identifiers": 0,
                                        "store_id": None, "store_name": None,
@@ -173,6 +174,7 @@ class TestHealth:
     def test_with_a_data_source(self,
                                 client_with_data):
         body = client_with_data.get("/health", headers=auth()).json()
+        body["data_source"].pop("data_version")
 
         assert body["data_source"] == {"configured": True,
                                        "identifiers": len(ASSETS),

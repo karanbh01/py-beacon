@@ -105,6 +105,12 @@ LONG_HISTORY_RUN_IN_YEARS = 1
 # below exists: that combination will exhaust a 16 GB machine, and finding out
 # by watching it swap for ten minutes is a bad way to learn it.
 GIGABYTES_PER_MILLION_ROWS = 0.146
+
+# The prefix of each line `--progress` prints: the fraction done, then what is
+# happening, e.g. "BEACON_PROGRESS 0.40 Building prices". The engine reads
+# these when it runs this command as a job (BN-237), so the prefix is a named
+# constant both sides import rather than a string each side spells.
+PROGRESS_PREFIX = "BEACON_PROGRESS"
 MEMORY_WARNING_GIGABYTES = 4.0
 
 
@@ -175,6 +181,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-features", action="store_true",
                         help="skip the fundamental ratios and alternative "
                              "data (about 8%% of the rows)")
+    parser.add_argument("--progress", action="store_true",
+                        help=f"print a '{PROGRESS_PREFIX} <fraction> <stage>' "
+                             f"line at each stage, for a program running "
+                             f"this one")
     parser.add_argument("--out", type=Path, default=None,
                         help="store directory (default: the location "
                              "`python -m beacon.server` auto-loads)")
@@ -252,7 +262,8 @@ def main(argv: list[str] | None = None) -> int:
 
         path = args.out if args.out is not None else store.default_path()
 
-        written = write(config, path)
+        written = write(config, path,
+                        _print_progress if args.progress else _quiet)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -261,6 +272,17 @@ def main(argv: list[str] | None = None) -> int:
           f"(seed {args.seed}) to {written}.")
 
     return 0
+
+
+def _print_progress(fraction: float,
+                    message: str) -> None:
+    """One machine-readable progress line, flushed so it arrives at once."""
+    print(f"{PROGRESS_PREFIX} {fraction:.2f} {message}", flush=True)
+
+
+def _quiet(fraction: float,
+           message: str) -> None:
+    """No progress lines: the default, for a person at a terminal."""
 
 
 def _announce(assets: int,

@@ -17,6 +17,7 @@ from .optimise import build_optimise_router
 from .reports import build_reports_router
 from .risk import build_risk_router
 from .stores import build_stores_router
+from .synthetic import build_synthetic_router
 from .universes import build_universes_router
 from .watchlists import build_watchlists_router
 
@@ -32,6 +33,7 @@ __all__ = [
     "build_reports_router",
     "build_risk_router",
     "build_stores_router",
+    "build_synthetic_router",
     "build_universes_router",
     "build_watchlists_router",
 ]

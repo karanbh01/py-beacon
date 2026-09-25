@@ -63,6 +63,10 @@ class StoreRecord(BaseModel):
     created_at: str
     last_loaded_at: str | None = None
     active: bool = False
+    # True for a store the engine created (generated or imported) in its own
+    # folder, whose files it owns and removes when the store is forgotten.
+    # False for a folder the user registered, which is never touched.
+    managed: bool = False
 
 
 def _now() -> str:
@@ -121,11 +125,9 @@ class StoreRegistry:
 
         return None
 
-    def create(self,
-               name: str,
-               path: Path,
-               kind: str = "folder") -> dict[str, Any]:
-        """Register a store, with an id derived from its name.
+    def new_id(self,
+               name: str) -> str:
+        """An unused id derived from *name*.
 
         A second store with the same name gets a numbered id ("my-data-2"),
         so names never have to be unique, only ids.
@@ -138,11 +140,21 @@ class StoreRegistry:
             store_id = f"{base}-{suffix}"
             suffix += 1
 
+        return store_id
+
+    def create(self,
+               name: str,
+               path: Path,
+               kind: str = "folder",
+               managed: bool = False,
+               store_id: str | None = None) -> dict[str, Any]:
+        """Register a store, with an id derived from its name unless given."""
         record = {**StoreRecord(name=name.strip(),
                                 kind=kind,
                                 path=str(path.resolve()),
-                                created_at=_now()).model_dump(),
-                  "id": store_id}
+                                created_at=_now(),
+                                managed=managed).model_dump(),
+                  "id": store_id or self.new_id(name)}
         self._write(record)
 
         return record
@@ -258,7 +270,8 @@ def describe(record: dict[str, Any],
                      readable=readable,
                      active=record["id"] == active_id,
                      created_at=record["created_at"],
-                     last_loaded_at=record.get("last_loaded_at"))
+                     last_loaded_at=record.get("last_loaded_at"),
+                     managed=record.get("managed", False))
 
 
 @dataclass(frozen=True)

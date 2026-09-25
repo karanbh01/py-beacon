@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .schemas import Identifier, TolerantCollection
+from .schemas import Identifier, IsoDate, TolerantCollection
 
 # What a store is, physically. Postgres joins in BN-241.
 StoreKind = Literal["folder"]
@@ -66,6 +66,12 @@ class DataStore(BaseModel):
         default=None,
         description="When the engine last loaded it, ISO 8601 UTC. Null if "
                     "never.")
+    managed: bool = Field(
+        default=False,
+        description="True for a store the engine created, such as generated "
+                    "synthetic data, in its own folder. Deleting a managed "
+                    "store deletes its files; deleting any other store only "
+                    "forgets it and leaves the folder alone.")
 
 
 class DataStoreCollection(TolerantCollection):
@@ -77,3 +83,54 @@ class DataStoreCollection(TolerantCollection):
         description="The id of the store being served, or null when none is, "
                     "or when the data came from `--data` or "
                     "`BEACON_DATA_PATH` rather than a registered store.")
+
+
+class GenerateSyntheticRequest(BaseModel):
+    """Body of `POST /data/synthetic`: generate a synthetic data store.
+
+    Every field is optional. Anything left out takes the same default as
+    `python -m beacon.synthetic`, because the engine runs that command: the
+    same settings always give the same data, whichever way it was made.
+    """
+    name: str = Field(default="Synthetic data", min_length=1, max_length=80,
+                      description="Display name for the new store.")
+    assets: int | None = Field(
+        default=None, ge=1, le=50_000,
+        description="How many names. Default 6,000, or 10,000 with "
+                    "`extended_universe`.")
+    extended_universe: bool = Field(
+        default=False,
+        description="10,000 names instead of 6,000. Ignored when `assets` is "
+                    "given.")
+    start: IsoDate | None = Field(
+        default=None,
+        description="First date. Default ten years before `end`, or the "
+                    "start of the crises the generator models with "
+                    "`long_history`.")
+    end: IsoDate | None = Field(default=None,
+                                description="Last date. Default today.")
+    long_history: bool = Field(
+        default=False,
+        description="Reach back to cover every crisis the generator models. "
+                    "Ignored when `start` is given.")
+    seed: int | None = Field(
+        default=None, ge=0,
+        description="Everything random is drawn from this, so the same seed "
+                    "and settings always give the same data.")
+    risk_free_rate: float | None = Field(
+        default=None, description="Annualised, as a decimal.")
+    equity_premium: float | None = Field(
+        default=None,
+        description="Annualised excess return on a beta-one name, as a "
+                    "decimal.")
+    calendar: str | None = Field(
+        default=None,
+        description="Exchange code whose trading days the data has prices "
+                    "on. Default XNYS.")
+    features: bool = Field(
+        default=True,
+        description="Include fundamental ratios and alternative data.")
+    activate: bool = Field(
+        default=True,
+        description="Serve the new store as soon as it is written.")
+

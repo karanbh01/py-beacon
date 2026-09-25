@@ -243,6 +243,16 @@ class DataSourceStatus(BaseModel):
         default=False,
         description="True while a data store is being loaded. The data "
                     "served until it finishes is the previous store's.")
+    data_version: str = Field(
+        default="",
+        description="An opaque token that changes whenever the data being "
+                    "served changes: at startup, on every store load (the "
+                    "same store loaded again included), and after a sync. "
+                    "Compare it for equality only: if it differs from the "
+                    "value a client cached against, the client's copy is "
+                    "stale. Never reused, even across engine restarts. The "
+                    "`data.loaded` and `data.freshness` events carry the new "
+                    "value.")
 
 
 class ChangelogSectionView(BaseModel):
@@ -3483,6 +3493,19 @@ class LoadJobStatus(JobStatusOf[LoadResult]):
     """A `load:{store_id}` job. `result` describes the store now served."""
 
 
+class GenerateResult(BaseModel):
+    """Result payload of a completed `generate:{store_id}` job (BN-237)."""
+    store_id: str = Field(description="The new store's id.")
+    name: str = Field(description="Its display name.")
+    path: str = Field(description="The folder the engine wrote it to.")
+    activated: bool = Field(description="Whether the engine is now serving "
+                                        "it.")
+
+
+class GenerateJobStatus(JobStatusOf[GenerateResult]):
+    """A `generate:{store_id}` job. `result` describes the new store."""
+
+
 # The response of `GET /jobs/{job_id}`: one arm per job kind, so a client reads
 # a real type off `result` instead of casting against nothing.
 #
@@ -3509,6 +3532,7 @@ AnyJobStatus = (BacktestJobStatus
                 | RiskModelJobStatus
                 | SyncJobStatus
                 | LoadJobStatus
+                | GenerateJobStatus
                 | JobStatus)
 
 

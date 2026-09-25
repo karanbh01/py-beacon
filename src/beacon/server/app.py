@@ -39,6 +39,7 @@ from .routers import (  # noqa: E402
     build_reports_router,
     build_risk_router,
     build_stores_router,
+    build_synthetic_router,
     build_universes_router,
     build_watchlists_router,
 )
@@ -93,7 +94,8 @@ def _describe_data_source(holder: ActiveData) -> DataSourceStatus:
         identifiers=len(fetcher.identifiers) if fetcher is not None else 0,
         store_id=holder.store_id,
         store_name=holder.store_name if fetcher is not None else None,
-        loading=holder.loading)
+        loading=holder.loading,
+        data_version=holder.data_version)
 
 
 def build_router() -> APIRouter:
@@ -216,6 +218,12 @@ def create_app(config: ServerConfig) -> FastAPI:
                                        store_id=config.data_store_id,
                                        store_name=config.data_store_name)
     app.state.data_stores = StoreRegistry(config.storage_root)
+    # Where the engine writes stores it creates itself (generated synthetic
+    # data, imported files). A folder rather than a document collection, so
+    # borrowed from DocumentStore only to resolve and create it, as the
+    # render folder is.
+    app.state.managed_store_root = DocumentStore(
+        "data_store_files", root=config.storage_root).directory
 
     if config.data_fetcher is not None:
         seeded = seed_global_universe(app.state.universe_store,
@@ -265,6 +273,7 @@ def create_app(config: ServerConfig) -> FastAPI:
                    build_optimise_router(),
                    build_risk_router(),
                    build_stores_router(),
+                   build_synthetic_router(),
                    build_reports_router(),
                    build_derivatives_router(),
                    build_beacon_router()):

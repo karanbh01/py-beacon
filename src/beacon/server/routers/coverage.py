@@ -35,7 +35,7 @@ from ...data.ingest import (
     yfinance_downloader,
     yfinance_reference_downloader,
 )
-from ..active_data import current_data, require_data
+from ..active_data import ActiveData, active_data, current_data, require_data
 from ..config import ServerConfig
 from ..jobs import JobRegistry, ProgressReporter
 from ..schemas import (
@@ -312,6 +312,7 @@ def build_coverage_router() -> APIRouter:
         job = registry.submit(
             f"sync:{dataset}",
             build_sync_job(dataset, identifiers, settings, fetcher, registry,
+                           active_data(request),
                            config.market_downloader))
 
         return SyncJobStatus(**job.snapshot())
@@ -324,6 +325,7 @@ def build_sync_job(dataset: str,
                    settings: SyncRequest,
                    fetcher: DataFetcher,
                    registry: JobRegistry,
+                   holder: ActiveData,
                    downloader: Downloader | None
                    ) -> Callable[[ProgressReporter], Awaitable[dict[str, Any]]]:
     """Build the coroutine that runs a sync.
@@ -334,6 +336,8 @@ def build_sync_job(dataset: str,
         settings: Window and options from the request.
         fetcher: The data source to merge into.
         registry: Used to publish the freshness event on completion.
+        holder: The engine's data holder, whose `data_version` changes when
+            the merge changes the data it serves.
         downloader: Injected source. None builds the yfinance-backed one, and
             that is where a missing `data` extra surfaces — inside the job, so
             it reaches the client as a failed job carrying the install message
@@ -365,11 +369,18 @@ def build_sync_job(dataset: str,
 
         await report(1.0, f"Synced {len(result.fetched)} of {len(identifiers)}.")
 
+        # A new data version only if this is still the data being served: a
+        # store loaded meanwhile has its own version, which this merge did
+        # not touch.
+        version = (holder.data_changed() if holder.fetcher is fetcher
+                   else holder.data_version)
+
         # Announced only once the data is actually queryable, so a client that
         # refetches on the event cannot beat the merge to it.
         registry.publish_data_freshness(dataset,
                                         {"identifiers": len(result.fetched),
-                                         "rows_added": added})
+                                         "rows_added": added,
+                                         "data_version": version})
 
         return {**result.summary(), "dataset": dataset, "rows_added": added}
 

@@ -11,7 +11,8 @@ source"), each answering 500. That is one rule, so it is one function here,
 and it answers 409: no data being loaded is a state the caller can change by
 loading a store, not a server fault.
 """
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 
 from .._optional import require
 from ..data.fetcher import DataFetcher
@@ -20,6 +21,11 @@ from ..exceptions import NoDataLoadedError
 require("fastapi", "The Beacon API server")
 
 from fastapi import Request  # noqa: E402
+
+
+def new_data_version() -> str:
+    """A token no earlier data, in this process or any before it, can have."""
+    return uuid.uuid4().hex
 
 
 @dataclass
@@ -39,11 +45,25 @@ class ActiveData:
             unregistered data came from.
         loading: Whether a store is being loaded right now. One load at a
             time: a second would race the first to replace the data.
+        data_version: An opaque token that changes whenever the data being
+            served changes: at startup, on every load (the same store loaded
+            again included, since its files may have changed), and after a
+            sync merges rows. A client compares it for equality only, to
+            know whether what it cached is still current. Random rather than
+            a counter, so an engine restart can never bring an old value back.
     """
     fetcher: DataFetcher | None = None
     store_id: str | None = None
     store_name: str | None = None
     loading: bool = False
+    data_version: str = field(default_factory=new_data_version)
+
+    def data_changed(self) -> str:
+        """Mint a new `data_version` after the data changed in place."""
+        self.data_version = new_data_version()
+
+        return self.data_version
+
 
 
 def active_data(request: Request) -> ActiveData:

@@ -79,9 +79,12 @@ class TestAnEngineWithoutData:
 
     def test_it_starts_and_says_nothing_is_loaded(self,
                                                   client):
-        assert served(client) == {"configured": False, "identifiers": 0,
-                                  "store_id": None, "store_name": None,
-                                  "loading": False}
+        source = served(client)
+        source.pop("data_version")
+
+        assert source == {"configured": False, "identifiers": 0,
+                          "store_id": None, "store_name": None,
+                          "loading": False}
 
     def test_a_data_endpoint_refuses_with_409_saying_what_needs_data(self,
                                                                     client):
@@ -183,13 +186,15 @@ class TestLoading:
                                                                 monkeypatch):
         """Everything a client derived from the old data may be stale."""
         announced = []
-        monkeypatch.setattr(client.app.state.jobs, "publish_data_loaded",
-                            lambda store_id, name: announced.append((store_id, name)))
+        monkeypatch.setattr(
+            client.app.state.jobs, "publish_data_loaded",
+            lambda store_id, name, version: announced.append((store_id, name,
+                                                              version)))
         register(client, "Mine", write_store(tmp_path / "a", ["AAA"]))
 
         activate(client, "mine")
 
-        assert announced == [("mine", "Mine")]
+        assert announced == [("mine", "Mine", served(client)["data_version"])]
 
     def test_a_second_load_while_one_runs_is_refused(self,
                                                      client,
@@ -228,6 +233,69 @@ class TestLoading:
         assert job["status"] == "failed"
         assert served(client)["store_id"] == "good"
         assert served(client)["loading"] is False
+
+
+class TestTheDataVersion:
+    """An opaque token a client compares for equality, to know whether what
+    it cached is still the data being served (asked for by beacon-ui)."""
+
+    def test_there_is_one_from_the_first_health_check(self,
+                                                      client):
+        """So a client always has something to compare against."""
+        assert served(client)["data_version"]
+
+    def test_every_load_changes_it(self,
+                                   client,
+                                   tmp_path):
+        register(client, "Mine", write_store(tmp_path / "a", ["AAA"]))
+        before = served(client)["data_version"]
+
+        activate(client, "mine")
+
+        assert served(client)["data_version"] != before
+
+    def test_loading_the_same_store_again_changes_it(self,
+                                                     client,
+                                                     tmp_path):
+        """Its files may have changed on disk; the store id cannot say so."""
+        register(client, "Mine", write_store(tmp_path / "a", ["AAA"]))
+        activate(client, "mine")
+        first = served(client)["data_version"]
+
+        activate(client, "mine")
+
+        assert served(client)["data_version"] != first
+
+    def test_a_restarted_engine_never_brings_an_old_value_back(self,
+                                                              documents):
+        """Why it is random rather than a counter: a counter restarts where it
+        started, and three loads later the old value is back."""
+        versions = set()
+
+        for _ in range(3):
+            app = create_app(ServerConfig(auth_token=TOKEN,
+                                          storage_root=documents))
+            with TestClient(app) as fresh:
+                versions.add(served(fresh)["data_version"])
+
+        assert len(versions) == 3
+
+    def test_a_failed_load_leaves_it_alone(self,
+                                           client,
+                                           tmp_path):
+        """The data did not change, so neither does the token."""
+        broken = write_store(tmp_path / "b", ["BBB"])
+        register(client, "Broken", broken)
+        (broken / data_store.MARKET_FILE).write_bytes(b"not gzip")
+        before = served(client)["data_version"]
+
+        client.app.state.active_data.loading = False
+        activate_response = client.post("/data/stores/broken/activate",
+                                         headers=HEADERS)
+        assert activate_response.status_code == 202
+        client.portal.call(client.app.state.jobs.drain)
+
+        assert served(client)["data_version"] == before
 
 
 class TestManaging:

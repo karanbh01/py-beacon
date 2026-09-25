@@ -11,12 +11,15 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 ### Added
 
 - Named data stores. Register a data folder under a name you choose, see every store at `GET /data/stores`, and switch which one the engine serves. The engine remembers the active store and serves it again on the next start.
+- Generate synthetic data from the engine: `POST /data/synthetic` creates a new store with the size, dates and seed you choose (end date defaulting to today), and serves it when it is ready. It runs as a job with progress, and gives exactly the same data as `python -m beacon.synthetic` with the same settings.
+- `python -m beacon.synthetic --progress` prints a line at each stage, for a program running it.
 - The engine can start without any data and load a store later. Loading runs as a job with progress, and the event socket announces `data.loaded` when the new data is being served.
 
 ### Changed
 
 - A request that needs data when none is loaded now answers 409 `NO_DATA_LOADED`, saying what could not be done. It answered 500 `CONFIGURATION_ERROR` before.
 - `/health` says which store is being served and whether one is loading.
+- `/health` and the data events carry `data_version`, a token that changes whenever the data being served changes. A client compares it to tell whether what it cached is still current.
 
 ### Fixed
 

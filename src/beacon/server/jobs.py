@@ -178,7 +178,8 @@ class JobRegistry:
 
     def publish_data_loaded(self,
                             store_id: str,
-                            name: str) -> None:
+                            name: str,
+                            data_version: str) -> None:
         """Announce that the engine now serves a different data store (BN-236).
 
         A client holding anything derived from the data (lists of names,
@@ -186,7 +187,8 @@ class JobRegistry:
         at once.
         """
         self.publish({"type": "data.loaded",
-                      "store": {"id": store_id, "name": name}})
+                      "store": {"id": store_id, "name": name},
+                      "data_version": data_version})
 
     def publish_data_freshness(self,
                                dataset: str,

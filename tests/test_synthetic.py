@@ -37,6 +37,7 @@ from beacon.synthetic.__main__ import (
     DEFAULT_ASSETS,
     DEFAULT_YEARS,
     EXTENDED_ASSETS,
+    PROGRESS_PREFIX,
     build_parser,
     default_window,
     long_history_start,
@@ -723,6 +724,25 @@ class TestCommandLine:
               "--seed", "3", "--out", str(tmp_path / "full")])
 
         assert not store.load(tmp_path / "full").features.is_empty
+
+    def test_progress_lines_are_printed_only_when_asked_for(self,
+                                                            tmp_path,
+                                                            capsys):
+        """The engine runs this command and reads these lines (BN-237)."""
+        main(["--assets", "8", "--start", "2022-01-03", "--end", "2022-06-30",
+              "--seed", "3", "--progress", "--out", str(tmp_path / "loud")])
+        lines = [line for line in capsys.readouterr().out.splitlines()
+                 if line.startswith(PROGRESS_PREFIX)]
+        fractions = [float(line.split(" ")[1]) for line in lines]
+
+        assert len(lines) >= 5
+        assert fractions == sorted(fractions)
+        assert fractions[-1] == 1.0
+
+        main(["--assets", "8", "--start", "2022-01-03", "--end", "2022-06-30",
+              "--seed", "3", "--out", str(tmp_path / "quiet")])
+
+        assert PROGRESS_PREFIX not in capsys.readouterr().out
 
     def test_a_bad_window_exits_two(self, tmp_path, capsys):
         code = main(["--start", "2024-01-01", "--end", "2023-01-01",

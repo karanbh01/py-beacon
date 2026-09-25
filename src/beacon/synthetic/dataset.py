@@ -23,6 +23,7 @@ should assert on its exact values. Use the fixture when a test needs a known
 number, and this when something needs to look like a market.
 """
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -150,12 +151,27 @@ class SyntheticDataset:
                            self.features)
 
 
-def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
+# Told how far generation has got: a fraction of the work, and what is
+# happening now. Used by `python -m beacon.synthetic --progress`, which the
+# engine runs to generate a store as a job (BN-237).
+Progress = Callable[[float, str], None]
+
+
+def _silent(fraction: float,
+            message: str) -> None:
+    """The default progress callback, which reports nothing."""
+
+
+def generate(config: SyntheticConfig | None = None,
+             progress: Progress = _silent) -> SyntheticDataset:
     """Generate a synthetic dataset.
 
     Args:
         config: What to generate; defaults to 512 names over a fixed five-year
             window.
+        progress: Called at each stage with the fraction done and what is
+            happening. The fractions are rough shares of the time each stage
+            takes at the default size, not exact.
 
     Returns:
         SyntheticDataset: The panels and the parameters behind them.
@@ -174,15 +190,18 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
             f"{settings.calendar} has no sessions between {settings.start} "
             f"and {settings.end}.")
 
+    progress(0.02, "Building the universe")
     names = universe.build(settings.assets, rng, dates=dates,
                            currency=settings.currency,
                            delisting_rate=settings.delisting_rate,
                            listing_rate=settings.listing_rate)
 
+    progress(0.08, "Simulating returns")
     panel = returns.simulate(names, dates, rng,
                              risk_free_rate=settings.risk_free_rate,
                              equity_premium=settings.equity_premium)
 
+    progress(0.40, "Building prices and corporate actions")
     market_frame, action_frame = prices.build(names, panel, rng)
 
     # FX pairs live in the market data as identifiers of their own, which is
@@ -190,11 +209,13 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
     # exchange rate has no volume, no shares outstanding and no free float,
     # and inventing zeros for those would make an FX row answer questions it
     # has no answer to.
+    progress(0.62, "Generating exchange rates")
     rates = fx.build(dates, rng)
 
     # Derived from the prices above rather than drawn beside them: a P/E that
     # contradicts the price series in the same dataset would make a valuation
     # screen and a price screen disagree about the same company.
+    progress(0.64, "Generating features")
     close = market_frame.pivot(index="DATE", columns="IDENTIFIER",
                                values="CLOSE") if settings.features else None
     feature_rows = (features_module.build(names, close, panel, rng)
@@ -203,6 +224,7 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
     # The profile fields a client's instrument view needs. Generated from the
     # universe rather than beside it, so status agrees with the listing dates
     # and dividend frequency agrees with the dividends (BN-148).
+    progress(0.74, "Writing profiles")
     profile = profiles.build(names, rng, dates[-1])
 
     logger.info("Generated %d identifier(s) over %d %s session(s) (seed %d).",
@@ -221,16 +243,22 @@ def generate(config: SyntheticConfig | None = None) -> SyntheticDataset:
 
 
 def write(config: SyntheticConfig,
-          path: Path) -> Path:
+          path: Path,
+          progress: Progress = _silent) -> Path:
     """Generate a dataset and write it as a Beacon data store.
 
     Args:
         config: What to generate.
         path: Store directory, created if absent.
+        progress: As for :func:`generate`, carried on through the write.
 
     Returns:
         Path: The directory written.
     """
-    dataset = generate(config)
+    dataset = generate(config, progress)
 
-    return store.save(dataset.fetcher(), path, source=store.SOURCE_SYNTHETIC)
+    progress(0.80, "Saving the store")
+    written = store.save(dataset.fetcher(), path, source=store.SOURCE_SYNTHETIC)
+    progress(1.0, "Done")
+
+    return written

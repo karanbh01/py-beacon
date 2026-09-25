@@ -332,6 +332,22 @@ class TestSyncEndpoint:
         assert result["result"]["fetched"] == 2
         assert "AAA" in fetcher.identifiers
 
+    def test_a_sync_gives_the_data_a_new_version(self,
+                                                 client):
+        """The rows it merged change the data, so a client comparing
+        `data_version` must see a new value (BN-236)."""
+        before = client.get("/health", headers=auth()).json()[
+            "data_source"]["data_version"]
+
+        client.post("/data/coverage/market/sync",
+                    json={"identifiers": ["AAA"]}, headers=auth())
+        client.portal.call(client.app.state.jobs.drain)
+
+        after = client.get("/health", headers=auth()).json()[
+            "data_source"]["data_version"]
+
+        assert after != before
+
     def test_the_job_reports_failures_without_failing(self,
                                                       client):
         """A partial sync succeeded at something and should say so."""

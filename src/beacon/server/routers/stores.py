@@ -10,6 +10,8 @@ A request already running when a load finishes keeps the data it started
 with: the swap replaces the engine's data whole, it never changes it in place.
 """
 import asyncio
+import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +37,8 @@ from ..store_schemas import (
     DataStoreUpdate,
 )
 from .universes import seed_global_universe
+
+logger = logging.getLogger(__name__)
 
 require("fastapi", "The Beacon API server")
 
@@ -95,6 +99,32 @@ def _refuse_unless_a_store(path: Path) -> None:
                     code="NOT_A_DATA_STORE", message=problem)])
 
 
+def managed_root(app: FastAPI) -> Path:
+    """The folder the engine creates its own stores in."""
+    root: Path = app.state.managed_store_root
+
+    return root
+
+
+def remove_managed_folder(app: FastAPI,
+                          path: Path) -> None:
+    """Delete a folder the engine created, and nothing outside its own root.
+
+    The check is the point: a registry record could have been edited by hand,
+    and deleting whatever path it names would make one bad file a way to
+    remove anything on the disk.
+    """
+    root = managed_root(app).resolve()
+    target = path.resolve()
+
+    if target.parent != root:
+        logger.warning("Not deleting %s: it is outside the engine's store "
+                       "folder %s.", target, root)
+        return
+
+    shutil.rmtree(target, ignore_errors=True)
+
+
 def build_stores_router() -> APIRouter:
     """Build the /data/stores router."""
     router = APIRouter(prefix="/data/stores", tags=["data stores"])
@@ -151,8 +181,13 @@ def build_stores_router() -> APIRouter:
                    responses=CONFLICT_RESPONSE)
     def forget_store(request: Request,
                      store_id: Identifier) -> Response:
-        """Forget a store. Its folder and files are left untouched."""
-        _record(request, store_id)
+        """Forget a store.
+
+        A folder the user registered is left exactly as it is. A store the
+        engine created (`managed`) has its folder deleted too, since nothing
+        else knows it is there.
+        """
+        record = _record(request, store_id)
 
         if active_data(request).store_id == store_id:
             raise HTTPException(
@@ -161,6 +196,9 @@ def build_stores_router() -> APIRouter:
                        "another store first.")
 
         _registry(request).delete(store_id)
+
+        if record.get("managed"):
+            remove_managed_folder(request.app, Path(record["path"]))
 
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -173,13 +211,6 @@ def build_stores_router() -> APIRouter:
     async def activate_store(request: Request,
                              store_id: Identifier) -> LoadJobStatus:
         record = _record(request, store_id)
-        holder = active_data(request)
-
-        if holder.loading:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="A data store is already loading. Wait for it to "
-                       "finish.")
 
         if not data_store.exists(Path(record["path"])):
             raise HTTPException(
@@ -187,9 +218,7 @@ def build_stores_router() -> APIRouter:
                 detail=f"The store '{record['name']}' cannot be read: "
                        f"nothing usable at {record['path']}.")
 
-        # Set before the job is scheduled, so a second request arriving
-        # before the job starts is refused rather than racing it.
-        holder.loading = True
+        claim_loading(request)
         jobs: JobRegistry = request.app.state.jobs
         job = jobs.submit(f"load:{store_id}",
                           _load_job(request.app, record))
@@ -199,43 +228,71 @@ def build_stores_router() -> APIRouter:
     return router
 
 
+async def serve_store(app: FastAPI,
+                      record: dict[str, Any],
+                      report: ProgressReporter) -> LoadResult:
+    """Load a store and start serving it: the one path for every load.
+
+    Used by activation and by generation, so a store the engine just wrote is
+    served exactly as one the user picked. The caller has set
+    `active_data.loading`; this clears it however it ends. A failed load
+    leaves the data already served in place.
+    """
+    holder: ActiveData = app.state.active_data
+
+    try:
+        await report(0.92, f"Reading '{record['name']}'")
+        fetcher = await asyncio.to_thread(load, record)
+
+        await report(0.98, "Serving the new data")
+        registry: StoreRegistry = app.state.data_stores
+        served = ActiveData(fetcher=fetcher,
+                            store_id=record["id"],
+                            store_name=record["name"])
+        app.state.active_data = served
+        registry.set_active(record["id"])
+        registry.mark_loaded(record["id"])
+
+        # GLOBAL describes the loaded dataset, so it follows the switch.
+        seed_global_universe(app.state.universe_store, fetcher)
+
+        jobs: JobRegistry = app.state.jobs
+        jobs.publish_data_loaded(record["id"], record["name"],
+                                 served.data_version)
+
+        first, last = fetcher.date_range
+
+        return LoadResult(store_id=record["id"],
+                          name=record["name"],
+                          identifiers=len(fetcher.identifiers),
+                          start=f"{first:%Y-%m-%d}",
+                          end=f"{last:%Y-%m-%d}")
+    finally:
+        app.state.active_data.loading = False
+        holder.loading = False
+
+
+def claim_loading(request: Request) -> None:
+    """Mark a load as started, or refuse when one already is (409).
+
+    Set before the job is scheduled, so a second request arriving before the
+    job starts is refused rather than racing it.
+    """
+    holder = active_data(request)
+
+    if holder.loading:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A data store is already loading. Wait for it to finish.")
+
+    holder.loading = True
+
+
 def _load_job(app: FastAPI,
               record: dict[str, Any]) -> Any:
     """The coroutine that loads a store and starts serving it."""
 
     async def run(report: ProgressReporter) -> dict[str, Any]:
-        holder: ActiveData = app.state.active_data
-
-        try:
-            await report(0.05, f"Reading '{record['name']}'")
-            fetcher = await asyncio.to_thread(load, record)
-
-            await report(0.9, "Serving the new data")
-            registry: StoreRegistry = app.state.data_stores
-            app.state.active_data = ActiveData(fetcher=fetcher,
-                                               store_id=record["id"],
-                                               store_name=record["name"])
-            registry.set_active(record["id"])
-            registry.mark_loaded(record["id"])
-
-            # GLOBAL describes the loaded dataset, so it follows the switch.
-            seed_global_universe(app.state.universe_store, fetcher)
-
-            first, last = fetcher.date_range
-            result = LoadResult(store_id=record["id"],
-                                name=record["name"],
-                                identifiers=len(fetcher.identifiers),
-                                start=f"{first:%Y-%m-%d}",
-                                end=f"{last:%Y-%m-%d}")
-
-            jobs: JobRegistry = app.state.jobs
-            jobs.publish_data_loaded(record["id"], record["name"])
-
-            return result.model_dump()
-        finally:
-            # A failed load leaves the previous data in place. Either way the
-            # next load may start.
-            app.state.active_data.loading = False
-            holder.loading = False
+        return (await serve_store(app, record, report)).model_dump()
 
     return run
