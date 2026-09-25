@@ -6,32 +6,35 @@ The process-level data source: what answers when nothing was bound.
     beacon.use(fetcher)          # point the process somewhere, once
     p.asset("AAA").prices(...)   # every unbound portfolio reads it
 
-Resolution order (decision 16): a source **bound to the object wins** — a
-backtest result's views always read the data its run used — and this module
-is the fallback for objects that have none:
+A source **bound to the object wins**: a backtest result's views always read
+the data its run used. This module is the fallback for objects that have
+none, resolved in this order:
 
 1. a source set explicitly with :func:`use`;
-2. otherwise the default store on disk — the one `python -m beacon.synthetic`
-   writes and the server auto-loads — loaded lazily on first need and cached;
-3. neither → :class:`DataSourceError` naming both fixes, because "no data"
-   discovered deep inside a price lookup is useless without being told what
-   to do about it.
+2. otherwise the default store on disk (the one `python -m beacon.synthetic`
+   writes and the server auto-loads), loaded lazily on first need and cached;
+3. if neither exists, a :class:`DataSourceError` that names both fixes.
 
-## Why this is not called `data`
-
-`beacon.expressions.data` is the expression root (a symbolic, unbound field
-reference) and `beacon.data` is the data package. A third `data` naming a
-*bound* source would collide with both — the package collision was already
-hit once (BN-142) and is pinned by a test. `use` says what it does.
-
-## Deliberately process-global, and only a fallback
-
-An ambient source makes interactive work frictionless and makes results
-depend on process state — both are true. The design keeps the second harm
-away from anything that matters: objects that must be reproducible (backtest
-results) carry their own binding, which always wins, so the ambient source
-only ever answers for objects that never recorded one.
+The source is process-global, so results that read it depend on process
+state. Objects that must be reproducible, such as backtest results, carry
+their own binding, which always wins.
 """
+# Resolution order is design decision 16. Raising with both fixes named
+# matters because "no data" discovered deep inside a price lookup is useless
+# without being told what to do about it.
+#
+# Why this is not called `data`: `beacon.expressions.data` is the expression
+# root (a symbolic, unbound field reference) and `beacon.data` is the data
+# package. A third `data` naming a *bound* source would collide with both.
+# The package collision was already hit once (BN-142) and is pinned by a
+# test. `use` says what it does.
+#
+# Deliberately process-global, and only a fallback: an ambient source makes
+# interactive work frictionless and makes results depend on process state,
+# and both are true. The design keeps the second harm away from anything that
+# matters: objects that must be reproducible (backtest results) carry their
+# own binding, which always wins, so the ambient source only ever answers for
+# objects that never recorded one.
 import logging
 import threading
 
@@ -58,7 +61,7 @@ _state = _ProcessSource()
 
 
 def use(fetcher: DataFetcher | None) -> None:
-    """Set the process's data source; `None` clears it.
+    """Set the process's data source, or clear it with `None`.
 
     Args:
         fetcher: What unbound reads should resolve against, or None to fall

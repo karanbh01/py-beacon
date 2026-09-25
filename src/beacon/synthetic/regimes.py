@@ -3,12 +3,12 @@
 Market regimes: the crises a stationary model cannot produce.
 
 The return process in `returns.py` is stationary by construction. Its
-volatility clusters, its tails are fat and its correlations are stable — all
+volatility clusters, its tails are fat and its correlations are stable: all
 true of markets *on average*, and all wrong about the periods that matter most.
 
 Twenty-five years of equity history is not a draw from one distribution. It
 contains three or four episodes where volatility trebles, drift turns sharply
-negative, and — the part that matters — **correlations rise toward one**.
+negative, and (the part that matters) **correlations rise toward one**.
 Diversification stops working precisely when it is most wanted, and a model
 without that overstates how much a spread portfolio protects you.
 
@@ -16,10 +16,10 @@ without that overstates how much a spread portfolio protects you.
 
 Each regime scales three things over a dated window:
 
-* **volatility** — a multiplier on the market factor, so every name inherits it
+* **volatility**: a multiplier on the market factor, so every name inherits it
   through its own beta rather than being scaled directly
-* **drift** — an annualised amount added to the market's return over the window
-* **correlation** — the market factor's share of total variance rises, which is
+* **drift**: an annualised amount added to the market's return over the window
+* **correlation**: the market factor's share of total variance rises, which is
   what makes names move together
 
 The third is the one worth stating twice. Raising volatility alone produces a
@@ -36,7 +36,7 @@ that shows up as an obviously artificial jump on any chart.
 ## The dates are real, the paths are not
 
 The windows below are the actual episodes. What happens inside them is still
-generated — this is not a replay of 2008, and nothing here reproduces any real
+generated: this is not a replay of 2008, and nothing here reproduces any real
 security's price. It is a synthetic market that has crises where the real one
 did, which is what makes a backtest over it exercise the code paths a calm
 market never reaches.
@@ -178,8 +178,8 @@ def intensity_series(dates: pd.DatetimeIndex,
     Returns:
         pd.DataFrame: Date-indexed, one column per regime, values in [0, 1].
         Regimes that fall entirely outside the panel are omitted, so a
-        five-year modern window carries no columns and behaves exactly as it
-        did before regimes existed.
+        window that touches none of them carries no columns and behaves as a
+        stationary market.
     """
     columns: dict[str, np.ndarray] = {}
 
@@ -211,7 +211,7 @@ def market_multipliers(dates: pd.DatetimeIndex,
     Overlapping regimes take the **most severe** value rather than compounding.
     The 2008 panic is the peak *of* the financial crisis, not a second shock on
     top of it, and multiplying the two gave a 5.5x volatility multiplier and a
-    combined -112% annual drift — a market that fell further in one quarter
+    combined -112% annual drift: a market that fell further in one quarter
     than it has in any real decade.
 
     Args:

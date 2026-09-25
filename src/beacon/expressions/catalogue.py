@@ -2,22 +2,20 @@
 """
 Every datapoint an expression can name, listed from the loaded store.
 
-`GET /data/features/catalogue` (BN-137) already publishes the feature half.
-This is the other half — market, reference and corporate-action fields — so a
-client builds **one** field picker rather than one per dataset, and so the
-picker and the expression API cannot disagree about what exists.
+`GET /data/features/catalogue` publishes the feature fields. This module lists
+the rest (market, reference and corporate-action fields) alongside them, so a
+client builds **one** field picker rather than one per dataset, and the picker
+and the expression API cannot disagree about what exists.
 
-## Read from the store, not from the declaration
-
-`namespaces.py` declares what is known in advance; a store may carry more. A
-catalogue built from the declaration would omit exactly the columns a user
-loaded themselves — the ones they are most likely to be looking for.
-
-The declaration is still used for two things the data cannot say: which market
-fields are *derived* (they are columns nowhere, being computed per request),
-and which action fields exist (`kind` and `status` are computed on the way out
-of the API rather than stored).
+Fields are read from the store, not only from the declarations in
+`namespaces.py`: a store may carry columns the declarations do not know about,
+and those are the columns a user loaded themselves. The declarations still
+decide two things the data cannot say: which market fields are *derived*
+(computed per request, so stored nowhere), and which action fields exist
+(`kind` and `status` are computed when the API returns an action, not stored).
 """
+# The feature catalogue endpoint arrived in BN-137; this module is the other
+# half of that picker.
 from typing import Any
 
 from ..data.fetcher import DataFetcher

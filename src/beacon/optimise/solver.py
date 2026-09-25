@@ -10,7 +10,7 @@ guarantees below hold for all of them.
 
 The first objective an index business needs is not mean-variance: it is "get me
 as close as possible to this target, subject to what I am allowed to hold".
-That is what this solves — minimise
+That is what this solves: minimise
 
     (w - b)ᵀ Σ (w - b)
 
@@ -21,9 +21,10 @@ distance between the two weight vectors, which is the same problem with every
 asset treated as equally risky and uncorrelated. The two share a code path
 because they are the same problem; only the metric differs.
 
-The objective is convex — Σ is positive semi-definite by construction — and
-every constraint but cardinality is linear, so a local optimum is the global
-one and SLSQP is an appropriate solver.
+The objective is convex (Σ is positive semi-definite by construction), and
+every constraint but cardinality is convex (linear, apart from the turnover
+budget), so a local optimum is the global one and SLSQP is an appropriate
+solver.
 
 ## Refusing rather than fudging
 
@@ -165,7 +166,7 @@ def solve_constrained(objective: Callable[[Vector], float],
 
     Args:
         objective: What to minimise, as a function of the weight vector.
-        gradient: Its derivative. Required rather than optional — finite
+        gradient: Its derivative. Required rather than optional: finite
             differences on a problem this small cost more accuracy than they
             save effort.
         rules: The constraints.
@@ -312,12 +313,16 @@ def covariance_matrix(risk_model: RiskModel | None,
 
 
 def weight_box(rules: Sequence[Constraint],
-         assets: Sequence[str]) -> tuple[Vector, Vector]:
+               assets: Sequence[str]) -> tuple[Vector, Vector]:
     """Intersect every position-bound constraint into one box.
 
-    Several bounds may cover the same asset — a blanket rule plus a tighter one
-    on a few names — and the answer must satisfy all of them, so the tightest
+    Several bounds may cover the same asset (a blanket rule plus a tighter one
+    on a few names), and the answer must satisfy all of them, so the tightest
     limit on each side wins.
+
+    Returns:
+        tuple: The lower and upper bound per asset, aligned to *assets*.
+        Unbounded sides are infinite.
     """
     lows = np.full(len(assets), -np.inf)
     highs = np.full(len(assets), np.inf)
@@ -537,8 +542,8 @@ def _reject_infeasible_restriction(rules: Sequence[Constraint],
         f"a holding limit of {limit} could not be met without breaking "
         f"{'; '.join(violated)}. Which names to keep is a combinatorial "
         f"problem, and the heuristic here keeps the largest positions of the "
-        f"unrestricted solution — it cannot see that a different subset of the "
-        f"same size would have satisfied everything.")
+        f"unrestricted solution, so it cannot find a different subset of the "
+        f"same size that would satisfy everything.")
 
 
 def _names_to_keep(weights: Vector,
@@ -655,7 +660,7 @@ def _reject_violations(slacks: Sequence[Slack],
         raise CalculationError(
             "Optimiser",
             f"no feasible portfolio was found: the best available point still "
-            f"violates {len(violated)} constraint(s) — {detail}.")
+            f"violates {len(violated)} constraint(s): {detail}.")
 
     if not outcome.success:
         raise CalculationError(

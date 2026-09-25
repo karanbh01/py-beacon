@@ -2,7 +2,7 @@
 """
 The static half of a synthetic universe: who the companies are.
 
-Everything here is decided once per run and does not vary by date — names,
+Everything here is decided once per run and does not vary by date: names,
 tickers, classification, and the per-name parameters the return process is
 driven by. Splitting it out from the time series keeps one question separate
 from the other: this module answers "what is in the universe", `returns` and
@@ -191,9 +191,9 @@ def build(count: int,
         dates: The panel's business days. When given, each name draws a listed
             life over them; when omitted every name is listed for the whole
             panel, which is what callers that only want the static fields get.
-        currency: Retained for callers that pass it. Ignored since BN-128:
-            a name's currency comes from its listing region, and a universe
-            forced into one currency is the case the FX paths never exercise.
+        currency: Not used. A name's currency comes from its listing
+            region, because a universe forced into one currency is the case
+            the FX paths never exercise. Kept for callers that pass it.
 
     Returns:
         pd.DataFrame: One row per name, indexed by identifier, carrying both
@@ -374,12 +374,12 @@ def reference_frame(universe: pd.DataFrame,
             that was there at the start gets one record valid from the start
             rather than pretending to a change it never had.
         profile: Optional profile columns from `profiles.build`, joined on
-            identifier. Absent leaves the record as it was before BN-148.
+            identifier. Absent leaves the profile columns out.
 
     Returns:
         pd.DataFrame: One row per name, carrying the listed life. `DATE_TO` is
         NaT for a name still listed at the end of the panel, which is what
-        `ReferenceData.get` reads as "still valid" — so point-in-time
+        `ReferenceData.get` reads as "still valid", so point-in-time
         resolution drops a delisted name automatically.
     """
     listed_from = (universe["listed_from"] if "listed_from" in universe

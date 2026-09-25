@@ -1,6 +1,6 @@
 # src/beacon/synthetic/dataset.py
 """
-Assembling a synthetic universe into the containers the rest of Beacon reads.
+Assembling a synthetic universe into the containers the rest of py-beacon reads.
 
 This is the layer that turns four panels into a `DataFetcher`, and the one
 place that knows the whole dataset is meant to be mutually consistent: the
@@ -12,9 +12,10 @@ exactly the dates the split actions record.
 
 They are deliberately different things and neither should grow into the other.
 
-`beacon.testing.dataset` is a tiny frozen fixture — five names, a few hundred
-days, price paths built from `+` and `*` alone so the numbers are bit-identical
-on every platform. Chart baselines and unit tests depend on those exact values,
+`beacon.testing.dataset` is a tiny frozen fixture: six names, three years of
+sessions, and price paths built from `+` and `*` alone so the numbers are
+bit-identical on every platform. Chart baselines and unit tests depend on those
+exact values,
 so it must never change.
 
 This module is a *generator*: hundreds of names, years of history, drawn from a
@@ -59,6 +60,11 @@ DEFAULT_RISK_FREE_RATE = 0.03
 DEFAULT_EQUITY_PREMIUM = 0.06
 
 
+# `delisting_rate` of zero reproduces the universe every dataset had before
+# BN-130. The shared `calendar` default is BN-186: until then generator and
+# index loop both said Monday to Friday, and a defect whose trigger was a
+# holiday was invisible to every test because they shared one wrong
+# assumption.
 @dataclass(frozen=True)
 class SyntheticConfig:
     """What to generate.
@@ -71,31 +77,34 @@ class SyntheticConfig:
             same dates produce the same dataset.
         risk_free_rate: Annualised, the base of the CAPM drift.
         equity_premium: Annualised excess return on a beta-one name.
-        currency: Reporting currency for every name.
+        currency: Not used: each name's currency comes from its listing
+            region (see `beacon.synthetic.regions`). Kept so existing callers
+            that pass it still work.
         delisting_rate: Annualised hazard of a name leaving the universe.
-            Zero gives the constant, survivorship-biased universe every
-            dataset had before BN-130.
+            Zero gives a constant, survivorship-biased universe.
         listing_rate: Annualised hazard of a name having joined partway
             through rather than at the start.
         features: Generate fundamental ratios and a little alternative data.
-            On by default and cheap -- about a tenth of the market panel --
+            On by default and cheap (about a tenth of the market panel),
             because a dataset with nothing to screen on cannot exercise a
             feature rule, and a store that silently lacks one is harder to
             diagnose than one that costs a few hundred thousand rows.
         calendar: The exchange MIC whose sessions the panel has bars on.
-            Defaults to the same `DEFAULT_CALENDAR` the store migration
-            writes, so generated data and an index that took the default agree
-            **by construction** rather than by coincidence (BN-186). Until
-            then both said Monday to Friday, and a defect whose trigger was a
-            holiday was invisible to every test because generator and loop
-            shared one wrong assumption.
+            Defaults to `DEFAULT_CALENDAR` (``"XNYS"``), the calendar an
+            older stored index without one is migrated to, so generated data
+            and an index on that calendar agree **by construction** rather
+            than by coincidence.
 
             One calendar for the whole dataset, including the names quoted in
             another currency: a universe whose venues genuinely disagree about
             sessions is a real question and not this one's. A name whose own
             exchange would have been shut still gets a bar, which is the
-            lesser of the two wrongs -- the alternative is a hole in the panel
+            lesser of the two wrongs: the alternative is a hole in the panel
             that every consumer would have to tell apart from missing data.
+
+    Raises:
+        ValueError: If `assets` is below 1, `end` is not after `start`, or
+            `calendar` is not a calendar this installation can use.
     """
     assets: int = DEFAULT_ASSETS
     start: str = DEFAULT_START
@@ -130,7 +139,7 @@ class SyntheticDataset:
         reference: Names, classification, exchange and currency.
         actions: Dividends and splits, matching the price path.
         universe: The per-name parameters behind the draw. Exposed because the
-            targets are what a statistical check should compare against — the
+            targets are what a statistical check should compare against: the
             realised figures are a sample from them, not the same thing.
         returns: The economic total returns the prices were built from. Not
             recoverable from `market` alone without undoing the dividends and
@@ -175,6 +184,9 @@ def generate(config: SyntheticConfig | None = None,
 
     Returns:
         SyntheticDataset: The panels and the parameters behind them.
+
+    Raises:
+        ValueError: If the calendar has no sessions in the window.
     """
     settings = config if config is not None else SyntheticConfig()
 
@@ -245,7 +257,7 @@ def generate(config: SyntheticConfig | None = None,
 def write(config: SyntheticConfig,
           path: Path,
           progress: Progress = _silent) -> Path:
-    """Generate a dataset and write it as a Beacon data store.
+    """Generate a dataset and write it as a data store.
 
     The store also keeps what an extension needs to carry it on later (see
     `beacon.synthetic.extend`).

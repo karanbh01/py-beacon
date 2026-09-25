@@ -15,7 +15,7 @@ run an example is friction with no upside.
 
 Everything here is generated from fixed constants and returns a fresh copy, so
 two callers always see identical frames and neither can disturb the other. See
-`dataset` for why the arithmetic avoids `exp` — the short version is that
+`dataset` for why the arithmetic avoids `exp`; the short version is that
 bit-identical output across operating systems is a requirement, not a bonus.
 
 Core-only: pandas and numpy, no optional dependency, because a test that needs

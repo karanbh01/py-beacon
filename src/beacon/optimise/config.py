@@ -2,28 +2,39 @@
 """
 The serialisable description of an optimisation.
 
-Optimised indices have to be cacheable, and BN-160's fingerprint machinery
-keys a calculation off catalogue-registered types whose constructor parameters
-can be read back off the instance and carried as JSON. Rules and weighting
-schemes already follow that convention; this module gives constraints the same
-round trip — an instance becomes a ``{type, params}`` payload, and the payload
-becomes an instance that solves identically.
+A constraint round-trips through a ``{type, params}`` payload: an instance
+becomes a payload of its registered class name and constructor parameter
+values, and the payload becomes an instance that solves identically. This is
+what lets an optimised index be cached, and it is the same shape the server
+uses for constraint rows.
 
-The payload shape is deliberately the one that already exists twice: the
-fingerprint machinery in `beacon.index.cache` hashes rules and schemes as
-``{type, params}``, and the server's ``ConstraintRow`` carries ``type`` and
-``params`` on the wire. A third shape would mean a translation layer, which is
-where meanings drift.
+Only constraint classes registered in the catalogue can be serialised. An
+unregistered class is refused, never guessed at.
 
-An unregistered constraint class is refused, never guessed at: a payload built
-from introspection of a class the catalogue does not know would be a key
-nothing else can verify, which is exactly the incomplete-key case the BN-160
-safety rule exists for.
-
-:class:`OptimisationConfig` is the object form of the same description — what
-an optimised run is asked to do, held together so `Backtest.run` (BN-167) can
-take one argument rather than a growing list of them.
+:class:`OptimisationConfig` is the object form of the same description: what
+an optimised run is asked to do, held together so `Backtest.run` can take one
+argument rather than a growing list of them.
 """
+# Design notes.
+#
+# Optimised indices have to be cacheable, and BN-160's fingerprint machinery
+# keys a calculation off catalogue-registered types whose constructor
+# parameters can be read back off the instance and carried as JSON. Rules and
+# weighting schemes already follow that convention; this module gives
+# constraints the same round trip.
+#
+# The payload shape is deliberately the one that already exists twice: the
+# fingerprint machinery in `beacon.index.cache` hashes rules and schemes as
+# ``{type, params}``, and the server's ``ConstraintRow`` carries ``type`` and
+# ``params`` on the wire. A third shape would mean a translation layer, which
+# is where meanings drift.
+#
+# An unregistered constraint class is refused because a payload built from
+# introspection of a class the catalogue does not know would be a key nothing
+# else can verify, which is exactly the incomplete-key case the BN-160 safety
+# rule exists for.
+#
+# OptimisationConfig arrived with BN-167 so Backtest.run could take it.
 import json
 import logging
 from collections.abc import Mapping, Sequence
@@ -53,9 +64,10 @@ class OptimisationConfig:
         constraints: What the answer must satisfy, as
             :class:`~beacon.optimise.constraints.Constraint` instances. Empty
             means the solver's own default of full investment alone.
-        risk_model: RESERVED — carried but unused at launch. The slot exists so
+        risk_model: Reserved: carried but unused. The slot exists so
             covariance-aware optimised runs can arrive without changing this
-            shape; nothing reads it yet, and passing one changes no result.
+            shape. Nothing reads it yet and passing one changes no result,
+            though an optimised index carrying one cannot be cached.
     """
     objective: str = MIN_TRACKING_ERROR
     constraints: Sequence[Constraint] = ()
@@ -66,8 +78,8 @@ def constraint_payload(constraint: Constraint) -> dict[str, Any]:
     """One constraint as its registered name plus parameter values.
 
     Parameter names come from the catalogue's constructor introspection, each
-    value read off the instance attribute of the same name — the convention
-    every registered type follows and the fingerprint machinery keys by.
+    value read off the instance attribute of the same name. Every registered
+    type follows that convention, and the cache fingerprint keys by it.
 
     Args:
         constraint: The instance to describe.
@@ -79,7 +91,7 @@ def constraint_payload(constraint: Constraint) -> dict[str, Any]:
     Raises:
         CalculationError: If the class is not registered under the CONSTRAINT
             kind, keeps no attribute for one of its constructor parameters, or
-            holds a value JSON cannot carry. Refused rather than guessed at —
+            holds a value JSON cannot carry. Refused rather than guessed at:
             a payload nothing can rebuild is worse than no payload.
     """
     cls = type(constraint)
@@ -100,7 +112,7 @@ def constraint_from_payload(payload: Mapping[str, Any]) -> Constraint:
     """Rebuild a constraint from a ``{type, params}`` payload.
 
     The inverse of :func:`constraint_payload`, and the builder the server's
-    constraint rows go through — one code path from a stored document to the
+    constraint rows go through: one code path from a stored document to the
     object the solver receives.
 
     Args:
@@ -131,7 +143,7 @@ def constraint_from_payload(payload: Mapping[str, Any]) -> Constraint:
         raise CalculationError(
             "Optimiser",
             f"'{name}' is registered under the CONSTRAINT kind but is not a "
-            f"Constraint — the registration itself is wrong.")
+            f"Constraint, so the registration itself is wrong.")
 
     return built
 

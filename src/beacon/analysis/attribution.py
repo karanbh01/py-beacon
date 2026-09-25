@@ -8,14 +8,14 @@ Within a single period the decomposition is exact:
 
     R_t = Σ_i w_{i,t-1} × r_{i,t}
 
-where ``w`` are the index's own drifting weights. Since BN-103 made the
-weighting scheme drive the level, this holds to better than 1e-12 for every
-scheme, on rebalance days as well as ordinary ones.
+where ``w`` are the index's own drifting weights. For a Beacon index this
+holds to better than 1e-12 for every weighting scheme, on rebalance days as
+well as ordinary ones.
 
 Over multiple periods it does **not** carry over. Returns compound while
 contributions add, so the arithmetic sum of daily contributions falls short of
-the compounded total — by 1.02 percentage points over a 130-day window on a
-modest fixture, which is far too large to write off as a residual.
+the compounded total: by about one percentage point over a 130-day window in a
+modest example, which is far too large to write off as a residual.
 
 The fix is Carino linking. Scale each period's contributions by ``k_t / K``
 where ``k_t = ln(1+R_t)/R_t`` and ``K = ln(1+R)/R`` for the total return ``R``.
@@ -29,11 +29,14 @@ epsilon; a residual that is not tiny means an assumption has broken.
 ## What the drags are, and what they are not
 
 Cap drag and cost drag are **comparisons**, not terms in the identity above.
-Each is the difference between two returns — the index as built versus a
-counterfactual — so adding them to a decomposition of a single return would be
+Each is the difference between two returns (the index as built versus a
+counterfactual), so adding them to a decomposition of a single return would be
 mixing two different questions. They are reported alongside, each named for the
 counterfactual it implies.
 """
+# The single-period identity has held exactly for every scheme since BN-103
+# made the weighting scheme drive the level. The 1.02 percentage point
+# shortfall quoted above was measured over a 130-day window on a test fixture.
 import logging
 import math
 from dataclasses import dataclass, field
@@ -58,7 +61,7 @@ class Contribution:
     Attributes:
         asset_id: The constituent.
         contribution: Its linked contribution. These sum to the total return.
-        average_weight: Mean weight across the window, for context — a large
+        average_weight: Mean weight across the window, for context: a large
             contribution from a small average weight is a different story from
             the same contribution from a large one.
         total_return: The constituent's own return over the window.
@@ -85,8 +88,9 @@ class AttributionResult:
             never folded into a constituent.
         cap_drag: Capped return minus uncapped return, when the index applies
             a cap. Negative when capping cost the index. None when uncapped.
-        cost_drag: Portfolio return minus its gross return, when a backtest is
-            supplied. Negative by construction — costs only subtract.
+        cost_drag: Portfolio return minus its gross return, when one was
+            passed to `attribute` (see `cost_drag`). Negative, since costs
+            only subtract. None otherwise.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -324,7 +328,7 @@ def cost_drag(total_costs: float,
     drag. This is the **direct** effect only: it excludes the compounding of
     the capital that was spent rather than invested, which is second-order but
     not zero over a long window. Reporting the direct figure keeps the number
-    explainable — it is exactly the money that left the portfolio — and a
+    explainable (it is exactly the money that left the portfolio), and a
     caller wanting the full effect can difference a zero-cost run instead.
 
     Args:
@@ -388,7 +392,10 @@ def _path_return(snapshots: dict[pd.Timestamp, dict[str, float]],
 
 
 class Attribution:
-    """Kept for the original portfolio-versus-benchmark helper."""
+    """Holder of the portfolio-versus-benchmark total return comparison.
+
+    For per-constituent attribution use :func:`attribute`.
+    """
 
     def simple_performance_attribution(self,
                                        portfolio_returns: pd.Series,
@@ -399,9 +406,12 @@ class Attribution:
             portfolio_returns: Portfolio periodic returns.
             benchmark_returns: Benchmark periodic returns, same length.
 
+        Each total return compounds its own periodic returns,
+        ``prod(1 + r) - 1``; the two series are not aligned by date.
+
         Returns:
             dict: total_portfolio_return, total_benchmark_return and
-            active_return.
+            active_return (portfolio minus benchmark).
 
         Raises:
             TypeError: If either input is not a Series.
@@ -428,6 +438,9 @@ class Attribution:
 
 def simple_performance_attribution(portfolio_returns: pd.Series,
                                    benchmark_returns: pd.Series) -> dict[str, float]:
-    """Total return difference between a portfolio and a benchmark."""
+    """Total return difference between a portfolio and a benchmark.
+
+    Same as :meth:`Attribution.simple_performance_attribution`.
+    """
     return Attribution().simple_performance_attribution(portfolio_returns,
                                                         benchmark_returns)

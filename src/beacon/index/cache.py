@@ -3,15 +3,15 @@
 A persistent, content-addressed cache of calculated :class:`IndexResult`s.
 
 A result is stored under a fingerprint of the four things the calculation is a
-pure function of — definition, the store behind the fetcher, window, library
-version — so there is deliberately NO invalidation logic: changed inputs never
-match, and stale entries age out by size-capped pruning.
+pure function of (the definition, the store behind the fetcher, the window and
+the library version), so there is deliberately no invalidation logic: changed
+inputs never match, and stale entries age out by size-capped pruning.
 
 The safety rule: **cache only what can be keyed completely; anything else
 calculates fresh, every time.** An incomplete key would mean silently stale
 numbers, so anything the key cannot capture (an unregistered rule class, a
 parameter that does not serialise, a fetcher with no on-disk store behind it)
-makes :func:`fingerprint` return None, and no key means no cache — at the cost
+makes :func:`fingerprint` return None, and no key means no cache, at the cost
 of a recalculation the caller would have paid anyway.
 :func:`explain_uncacheable` answers *why*.
 
@@ -19,9 +19,10 @@ Storage is one directory per fingerprint: panels in the data store's own
 reproducible gzipped-CSV format, plus a ``manifest.json`` keeping the key
 parts in the clear so "why didn't this hit?" is answerable by looking. Entries
 are staged and renamed into place; on read, anything missing or unparseable is
-a miss and the corrupt entry is removed — the cache never raises into a
+a miss and the corrupt entry is removed, so the cache never raises into a
 calculation. There is no cache schema version: the library version is part of
-every key, so a format change rides on the version bump that ships it.
+every key, so a format change rides on the version bump that ships it. The
+cache is pruned to 512 MB (least recently used first) on every write.
 """
 import hashlib
 import json
@@ -115,8 +116,11 @@ def key_parts(definition: AnyIndexDefinition,
               fetcher: DataFetcher,
               start_date: str | None,
               end_date: str) -> dict[str, Any] | None:
-    """The four key parts in the clear — what :func:`fingerprint` hashes and
-    what an entry's manifest records — or None when uncacheable."""
+    """The four key parts in the clear, or None when uncacheable.
+
+    These are what :func:`fingerprint` hashes and what an entry's manifest
+    records.
+    """
     parts, _ = _key_parts(definition, fetcher, start_date, end_date)
 
     return parts
@@ -430,7 +434,7 @@ class IndexResultCache:
     """Filesystem cache of IndexResults, keyed by :func:`fingerprint`.
 
     Reading never raises: a corrupt or half-present entry is a miss, removed
-    on sight. Writing never raises either — a cache write is a convenience,
+    on sight. Writing never raises either: a cache write is a convenience,
     and failing one must not fail the calculation that produced the result.
     """
 
@@ -490,10 +494,12 @@ class IndexResultCache:
             parts: dict[str, Any] | None = None) -> None:
         """Store a result under its fingerprint, then prune to the size cap.
 
-        The caller owns the key/result pairing — this module cannot re-derive
+        The caller owns the key/result pairing: this module cannot re-derive
         the inputs from the result. *parts* is the :func:`key_parts` payload,
         recorded in the entry's manifest in the clear so a stored entry can
         say what it was keyed on; optional, the fingerprint alone serves hits.
+        An existing entry under *key* is left as it is, and an invalid key or
+        a failed write is logged and skipped rather than raised.
         """
         if not _KEY_FORMAT.fullmatch(key):
             logger.debug("Refusing to cache under invalid key %r.", key)

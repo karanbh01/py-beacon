@@ -8,8 +8,8 @@ always fall back to `GET /jobs/{id}`, and one that cannot hold a socket open
 loses nothing but immediacy.
 
 There is no endpoint here that *creates* a job. Jobs are submitted by the
-endpoints that own the work — the backtest endpoint, and later the optimiser —
-so a bare "start a job" route would be dead weight and an easy way to spawn
+endpoints that own the work (backtests, optimisation, risk, reports, data
+loads and refreshes), so a bare "start a job" route would be dead weight and an easy way to spawn
 work with no purpose.
 """
 import asyncio

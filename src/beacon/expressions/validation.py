@@ -3,35 +3,41 @@
 Checking an expression against the data it will run on.
 
 `data.reference.sectr` must not silently select nothing. A screen that quietly
-matches no instruments produces an empty index and no explanation, which is
-the same failure the universe member validation exists to prevent (BN-132):
-the result looks like a legitimate answer, so nobody investigates.
+matches no instruments produces an empty index and no explanation, the same
+failure universe member validation exists to prevent: the result looks like a
+legitimate answer, so nobody investigates.
 
 ## Findings, not exceptions
 
 Validation returns a list rather than raising on the first problem, in the
-shape the pipeline and universe validation already use. A user fixing a screen
-wants every mistake at once, and a client needs to point at the offending rule
-rather than show a message with no anchor.
+same shape as pipeline and universe validation. A user fixing a screen wants
+every mistake at once, and a client needs to point at the offending rule
+rather than show a message with no anchor. Each `Finding` carries a stable
+`code` (`UNKNOWN_FIELD`, `UNKNOWN_FEATURE_TYPE` or `UNKNOWN_NAMESPACE`) so a
+client can branch on the kind of problem.
 
 An expression with no findings is valid. `errors_in` is the same list filtered
-to what actually blocks.
+to what actually blocks, and `is_valid` is true when that list is empty.
 
-## "Did you mean" is the difference between useful and frustrating
+## "Did you mean"
 
-`sectr` is one edit from `sector`. A validator that knows this and does not say
-so has chosen to be unhelpful — the information is already in hand, and the
-user is looking at a screen that is *nearly* right.
+`sectr` is one edit from `sector`, so the finding says so: an unknown name
+comes with up to three close matches from what is loaded, or, when nothing is
+close, the first few names that are available.
 
 ## The loaded data is the authority
 
 Not the declaration in `namespaces`, and not a generated stub. A store may
 carry reference columns nobody declared, so an undeclared name is checked
 against what is actually loaded before it is called wrong. And a stub kept
-from an older store autocompletes a field the data no longer has — which is
-safe precisely because validation runs against the data and produces a finding
-rather than a wrong selection.
+from an older store autocompletes a field the data no longer has, which is
+safe because validation runs against the data and produces a finding rather
+than a wrong selection. Two exceptions: derived market fields (`adv_3m`,
+`market_cap`, `free_float_market_cap`) are always accepted because they are
+computed per request, and action fields are checked against the declared list
+because `kind` and `status` are computed rather than stored.
 """
+# Universe member validation, which this mirrors, is BN-132.
 import difflib
 import logging
 from dataclasses import dataclass

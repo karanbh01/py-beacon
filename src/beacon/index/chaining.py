@@ -5,25 +5,24 @@ Weight-rebalanced level chaining, over identifiers.
 The arithmetic that turns a schedule of target weights into a daily level
 path: units are fixed between rebalances so weights drift with relative
 performance, each rebalance rebuilds the units at the value the old holdings
-reached — which is what keeps the level continuous across it — and prices are
-converted into the index currency with as-of FX rates, exactly as the
-calculator and the engine convert theirs. The divisor is 1.0 throughout,
-because the aggregate this represents *is* its own portfolio value and there
-is no market-value scale for a divisor to absorb.
+reached (which keeps the level continuous across it), and prices are converted
+into the index currency with as-of FX rates, exactly as the calculator and the
+engine convert theirs. The divisor is 1.0 from the first rebalance on, because
+the aggregate this represents *is* its own portfolio value and there is no
+market-value scale for a divisor to absorb.
 
-Split out of `derived.py` (BN-171), which had grown past the file-size
-convention with this as its obvious seam. Nothing here knows what a derivation
-is: it takes an index's identity, a parent calculation and a solved schedule,
-and it would serve any other caller with weights to chain. That is why the
-signature carries `index_id`, `base_value` and `currency` as plain arguments
-rather than the definition they used to be read from — the three attributes
-were the whole of the dependency.
-
-This is a deliberate reimplementation of `IndexCalculator`'s arithmetic rather
-than a reuse of its mixins, which are built around Asset objects and per-day
-price lookups. The economics are the same, and a test proves it by
-recomputing a whole path independently from raw prices.
+Nothing here knows what a derived index is: `chain_levels` takes an index's
+identity, a parent calculation and a solved schedule, and serves any caller
+with weights to chain. It reimplements `IndexCalculator`'s arithmetic over
+identifiers rather than reusing its mixins, which are built around Asset
+objects and per-day price lookups; the economics are the same.
 """
+# Split out of `derived.py` in BN-171, which had grown past the file-size
+# convention with this as its obvious seam. That is why the signature carries
+# `index_id`, `base_value` and `currency` as plain arguments rather than the
+# definition they used to be read from: the three attributes were the whole of
+# the dependency. A test recomputes a whole path independently from raw prices
+# to prove the reimplementation matches the calculator.
 import logging
 
 import pandas as pd
@@ -46,13 +45,34 @@ def chain_levels(index_id: str,
 
     The weight-rebalanced arithmetic the calculator applies, restated over
     identifiers: units are fixed between rebalances, each rebalance rebuilds
-    them at the value the old holdings reached (which is what keeps the level
-    continuous), and the path starts at the definition's base value. The
-    divisor is 1.0 throughout — the aggregate this index represents is its own
-    portfolio value, so there is no market-value scale for a divisor to absorb.
+    them at the value the old holdings reached (which keeps the level
+    continuous), and the path starts at *base_value* on the first rebalance.
+    The divisor is 1.0 from then on (0.0 on any earlier day): the aggregate
+    this index represents is its own portfolio value, so there is no
+    market-value scale for a divisor to absorb.
 
     A day on which the holdings cannot be valued at all carries the level
     forward and records no weights, matching the calculator's behaviour.
+
+    Args:
+        index_id: Identifier of the resulting index.
+        base_value: The level on the first rebalance.
+        currency: The index currency; prices are converted into it.
+        parent: The calculation whose days the path follows.
+        solved: Target weights by rebalance date.
+        data_provider: Source of prices, reference data and FX rates.
+        price_column: The market-data column holdings are valued with.
+
+    Returns:
+        IndexResult: Levels, divisors, rebalance snapshots and the daily
+        weights panel. It carries no cap reports or announcement dates.
+
+    Raises:
+        CalculationError: If a name the schedule allocates to (at a non-zero
+            weight) has no prices in the window, is quoted in a currency with
+            no rate into the index currency, or has no usable price on a
+            rebalance day. A name carried at a weight of zero is never held,
+            so missing data for it is only logged.
     """
     days = parent.index_levels.index
     unit_values = _unit_value_panel(currency, solved, days,
@@ -206,11 +226,10 @@ def _converted(prices: pd.Series,
                 details=(f"no {quoted_in}/{index_currency} rate over "
                          f"{days[0]:%Y-%m-%d}..{days[-1]:%Y-%m-%d}, but the "
                          f"schedule allocates to {asset}, which is quoted in "
-                         f"{quoted_in}. Leaving it unvaluable would hold zero "
-                         f"units of it and publish a level over the names "
-                         f"that remain — a different index rather than a "
-                         f"mis-valued one, and the same refusal the "
-                         f"calculated path makes."))
+                         f"{quoted_in}. Holding zero units of it would "
+                         f"publish a level over the names that remain, which "
+                         f"is a different index. Load the pair, or define the "
+                         f"index in {quoted_in}."))
 
         return pd.Series(float("nan"), index=days)
 
@@ -366,9 +385,8 @@ def _units_of(asset: str,
             details=(f"{asset} carries a target weight of {weight:.6g} on "
                      f"{day:%Y-%m-%d} but has no usable unit value "
                      f"({value!r}), so there is no unit count that realises "
-                     f"that weight. Holding zero units of it — the old answer "
-                     f"— leaves the chained index short by its whole weight "
-                     f"and publishes the shortfall as the index's own level."))
+                     f"that weight. Holding zero units would leave the "
+                     f"chained index short by that whole weight."))
 
     if float(value) == 0.0:
         logger.warning("%s is priced at zero on %s; it holds zero units, "

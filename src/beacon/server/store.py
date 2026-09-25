@@ -2,8 +2,8 @@
 """
 Versioned JSON document storage on the platform's app-data directory.
 
-The server is a local process with no database. User-authored artefacts —
-watchlists now, index definitions and report templates later — are small JSON
+The server is a local process with no database. User-authored artefacts,
+such as watchlists, index definitions and constraint sets, are small JSON
 documents that must survive a restart and, more importantly, must survive a
 schema change without the user losing them. Every document therefore carries a
 ``schema_version``, and reads run it forward through the migration chain before

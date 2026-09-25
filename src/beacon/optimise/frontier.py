@@ -10,11 +10,11 @@ the curve through them is the boundary of what is achievable.
 Two points on that curve are singled out because they answer questions people
 actually ask:
 
-* the **minimum-variance** portfolio — the least risky feasible portfolio,
+* the **minimum-variance** portfolio: the least risky feasible portfolio,
   ignoring return entirely. It is the frontier's left-hand end, and the reason
   the grid starts there: portfolios with lower return than this exist, but each
   is beaten by one on the frontier with the same risk and more return.
-* the **tangency** portfolio — the highest Sharpe ratio available, the point
+* the **tangency** portfolio: the highest Sharpe ratio available, the point
   where a line from the risk-free rate first touches the frontier.
 
 ## What constraints do to this
@@ -24,9 +24,9 @@ closed form. Every real mandate has more than that, and once position bounds
 and group limits are in play there is no closed form and the curve has to be
 traced numerically. Two consequences worth stating plainly:
 
-The frontier can be **shorter** than the unconstrained one at both ends — a cap
+The frontier can be **shorter** than the unconstrained one at both ends (a cap
 limits how much can be put into the highest-returning asset, so the right-hand
-end stops early — and it lies **below** it everywhere in between, because every
+end stops early), and it lies **below** it everywhere in between, because every
 constraint removes portfolios and can only make the best remaining one worse.
 
 Maximising the Sharpe ratio is not a convex problem in general. The solve is
@@ -77,8 +77,8 @@ class FrontierPoint:
         weights: The portfolio, indexed by asset id.
         volatility: Annualised standard deviation, in the risk model's units.
         expected_return: Portfolio expected return, or None when no expected
-            returns were supplied — a return cannot be reported if it was never
-            given.
+            returns were supplied, since a return cannot be reported if it was
+            never given.
         sharpe_ratio: Excess return over volatility, or None when the expected
             return is unknown or the volatility is negligible.
         binding: Labels of the constraints this point sits on. The interesting
@@ -126,8 +126,8 @@ class EfficientFrontier:
                      tolerance: float = 1e-7) -> bool:
         """Whether risk rises with return across the grid.
 
-        The defining property of a frontier. It should always hold — insisting
-        on more return can only cost risk — so a False here means a point
+        The defining property of a frontier. It should always hold (insisting
+        on more return can only cost risk), so a False here means a point
         failed to solve to optimality rather than that the curve is unusual.
         """
         return all(later >= earlier - tolerance
@@ -198,7 +198,7 @@ def maximum_return_portfolio(risk_model: RiskModel,
     """The highest-returning feasible portfolio.
 
     The frontier's right-hand end. Maximising a linear objective often has many
-    optimal solutions — any mix of the top assets, if they tie — so the return
+    optimal solutions (any mix of the top assets, if they tie), so the return
     is found first and the variance minimised subject to achieving it, which
     picks the sensible one out of the tie.
 
@@ -242,7 +242,7 @@ def efficient_frontier(risk_model: RiskModel,
     Args:
         risk_model: The covariance. Its asset order defines the universe.
         expected_returns: Expected return per asset, in the same units and over
-            the same horizon as the covariance — annualised, if it is.
+            the same horizon as the covariance: annualised, if it is.
         points: How many portfolios to solve for, minimum 2.
         constraints: What every point must satisfy. None means long-only and
             fully invested.

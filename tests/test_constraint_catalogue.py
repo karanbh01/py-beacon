@@ -193,4 +193,4 @@ class TestOptimisationConfig:
         config = OptimisationConfig(risk_model=None)
 
         assert config.risk_model is None
-        assert "RESERVED" in (OptimisationConfig.__doc__ or "")
+        assert "reserved" in (OptimisationConfig.__doc__ or "").lower()

@@ -5,28 +5,32 @@ Turning an expression into an answer for one instrument on one date.
 An expression is a description; resolving it needs an instrument and a date,
 and in an index that date is the **rebalance**.
 
-## Point-in-time, or the whole features layer was pointless
+## Point in time
 
 A screen on `data.features.fundamentals.revenue` at a rebalance on 1 April
 must see what was published by 1 April. Q1 revenue announced in mid-May is
 invisible on that date, however completely the quarter had ended.
 
 Every feature read here goes through `DataFetcher.fetch_feature`, which is the
-accessor that enforces this (BN-135). Reading the table directly would put
-look-ahead straight back in, and the resulting backtest would look *better*
-and be wrong — which is the failure nobody catches, because a better number is
-not a symptom anybody investigates.
+accessor that enforces this. Reading the table directly would put look-ahead
+back in, and the resulting backtest would look *better* and be wrong: the
+failure nobody catches, because a better number is not a symptom anybody
+investigates.
 
-Market and reference data are read as-of the same date for the same reason.
+Market and reference data are read as of the same date for the same reason. A
+market column takes its last value on or before the date (looking back at most
+10 days), so a rebalance on a day the instrument did not trade still sees its
+latest value.
 
 ## Missing is not zero
 
-A name with no value for a field yields `None`, and the rule above decides
-what that means. This is deliberately distinct from a value that is
+A name with no value for a field yields `None`, and `on_missing` decides what
+the comparison answers. This is deliberately distinct from a value that is
 legitimately zero: zero fails a `> 0` test honestly, where missing has nothing
 to compare at all. Collapsing the two would let a screen for "revenue above a
 billion" quietly admit every company the dataset has never heard of.
 """
+# Point-in-time feature reads through `fetch_feature` are BN-135.
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -103,7 +107,7 @@ def resolve(expression: Expression,
     Args:
         expression: The tree to evaluate.
         identifier: The instrument.
-        date: The date to stand on — a rebalance date, in an index.
+        date: The date to stand on (in an index, a rebalance date).
         fetcher: The data.
         on_missing: What a comparison answers when the field has no value.
         max_age_days: How stale a feature may be and still count.

@@ -16,10 +16,10 @@ test can depend on it. This CLI defaults to **6,000 names over the ten years
 ending today**, because its output is the dataset an application is
 demonstrated on: 512 names is visibly a toy in a universe pane built for
 thousands, and a dataset that stopped eighteen months ago shows up as stale in
-every freshness indicator in the client — a true statement about the data and
+every freshness indicator in the client: a true statement about the data and
 a misleading one about the application.
 
-Pass both ``--start`` and ``--end`` when reproducibility matters — the seed
+Pass both ``--start`` and ``--end`` when reproducibility matters: the seed
 fixes the draw, not the calendar.
 
 ## Extending a store
@@ -31,7 +31,7 @@ every day it already holds. See `beacon.synthetic.extend`.
 
 ## The two expansion flags
 
-``--extended-universe`` doubles the universe to 10,000 names.
+``--extended-universe`` raises the universe to 10,000 names.
 ``--long-history`` reaches back past every crisis the generator models, rather
 than the ten years the default covers.
 

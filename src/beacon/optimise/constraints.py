@@ -2,13 +2,13 @@
 """
 Constraints an optimisation must respect.
 
-Each class maps to one row a user adds in a constraint editor — position
-bounds, sector bounds, a turnover budget, a holding count, full investment — so
+Each class maps to one row a user adds in a constraint editor (position
+bounds, sector bounds, a turnover budget, a holding count, full investment), so
 the client can build a problem without translating between two vocabularies.
 
 Every constraint states itself once, as :class:`Condition` objects in scipy's
 own convention: an equality holds when its function is zero, an inequality when
-its function is non-negative. That single statement is then used three ways —
+its function is non-negative. That single statement is then used three ways:
 it is handed to the solver, it decides which constraints came out binding, and
 it verifies the returned weights actually satisfy what was asked. The three can
 therefore never drift apart, which is the point: the verification pass exists
@@ -97,8 +97,8 @@ class Slack:
             itself, so zero means the solution sits exactly on the boundary and
             negative means it has crossed. For an equality it is the negated
             absolute residual, which makes an exactly-satisfied equality read
-            as zero slack — correctly, since an equality is always binding.
-        unit: What `slack` is measured in — :data:`FRACTION` or :data:`COUNT`,
+            as zero slack, correctly, since an equality is always binding.
+        unit: What `slack` is measured in, :data:`FRACTION` or :data:`COUNT`,
             copied off the constraint that produced it. Carried because a
             number whose unit is only knowable from the constraint's class name
             is a number no consumer can format.
@@ -122,13 +122,13 @@ class Slack:
 class Constraint(ABC):
     """Something an optimal weight vector must satisfy.
 
-    Subclasses state their rules as conditions, and everything else — solving,
-    binding detection, verification — is derived from those.
+    Subclasses state their rules as conditions, and everything else (solving,
+    binding detection, verification) is derived from those.
 
     Attributes:
         UNIT: What this constraint's slack is measured in. :data:`FRACTION` for
-            everything expressed as a share of something — weights, turnover,
-            an expected return — which is every constraint here but one, so it
+            everything expressed as a share of something (weights, turnover,
+            an expected return), which is every constraint here but one, so it
             is the default a new subclass inherits. Override it when the
             quantity is not a fraction; :class:`Cardinality` counts names.
     """
@@ -152,8 +152,8 @@ class Constraint(ABC):
         """The subset of the conditions that should go to the solver.
 
         Everything by default. A constraint overrides this to nothing when it
-        reaches the solver some other way — as a box, or by restricting the
-        problem — while still reporting its conditions for verification.
+        reaches the solver some other way (as a box, or by restricting the
+        problem) while still reporting its conditions for verification.
         """
         return self.conditions(assets)
 
@@ -193,10 +193,12 @@ class Constraint(ABC):
 
         Separate from feasibility: this catches a constraint that is malformed
         or refers to names that are not there, which is a caller mistake rather
-        than an over-tight problem. Deliberately concrete and empty rather than
-        abstract — most constraints have nothing to check, and forcing them all
-        to write an empty override would hide the two that do.
+        than an over-tight problem. It does nothing by default, and a subclass
+        overrides it only when it has something to check.
         """
+        # Deliberately concrete and empty rather than abstract: most
+        # constraints have nothing to check, and forcing them all to write an
+        # empty override would hide the few that do.
 
 
 def _slack_of(condition: Condition,
@@ -260,7 +262,7 @@ class PositionBounds(Constraint):
             short positions, which is the usual index-tracking case.
         maximum: Largest weight any covered asset may take.
         assets: Names this applies to, or None for every name. Several of these
-            compose — a blanket rule plus a tighter one on a few names — and
+            compose (a blanket rule plus a tighter one on a few names), and
             the tightest limit on each name wins.
     """
 
@@ -282,7 +284,7 @@ class PositionBounds(Constraint):
 
         Unlike a group, a position bound names one asset explicitly, so a name
         that is not there is a typo rather than a broader definition being
-        reused — and silently dropping it would return an answer that ignored
+        reused, and silently dropping it would return an answer that ignored
         a limit the caller asked for.
         """
         if self.assets is None:
@@ -321,7 +323,7 @@ class PositionBounds(Constraint):
                    assets: Sequence[str]) -> list[Condition]:
         """The same box, written as inequalities.
 
-        Not given to the solver — :meth:`bounds` covers that — but used to
+        Not given to the solver (:meth:`bounds` covers that), but used to
         report which positions came out at a limit.
         """
         conditions = []
@@ -368,7 +370,7 @@ def _cap_condition(position: int,
 class GroupBounds(Constraint):
     """Limits on the combined weight of a set of names.
 
-    A sector, a country, a liquidity bucket — anything the client groups by.
+    A sector, a country, a liquidity bucket: anything the client groups by.
 
     Attributes:
         name: What the group is, used in the binding report.
@@ -398,7 +400,7 @@ class GroupBounds(Constraint):
         Members outside the universe are dropped rather than rejected: a sector
         map is defined over a whole market and is meant to be reused across
         indices, so naming companies this index does not hold is normal. A
-        group that matches *nothing*, though, is a mistake — it would silently
+        group that matches *nothing*, though, is a mistake: it would silently
         constrain an empty sum, which is always satisfied.
         """
         present = _positions(assets, self.members)
@@ -478,7 +480,7 @@ class TurnoverBudget(Constraint):
 
         The absolute value has a kink wherever an asset's weight equals its
         current weight, so this function is not differentiable everywhere and
-        the gradient below is a subgradient — the sign vector, which is the
+        the gradient used is a subgradient: the sign vector, which is the
         true derivative away from those kinks and an arbitrary choice of one at
         them. SLSQP assumes smoothness and can in principle stall on a solution
         that sits exactly on many kinks at once. In practice it converges, and
@@ -555,7 +557,7 @@ class ExpectedReturnTarget(Constraint):
 class Cardinality(Constraint):
     """A limit on how many names may be held.
 
-    Unlike every other constraint here this one is not convex — it counts
+    Unlike every other constraint here this one is not convex: it counts
     non-zero positions, and no continuous solver can express that. It is
     honoured by a two-stage heuristic (see
     :func:`beacon.optimise.solver.minimise_tracking_error`): solve, keep the

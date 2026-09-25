@@ -9,14 +9,14 @@ exposures panes read it rather than re-solving.
 
 ## Where the inputs come from
 
-* **Target weights** — the index's latest completed run, via its rebalance
+* **Target weights**: the index's latest completed run, via its rebalance
   snapshots. Optimising against an index nobody has calculated is not a thing
   that can be done, so it is a 404 rather than a silent default.
-* **Risk model** — estimated from the constituents' own price history over the
+* **Risk model**: estimated from the constituents' own price history over the
   run's window. Shrunk toward constant correlation, because a covariance
   estimated on a few hundred observations across a similar number of names is
   badly conditioned and an optimiser inverts it.
-* **Expected returns** — the historical mean, annualised, and this is a
+* **Expected returns**: the historical mean, annualised, and this is a
   modelling choice worth stating plainly: **historical mean returns are a poor
   forecast**. They are used because they are the only return estimate derivable
   from the data the server holds, and because a frontier has to be drawn
@@ -29,9 +29,9 @@ Exposures need loadings, and there is no fundamentals data (that is the
 features layer, still to be designed). So the factors here are the ones that
 *are* derivable from price and share count:
 
-* **size** — log market capitalisation
-* **momentum** — trailing return, excluding the most recent month
-* **volatility** — trailing standard deviation of returns
+* **size**: log market capitalisation
+* **momentum**: trailing return, excluding the most recent month
+* **volatility**: trailing standard deviation of returns
 
 Value and quality are absent rather than approximated. A momentum factor built
 from prices is the real thing; a value factor faked without book values would

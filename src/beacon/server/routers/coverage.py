@@ -3,15 +3,16 @@
 Data-coverage reporting and the sync job.
 
 Coverage reports whether each dataset is loaded, how many identifiers it holds,
-the span of dates it covers, and — since BN-99 — when it was last refreshed. A
-null age means the dataset is not loaded at all, which is a different statement
-from "loaded and never refreshed"; see
-`docs/decisions/0002-caching-and-data-freshness.md`.
+the span of dates it covers, and when it was last refreshed. A null age means
+the dataset is not loaded at all, which is a different statement from "loaded
+and never refreshed"; see `decisions/0002-caching-and-data-freshness.md`.
 
-`POST /{dataset}/sync` is deprecated (BN-240). It downloaded from Yahoo
-Finance into memory; now it refreshes the active store from its own source,
-through `POST /data/stores/{store_id}/refresh`.
+`POST /{dataset}/sync` is deprecated. It refreshes the active store from its
+own source, the same as `POST /data/stores/{store_id}/refresh`.
 """
+# Freshness joined the report in BN-99. BN-240 deprecated `/sync`: it used to
+# download from Yahoo Finance into memory, and now delegates to the store
+# refresh.
 import logging
 from typing import Any
 
@@ -192,8 +193,8 @@ def _fx_coverage(fetcher: DataFetcher | None) -> DatasetCoverage:
 
     A dataset of its own in the report, though the rows live in the market
     frame. "Do we hold exchange rates" has its own answer, and a client
-    deciding whether to offer an unhedged-versus-hedged comparison needs it —
-    a market row count cannot say.
+    deciding whether to offer an unhedged-versus-hedged comparison needs it,
+    and a market row count cannot say.
 
     The pairs stay counted inside `market` as well, because they *are* market
     rows and a client summing the identifier counts would otherwise be told
@@ -283,9 +284,10 @@ def build_coverage_router() -> APIRouter:
 
         Kept so existing clients work. It refreshes the whole active store
         from its own source, whichever dataset is named; the body's fields
-        are ignored. It no longer downloads from Yahoo Finance unless the
-        store is set to refresh from it.
+        are ignored. It downloads from Yahoo Finance only when the store is
+        set to refresh from it.
         """
+        # Until BN-240 this downloaded from Yahoo Finance into memory.
         if dataset not in DATASETS:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

@@ -28,7 +28,7 @@ from beacon.index.calculation.selection import (
     STALENESS_RULE_NAME,
 )
 from beacon.index.constructor import IndexDefinition
-from beacon.index.methodology import EqualWeighted
+from beacon.index.methodology import EqualWeighted, MarketCapRule
 from beacon.server import ServerConfig, create_app
 from beacon.testing import index_result_from_weights
 
@@ -66,13 +66,13 @@ def build_fetcher(threshold: int | None = None,
                        max_price_staleness_days=threshold)
 
 
-def definition() -> IndexDefinition:
+def definition(rules: list | None = None) -> IndexDefinition:
     return IndexDefinition(index_id="S",
                            index_name="Staleness",
                            base_date=START,
                            base_value=1000.0,
                            currency="USD",
-                           eligibility_rules=[],
+                           eligibility_rules=rules or [],
                            weighting_scheme=EqualWeighted(),
                            rebalancing_frequency="MONTHLY",
                            calendar="XNYS",
@@ -152,6 +152,18 @@ class TestIndexConstruction:
         assert rung.rule_name == STALENESS_RULE_NAME
         assert rung.excluded == ["QUIET"]
         assert rung.remaining == 1
+
+    def test_each_exclusion_names_its_own_rung(self):
+        """With the stale rung in the funnel, a name a rule removed is still
+        attributed to that rule, and a stale name to the stale rung."""
+        rule = MarketCapRule(min_market_cap=1e9)
+        calculator = IndexCalculator(definition(rules=[rule]),
+                                     build_fetcher(threshold=30))
+        result = calculator.select_with_provenance(
+            calculator.resolve_universe(AS_OF), AS_OF)
+
+        assert result.excluded_by("QUIET").position == STALENESS_POSITION
+        assert result.excluded_by("LOUD").rule_name == "MarketCapRule"
 
     def test_the_rung_sits_outside_the_rule_positions(self):
         """Negative so it cannot be confused with a rule's position, and so a

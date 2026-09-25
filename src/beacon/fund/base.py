@@ -1,6 +1,6 @@
 # src/beacon/fund/base.py
 """
-Module defining the IndexFund class.
+IndexFund: a fund that tracks a target index by running a backtest of it.
 """
 import logging
 
@@ -17,14 +17,15 @@ from ..portfolio.base import Portfolio
 logger = logging.getLogger(__name__)
 
 
+# Delegation to `Backtest` is BN-161.
 class IndexFund:
     """An index fund that tracks a target index.
 
-    The fund delegates the whole pipeline — target weight calculation and the
-    simulated tracking portfolio — to :class:`~beacon.backtest.main.Backtest`,
+    The fund delegates the whole pipeline (target weight calculation and the
+    simulated tracking portfolio) to :class:`~beacon.backtest.main.Backtest`,
     the front door composing :class:`~beacon.index.calculation.IndexCalculator`
-    and :class:`~beacon.backtest.engine.BacktestEngine` (BN-161). It contains
-    no buy/sell logic of its own — rebalancing and portfolio accounting are
+    and :class:`~beacon.backtest.engine.BacktestEngine`. It contains no
+    buy/sell logic of its own: rebalancing and portfolio accounting are
     delegated entirely to the backtest engine.
     """
 
@@ -41,13 +42,18 @@ class IndexFund:
         Args:
             fund_id: A unique identifier for the fund.
             target_index_definition: The definition of the index the fund aims to track.
-            index_agent: The IndexCalculator used to compute the target index's
-                         weight schedule.
+            index_agent: An IndexCalculator for the target index. Only its
+                         ``price_column`` is read: the backtest calculates
+                         the index itself from *target_index_definition*.
             portfolio: The Portfolio object seeding the fund's capital. Its cash
                        balance is used as the backtest engine's initial capital;
-                       the fund no longer mutates this portfolio directly.
+                       the fund never mutates this portfolio.
             data_provider: DataFetcher instance for market data.
             management_fee_bps: The annual management fee in basis points (e.g., 10 bps = 0.1%).
+
+        Raises:
+            ValueError: If any argument is missing or empty, or
+                *management_fee_bps* is negative.
         """
         if not fund_id:
             raise ValueError("fund_id cannot be empty.")
@@ -94,11 +100,12 @@ class IndexFund:
         """Compute target weights and simulate the tracking portfolio.
 
         Delegates the whole calculate-then-simulate composition to
-        :class:`~beacon.backtest.main.Backtest` (BN-161), which fingerprints
-        the calculation, reuses a cached IndexResult when the data source
-        allows it, and hands the schedule to a backtest engine that manages
-        its own portfolio. The resulting :class:`BacktestResult` is cached on
-        the fund and returned.
+        :class:`~beacon.backtest.main.Backtest`, which fingerprints the
+        calculation, reuses a cached IndexResult when the data source allows
+        it, and hands the schedule to a backtest engine that manages its own
+        portfolio. The run's initial capital is the seed portfolio's cash
+        balance. The resulting :class:`BacktestResult` is cached on the fund
+        and returned.
 
         Args:
             start_date: First simulation date (YYYY-MM-DD). Defaults to the
@@ -109,6 +116,9 @@ class IndexFund:
 
         Returns:
             The BacktestResult produced by the engine.
+
+        Raises:
+            ValueError: If *end_date* is not provided.
         """
         if end_date is None:
             raise ValueError("end_date must be provided to run the fund backtest.")
@@ -145,7 +155,9 @@ class IndexFund:
         """Align the fund's tracking portfolio with the target index.
 
         Thin wrapper that ensures the composed calculator + engine pipeline has
-        been run through *current_date*. All weight computation is delegated to
+        been run through *current_date*: if the cached run does not reach that
+        date, the backtest is re-run from the index's base date. Nothing is
+        run for a date before the base date. All weight computation is delegated to
         the :class:`IndexCalculator` and all trading to the
         :class:`BacktestEngine`; this class performs no buy/sell logic itself.
 
@@ -176,8 +188,13 @@ class IndexFund:
                       current_date: pd.Timestamp) -> float:
         """Return the fund's Net Asset Value as of *current_date*.
 
-        The gross NAV is read from the backtest-engine-managed portfolio; the
-        accrued management fee is then deducted.
+        Runs (or re-runs) the backtest if it does not yet cover
+        *current_date*. The gross NAV is the backtest's trading NAV on the
+        last simulated day on or before *current_date*. The management fee is
+        then deducted: the annual fee divided by 252 is charged per elapsed
+        NAV-series day, compounded, so the first simulated day carries no fee.
+        Before the simulation window the seed portfolio's cash balance is
+        returned.
 
         Args:
             current_date: The date for which to calculate NAV.
@@ -189,7 +206,7 @@ class IndexFund:
         self._ensure_backtest(ts)
 
         if self._backtest_result is None or self._backtest_result.trading_nav.empty:
-            # Date precedes the simulation window — only seed capital exists.
+            # Date precedes the simulation window: only seed capital exists.
             return float(self.portfolio.cash_balance)
 
         # The trading NAV, deliberately: the fee accrues over elapsed

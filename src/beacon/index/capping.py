@@ -2,8 +2,8 @@
 """
 Weight capping.
 
-Capping limits how much of an index any single constituent may represent —
-UCITS 5/10/40, concentration control, investability. It is orthogonal to how
+Capping limits how much of an index any single constituent may represent, for
+UCITS 5/10/40, concentration control or investability. It is orthogonal to how
 the base weights were derived, so it lives here rather than inside any one
 weighting scheme, and composes with all of them.
 
@@ -40,8 +40,8 @@ class CapReport:
         redistributed: Total weight moved off capped names and onto the rest.
         passes: Iterations the loop took to settle. 0 means nothing breached.
         uncapped_weights: The full weight vector before capping. Kept so the
-            counterfactual — what the index would have returned uncapped — can
-            be computed later. Reconstructing it from `capped` and
+            counterfactual (what the index would have returned uncapped) can be
+            computed later. Reconstructing it from `capped` and
             `redistributed` alone is only possible for a single pass, and the
             loop routinely takes more.
     """
@@ -64,9 +64,12 @@ def minimum_feasible_cap(count: int) -> float:
         count: Number of constituents.
 
     Returns:
-        float: ``1 / count``. Any cap below this is impossible to satisfy —
+        float: ``1 / count``. Any cap below this is impossible to satisfy:
         every name would sit at the cap and the total would still fall short
         of 1.0.
+
+    Raises:
+        ValueError: If *count* is not positive.
     """
     if count <= 0:
         raise ValueError("count must be positive.")
@@ -81,7 +84,8 @@ def apply_cap(weights: dict[str, float],
     Args:
         weights: Base weights, expected to sum to 1.0. Keys are identifiers.
         cap: Maximum weight for any one constituent, or None for no capping.
-            A cap of 1.0 or above is a no-op.
+            A cap of 1.0 is a no-op, as is any cap at or above the largest
+            weight.
 
     Returns:
         tuple: The capped weights (summing to 1.0) and a CapReport describing

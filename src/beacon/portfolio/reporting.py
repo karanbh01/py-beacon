@@ -1,7 +1,8 @@
 # src/beacon/portfolio/reporting.py
 """
-Module for generating reports from portfolio data, such as holdings reports
-and performance reports, potentially in formats like Excel.
+Excel reports from portfolio data: a holdings report and a performance report.
+
+Writing a report needs the ``excel`` extra (openpyxl).
 """
 import logging
 
@@ -34,6 +35,11 @@ class ReportGenerator:
         The report is built from the portfolio's own state, so the caller must
         have called ``portfolio.update_prices(...)`` beforehand for the holdings
         to carry current prices (and therefore current market values/weights).
+
+        The workbook has a ``HoldingsSummary`` sheet (the output of
+        ``portfolio.get_holdings_summary()``, including a cash row) and, when
+        the portfolio has transactions, a ``TransactionHistory`` sheet. If
+        *report_path* does not end in ``.xlsx`` the extension is appended.
 
         Args:
             portfolio: The Portfolio object to report on.
@@ -106,11 +112,16 @@ class ReportGenerator:
         The performance_data DataFrame is typically the output of a backtest
         (e.g., daily portfolio values, returns) or specific analysis results.
 
+        The frame is written with its index to a single sheet. If
+        *report_path* does not end in ``.xlsx`` the extension is appended.
+
         Args:
             performance_data: A pandas DataFrame containing performance metrics over time.
                               Expected to have a DatetimeIndex.
             report_path: The file path (including .xlsx extension) for the report.
-            report_title: An optional title for the report (used as sheet name or in header).
+            report_title: Used as the sheet name, with spaces replaced by
+                underscores and truncated to 30 characters. None names the
+                sheet ``PerformanceData``.
 
         Raises:
             MissingDependencyError: If openpyxl is not installed.

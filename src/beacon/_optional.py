@@ -1,16 +1,18 @@
 # src/beacon/_optional.py
 """
-Import guards for Beacon's optional dependencies.
+Import guards for py-beacon's optional dependencies.
 
-The core pipeline — index, backtest, portfolio, fund, derivatives — runs on
-pandas, numpy, pydantic and `exchange_calendars` alone. The last of those is
-core rather than an extra since BN-180: every index schedules against a real
+The core pipeline (index, backtest, portfolio, fund, derivatives) runs on
+pandas, numpy, pydantic and `exchange_calendars` alone. `exchange_calendars`
+is core rather than an extra because every index schedules against a real
 trading calendar, and a required input cannot sit behind an optional install.
 Everything beyond that (Excel reporting, plotting, optimisation, market-data
 downloads, the API server) lives behind an extra.
 Modules needing one import it through :func:`require`, so a missing package
 reports the extra to install instead of surfacing a bare ImportError.
 """
+# `exchange_calendars` moved from the `calendars` extra into the core in
+# BN-180.
 import importlib
 from types import ModuleType
 
@@ -40,7 +42,7 @@ def require(module_name: str,
 
     Args:
         module_name: Module to import, e.g. ``"openpyxl"``.
-        feature: Human-readable name of the Beacon feature that needs it,
+        feature: Human-readable name of the py-beacon feature that needs it,
             used to open the error message, e.g. ``"Excel reporting"``.
 
     Returns:

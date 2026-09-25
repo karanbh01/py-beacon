@@ -56,13 +56,15 @@ SKIPPED_DESCRIPTION = ("Stored documents the server could not read, and so "
                        "on its own route.")
 
 
+# BN-201: `skipped` could only say *how many*, and the one sentence a client
+# could write over it -- "could not be read" -- invites restoring a file that
+# may be perfectly fine. Each cause has its own remedy, so each has its own
+# count and a description that names it.
 class SkippedCauses(BaseModel):
-    """Why a listing left documents out, one count per cause (BN-201).
+    """Why a listing left documents out, one count per cause.
 
-    `skipped` could only say *how many*, and the one sentence a client could
-    write over it -- "could not be read" -- invites restoring a file that may
-    be perfectly fine. Each cause has its own remedy, so each has its own
-    count and a description that names it.
+    Each cause has its own remedy, so each has its own count and a
+    description that names it.
     """
     unparseable: int = Field(
         default=0,
@@ -93,13 +95,13 @@ class SkippedCauses(BaseModel):
                    unrecognised=counts.unrecognised)
 
 
+# BN-201: the two fields used to be written out seven times, identically, and
+# adding a second one would have meant fourteen -- which is how a listing ends
+# up publishing a count its neighbours do not.
 class TolerantCollection(BaseModel):
     """A listing that leaves out what it cannot read, and says so.
 
-    The base of every collection the server lists from the store. The two
-    fields used to be written out seven times, identically, and adding a
-    second one would have meant fourteen -- which is how a listing ends up
-    publishing a count its neighbours do not (BN-201).
+    The base of every collection the server lists from the store.
     """
     skipped: int = Field(default=0, description=SKIPPED_DESCRIPTION)
     skipped_causes: SkippedCauses = Field(
@@ -247,7 +249,9 @@ class DataSourceStatus(BaseModel):
         default="",
         description="An opaque token that changes whenever the data being "
                     "served changes: at startup, on every store load (the "
-                    "same store loaded again included), and after a sync. "
+                    "same store loaded again included), and when a refresh "
+                    "of the served store (`POST /data/stores/{id}/refresh`) "
+                    "finishes. "
                     "Compare it for equality only: if it differs from the "
                     "value a client cached against, the client's copy is "
                     "stale. Never reused, even across engine restarts. The "
@@ -288,26 +292,29 @@ class HealthResponse(BaseModel):
     data_source: DataSourceStatus
     cache_age: float | None = Field(
         default=None,
-        description="Seconds since the market data was last loaded or synced. "
-                    "Null only when no data source is configured — there is "
-                    "then nothing whose age could be reported.")
+        description="Seconds since the market data being served was loaded. "
+                    "Loading a store and refreshing the served one both reset "
+                    "it. "
+                    "Null only when no data source is configured, since there "
+                    "is then nothing whose age could be reported.")
     fx_policy: str | None = Field(
         default=None,
         description="How this installation reads an exchange rate on a day "
                     "the pair printed none: CARRY_FORWARD uses the last rate "
                     "in force, EXACT_DAY refuses unless the rate is dated "
                     "that day. A modelling assumption rather than a "
-                    "preference — the same holding converts to different "
+                    "preference: the same holding converts to different "
                     "money under the two, and every conversion in the library "
                     "obeys whichever is set. Null when no data source is "
                     "configured, since nothing is being converted.")
+    # Null (keep everything) is also what the library did before the setting
+    # existed.
     max_price_staleness_days: int | None = Field(
         default=None,
         description="How long a name may go without trading before this "
                     "installation drops it from an index and from a "
                     "backtest's targets. Null means keep everything "
-                    "regardless, which is the default and what the library "
-                    "did before the setting existed. A modelling choice, not "
+                    "regardless, which is the default. A modelling choice, not "
                     "a preference: it changes index membership, so two runs "
                     "either side of a change are different indices. Also null "
                     "when no data source is configured.")
@@ -321,18 +328,19 @@ class HealthResponse(BaseModel):
                     "is weighted by. Null when no data source is configured.")
 
 
+# BN-198.
 class CalendarCoveragePayload(BaseModel):
-    """The window asked for beside the one the calendar could offer (BN-198).
+    """The window asked for beside the one the calendar could offer.
 
     Present only when the calendar narrowed the run, so its presence is the
     signal. A window the calendar covers *nothing* of never reaches a result at
-    all — that refuses, because an empty index is a failure wearing a success.
+    all: that refuses, because an empty index is a failure wearing a success.
     """
     calendar: str = Field(
         description="MIC of the calendar that narrowed the range.")
     requested_start: str = Field(
         description="First date the run asked for, ISO 8601. Not the date it "
-                    "produced — see covered_start.")
+                    "produced; see covered_start.")
     requested_end: str = Field(
         description="Last date the run asked for, ISO 8601.")
     covered_start: str = Field(
@@ -355,8 +363,8 @@ class CalendarCoveragePayload(BaseModel):
                       coverage: CalendarCoverage) -> "CalendarCoveragePayload":
         """Build from the library's `CalendarCoverage`.
 
-        Only ever called for a partial cover, where both covered ends are set —
-        an empty one refuses before a result exists.
+        Only ever called for a partial cover, where both covered ends are set.
+        An empty one refuses before a result exists.
         """
         assert coverage.calendar is not None
         assert coverage.covered_start is not None
@@ -429,6 +437,12 @@ class BacktestMetrics(BaseModel):
     tracking_difference: Pct | None = None
 
 
+# BN-176: a missing headline metric raises. The previous 0.0 fallback was the
+# one answer indistinguishable from a real measurement: a client renders,
+# charts and compares a Sharpe ratio of zero without ever learning it was
+# absent, whereas a 500 naming the key is discoverable. `TestTheMetricsMirror...`
+# in `tests/test_api_contract.py` pins the two key sets against each other,
+# which is what keeps this raise unreachable in practice.
 def headline_metric(summary: dict[str, float | None],
             key: str) -> float:
     """Read a core metric, which `BacktestResult.summary()` always populates.
@@ -436,12 +450,8 @@ def headline_metric(summary: dict[str, float | None],
     The summary's value type is `float | None` because the tracking figures
     are optional; the five headline metrics are not. A missing one is a break
     in the mirror between `summary()` and `BacktestMetrics`, not a degraded
-    run, so it raises (BN-176). The previous 0.0 fallback was the one answer
-    indistinguishable from a real measurement: a client renders, charts and
-    compares a Sharpe ratio of zero without ever learning it was absent,
-    whereas a 500 naming the key is discoverable. `TestTheMetricsMirror...`
-    in `tests/test_api_contract.py` pins the two key sets against each other,
-    which is what keeps this raise unreachable in practice.
+    run, so it raises `CalculationError` naming the key rather than reporting
+    a value that was never measured.
     """
     value = summary.get(key)
 
@@ -454,20 +464,22 @@ def headline_metric(summary: dict[str, float | None],
     return float(value)
 
 
+# Declared here, above the book payloads, because since BN-173 it is carried
+# by both: the transient run payload publishes the snapshots as `rebalances[]`,
+# and the durable record publishes the same rows on each index book. One shape
+# for one fact -- a second model for the decided weights would be free to
+# drift from this one.
 class RebalanceSnapshot(BaseModel):
     """The index's composition at one rebalance.
 
     Both weight sets are carried. `weights` is what the index applied;
     `uncapped_weights` is what the weighting scheme produced before any cap.
     They are equal on an uncapped index, and the difference is the only way to
-    answer what capping cost — a question that cannot be reconstructed from the
+    answer what capping cost, a question that cannot be reconstructed from the
     applied weights alone.
 
-    Declared here, above the book payloads, because since BN-173 it is carried
-    by both: the transient run payload publishes the snapshots as
-    `rebalances[]`, and the durable record publishes the same rows on each
-    index book. One shape for one fact — a second model for the decided
-    weights would be free to drift from this one.
+    The run payload publishes these snapshots as `rebalances`, and the stored
+    backtest record publishes the same rows on each index book.
     """
     date: str = Field(
         description="Date these weights took effect, YYYY-MM-DD. Snapshots "
@@ -494,6 +506,10 @@ class RebalanceSnapshot(BaseModel):
         description="Weight moved off capped names onto the rest.")
 
 
+# Lives here rather than beside the job that first needed it (BN-173): the
+# record's books are built in this module and publish the same rows, and a
+# payload builder imported *from* the job module would have made the two
+# directions circular.
 def rebalance_snapshots(index_result: IndexResult,
                         cap: float | None = None) -> list[RebalanceSnapshot]:
     """Composition at each rebalance, in date order.
@@ -508,11 +524,6 @@ def rebalance_snapshots(index_result: IndexResult,
     bound. "A 20% cap applies and nothing reached it" and "no cap applies" are
     different statements about a methodology, and a client asking what the
     rules are should get the same answer on both dates.
-
-    Lives here rather than beside the job that first needed it (BN-173): the
-    record's books are built in this module and publish the same rows, and a
-    payload builder imported *from* the job module would have made the two
-    directions circular.
 
     Args:
         index_result: The calculated index.
@@ -556,13 +567,14 @@ MAX_WEIGHT_DATES = 1_000
 MAX_REBALANCES = 250
 
 
+# BN-173. Its own model rather than a shared base with `BookPayload`, which is
+# what keeps the omission of `rebalances` simple.
 class PortfolioBookPayload(BaseModel):
     """The portfolio's books on the wire.
 
-    No `rebalances` here, unlike the index books (BN-173): a portfolio makes no
-    rebalance decision of its own — it trades toward one — so decided weights
-    would be a field with nothing honest to put in it. Its own model rather than
-    a shared base with `BookPayload`, which is what keeps that omission simple.
+    No `rebalances` here, unlike the index books: a portfolio makes no
+    rebalance decision of its own (it trades toward one), so decided weights
+    would be a field with nothing honest to put in it.
     """
     portfolio_id: str
     initial_capital: float
@@ -571,7 +583,7 @@ class PortfolioBookPayload(BaseModel):
                     "initial capital on the eve of the first trading day. "
                     "Metrics derive from the series without that row, and a "
                     "client deriving its own period figures should do the "
-                    "same — a period holding only the day-zero row measures "
+                    "same. A period holding only the day-zero row measures "
                     "that row against itself and reads as a flat period "
                     "rather than one that never traded.")
     cash: SeriesPayload
@@ -589,12 +601,13 @@ class PortfolioBookPayload(BaseModel):
     transactions: TableFrame
 
 
+# BN-173.
 class BookPayload(BaseModel):
     """One comparator's record on the wire.
 
-    Two different facts about weights, not two copies of one (BN-173):
-    `weights` is the daily panel — what the book actually HELD each day, drift
-    included — and `rebalances` is what each rebalance DECIDED. They agree only
+    Two different facts about weights, not two copies of one: `weights` is
+    the daily panel (what the book actually HELD each day, drift included)
+    and `rebalances` is what each rebalance DECIDED. They agree only
     on a rebalance date; everywhere else prices have moved the held weights
     away from the decided ones. A client wanting decided weights reads
     `rebalances` rather than resampling the panel, which cannot answer what
@@ -606,7 +619,7 @@ class BookPayload(BaseModel):
                     "MAX_WEIGHT_DATES dates at most. Empty for a comparator "
                     "supplied as a bare level series.")
     weights_dates_total: int = Field(
-        description="Dates the book's daily weights panel actually covers — a "
+        description="Dates the book's daily weights panel actually covers: a "
                     "count, not a date. Larger than the rows in `weights` "
                     "whenever the panel was truncated to its most recent "
                     "MAX_WEIGHT_DATES, and 0 for a comparator supplied as a "
@@ -614,8 +627,8 @@ class BookPayload(BaseModel):
                     "for `rebalances`.")
     rebalances: list[RebalanceSnapshot] = Field(
         default_factory=list,
-        description="What each rebalance decided — applied weights, their "
-                    "uncapped counterparts and the announcement date — in date "
+        description="What each rebalance decided (applied weights, their "
+                    "uncapped counterparts and the announcement date), in date "
                     "order; most recent MAX_REBALANCES at most. The same rows "
                     "the run payload publishes, kept here because the record "
                     "is what survives the job result. Empty for a comparator "
@@ -635,8 +648,9 @@ class BookPayload(BaseModel):
                     "served when the list was truncated.")
 
 
+# BN-164.
 class IndexBooksPayload(BaseModel):
-    """The run's calculated indices on the wire (BN-164).
+    """The run's calculated indices on the wire.
 
     Mirrors the library's `IndexBooks`: `target` is the index being aimed
     at, pre-optimisation; `optimised` is the solved index's own
@@ -689,7 +703,7 @@ class RebalancePricingPayload(BaseModel):
 PRICE_GAPS_DESCRIPTION = (
     "Days a holding or a target name had no bar on a session its index's "
     "calendar says was open, and was therefore marked at a carried-forward "
-    "price. Empty on a run with complete data — a market holiday is not a "
+    "price. Empty on a run with complete data: a market holiday is not a "
     "gap, since nothing is missing on a day nothing traded. A non-empty list "
     "is the signal that some marks are stale quotes rather than that day's "
     "market, which is otherwise invisible in the NAV.")
@@ -701,14 +715,16 @@ REBALANCE_PRICING_DESCRIPTION = (
     "leaving it inferable from the weight snapshots.")
 
 
+# The nested shape mirrors the library object (BN-155): one home per fact, and
+# the new data -- positions, daily index weights -- has a natural place instead
+# of being bolted flat beside old names. Since BN-164 `index` is a container of
+# two books.
 class BacktestResultSummary(BaseModel):
     """Serialised view of a `BacktestResult`, in the shape of its books.
 
-    The nested shape mirrors the library object (BN-155): one home per fact,
-    and the new data — positions, daily index weights — has a natural place
-    instead of being bolted flat beside old names. Books the run did not have
-    (no benchmark given, no index calculated) are null rather than empty, so
-    a client can tell "not measured" from "measured and empty". Since BN-164
+    The nested shape mirrors the library object, one home per fact. Books the
+    run did not have (no benchmark given, no index calculated) are null rather
+    than empty, so a client can tell "not measured" from "measured and empty".
     `index` is a container of two books, `{target, optimised}`, matching the
     library's `IndexBooks`.
     """
@@ -726,13 +742,13 @@ class BacktestResultSummary(BaseModel):
     run_at: str | None = Field(
         default=None,
         description="When this record was captured, ISO-8601 UTC with an "
-                    "offset — wall-clock at the moment the finished run was "
+                    "offset: wall-clock at the moment the finished run was "
                     "serialised, within a second of the backtest completing. "
                     "**Not a market date, and not the period the backtest "
                     "covered**: that span is the index of `portfolio.nav`. "
                     "`BacktestRecordRow.run_at` on `GET /beacon/backtests` is "
-                    "the same stamp. Null only on records written before "
-                    "BN-162 began stamping them.")
+                    "the same stamp. Null only on records written by an older "
+                    "engine that did not stamp them.")
 
     @classmethod
     def from_result(cls,
@@ -743,7 +759,7 @@ class BacktestResultSummary(BaseModel):
         Args:
             result: The finished run.
             cap: The maximum constituent weight declared by the definition
-                whose rules produced the **target** book — the document's own
+                whose rules produced the **target** book: the document's own
                 on a passive run, its parent's on an optimised one. Stamped on
                 that book's rebalance snapshots only: a solved index has no cap
                 of its own, since its constraints are what shaped its weights.
@@ -866,10 +882,11 @@ def _book_payload(book: Any,
                            if coverage is not None else None))
 
 
+# BN-162.
 class BacktestRecordRow(BaseModel):
-    """One stored backtest record, as a listing knows it (BN-162).
+    """One stored backtest record, as a listing knows it.
 
-    The row is deliberately thin — the id to fetch the record by, and when it
+    The row is deliberately thin: the id to fetch the record by, and when it
     was captured. Names come from the index catalogue the client already
     holds, and everything else from `/beacon/{index_id}/record`.
     """
@@ -880,13 +897,15 @@ class BacktestRecordRow(BaseModel):
                     "before they were stamped.")
 
 
+# An envelope rather than the bare array this used to return (BN-174). The
+# rows could not carry the skip count, and a listing that leaves documents out
+# without saying how many is making the same class of false statement as a
+# listing that 500s: the client is told something complete that is not.
 class BacktestRecordCollection(TolerantCollection):
     """Response of `GET /beacon/backtests`.
 
-    An envelope rather than the bare array this used to return (BN-174). The
-    rows could not carry the skip count, and a listing that leaves documents
-    out without saying how many is making the same class of false statement as
-    a listing that 500s: the client is told something complete that is not.
+    An envelope rather than a bare array, so the listing can say how many
+    stored records it left out.
     """
     backtests: list[BacktestRecordRow]
 
@@ -920,7 +939,7 @@ class FeatureValue(BaseModel):
     detail: str | None = Field(
         default=None, description="Free-form context the dataset carried.")
     date: str | None = Field(
-        default=None, description="When the value became knowable — the "
+        default=None, description="When the value became knowable: the "
                                   "announcement date, not the period it "
                                   "describes.")
 
@@ -932,7 +951,7 @@ class FeatureResponse(BaseModel):
         description="The cutoff the features were read at, YYYY-MM-DD: the "
                     "`date` query echoed back unchanged, or the last date the "
                     "loaded market data carries when none was given. Never "
-                    "resolved back — a request for a weekend stays a weekend — "
+                    "resolved back (a request for a weekend stays a weekend), "
                     "because each feature independently takes the latest row "
                     "published on or before it. What was actually read is each "
                     "`features[].date`, the announcement date of the row that "
@@ -954,7 +973,7 @@ class FeatureBatchResponse(BaseModel):
         description="The cutoff the features were read at, YYYY-MM-DD: the "
                     "`date` query echoed back unchanged, or the last date the "
                     "loaded market data carries when none was given. Never "
-                    "resolved back — a request for a weekend stays a weekend — "
+                    "resolved back (a request for a weekend stays a weekend), "
                     "because each feature independently takes the latest row "
                     "published on or before it. What was actually read is each "
                     "`entries[].features[].date`, the announcement date of the "
@@ -997,7 +1016,7 @@ class FieldDescriptor(BaseModel):
     derived: bool = Field(
         default=False,
         description="Computed per request rather than stored. Screenable "
-                    "either way — a client should not have to care.")
+                    "either way; a client should not have to care.")
 
 
 class FieldCatalogue(BaseModel):
@@ -1015,8 +1034,8 @@ class TablePage(BaseModel):
     """Response of `GET /data/tables/{dataset}`.
 
     The stored data as it is, before any view shapes it. Paged because the
-    default synthetic store holds 11.8M market rows — an unbounded dump is not
-    something a client can render or an engine should assemble.
+    default synthetic store holds 11.8M market rows, and an unbounded dump is
+    not something a client can render or an engine should assemble.
     """
     dataset: str
     offset: int
@@ -1065,8 +1084,8 @@ class UniverseMembership(BaseModel):
 class ReferenceResponse(BaseModel):
     """Response of `GET /data/reference/{identifier}`.
 
-    Fields are whatever columns the loaded reference data carries — the
-    library does not impose a schema on it — so they are returned as a
+    Fields are whatever columns the loaded reference data carries (the
+    library does not impose a schema on it), so they are returned as a
     mapping rather than as named attributes.
     """
     identifier: str
@@ -1136,7 +1155,8 @@ class IdentifierSearchResponse(BaseModel):
     version: str = Field(
         default="",
         description="Fingerprint of the data this was built from, also served "
-                    "as the ETag. Changes only when a dataset syncs, so a "
+                    "as the ETag. Changes only when the served data changes "
+                    "(a store load or refresh, or a feature import), so a "
                     "client can cache an enumeration and revalidate cheaply.")
 
 
@@ -1174,7 +1194,7 @@ class CorporateAction(BaseModel):
     `kind` is the authoritative answer to what `value` means, and the reason a
     client needs no list of type strings. Reading `type` and inferring cash or
     ratio from a hardcoded list works until a type the client has never seen
-    arrives, at which point it renders as whichever the list defaults to —
+    arrives, at which point it renders as whichever the list defaults to:
     confidently, and wrongly.
     """
     ex_date: str = Field(description="Ex-date, ISO 8601.")
@@ -1196,7 +1216,7 @@ class CorporateAction(BaseModel):
     pay_date: IsoDate | None = Field(
         default=None,
         description="Payment date, ISO 8601, where the source knows it. Null "
-                    "means unknown — omit the field in the UI rather than "
+                    "means unknown: omit the field in the UI rather than "
                     "dashing it, since a dash reads as 'there is none'.")
     status: Literal["announced", "paid", "cancelled"] | None = Field(
         default=None,
@@ -1257,7 +1277,7 @@ class CorporateActionsResponse(BaseModel):
     trailing_dividend_yield: float | None = Field(
         default=None,
         description="Trailing dividend over the close on the as-of date. Null "
-                    "when no price is available — a missing price is a reason "
+                    "when no price is available, since a missing price is a reason "
                     "to say nothing rather than to guess.")
     cumulative_split_ratio: float = Field(
         default=1.0,
@@ -1285,16 +1305,18 @@ class SyncRequest(BaseModel):
     """Body of `POST /data/coverage/{dataset}/sync`.
 
     Deprecated with the endpoint. Its fields are accepted and ignored: a sync
-    now refreshes the whole active store from its own source.
+    refreshes the whole active store from its own source, as
+    `POST /data/stores/{id}/refresh` does.
     """
+    # Until BN-240 these chose what to download from Yahoo Finance: which
+    # identifiers (empty meaning everything loaded) over which dates.
     identifiers: list[str] = Field(
         default_factory=list,
-        description="What to fetch. Empty re-syncs everything already loaded, "
-                    "which is the common case: refresh what I have.")
+        description="Ignored. Accepted so existing clients keep working.")
     start: str | None = Field(default=None,
-                              description="Inclusive start date, YYYY-MM-DD.")
+                              description="Ignored. YYYY-MM-DD.")
     end: str | None = Field(default=None,
-                            description="Inclusive end date, YYYY-MM-DD.")
+                            description="Ignored. YYYY-MM-DD.")
 
 
 class Watchlist(BaseModel):
@@ -1309,7 +1331,7 @@ class Watchlist(BaseModel):
 class WatchlistUpsert(BaseModel):
     """Body of `PUT /data/watchlists/{id}`.
 
-    The id comes from the URL, so it is not repeated here — accepting it in
+    The id comes from the URL, so it is not repeated here: accepting it in
     both places invites the two to disagree.
     """
     name: str = Field(description="Display name.", min_length=1)
@@ -1412,8 +1434,8 @@ class DerivationPayload(BaseModel):
     """How an optimised index is derived from the index it was built on.
 
     The whole of an optimised index's methodology: the source it reallocates,
-    what the solve minimises, and what the answer must satisfy. No weights —
-    neither the parent's nor the solved ones — because definitions are rules
+    what the solve minimises, and what the answer must satisfy. No weights
+    (neither the parent's nor the solved ones), because definitions are rules
     and weights are calculated.
     """
     source_index_id: str = Field(
@@ -1430,23 +1452,22 @@ class DerivationPayload(BaseModel):
                     f"naming the accepted set.")
     constraints: list[ConstraintRow] = Field(
         default_factory=list,
-        description="What the solved weights must satisfy — exactly the rows "
+        description="What the solved weights must satisfy: exactly the rows "
                     "`/optimise/constraint-sets` stores, so one editor serves "
                     "both. Empty leaves the solver's own full-investment "
                     "default.")
 
 
+# A synthesised pipeline for optimised documents was considered and rejected
+# (design record, "Document schema"): it would be a methodology nobody wrote
+# and nobody can meaningfully edit.
 class IndexDocument(BaseModel):
     """A stored index definition, in one of its two faces.
 
     A document carries **either** a rule pipeline (`pipeline` and `universe`)
-    **or** a `derivation` — never both, never neither. `derivation` is the
+    **or** a `derivation`, never both and never neither. `derivation` is the
     discriminator: present, the index is optimiser-derived and its methodology
     is the derivation; absent, it is a rule pipeline over a universe.
-
-    A synthesised pipeline for optimised documents was considered and rejected
-    (design record, "Document schema"): it would be a methodology nobody wrote
-    and nobody can meaningfully edit.
     """
     id: str = Field(description="Stable identifier, used in the URL.",
                     min_length=1, max_length=64)
@@ -1490,13 +1511,15 @@ class IndexDocument(BaseModel):
     # stayed valid and no migration was needed. `calendar` stopped being one of
     # those in BN-180: its default was the defect, so it is required here and
     # backfilled in the store rather than defaulted in the model.
+    #
+    # PRICE is the default so an index defined before `return_type` existed
+    # is unchanged.
     return_type: Literal["PRICE", "TOTAL_RETURN", "NET_TOTAL_RETURN"] = Field(
         default="PRICE",
         description="How returns accumulate. PRICE ignores distributions; "
                     "TOTAL_RETURN reinvests them across the index by shrinking "
                     "the divisor; NET_TOTAL_RETURN does the same after "
-                    "withholding tax. PRICE is the default, so an index "
-                    "defined before this existed is unchanged.")
+                    "withholding tax. PRICE is the default.")
     withholding_tax_rate: float = Field(
         default=0.0,
         ge=0.0,
@@ -1507,15 +1530,17 @@ class IndexDocument(BaseModel):
                     "and an unpopulated one produces a number that looks "
                     "precise and is not. Ignored unless `return_type` is "
                     "NET_TOTAL_RETURN.")
+    # Required since BN-180, and the one field on this model that changed from
+    # optional to required. It used to default to null, meaning Monday to
+    # Friday, which scheduled rebalances on 1 January, 4 July and 25 December,
+    # days no exchange has a session for.
     calendar: str = Field(
         description="Exchange MIC backing trading-day arithmetic, e.g. "
-                    "'XNYS'. **Required since BN-180**, and the one field on "
-                    "this model that changed from optional to required. It "
-                    "used to default to null, meaning Monday to Friday — which "
-                    "schedules rebalances on 1 January, 4 July and 25 "
-                    "December, days no exchange has a session for. Stored "
-                    "documents without one were migrated to 'XNYS' by schema "
-                    "version 2. `GET /indices/calendars` publishes every value "
+                    "'XNYS'. Required: every index schedules against a real "
+                    "exchange calendar, so rebalances never land on days no "
+                    "exchange has a session for. Stored documents without one "
+                    "are read as 'XNYS' (schema version 2 migrates them). "
+                    "`GET /indices/calendars` publishes every value "
                     "this server accepts, read from the calendar package "
                     "itself, so a client renders a closed list instead of "
                     "guessing a MIC.")
@@ -1531,13 +1556,15 @@ class IndexDocument(BaseModel):
                     "New_York'. Display metadata: it says when a figure is "
                     "released and changes no figure, so nothing in the "
                     "calculation reads it.")
+    # Honoured by the calculator since BN-126; before that it was stored but
+    # not applied, which is what the old description said.
     effective_lag_sessions: int = Field(
         default=0,
         ge=0,
         description="Sessions between a rebalance being announced and its "
-                    "weights taking effect. Stored now, honoured by the "
-                    "calculator in BN-126; until then it is declared and not "
-                    "applied, and 0 is the behaviour in force.")
+                    "weights taking effect, counted on the index's calendar. "
+                    "0, the default, means the weights take effect on the "
+                    "announcement date.")
 
     @model_validator(mode="after")
     def _exactly_one_face(self) -> "IndexDocument":
@@ -1621,7 +1648,7 @@ class OptimiseRequest(BaseModel):
     description: str | None = Field(
         default=None,
         description="Optional description for the derived index. Null inherits "
-                    "nothing — the parent's description describes the parent.")
+                    "nothing: the parent's description describes the parent.")
 
 
 class DeletedIndex(BaseModel):
@@ -1736,7 +1763,7 @@ class RenderResult(BaseModel):
     blocks: int
     bytes: int = Field(description="Size of the rendered document.")
     rendered_at: str = Field(
-        description="When the PDF was written, ISO-8601 UTC with an offset — "
+        description="When the PDF was written, ISO-8601 UTC with an offset: "
                     "wall-clock at render time. **Not the as-of date of "
                     "anything printed inside it**: the figures come from the "
                     "index's latest completed backtest, whose own dates this "
@@ -1815,7 +1842,7 @@ class CarryDecomposition(BaseModel):
     dividend: float = Field(description="Negative: dividends reduce the forward.")
     borrow: float
     residual: float = Field(
-        description="Total minus the three parts — the compounding the "
+        description="Total minus the three parts: the compounding the "
                     "decomposition cannot attribute.")
 
 
@@ -1823,13 +1850,13 @@ class FuturesPriceResponse(BaseModel):
     """Response of `POST /derivatives/futures/price`."""
     fair_value: float
     time_to_expiry: float = Field(
-        description="Years the contract was priced over, ACT/365 — what the "
+        description="Years the contract was priced over, ACT/365: what the "
                     "calculation used, which is not always what the request "
                     "sent. Computed from `valuation_date` to `expiry` when "
                     "both were given, dates being the less ambiguous "
                     "statement; the request's own `time_to_expiry` is echoed "
                     "back only when the dates were omitted. Nothing is "
-                    "resolved against market data — this endpoint reads none.")
+                    "resolved against market data; this endpoint reads none.")
     financing_rate: float = Field(description="Rate used, read off the curve.")
     carry: CarryDecomposition
     contract_value: float = Field(
@@ -1895,7 +1922,7 @@ class TrsAccrual(BaseModel):
         description="First day of this financing period, YYYY-MM-DD. Derived "
                     "from the request alone, never resolved against a calendar "
                     "or market data: the schedule begins at `last_reset_date` "
-                    "— or `start_date` when no reset was given — and steps by "
+                    "(or `start_date` when no reset was given) and steps by "
                     "`payment_frequency`. Business days are not observed, so a "
                     "boundary can fall on a weekend. `end` is the other end.")
     end: str = Field(
@@ -1925,7 +1952,7 @@ class TrsPriceResponse(BaseModel):
                     "receiver's side.")
     dv01: float = Field(
         description="Value change per +1bp. Negative for a receiver, who pays "
-                    "financing — the sign carries the information a magnitude "
+                    "financing: the sign carries the information a magnitude "
                     "would lose. Exactly zero on a funded swap, where only the "
                     "spread accrues.")
     fair_spread_bps: float | None = Field(
@@ -1937,7 +1964,7 @@ class TrsPriceResponse(BaseModel):
     breakeven: list[dict[str, float]] = Field(
         default_factory=list,
         description="Breakeven financing spread against each supplied futures "
-                    "price — what makes a swap and a future agree.")
+                    "price: what makes a swap and a future agree.")
 
 
 class TermStructureEntry(BaseModel):
@@ -1960,8 +1987,8 @@ class TermStructureResponse(BaseModel):
         description="The session `spot` was read from, YYYY-MM-DD: the latest "
                     "date with a close on or before the `as_of` query, or the "
                     "last date the store carries when none was given. Resolved "
-                    "rather than echoed — a request landing on a weekend or a "
-                    "holiday answers from the session before it — and the date "
+                    "rather than echoed (a request landing on a weekend or a "
+                    "holiday answers from the session before it), and the date "
                     "asked for is not published anywhere. Every "
                     "`entries[].time_to_expiry` is measured from this date.")
     spot: float
@@ -1979,8 +2006,8 @@ class RollResponse(BaseModel):
         description="The session both legs were priced from, YYYY-MM-DD: the "
                     "latest date with a close on or before the `as_of` query, "
                     "or the last date the store carries when none was given. "
-                    "Resolved rather than echoed — a request landing on a "
-                    "weekend or a holiday answers from the session before it — "
+                    "Resolved rather than echoed (a request landing on a "
+                    "weekend or a holiday answers from the session before it), "
                     "and the date asked for is not published anywhere. Both "
                     "expiries are measured from this date, so it also sets "
                     "`annualised_roll`.")
@@ -2056,7 +2083,7 @@ class RiskModelView(BaseModel):
     asset_ids: list[str]
     start: str | None = Field(
         default=None,
-        description="The request's own `start`, echoed back unchanged — the "
+        description="The request's own `start`, echoed back unchanged: the "
                     "bound the price fetch was given, not the first date "
                     "prices were found on. Null when the request omitted it, "
                     "which estimates over the whole stored history. No field "
@@ -2072,7 +2099,7 @@ class RiskModelView(BaseModel):
         description="Symmetric with a unit diagonal, by construction.")
     covariance: TableFrame = Field(description="Annualised.")
     volatilities: dict[str, float] = Field(
-        description="Annualised standard deviation per asset — the square root "
+        description="Annualised standard deviation per asset: the square root "
                     "of the covariance diagonal.")
     diagnostics: RiskDiagnosticsPayload
 
@@ -2153,7 +2180,7 @@ class ParameterSpec(BaseModel):
     ref: str | None = Field(
         default=None,
         description="Component schema this parameter's value must conform to, "
-                    "e.g. 'ExpressionNode' — resolve it under "
+                    "e.g. 'ExpressionNode'; resolve it under "
                     "`components.schemas` in this document. Null for a scalar "
                     "parameter. `type` stays the coarse render hint, so a "
                     "client that ignores this still renders a JSON editor.")
@@ -2204,14 +2231,14 @@ class CalendarOption(BaseModel):
     name: str = Field(
         description="Display name, e.g. 'New York Stock Exchange'. Curated for "
                     "the major venues only and **falls back to `code`** for "
-                    "the rest — `exchange_calendars` carries no friendly "
+                    "the rest. `exchange_calendars` carries no friendly "
                     "names, so a partial list that degrades to the MIC is the "
                     "honest option. A row where `name` equals `code` is an "
                     "uncurated calendar, not a broken one.")
     region: str = Field(
         description="Derived, not curated: the first segment of the "
                     "calendar's own IANA timezone, so 'Europe/Oslo' gives "
-                    "'Europe'. A noun as the tz database spells it — group "
+                    "'Europe'. A noun as the tz database spells it; group "
                     "headings are the client's wording, since 'Atlantic' and "
                     "'Pacific' have no distinct adjective and a mapping to one "
                     "would be the hand-kept table this field exists to avoid. "
@@ -2226,16 +2253,17 @@ class CalendarOption(BaseModel):
                     "the whole zone.")
 
 
+# BN-180 made `IndexDocument.calendar` required, so a client that cannot see
+# the accepted set has two bad options: hard-code a hundred-odd MICs, or ship a
+# free-text box that fails a 422 on a mandatory field.
 class CalendarList(BaseModel):
     """Response of `GET /indices/calendars`.
 
-    `IndexDocument.calendar` is required (BN-180), so a client that cannot see
-    the accepted set has two bad options: hard-code a hundred-odd MICs, or ship
-    a free-text box that now fails a 422 on a mandatory field. This publishes
-    what the engine accepts, the way `/indices/rule-types` and
-    `/optimise/constraint-types` do — read from `exchange_calendars` at request
-    time, never a hand-kept copy, so the wire set cannot drift from the set the
-    calculation schedules on.
+    `IndexDocument.calendar` is required, so this publishes the calendars the
+    engine accepts, the way `/indices/rule-types` and
+    `/optimise/constraint-types` publish theirs. It is read from
+    `exchange_calendars` at request time, never a hand-kept copy, so the wire
+    set cannot drift from the set the calculation schedules on.
     """
     calendars: list[CalendarOption] = Field(
         description="Every exchange MIC this server can schedule against, "
@@ -2247,7 +2275,7 @@ class CalendarList(BaseModel):
         description="The calendar code to preselect. The same value stored "
                     "documents without a calendar were migrated to, so it is "
                     "a reasonable default for a new index rather than an "
-                    "arbitrary one — but it is a suggestion for the form, not "
+                    "arbitrary one. It is a suggestion for the form, not "
                     "a server-side fallback: `IndexDocument.calendar` has no "
                     "default and omitting it is a 422.")
 
@@ -2259,9 +2287,9 @@ class ConstraintTypes(BaseModel):
     rather than from a copy that drifts.
     """
     types: dict[str, list[str]] = Field(
-        description="Constraint type -> the parameters it accepts. Kept for "
-                    "clients written against the original shape; `specs` "
-                    "carries the same set with everything needed to render it.")
+        description="Constraint type -> the parameters it accepts. The compact "
+                    "shape, kept for existing clients; `specs` carries the "
+                    "same set with everything needed to render it.")
     specs: list[TypeSpec] = Field(
         default_factory=list,
         description="The same constraint types in the richer shape "
@@ -2304,7 +2332,7 @@ class OptimisationRunResult(BaseModel):
     constraint_set_id: str
     start: str = Field(
         description="First date the constituent price frame actually carries, "
-                    "YYYY-MM-DD — the window the risk model behind this solve "
+                    "YYYY-MM-DD: the window the risk model behind this solve "
                     "was estimated over. Resolved rather than echoed: the "
                     "request's `start` is a bound on the fetch, and this is "
                     "later than it whenever the store does not reach back that "
@@ -2397,8 +2425,8 @@ class RiskDecomposition(BaseModel):
 class ExposuresView(BaseModel):
     """Response of `GET /optimise/runs/{run_id}/exposures`.
 
-    Factors are the ones derivable from price and share count — size, momentum,
-    volatility — plus a market intercept. Value and quality are absent rather
+    Factors are the ones derivable from price and share count (size, momentum,
+    volatility), plus a market intercept. Value and quality are absent rather
     than approximated: a momentum factor built from prices is the real thing, a
     value factor faked without book values would not be.
     """
@@ -2585,8 +2613,8 @@ class ExpressionNode(RootModel[Annotated[FieldNode
     """One node of a serialised expression, discriminated on `node`.
 
     The grammar a screen is written in: a field, a comparison over one, or a
-    boolean composition of either. Recursive — `all`, `any` and `not` carry
-    nodes of this same union — so an arbitrarily nested screen is one type.
+    boolean composition of either. Recursive (`all`, `any` and `not` carry
+    nodes of this same union), so an arbitrarily nested screen is one type.
 
     A `RootModel` rather than a bare union so the union is a *named* schema in
     this document: a recursive `$ref` needs a name to point at, and so does
@@ -2684,14 +2712,15 @@ class ScheduleView(BaseModel):
     index_id: str
     rebalancing_frequency: str
     rebalance_day_rule: str
+    # Always present since BN-180 made the calendar required.
     calendar: str = Field(
-        description="Exchange MIC the dates were computed on. Always present "
-                    "since BN-180 made the calendar required.")
+        description="Exchange MIC the dates were computed on. Always present, "
+                    "since every index has a calendar.")
     as_of: str = Field(description="Date the answer was computed from.")
     next_rebalance: str | None = Field(
         default=None,
         description="Next rebalance date, ISO 8601. Null when none falls "
-                    "within the lookahead — which happens only for a schedule "
+                    "within the lookahead, which happens only for a schedule "
                     "this server cannot project, not for a normal index.")
     days_until: int | None = Field(
         default=None,
@@ -2706,7 +2735,7 @@ class ScheduleView(BaseModel):
                     "there were.")
     recent_total: int = Field(
         default=0,
-        description="Rebalances between the base date and `as_of` — the "
+        description="Rebalances between the base date and `as_of`: the "
                     "length `recent` would have had before the `limit` trim, "
                     "so equal to it when nothing was trimmed. A client reads "
                     "these two together to tell 'these are all of them' from "
@@ -2718,7 +2747,7 @@ class ScheduleView(BaseModel):
                     "many were found.")
     upcoming_total: int = Field(
         default=0,
-        description="Rebalances the lookahead projection found after `as_of` — "
+        description="Rebalances the lookahead projection found after `as_of`: "
                     "the length `upcoming` would have had before the `limit` "
                     "trim, not the number that will ever occur. The projection "
                     "runs a fixed few periods ahead and `limit` does not "
@@ -2738,7 +2767,7 @@ class PreviewDocumentRequest(BaseModel):
     """Body of `POST /indices/preview`, which previews a document as supplied.
 
     The route for a draft. The by-id route reads what is stored, so while an
-    editor holds unsaved changes its figures describe the old definition — with
+    editor holds unsaved changes its figures describe the old definition, with
     nothing on screen to say they are stale. This one previews exactly what was
     sent, so editing a rule updates the resolved figures without saving.
     """
@@ -2799,10 +2828,10 @@ class PreviewAsset(BaseModel):
     source_weight: float | None = Field(
         default=None,
         description="Derived preview only: what the parent index published for "
-                    "this name at the rebalance being previewed — the 'before'.")
+                    "this name at the rebalance being previewed: the 'before'.")
     solved_weight: float | None = Field(
         default=None,
-        description="Derived preview only: what the optimiser allocated it — "
+        description="Derived preview only: what the optimiser allocated it, "
                     "the 'after'. Equal to `weight`, and carried separately so "
                     "the before/after/delta triple reads as one row without a "
                     "client having to know which face it is on.")
@@ -2830,13 +2859,13 @@ class PreviewConstraint(BaseModel):
         description="Signed room at the solution: zero sits exactly on the "
                     "boundary, positive has room, negative would be a "
                     "violation and is never returned. Measured in `unit`, not "
-                    "in a common currency — there is no shadow price here and "
+                    "in a common currency: there is no shadow price here and "
                     "slacks of different constraints are not comparable.")
     unit: str = Field(
         description="What `slack` is measured in, declared by the constraint "
                     "class and also published by `/optimise/constraint-types`. "
-                    "'fraction' means a proportion — of the portfolio for a "
-                    "weight or turnover limit, of return for a return target — "
+                    "'fraction' means a proportion (of the portfolio for a "
+                    "weight or turnover limit, of return for a return target) "
                     "and formats as a percentage; 'count' is a whole number of "
                     "names.")
     binding: bool = Field(
@@ -2844,11 +2873,11 @@ class PreviewConstraint(BaseModel):
 
 
 class PreviewSolve(BaseModel):
-    """What the optimiser did at one rebalance — the derived face of a preview.
+    """What the optimiser did at one rebalance: the derived face of a preview.
 
     A derivation has no waterfall: the solve moves every weight at once rather
     than eliminating names in steps, so there are no rungs to show. This is the
-    honest analogue — which parent snapshot was solved, under what, and which
+    honest analogue: which parent snapshot was solved, under what, and which
     rules cost something.
     """
     source_index_id: str = Field(
@@ -2861,7 +2890,7 @@ class PreviewSolve(BaseModel):
     objective: str = Field(description="What the solve minimised.")
     binding: list[str] = Field(
         default_factory=list,
-        description="Labels of the constraints the solution sits on — the "
+        description="Labels of the constraints the solution sits on: the "
                     "headline answer to 'what did my constraints do?'. Each "
                     "also appears in `constraints` with its slack.")
     constraints: list[PreviewConstraint] = Field(
@@ -3035,7 +3064,7 @@ class OverviewView(BaseModel):
     name: str
     start: str = Field(
         description="First date the stored run's level series covers, "
-                    "YYYY-MM-DD — the same form `CompareView.start` uses. "
+                    "YYYY-MM-DD, the same form `CompareView.start` uses. "
                     "Resolved from the data rather than requested: it is "
                     "**later than the index's `base_date`** whenever the price "
                     "store does not reach back that far, so labelling it as "
@@ -3077,7 +3106,7 @@ class ConstituentRow(BaseModel):
         default=None,
         description="The company's shares outstanding on this date, from "
                     "market data. Deliberately NOT the number of shares the "
-                    "index holds — that is a different figure needing a "
+                    "index holds: that is a different figure needing a "
                     "divisor and a notional, and naming this one `shares` "
                     "would let the two be confused silently.")
     delta_since_rebalance: float | None = Field(
@@ -3107,7 +3136,7 @@ class ConstituentRow(BaseModel):
 class RiskPayload(BaseModel):
     """How the index's volatility divides among its holdings.
 
-    Contributions sum to `volatility` exactly rather than approximately — the
+    Contributions sum to `volatility` exactly rather than approximately: the
     decomposition is an identity, so a client can show the parts and the whole
     without them disagreeing.
     """
@@ -3126,15 +3155,15 @@ class RiskPayload(BaseModel):
                     "sees which names are missing.")
     window_start: str | None = Field(
         default=None,
-        description="First date of the **run's own** level series, YYYY-MM-DD "
-                    "— the span the price fetch behind this estimate was given, "
+        description="First date of the **run's own** level series, YYYY-MM-DD: "
+                    "the span the price fetch behind this estimate was given, "
                     "not the dates prices came back on. It does not narrow: "
                     "when the store covers less, the covariance is estimated "
                     "from fewer observations and this still reports the run's "
                     "span, so it is a bound rather than a measurement. Null "
                     "when the run carries no level series. `window_end` is the "
                     "other end, and `active_risk.window_start` is this same "
-                    "window — both come from the run, not from a query.")
+                    "window; both come from the run, not from a query.")
     window_end: str | None = Field(
         default=None,
         description="Last date of the run's own level series, YYYY-MM-DD, on "
@@ -3147,7 +3176,7 @@ class ActiveRiskPayload(BaseModel):
     """How tracking error against a benchmark divides among active positions.
 
     Contributions sum to `tracking_error` exactly, the same identity the total
-    decomposition satisfies — on active weights rather than holdings.
+    decomposition satisfies, on active weights rather than holdings.
     """
     benchmark: str = Field(description="Index the comparison is against.")
     tracking_error: float = Field(
@@ -3167,8 +3196,8 @@ class ActiveRiskPayload(BaseModel):
                     "them would hide the biggest sources of tracking error.")
     window_start: str | None = Field(
         default=None,
-        description="First date of the **run's own** level series, YYYY-MM-DD "
-                    "— the span the price fetch behind this estimate was given, "
+        description="First date of the **run's own** level series, YYYY-MM-DD: "
+                    "the span the price fetch behind this estimate was given, "
                     "not the dates prices came back on. It does not narrow: "
                     "when the store covers less, the covariance is estimated "
                     "from fewer observations and this still reports the run's "
@@ -3244,8 +3273,8 @@ class AttributionView(BaseModel):
         description="The window's first date **as asked for**, YYYY-MM-DD: the "
                     "`start` query echoed back unchanged, or the run's own "
                     "first date when the query was omitted, which is what the "
-                    "window then defaulted to. It does not resolve — no data "
-                    "moves it — so it is the field to label a range with. "
+                    "window then defaulted to. It does not resolve (no data "
+                    "moves it), so it is the field to label a range with. "
                     "`start` is the resolved counterpart and is a trading day "
                     "later. Null only when the query was omitted and the run "
                     "carries no level series to default from. `requested_end` "
@@ -3295,11 +3324,10 @@ class AssetView(BaseModel):
                     "rebalances it was actually in.")
     raw_weight_history: dict[str, float] = Field(
         default_factory=dict,
-        description="The same dates -> the weight before capping. Added "
-                    "alongside `weight_history` rather than replacing it, so "
-                    "the drilldown can show what the cap did to this name over "
-                    "time without breaking a client reading only the applied "
-                    "series.")
+        description="The same dates -> the weight before capping, so the "
+                    "drilldown can show what the cap did to this name over "
+                    "time. Carried alongside `weight_history`, which stays the "
+                    "applied series.")
     rebalances_held: int
     total_return: float
     index_return: float
@@ -3325,12 +3353,12 @@ class CompareView(BaseModel):
     index_ids: list[str]
     start: str = Field(
         description="First date **every** index in `index_ids` covers, "
-                    "YYYY-MM-DD — the intersection of their level series, not "
+                    "YYYY-MM-DD: the intersection of their level series, not "
                     "the earliest start among them. Resolved: one index whose "
                     "history begins later moves this forward for all of them, "
                     "which is why each entry's level is rebased from here. "
-                    "Nothing was requested — `GET /beacon/compare` takes only "
-                    "`ids` — so there is no window to echo. `end` is the other "
+                    "Nothing was requested (`GET /beacon/compare` takes only "
+                    "`ids`), so there is no window to echo. `end` is the other "
                     "end of the same shared span.")
     end: str = Field(
         description="Last date every index covers, YYYY-MM-DD. Resolved by the "
@@ -3357,11 +3385,12 @@ class BacktestRunResult(BaseModel):
         description="Level against its running peak; 0 at a new high.")
     annual_returns: dict[str, float] = Field(
         description="Calendar year -> return. Compounds to total_return.")
+    # Named `benchmark_level` before BN-155; renamed because the tracked index
+    # and the benchmark of record are different comparators, and this series
+    # is the former.
     index_level: SeriesPayload = Field(
-        description="The tracked index, rebased to 100 on the same axis. "
-                    "Named `benchmark_level` before BN-155; renamed because "
-                    "the tracked index and the benchmark of record are "
-                    "different comparators, and this series is the former.")
+        description="The tracked index, rebased to 100 on the same axis. Not "
+                    "the external benchmark, which is `benchmark`.")
     metrics: BacktestMetrics
     benchmark: RelativeMetricsPayload | None = Field(
         default=None,
@@ -3393,16 +3422,17 @@ class BacktestRunResult(BaseModel):
 ResultT = TypeVar("ResultT")
 
 
+# Generic since BN-172. Before this, `result` was `Any` and the whole backtest
+# run payload crossed the wire undeclared: no client could generate a type for
+# it and no spec refresh could tell them it had changed.
 class JobStatusOf(BaseModel, Generic[ResultT]):
     """State of one background job, generic over its result payload.
 
     Generic so that every kind of job can publish the shape of the thing it
-    returns (BN-172). Before this, `result` was `Any` and the whole backtest
-    run payload crossed the wire undeclared: no client could generate a type
-    for it and no spec refresh could tell them it had changed.
+    returns.
 
-    Not used as a response model directly — the parametrisations below are,
-    and `JobStatus` is the untyped one that existing callers keep using.
+    Not used as a response model directly: the parametrisations below are,
+    and `JobStatus` is the untyped one.
     """
     job_id: str = Field(description="The job's id: poll GET /jobs/{job_id}, "
                                     "or watch it on the event socket.")
@@ -3415,27 +3445,29 @@ class JobStatusOf(BaseModel, Generic[ResultT]):
     result: ResultT | None = Field(
         default=None,
         description="Present only once the job has succeeded; null otherwise.")
+    # BN-199: `error` was a bare string until then, which left the job path
+    # the one place a deliberate refusal and a crash looked alike. Jobs that
+    # failed before it are migrated to UNCLASSIFIED_FAILURE.
     error: "ErrorDetail | None" = Field(
         default=None,
         description="Failure reason, when status is failed; null otherwise. "
                     "The same `{code, message, detail}` a non-2xx response "
-                    "carries, and the same schema — so a failed job branches "
-                    "on `error.code` exactly as an HTTP error does (BN-199). "
-                    "It was a bare string until then, which left the job path "
-                    "the one place a deliberate refusal and a crash looked "
-                    "alike. A job that failed before this carries "
-                    "UNCLASSIFIED_FAILURE: its message was recorded, its code "
-                    "was not, and the migration does not guess one.")
+                    "carries, and the same schema, so a failed job branches "
+                    "on `error.code` exactly as an HTTP error does. A job "
+                    "recorded by an older engine carries UNCLASSIFIED_FAILURE: "
+                    "its message was recorded, its code was not, and the "
+                    "migration does not guess one.")
 
 
+# The name and the shape are unchanged from before BN-172, deliberately:
+# `JobStatus` is already a published schema a client generates from, so the
+# generic arrived as a new base rather than by renaming this to
+# `JobStatus_Any_`.
 class JobStatus(JobStatusOf[Any]):
     """State of one background job, with an untyped result.
 
-    The name and the shape are unchanged from before BN-172, deliberately:
-    `JobStatus` is already a published schema a client generates from, so the
-    generic arrived as a new base rather than by renaming this to
-    `JobStatus_Any_`. Still the right answer for a listing, which mixes kinds,
-    and the fallback arm of `AnyJobStatus` for a kind nothing models yet.
+    Used for a listing, which mixes kinds, and as the fallback arm of
+    `AnyJobStatus` for a kind nothing models yet.
     """
 
 
@@ -3455,8 +3487,9 @@ class RiskModelJobStatus(JobStatusOf[RiskModelView]):
     """A `risk:{model_id}` job. `result` is the estimated model."""
 
 
+# BN-236.
 class LoadResult(BaseModel):
-    """Result payload of a completed `load:{store_id}` job (BN-236)."""
+    """Result payload of a completed `load:{store_id}` job."""
     store_id: str = Field(description="The store now being served.")
     name: str = Field(description="Its display name.")
     identifiers: int = Field(description="Distinct identifiers in its market "
@@ -3471,8 +3504,9 @@ class LoadJobStatus(JobStatusOf[LoadResult]):
     """A `load:{store_id}` job. `result` describes the store now served."""
 
 
+# BN-237.
 class GenerateResult(BaseModel):
-    """Result payload of a completed `generate:{store_id}` job (BN-237)."""
+    """Result payload of a completed `generate:{store_id}` job."""
     store_id: str = Field(description="The new store's id.")
     name: str = Field(description="Its display name.")
     path: str = Field(description="The folder the engine wrote it to.")
@@ -3484,8 +3518,9 @@ class GenerateJobStatus(JobStatusOf[GenerateResult]):
     """A `generate:{store_id}` job. `result` describes the new store."""
 
 
+# BN-240.
 class RefreshResult(BaseModel):
-    """Result payload of a completed `refresh:{store_id}` job (BN-240)."""
+    """Result payload of a completed `refresh:{store_id}` job."""
     store_id: str = Field(description="The store refreshed.")
     name: str = Field(description="Its display name.")
     action: Literal["extend", "reread", "download"] = Field(
@@ -3558,12 +3593,14 @@ class DatasetCoverage(BaseModel):
     end: str | None = Field(default=None, description="Latest date held, ISO 8601.")
     cache_age: float | None = Field(
         default=None,
-        description="Seconds since this dataset was last loaded or synced. "
+        description="Seconds since this dataset was last loaded or "
+                    "refreshed. "
                     "Null when the dataset is not loaded at all, which is a "
                     "different statement from 'loaded and never refreshed'.")
     last_refreshed: str | None = Field(
         default=None,
-        description="When this dataset was last loaded or synced, ISO 8601. "
+        description="When this dataset was last loaded or refreshed, ISO "
+                    "8601. "
                     "Carried alongside the age because an age is only "
                     "meaningful at the instant it was read, and a client "
                     "holding a response for a minute needs the timestamp.")

@@ -3,12 +3,12 @@
 Report templates and rendering.
 
 Templates are stored documents. Rendering is a job, because the result is
-*bytes* — and bytes do not belong in a JSON job payload, so the render writes a
+*bytes*, and bytes do not belong in a JSON job payload, so the render writes a
 file and the job result carries its id for `GET /reports/renders/{id}` to
 stream.
 
 Two kinds of template. A stored one is rendered exactly as saved, because that
-is what "I designed this page" means. A built-in one — `FACTSHEET-A4` — is
+is what "I designed this page" means. A built-in one (`FACTSHEET-A4`) is
 generated from an index's latest run. See `beacon.server.reports` for why there
 is no templating language in between.
 """

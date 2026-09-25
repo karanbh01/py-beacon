@@ -10,7 +10,7 @@ which one a baseline was built against.
 
 ## Reproducibility, and why the maths is deliberately dull
 
-The paths are built from `+` and `*` only — no `exp`, no `log`. That is not
+The paths are built from `+` and `*` only: no `exp`, no `log`. That is not
 an accident and not a simplification:
 
 * numpy's `Generator` produces bit-identical draws across platforms for a given
@@ -24,7 +24,7 @@ an accident and not a simplification:
 
 So returns are simple rather than logarithmic and prices compound by
 multiplication. A geometric path built the textbook way through `exp` would be
-reproducible on one machine and off by a hair on another — invisible in a unit
+reproducible on one machine and off by a hair on another: invisible in a unit
 test, and exactly the kind of thing that makes an image-regression baseline
 fail on a different runner for no reason anyone can see.
 
@@ -32,18 +32,21 @@ fail on a different runner for no reason anyone can see.
 
 Six assets chosen so the data has something to say:
 
-* **AAA** and **BBB** are close substitutes — high beta, small idiosyncratic
-  noise — so correlation, shrinkage and substitution effects have a real signal
+* **AAA** and **BBB** are close substitutes (high beta, small idiosyncratic
+  noise), so correlation, shrinkage and substitution effects have a real signal
   to find.
 * **CCC** is defensive: low beta, low volatility, and only weakly correlated
-  with the rest. Tuned that way on purpose — with a merely low-volatility CCC
-  the minimum-variance portfolio put 100% into it, and a corner solution tests
-  an optimiser far less than an interior one. As it stands the answer blends
-  three names and beats the least volatile single asset, so diversification has
-  to be working for the numbers to come out right.
+  with the rest. Tuned that way on purpose: with a merely low-volatility CCC
+  the minimum-variance portfolio would put 100% into it, and a corner solution
+  tests an optimiser far less than an interior one. As it stands the answer
+  blends three names and beats the least volatile single asset, so
+  diversification has to be working for the numbers to come out right.
 * **DDD** is the volatile high-flyer, **EEE** the laggard, so return and risk
   rankings disagree and an optimiser has a genuine trade-off.
 * **FFF** trades in GBP, so anything touching FX has a case that exercises it.
+  The `GBPUSD` pair is in the market data as its own identifier.
+
+The span runs from `START` to `END` on the XNYS calendar's sessions.
 """
 from dataclasses import dataclass
 from functools import lru_cache
@@ -127,20 +130,21 @@ UNIVERSE = tuple(constituent.identifier for constituent in CONSTITUENTS)
 def trading_days() -> pd.DatetimeIndex:
     """The dataset's sessions: the days XNYS was open, inside the span.
 
-    Business days until BN-186, which is why the fixture carried bars on 4
-    July and 25 December and why an index calculated over it computed a level
-    on both. The generator and the daily loop agreed only because they shared
-    that assumption, so a holiday could never be the thing that broke a test.
-
-    The span is unchanged and the first date is not: 2 January 2023 is a
-    Monday, and the day NYSE observed New Year's Day. The panel now starts on
-    the 3rd, and 783 business days become 752 sessions.
+    `START` is 2 January 2023, the day NYSE observed New Year's Day, so the
+    panel starts on the 3rd: 752 sessions in all, with no bars on market
+    holidays such as 4 July and 25 December.
 
     FFF is quoted in GBP and listed on the LSE, and gets a bar on every XNYS
-    session regardless -- one calendar for the dataset. A universe whose
+    session regardless: one calendar for the dataset. A universe whose
     venues genuinely disagree about sessions is a real modelling question and
     deliberately not this fixture's.
     """
+    # Business days until BN-186, which is why the fixture carried bars on 4
+    # July and 25 December and why an index calculated over it computed a
+    # level on both. The generator and the daily loop agreed only because
+    # they shared that assumption, so a holiday could never be the thing that
+    # broke a test. The span is unchanged; 783 business days became 752
+    # sessions.
     return sessions(pd.Timestamp(START), pd.Timestamp(END), CALENDAR)
 
 
@@ -209,8 +213,10 @@ def market_frame() -> pd.DataFrame:
     """The long-form market data, in the shape MarketData expects.
 
     One row per identifier per date, carrying OHLC, volume, shares outstanding
-    and free float — enough for market-cap weighting and for a price_column
-    override to have something else to point at.
+    and free float: enough for market-cap weighting and for a price_column
+    override to have something else to point at. The `GBPUSD` pair is
+    included as its own identifier, with its rate in every price column and
+    no shares outstanding or free float.
     """
     frames = [_constituent_rows(constituent) for constituent in CONSTITUENTS]
     frames.append(_fx_rows())
@@ -258,11 +264,11 @@ def _fx_rows() -> pd.DataFrame:
 def reference_frame() -> pd.DataFrame:
     """The reference data, valid across the whole span.
 
-    One open-ended validity row per constituent. Point-in-time classification
-    changes are BN-98's territory; this stays deliberately simple so a test
-    that does not care about validity windows does not have to think about
-    them.
+    One open-ended validity row per constituent, with no classification
+    changes, so a test that does not care about validity windows does not
+    have to think about them.
     """
+    # Point-in-time classification changes are BN-98's territory.
     return pd.DataFrame([
         {"IDENTIFIER": constituent.identifier,
          "NAME": constituent.name,
@@ -286,7 +292,7 @@ def reference_data() -> ReferenceData:
 
 
 def data_fetcher() -> DataFetcher:
-    """The dataset as a DataFetcher — the usual entry point.
+    """The dataset as a DataFetcher: the usual entry point.
 
     Returns:
         DataFetcher: Wired to the full universe, the FX pair and the reference

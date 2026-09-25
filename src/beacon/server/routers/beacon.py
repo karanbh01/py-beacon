@@ -7,17 +7,18 @@ day by day, which is far too slow to hold an HTTP connection open for. The
 submission endpoint therefore returns a job id; the client polls
 `GET /jobs/{id}` or listens on `/ws`.
 
-The read endpoints are the other half. They serve the panes of the view —
-overview, weights, attribution, a single name, and a comparison across
-indices — and each answers from the **most recent successful run** of that
-index rather than recalculating anything. That is why BN-91 persisted job
-results and why BN-71 extended the payload to carry composition: a client
-switching tabs should not be waiting on a recalculation, and two panes read a
-moment apart should describe the same run.
+The read endpoints are the other half. They serve the panes of the view
+(overview, weights, attribution, a single name, and a comparison across
+indices), and each answers from the **most recent successful run** of that
+index rather than recalculating anything. Job results are persisted and the
+run payload carries composition, so a client switching tabs does not wait on a
+recalculation, and two panes read a moment apart describe the same run.
 
 Every read is a 404 until a backtest has been run, which is the honest answer:
 there is no view of an index nobody has calculated.
 """
+# BN-91 persisted job results and BN-71 extended the run payload to carry
+# composition, which is what lets these reads answer from the latest run.
 from typing import Annotated, Any
 
 from ..._optional import require
@@ -125,7 +126,7 @@ def _record_row(index_id: str,
                 document: dict[str, Any]) -> BacktestRecordRow:
     """The listing row for one stored record.
 
-    The row is thin — id and capture time — but the *whole* record is validated
+    The row is thin (id and capture time), but the *whole* record is validated
     to produce it (BN-174). Reading only `run_at` is what made the two surfaces
     disagree: a record missing a required field satisfied the listing and then
     500d on `/record`, so a client was offered a row it could not open.
@@ -197,20 +198,22 @@ def build_beacon_router() -> APIRouter:
         return build_compare({index_id: _latest_run(request, index_id)
                               for index_id in ids})
 
+    # Added in BN-162. Since BN-174 "cannot be read" means the same thing here
+    # as at `/record`, and the skipped count is published beside the rows.
     @router.get("/backtests", response_model=BacktestRecordCollection)
     def backtest_records(request: Request) -> BacktestRecordCollection:
-        """Every stored backtest record, newest first (BN-162).
+        """Every stored backtest record, newest first.
 
-        The enumeration Beacon View's search bar needs: which indices HAVE a
-        record, and when each was captured. One row per index — the record
-        store keeps the latest run only — and the row is deliberately thin;
+        The enumeration Beacon View's search bar needs: which indices have a
+        record, and when each was captured. One row per index (the record
+        store keeps the latest run only), and the row is deliberately thin;
         `/beacon/{index_id}/record` serves the books.
 
         A record that cannot be read is skipped with a warning rather than
-        failing the listing: one bad file must not hide every good one. Since
-        BN-174 "cannot be read" means the same thing here as at `/record`, and
-        the count of what was skipped is published beside the rows — a listing
-        silently short is indistinguishable from a complete one.
+        failing the listing: one bad file must not hide every good one.
+        "Cannot be read" means the same thing here as at `/record`, and the
+        count of what was skipped is published beside the rows, because a
+        listing silently short is indistinguishable from a complete one.
         """
         records: DocumentStore = request.app.state.backtest_record_store
         rows, skipped = read_collection(records, _record_row, "backtest record")
@@ -234,21 +237,23 @@ def build_beacon_router() -> APIRouter:
                         index_id: Identifier) -> BacktestResultSummary:
         """The latest run's books, nested: the record, not the derived view.
 
-        `BacktestJobStatus.result` carries the run payload — rebased level,
-        returns, drawdown — which is what a chart wants. This is the other
-        half BN-155 shaped and BN-158 finally serves: the portfolio book with
-        its day-zero NAV, bounded positions and weights with true totals, and
-        the comparator books, null when the run had none.
+        `BacktestJobStatus.result` carries the run payload (rebased level,
+        returns, drawdown), which is what a chart wants. This is the other
+        half: the portfolio book with its day-zero NAV, bounded positions and
+        weights with true totals, and the comparator books, null when the run
+        had none.
 
         Raises:
             DataNotFoundError: If the index has never been backtested
-                successfully — the same answer, and the same pointer, as the
-                overview. Since BN-174 a record that cannot be parsed or
-                validated answers the same way rather than 500ing: it is the
-                document the listing skips, and a stored artefact the server
-                cannot interpret is indistinguishable, from here, from one that
-                was never written. The fault is logged at WARNING.
+                successfully (the same answer, and the same pointer, as the
+                overview). A record that cannot be parsed or validated answers
+                the same way rather than with a 500: it is the document the
+                listing skips, and a stored artefact the server cannot
+                interpret is indistinguishable, from here, from one that was
+                never written. The fault is logged at WARNING.
         """
+        # The record shape is BN-155's, first served by BN-158. Since BN-174
+        # an unreadable record is a 404 here rather than a 500.
         records: DocumentStore = request.app.state.backtest_record_store
 
         return load_document(records,

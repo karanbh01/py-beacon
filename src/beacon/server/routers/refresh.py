@@ -1,5 +1,5 @@
 # src/beacon/server/routers/refresh.py
-"""Refresh a data store from its own source (BN-240).
+"""Refresh a data store from its own source.
 
 What a refresh does depends on the store:
 
@@ -18,6 +18,7 @@ Whatever a refresh changes is saved, so it survives a restart. If the store
 is the one being served, the engine then serves the refreshed data, with a
 new `data_version`.
 """
+# Added in BN-240, replacing the in-memory Yahoo Finance sync.
 import asyncio
 import logging
 from collections.abc import Callable

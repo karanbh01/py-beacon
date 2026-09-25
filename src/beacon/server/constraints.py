@@ -3,7 +3,7 @@
 Constraint sets: the stored form of what a portfolio is allowed to be.
 
 One stored row maps to exactly one class in `beacon.optimise.constraints`. That
-correspondence is the whole design — a client's constraint editor, the JSON it
+correspondence is the whole design: a client's constraint editor, the JSON it
 saves, and the objects the solver receives are the same list in three
 representations, so there is no translation layer where a rule can quietly
 change meaning.
@@ -13,7 +13,7 @@ change meaning.
 A malformed constraint set is a bad request, and the client should learn that
 from the save or the submission rather than from a job that fails a moment
 later. So the document is validated up front and reports **every** problem it
-finds, addressed to the row that caused it — a user fixing a constraint editor
+finds, addressed to the row that caused it. A user fixing a constraint editor
 needs all the errors, not the first one.
 
 What cannot be checked here is feasibility: whether a set of individually valid
@@ -31,10 +31,11 @@ from .schemas import ConstraintRow, ConstraintSet, Finding
 logger = logging.getLogger(__name__)
 
 
+# Read off the catalogue since BN-166.
 def constraint_types_registered() -> set[str]:
     """The constraint types a row may name.
 
-    Read off the catalogue (BN-166) rather than a hand-kept table: importing
+    Read off the catalogue rather than a hand-kept table: importing
     `beacon.optimise` above is what registers the classes, and adding a
     constraint means decorating it there and nowhere else.
     """
@@ -42,13 +43,16 @@ def constraint_types_registered() -> set[str]:
 
 # Parameters each type accepts, so an unknown key is reported against the row
 # that carries it rather than surfacing as a TypeError from a constructor.
+#
+# Read off the classes since BN-117. The hand-kept table this replaced had to be
+# edited whenever a constraint gained a parameter, and nothing failed when it
+# was not: the validator simply rejected a parameter the solver would have
+# accepted.
 def constraint_params() -> dict[str, set[str]]:
     """Constraint type -> the parameters it accepts.
 
-    Read off the classes (BN-117) rather than kept here by hand. The table this
-    replaced had to be edited whenever a constraint gained a parameter, and
-    nothing failed when it was not — the validator simply rejected a parameter
-    the solver would have accepted.
+    Read off the constraint classes themselves, so a parameter a class accepts
+    is always accepted here too.
     """
     return {name: catalogue.parameter_names(catalogue.CONSTRAINT, name)
             for name in catalogue.registered_names(catalogue.CONSTRAINT)}
@@ -65,17 +69,18 @@ def validate_constraint_set(document: ConstraintSet) -> list[Finding]:
 
     Returns:
         list: Findings, addressed to the row that caused each. Empty when the
-        set is well formed — which is not the same as feasible.
+        set is well formed, which is not the same as feasible.
     """
     return validate_constraint_rows(document.constraints)
 
 
+# Derivations carry constraint rows since BN-168.
 def validate_constraint_rows(constraints: Sequence[ConstraintRow],
                              prefix: str = "constraints") -> list[Finding]:
     """Check a list of constraint rows wherever it is carried.
 
-    The same rows appear in two documents — a stored constraint set, and an
-    optimised index's derivation (BN-168) — and a client editing either needs
+    The same rows appear in two documents (a stored constraint set, and an
+    optimised index's derivation), and a client editing either needs
     identical answers, so there is one checker and the caller only says where
     the rows live.
 
@@ -195,9 +200,9 @@ def _validate_set_shape(constraints: Sequence[ConstraintRow],
             severity=WARNING,
             code="NON_CONVEX_CONSTRAINT",
             message="A holding limit is not convex. It is honoured by a "
-                    "heuristic — solve, keep the largest positions, re-solve — "
-                    "so the answer satisfies the limit but is not proven "
-                    "optimal."))
+                    "heuristic (solve, keep the largest positions, solve "
+                    "again), so the answer satisfies the limit but is not "
+                    "proven optimal."))
 
     seen: set[str] = set()
     for position, row in enumerate(constraints):
@@ -250,7 +255,7 @@ def _built(row: ConstraintRow) -> Constraint:
     """One row through the catalogue's own builder.
 
     The row already is the ``{type, params}`` payload shape, so the round-trip
-    machinery in `beacon.optimise.config` builds it directly — one code path
+    machinery in `beacon.optimise.config` builds it directly: one code path
     from a stored document to the object the solver receives.
     """
     return constraint_from_payload({"type": row.type, "params": row.params})
@@ -264,9 +269,9 @@ def has_errors(findings: list[Finding]) -> bool:
 def label_map(document: ConstraintSet) -> dict[str, str]:
     """Constraint label to the row id that produced it.
 
-    The optimiser reports binding constraints by their own generated labels —
-    "maximum weight 10.0000% on AAA" — which say what bound but not which row
-    of the editor to highlight. Building the same objects in the same order and
+    The optimiser reports binding constraints by their own generated labels,
+    such as "maximum weight 10.0000% on AAA", which say what bound but not
+    which row of the editor to highlight. Building the same objects in the same order and
     reading their labels back gives the mapping, without the optimiser needing
     to know that a stored document exists.
     """

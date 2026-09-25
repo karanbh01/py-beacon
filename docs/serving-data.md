@@ -1,153 +1,281 @@
-# Serving data to a client
+# Serving data
 
-How a desktop client gets numbers out of Beacon, end to end. Written for
-whoever is on the other side of the process boundary.
+py-beacon includes a local engine: an HTTP server that the Beacon desktop app,
+or any other client, starts on the same machine. The engine holds the data and
+runs the calculations (index levels, backtests, attribution, risk), and the
+client asks for results over HTTP.
 
-## The short version
+This page covers starting the engine and where its data comes from. For
+authentication, jobs, live events and errors, see
+[The engine's HTTP API](server.md).
+
+## Quick start
 
 ```bash
-python -m beacon.synthetic --seed 42   # 6,000 names, 10 years, ~18s
-python -m beacon.server --port 0 --token dev        # finds it by itself
+pip install "py-beacon-kit[server]"
+python -m beacon.synthetic                     # 6,000 names over ten years
+python -m beacon.server --port 0 --token dev
 ```
 
-The second command takes no data argument. That is the point: the generator's
-default output location and the server's third resolution branch are the same
-directory, so the two agree without either knowing about the other. A client
-that already spawns `python -m beacon.server --port 0` needs no change.
+The first command writes a synthetic data store to the app-data folder. The
+second takes no data argument: when no data store is registered yet, the
+engine registers the one in the app-data folder and serves it.
 
-## The client never reads the data
+You can also start the engine with no data at all and load some while it runs:
+generate synthetic data, register a folder or database, or import files. See
+[Loading data while the engine runs](#loading-data-while-the-engine-runs).
 
-It talks HTTP to a server it launches. It does not open a file, does not see a
-CSV, and does not know the store is gzipped — so the format can change without
-anything on the client side changing with it.
+## Why the client talks HTTP
 
-That is deliberate. The data is not the product; the *calculations* are. Index
-levels, backtests, attribution and risk contributions are all pandas and numpy.
-A client reading the store directly would have to reimplement the index maths,
-and then there would be two implementations to keep agreeing.
+The client never opens the data files. It does not know the store is gzipped
+CSV, so the format can change without any change to the client.
+
+The data is not the product; the calculations are. A client reading the store
+directly would have to reimplement the index maths, and then two
+implementations would have to agree.
+
+## Starting the engine
+
+```bash
+python -m beacon.server --port 0 --token <secret>
+```
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `--host` | `127.0.0.1` | The interface to bind. Keep it on loopback: the engine has no TLS and trusts its bearer token alone. |
+| `--port` | `0` | The port to bind. `0` lets the operating system pick a free one, which the engine then announces. |
+| `--token` | `$BEACON_API_TOKEN` | The bearer token every request must carry. Required: with neither the option nor the variable, the engine exits. |
+| `--data` | none | A data-store folder to serve, instead of the registered stores. |
+| `--documents` | the app-data folder | Where the engine keeps what it saves (see below). |
+| `--cors-origin` | `beacon://app`, `app://` | An exact origin allowed to call the engine from a browser. Repeatable, and replaces the defaults. `http://localhost` on any port is always allowed. |
+
+| Environment variable | Used when |
+| --- | --- |
+| `BEACON_API_TOKEN` | `--token` is not given. |
+| `BEACON_DATA_PATH` | `--data` is not given. A data-store folder to serve. |
+| `BEACON_CORS_ORIGINS` | `--cors-origin` is not given. Comma-separated origins; replaces the defaults. |
+
+### What the engine saves
+
+Everything the engine saves goes under the `--documents` folder, one
+subfolder per collection: indices, universes, watchlists, constraint sets,
+report templates, backtest records, job results, rendered reports, the list of
+registered data stores, and the data stores the engine creates itself
+(generated or imported).
+
+Without `--documents`, this is the platform app-data folder; on Windows,
+`%LOCALAPPDATA%\beacon\beacon`. The default synthetic data store sits in the
+same folder, under `market-store`, and `beacon.data.store.default_path()`
+returns its path.
+
+!!! note "Microsoft Store Python"
+    With the Microsoft Store build of Python, Windows redirects this folder
+    into the Python package's own storage, under
+    `%LOCALAPPDATA%\Packages\PythonSoftwareFoundation.Python.3.x_...\LocalCache\Local\beacon`.
+    Look there if the folder above is empty.
+
+Pass `--documents` with a temporary folder when you try the engine out, so
+nothing is written into the real app-data folder.
 
 ## The startup handshake
 
-1. **The client spawns the server.**
+1. **The client starts the engine**, with `--port 0` and a token it generated.
 
-   ```
-   python -m beacon.server --port 0 --token <secret>
-   ```
+2. **The engine loads its data.** It reads the data store it will serve (see
+   [Where the data comes from](#where-the-data-comes-from)) before it binds
+   a port, so data is already loaded when the client first calls.
 
-   `--port 0` asks the OS for any free port, so the client does not have to
-   pick one and hope.
+3. **The engine binds a port and announces it.** The first line on stdout is
 
-2. **The server announces where it landed.** The socket is bound *before*
-   uvicorn starts, so the port is known early, and one line goes to stdout:
+    ```
+    BEACON_PORT=52612
+    ```
 
-   ```
-   BEACON_PORT=52612
-   ```
+    flushed at once, because the client is waiting for it. The socket is
+    already listening, so the client can call straight away: a request that
+    arrives before the server has started waits in the socket's queue.
 
-   It is flushed immediately, because the client is blocked reading it — a
-   buffered stdout would deadlock the handshake. Every later stdout line is
-   ordinary logging.
+4. **The engine logs where its data came from**, on stderr:
 
-3. **The server loads the store into memory, once.** The files are not read
-   again.
+    ```
+    INFO:__main__:Data source: the data store 'Synthetic data' (C:\...\market-store).
+    INFO:__main__:Allowed origins: beacon://app, app:// (plus localhost on any port).
+    ```
 
-4. **The client makes ordinary requests.**
+    Everything after the port line, on stdout or stderr, is ordinary logging.
 
-   ```
-   GET http://127.0.0.1:52612/data/prices/CMPA
-   Authorization: Bearer <secret>
-   ```
+5. **The client makes ordinary requests**, with the same token:
 
-   The same token that was passed on the command line. That is how the server
-   knows the request came from the process that started it rather than from
-   anything else on the machine.
+    ```
+    GET http://127.0.0.1:52612/health
+    Authorization: Bearer <secret>
+    ```
 
-The server binds loopback only and lives and dies with the client.
+If the engine cannot start, it prints `error: <reason>` on stderr and exits
+with code 2 before announcing a port. That happens when no token is given, or
+when `--data` or `BEACON_DATA_PATH` names data that cannot be read. So a
+client that sees the process exit before a `BEACON_PORT=` line should report
+stderr.
 
-## Where the server looks for data
+The engine does not watch the process that started it. The client stops it
+when it is done. Jobs still running are lost; finished job results are saved
+(see [Jobs](server.md#jobs)).
 
-In order, stopping at the first that answers:
+## Where the data comes from
 
-| | Source | Behaviour if unreadable |
+At startup the engine takes the first of these that applies:
+
+| | Source | If it cannot be read |
 | --- | --- | --- |
-| 1 | `--data <path>` | **Exit 2.** Asking for a store that cannot be read is a mistake worth stopping for. |
-| 2 | `$BEACON_DATA_PATH` | **Exit 2**, same reasoning. |
-| 3 | The active data store, the one served last time | **Warn and start without data.** A damaged store must not stop the engine from starting and offering another. |
-| 4 | The app-data store, registered as "Synthetic data" the first time it is found | **Warn and start without data**, same reasoning. |
-| 5 | Nothing | The engine starts without data, and a store can be loaded later. |
+| 1 | `--data <folder>` | The engine exits with code 2. Naming data that cannot be read is a mistake worth stopping for. |
+| 2 | `$BEACON_DATA_PATH` | The engine exits with code 2, for the same reason. |
+| 3 | The active registered store: the one served last time | The engine logs a warning and starts with no data, so a store that was moved or damaged never stops it from starting and offering another. |
+| 4 | If no store is registered at all but the app-data folder holds one, that store, registered as "Synthetic data" (or "My data" if it was not generated) and made active | As for 3. |
+| 5 | Nothing | The engine starts with no data. |
 
-The branch that ran is logged immediately after the port announcement:
+Data named by `--data` or `BEACON_DATA_PATH` is served but not registered as
+a store, so it has no store id and cannot be refreshed.
 
-```
-INFO:__main__:Data source: the app-data store (…/beacon/beacon/market-store).
-```
+The "Data source" log line names the branch that ran, for example
+`Data source: no data loaded: 'My data' is unreadable.`, so an empty client
+can be explained by reading the log.
 
-So "why is the client empty" is answered by reading the log rather than by
-guessing.
+## When there is no data
 
-The app-data directory is the platform convention — on Windows,
-`%LOCALAPPDATA%\beacon\beacon\market-store`. `beacon.data.store.default_path()`
-returns it.
+The engine still starts, and everything that does not read data works.
+`GET /health` reports `data_source.configured: false`. A request that needs
+data answers 409 with the code `NO_DATA_LOADED`, which is what a client should
+branch on to offer loading data. `GET /data/identifiers` and
+`GET /data/coverage` answer normally, with nothing in them.
 
-## When there is no data at all
+## Loading data while the engine runs
 
-The server **still starts**. `/health` reports `configured: false`, and a
-request that needs data answers 409 `NO_DATA_LOADED`, which is what a client
-should branch on. Data can then be loaded while the engine runs: activate a
-registered store, generate synthetic data, or import files.
+A data store holds one dataset: a py-beacon data folder or a Postgres
+database. The engine keeps a list of registered stores
+(`GET /data/stores`), serves one at a time, and remembers which, so the next
+start serves the same one.
+
+| To | Call | Answer |
+| --- | --- | --- |
+| Register a data folder or a Postgres database | `POST /data/stores` | 201 with the store. The folder must be an absolute path holding `manifest.json` and `market.csv.gz`; a database is read in full before it is registered. |
+| Serve a registered store | `POST /data/stores/{id}/activate` | 202 with a `load:{id}` job. |
+| Generate synthetic data into a new store | `POST /data/synthetic` | 202 with a `generate:{id}` job. The store is served when it is ready, unless `activate` is false. |
+| Import CSV files or an Excel workbook into a new store | `POST /data/import` | 201 with the new store, plus a `load:{id}` job when it is being served. `GET /data/import/template` gives the layout. |
+| Rename a store or change its refresh source | `PATCH /data/stores/{id}` | 200 with the store. |
+| Forget a store | `DELETE /data/stores/{id}` | 204. A folder you registered is left as it is; a store the engine created (`managed: true`) has its folder deleted. The store being served cannot be forgotten (409). |
+
+Loading runs as a job because reading a large store takes seconds. Until it
+finishes, the engine serves the previous data, and `/health` shows
+`data_source.loading: true`. Only one load runs at a time: another activation
+while one is loading is refused with 409 `CONFLICT`. Generation and import
+started during a load still create their store, but leave it for you to
+activate.
+
+When the new data is being served, the event socket announces `data.loaded`
+with the store and a new `data_version`. A client should then refetch
+anything it derived from the data. A request already running when the switch
+happens finishes with the data it started with.
+
+Generation runs `python -m beacon.synthetic` in a child process with every
+setting spelled out, so the same settings give the same data whichever way it
+was made. Cancelling the job stops the child and removes the half-written
+store.
+
+An import checks every row before saving anything. If a row is wrong, the
+answer is 422 `INVALID_RULE` with one finding per problem, each naming its
+sheet, row and column.
+
+A Postgres store needs the `postgres` extra. The engine only reads it, and
+never stores the password: the store names an environment variable that
+holds it.
 
 ## Refreshing a store
 
 `POST /data/stores/{id}/refresh` brings a store up to date from its own
-source, as a job:
+source, as a `refresh:{id}` job:
 
 | Store | What a refresh does |
 | --- | --- |
-| Synthetic data | Extends it to today (or to `end`), keeping every day it holds |
-| A folder | Reads it again, picking up files changed outside the engine |
-| A database | Reads its tables again |
-| Imported files | Nothing: import them again instead (409) |
+| Synthetic data | Extends it to today, or to `end` in the request body, keeping every day it holds. |
+| A folder | Reads it again, picking up files changed outside the engine. |
+| A database | Reads its tables again. |
+| Imported files | Nothing. The request is refused with 409; import the files again instead. |
 
-A folder store can instead choose to refresh from Yahoo Finance, by setting
-`refresh_from` to `yfinance` when it is registered or later with `PATCH`. Its
-refresh then downloads new prices for its instruments and saves them into the
-folder. This needs the `data` extra, and is never the default.
+A folder or database that is not being served is refused with 409 too: it is
+read afresh whenever it is activated. So is a store that is already
+refreshing, and, for the store being served, a refresh while another load is
+running.
+
+A folder store can refresh from Yahoo Finance instead, by setting
+`refresh_from` to `yfinance` when it is registered or later with `PATCH`.
+Its refresh then downloads new prices for its instruments and saves them into
+the folder. This needs the `data` extra and is never the default. Synthetic
+data and databases cannot choose it.
 
 Whatever a refresh changes is saved, so it survives a restart. If the store is
 the one being served, the engine serves the refreshed data and announces it
-with `data.loaded`. Each store in `GET /data/stores` says what a refresh would
-do in its `refresh` field, which is null when there is nothing to refresh.
-`POST /data/coverage/{dataset}/sync` still works but is deprecated: it
-refreshes the store being served.
+with `data.loaded` and `data.freshness`, both carrying the new `data_version`.
+Each store in `GET /data/stores` says what a refresh would do in its
+`refresh` field (`extend`, `reread` or `download`), which is null when there
+is nothing to refresh.
 
-## Generating a store
+`POST /data/coverage/{dataset}/sync` is deprecated. It refreshes the store
+being served, whichever dataset is named, and ignores its body.
+
+## Generating a store from the command line
 
 `python -m beacon.synthetic` produces market-like data: a factor model with
 GJR-GARCH volatility, Student-t innovations and negative skew, plus reference
 data, shares outstanding, free float, dividends and splits that agree with the
-prices.
+prices, and exchange rates.
 
-It also generates **features** — four fundamental ratios (`pe_ratio`,
+It also generates **features**: four fundamental ratios (`pe_ratio`,
 `pb_ratio`, `eps`, `debt_to_equity`) quarterly, and two alternative series
 (`x_sentiment`, `wikipedia_views`) monthly. The ratios are derived from the
-price path rather than drawn beside it, so `pe_ratio x eps` is the close at
-the period end, exactly. Announcement lags vary per name per quarter and
+price path rather than drawn beside it, so `pe_ratio x eps` is exactly the
+close at the period end. Announcement lags vary by name and quarter, and
 coverage is deliberately incomplete, so a point-in-time read has a ragged edge
-to resolve against.
+to resolve.
 
 | Flag | Default |
 | --- | --- |
 | `--assets` | 6,000 |
-| `--start` / `--end` | The ten years ending **today** |
+| `--start` / `--end` | The ten years ending today |
 | `--seed` | 42 |
-| `--out` | The app-data store the server auto-loads |
-| `--extended-universe` | Off; widens the universe to 10,000 names |
-| `--long-history` | Off; reaches back past every crisis the generator models |
-| `--no-features` | Off; skips the ratios and alternative data (~8% of rows) |
+| `--risk-free-rate` / `--equity-premium` | 0.03 and 0.06, annualised |
+| `--calendar` | `XNYS`: the exchange whose trading days have prices |
+| `--out` | The app-data store the engine finds by itself |
+| `--extended-universe` | Off. Widens the universe to 10,000 names. |
+| `--long-history` | Off. Reaches back past every crisis the generator models. |
+| `--no-features` | Off. Skips the ratios and alternative data (about 8% of rows). |
+| `--progress` | Off. Prints a `BEACON_PROGRESS <fraction> <stage>` line per stage, for a program running the command. |
+| `--extend PATH` | Off. Extends an existing store instead of generating one. |
 
-Both expansion flags widen a default rather than overruling a value you named:
+Both expansion flags widen a default rather than overrule a value you gave:
 an explicit `--assets` beats `--extended-universe`, and an explicit `--start`
-beats `--long-history`.
+beats `--long-history`. `--long-history` starts a year before the earliest
+crisis the generator models, rather than a fixed number of years back, so the
+crises stay in range as today moves.
+
+The dates default to today because data ending months ago shows as stale in
+every freshness indicator. Pass both `--start` and `--end` when you need the
+same data on another day: the seed fixes the draw, not the calendar. The same
+seed and dates give byte-identical files.
+
+Nothing generated resembles a real company. Names are `Company A` and so on,
+and every ticker starts with `CMP`, so a collision with a real listing is
+impossible.
+
+### Size and memory
+
+The default run peaks at about 2.5 GB of memory. Each expansion flag roughly
+doubles the work; both together are about five times the default and need
+around 10 GB. The command prints its row count and memory estimate before it
+starts, and warns when the estimate reaches 4 GB. Narrow the universe with
+`--assets` or the window with `--start` on a smaller machine.
+
+Delisted names have their rows removed rather than kept as empty rows, so a
+store holds fewer rows than its universe size times its trading days.
 
 ### Extending a store to today
 
@@ -163,178 +291,91 @@ python -m beacon.synthetic --extend PATH --end 2026-06-30
 The market carries on from where the store stops: each name from its last
 close and share count, each exchange rate from its last rate, with new
 listings, delistings, dividends, splits and features at the same rates as
-before. The rows already in the store are never changed; new rows are added
-after them. The only records that change are ones that describe a state:
-a name that delists gets its end date, a dividend whose pay date arrives
-becomes paid, and next earnings dates move forward.
+before. Rows already in the store never change; new rows are added after
+them. The only records that change are ones describing a state: a name that
+delists gets its end date, a dividend whose pay date arrives becomes paid, and
+next earnings dates move forward.
 
-The same store extended to the same date always gives the same data. Stores
-generated before py-beacon 0.1.2 cannot be extended, because they lack the
+The same store extended to the same date always gives the same data. A store
+generated before py-beacon 0.1.2 cannot be extended, because it lacks the
 generator settings saved beside the data; generate a new one.
 
-`--long-history` is anchored to the crisis dates rather than to a round number
-of years, because those dates are fixed while a rolling window moves — "25
-years back from today" already clipped the start of the dot-com unwind, and by
-2030 would have missed it entirely.
+## Reading the data
 
-Measured peak memory and wall clock, which matter at these sizes:
+The endpoint-by-endpoint reference is at [pybeacon.dev/api](https://pybeacon.dev/api/).
+A few things are worth knowing before you use it.
 
-| Run | Rows | Peak | Time |
-| --- | --- | --- | --- |
-| default (6,000 × 10y) | 11.8M | 2.5 GB | 19s |
-| `--extended-universe` | 26.1M | 3.8 GB | 29s |
-| `--long-history` | 32.6M | 4.8 GB | 42s |
-| both | ~69M | ~10 GB | ~85s |
+### Market caps come in pairs
 
-The default holds **fewer** rows than the 5,000-name panel that preceded it
-(13.0M), despite carrying a thousand more names. Delisted instruments have
-their rows removed rather than carried as nulls, so a panel with turnover in
-it is smaller than the full grid its universe size implies. The three
-expansion figures below predate that change and are therefore upper bounds.
+`GET /data/reference` can return `market_cap` and `free_float_market_cap`,
+each twice:
 
-The CLI prints its own estimate before it starts and warns above 4 GB.
-
-The dates default to today deliberately: data ending eighteen months ago reads
-as stale in every freshness indicator, which is a true statement about the data
-and a misleading one about the application. Pass both dates explicitly when you
-want reproducibility across days — the seed fixes the draw, not the calendar.
-
-Same seed and same dates produce byte-identical files, so re-running costs
-nothing.
-
-Nothing generated resembles a real company: names are `Company A` … and every
-ticker carries a `CMP` prefix, which makes a collision with a real listing
-impossible rather than merely improbable.
-
-## A worked example
-
-Spawned with no arguments beyond the port and token, against a store generated
-a moment earlier:
-
-```
-GET /health
-{"status": "ok", "data_source": {"configured": true, "identifiers": 512},
- "cache_age": 0.31}
-
-GET /data/coverage
-  market             configured=true  ids=512  source=synthetic  freq=daily
-  reference          configured=true  ids=512  source=synthetic  freq=static
-  corporate_actions  configured=true  ids=382  source=synthetic  freq=event
-  identifiers_union=512   cache_size_bytes=14448159
-
-GET /data/prices/CMPA
-  1305 rows: OPEN, HIGH, LOW, CLOSE, VOLUME, SHARES_OUTSTANDING, FREE_FLOAT
-
-GET /data/reference?identifiers=CMPA,CMPB,CMPC&fields=NAME,SECTOR,adv_3m
-  three entries in one request, each with NAME, SECTOR and a server-computed ADV
-
-GET /data/corporate-actions/CMPA
-  {"ex_date": "2026-05-15T00:00:00", "type": "DIVIDEND", "kind": "cash",
-   "value": 0.7514, "pay_date": "2026-06-05", "status": "paid"}
-```
-
-## Market caps come in pairs
-
-`market_cap` and `free_float_market_cap` are each published twice, because the
-two answers are different questions:
-
-| field | what it is |
+| Field | What it is |
 | --- | --- |
-| `market_cap_local` | price x shares as the exchange reports it, in `local_currency` |
-| `market_cap` | the same figure converted, in `market_cap_currency` |
+| `market_cap_local` | Price times shares as the exchange reports it, in `local_currency` |
+| `market_cap` | The same figure converted, in `market_cap_currency` |
 
-`?currency=EUR` names what the converted half is converted into; it is `USD`
-when you say nothing, so an existing caller sees no change. Name the currency
-of the index you are comparing against — a cap column and a weight column in
-one row only mean something side by side while they share a unit, and that
-comparison is what caught the weighting bug BN-188 fixed.
+`?currency=EUR` sets what the converted figure is in; it is `USD` when you say
+nothing. Use the currency of the index you are comparing against, because a
+cap and a weight in one row only compare while they share a unit. The local
+figure is never converted away: it is a fact about the company, and what you
+would check against another source. A missing FX rate nulls only the
+converted figure.
 
-The endpoint never infers a currency, and it never converts the local figure
-away: that number is a fact about the company, and it is what you would
-cross-check against an external source. **A missing FX rate nulls the
-converted half only** — the local figure still reports, with `local_currency`
-saying what it is in.
-
-## Adjusted prices
+### Adjusted prices
 
 `GET /data/prices/{identifier}?adjusted=true` adds an `ADJ_CLOSE` column:
-`CLOSE` back-adjusted for **splits and dividends**, the vendor convention.
+`CLOSE` back-adjusted for splits and dividends.
 
-Two things follow from that, and both matter to what you render:
+An adjusted series is not a price. It answers "what would a holder have
+made", so a chart of it is a total-return chart. It is adjusted backwards, so
+its last value equals the last raw close and only history moves. That also
+means the whole series shifts when a new action lands, so do not treat a
+cached adjusted series as fixed. It is computed per request for that reason.
 
-**An adjusted series is not a price.** It answers "what would a holder have
-made", so its level is not what anything traded at that day. A chart of it is
-a total-return chart, and labelling it as a price is the mistake the name
-invites.
+### Browsing a whole dataset
 
-**It is adjusted backwards**, so the last value equals the last raw close and
-only history moves. That makes the right-hand edge checkable against any other
-source — and it means the whole series shifts when a new action lands, so a
-cached adjusted series is not immutable.
+`GET /data/tables/{dataset}` pages through `market`, `reference`,
+`corporate_actions` or `features`, as the usual `{index, columns, data}` frame
+plus a `total`. Pages are at most 1,000 rows, the order is stable, and an
+`offset` past the end gives an empty page.
 
-Computed per request rather than stored, for that last reason: a stored column
-would be wrong from the next dividend onwards, and silently.
-
-## Browsing a whole dataset
-
-`GET /data/tables/{dataset}?offset=&limit=` over `market`, `reference`,
-`corporate_actions` and `features`, returning the same `{index, columns, data}`
-frame shape as everything else plus a `total`.
-
-Paged, with a maximum of 1,000 rows: the default store is 11.8M market rows.
-Ordering is stable and `offset` past the end is an empty page rather than a
-404.
-
-`identifiers` narrows it to some instruments, comma-separated or repeated:
+`identifiers` narrows it to some instruments, comma-separated or repeated.
+That is how to read one instrument's history, such as every feature value it
+has carried:
 
 ```
 GET /data/tables/features?identifiers=CMPA&limit=1000
 ```
 
-That is how you read **one instrument's history** — every feature value it has
-ever carried, with the date each became knowable and the period it describes.
-The filter is applied *before* paging, so `total` counts the filtered set and
-`offset` walks within it. An identifier the dataset does not carry contributes
-no rows rather than failing the request.
+The filter applies before paging, so `total` counts the filtered rows. An
+identifier the dataset does not hold adds no rows rather than failing. There
+is no sorting or filtering beyond that; use the expression API for those.
 
-There is deliberately no sorting or predicate parameter — a client that needs
-those wants the expression API.
+### Notes for a client
 
-## Notes for a client
+**Branch on a corporate action's `kind`, not its `type`.** `kind` is `cash`,
+`ratio` or `structural`, and says what `value` means. A type the client has
+never seen would otherwise be rendered as whatever its list defaults to.
 
-**Branch on `kind`, not on `type`.** `kind` is `cash`, `ratio` or `structural`
-and is the authoritative answer to what `value` means. Matching type strings
-works until a type the list has never seen arrives, at which point it renders
-as whichever the list defaults to — confidently, and wrongly.
+**Take staleness from `/data/coverage`.** Each dataset there carries its
+`frequency` and `stale_after_seconds`, so a client does not need thresholds of
+its own that can drift from the engine's.
 
-**Derive staleness from `frequency` and `stale_after_seconds`.** Both travel
-with each dataset in `/data/coverage`, so a client holding its own 24h/7d
-thresholds is guessing at a property of the data, and the guess diverges from
-the engine the moment either changes.
-
-**Read `identifiers_union`, not a sum.** Per-dataset counts overlap; adding
-them reports more assets covered than exist. The `fx` row is the clearest
-case: currency pairs are market identifiers, so they are counted in `market`
-too, and `fx` exists to answer "do we hold exchange rates" rather than to add
-to a total. It reports a null `cache_size_bytes` for the same reason — the
-rows live in the market file.
+**Read `identifiers_union`, not a sum.** Per-dataset counts overlap. Currency
+pairs are market identifiers, so they are counted under `market` too; the
+`fx` row answers "are exchange rates held" and reports a null
+`cache_size_bytes`, because its rows live in the market file.
 
 **A currency pair is an ordinary identifier.** `EURUSD` answers on
-`/data/prices` like anything else, with the rate in `CLOSE`, and appears in
-`/data/identifiers`. It carries no reference data, and `RATE` is populated on
-a pair and null on every instrument — which is how to tell them apart if you
-need to.
+`/data/prices` and appears in `/data/identifiers`. It has no reference data.
+`RATE` is filled on a pair and null on every instrument, which is how to tell
+them apart.
 
-**Per-dataset `cache_size_bytes` is that dataset's file.** The store total is
-reported once at the top level, and is larger than the sum of the parts because
-the manifest is part of the store and not a dataset.
+**`null` means unknown, not zero.** A missing `pay_date`, `adv_3m` or
+`risk_contribution` is null rather than a placeholder, so a client can leave
+the field out rather than show a dash, which would read as "there is none".
 
-**`null` means unknown, not zero.** A missing `pay_date`, an absent `adv_3m`,
-an uncovered `risk_contribution` — all null rather than a placeholder, so a
-client can omit the field rather than dash it. A dash reads as "there is none",
-which is a different statement.
-
-**CORS only matters if the renderer calls the server directly.** The default
-allowed origins are `beacon://app` and `app://`, plus localhost on any port,
-and `--cors-origin` overrides them. Route calls through a main process instead
-and CORS never arises, because a main-process request is not a browser request.
+**CORS matters only if a browser page calls the engine directly.** Requests
+from the app's main process are not browser requests, so CORS never applies
+to them.

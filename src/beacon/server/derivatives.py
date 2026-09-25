@@ -4,29 +4,23 @@ Stateless derivatives pricing.
 
 Nothing here reads a stored document or writes one. A request carries every
 input it needs and the response is a pure function of it, which is what makes
-these endpoints safe to call repeatedly from a form as someone types — and what
+these endpoints safe to call repeatedly from a form as someone types, and what
 lets a test assert that the storage directory is untouched afterwards.
 
 The term-structure and roll reads are the exception only in that they resolve a
 *price* from the data source. They still write nothing.
 
-## Where the maths lives
-
-In `beacon.derivatives.pricing`, which has no Beacon imports at all and is
-checked against the textbook relationships directly. This module arranges
-inputs and shapes outputs; it does not re-derive anything. That is the same
-boundary BN-96 drew for curves: a curve is asked for a rate, the rate goes into
-a pricing function, and nothing about either crosses into the other.
-
-## Carry, decomposed
-
-A futures fair value is ``S·e^((r − q + c)·T)``, and the interesting part for
-someone looking at a screen is not the total but which piece of it is which.
-The response therefore splits the carry into its financing, dividend and borrow
-components, each expressed as the price effect it contributes rather than as a
-rate — because "financing adds 1.24" is a sentence about this contract, while
-"r is 5%" is a sentence about the world.
+A futures fair value is ``S·e^((r − q + c)·T)``. The response splits the carry
+into its financing, dividend and borrow components, each expressed as the
+price effect it contributes rather than as a rate: "financing adds 1.24" is a
+sentence about this contract, while "r is 5%" is a sentence about the world.
 """
+# Where the maths lives: in `beacon.derivatives.pricing`, which has no Beacon
+# imports at all and is checked against the textbook relationships directly.
+# This module arranges inputs and shapes outputs; it does not re-derive
+# anything. That is the same boundary BN-96 drew for curves: a curve is asked
+# for a rate, the rate goes into a pricing function, and nothing about either
+# crosses into the other.
 import logging
 import math
 

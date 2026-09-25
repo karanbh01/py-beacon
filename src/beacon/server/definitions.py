@@ -3,7 +3,7 @@
 Index definition documents: validation and materialisation.
 
 A stored definition is a JSON document describing a rule pipeline. It is not an
-`IndexDefinition` — the library object takes constructed rule and scheme
+`IndexDefinition`: the library object takes constructed rule and scheme
 instances, which JSON cannot carry. This module owns both directions: checking
 a document and turning a valid one into the library object.
 
@@ -391,7 +391,7 @@ def validate_document(document: IndexDocument) -> list[Finding]:
     """Collect every finding for a definition document.
 
     Args:
-        document: The definition to check — either face. Which checks run is
+        document: The definition to check, of either face. Which checks run is
             decided by `derivation`, the same discriminator a client branches
             on.
 
@@ -430,10 +430,10 @@ def build_index_definition(document: IndexDocument) -> IndexDefinition:
 
     Raises:
         InvalidRuleError: If the document is optimiser-derived. An
-            `OptimisedIndexDefinition` is not an `IndexDefinition` — the
-            calculator must never receive one by accident — so callers that
+            `OptimisedIndexDefinition` is not an `IndexDefinition` (the
+            calculator must never receive one by accident), so callers that
             can handle either use :func:`build_definition`.
-        ValueError: If the document is invalid after all — the library's own
+        ValueError: If the document is invalid after all. The library's own
             constructor validation is the final word.
     """
     pipeline = document.pipeline
@@ -479,7 +479,7 @@ def build_definition(document: IndexDocument,
     A rule-driven document builds an :class:`IndexDefinition`; an
     optimiser-derived one builds an
     :class:`~beacon.index.derived.OptimisedIndexDefinition` over its source,
-    resolved through the store — recursively, so a chain of derivations builds
+    resolved through the store. This is recursive, so a chain of derivations builds
     a chain of definitions and the whole thing calculates through one path.
 
     Args:

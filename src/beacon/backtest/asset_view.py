@@ -1,17 +1,20 @@
 # src/beacon/backtest/asset_view.py
 """
-BacktestAssetView — one asset's story inside a run, read from the books.
+BacktestAssetView: one asset's story inside a backtest, read from the books.
 
-Rebuilt for BN-154: the view reads the Portfolio (positions, transactions)
-and the tracked index's book directly, instead of being handed flattened
-frames. Two warts died in the move:
-
-* `actual_weight_series()` is gone — it was a one-line alias of
-  `weight_series()`, two names for one series.
-* `holding_periods()` reads the positions panel (quantity > 0) rather than
-  inferring holding from weight > 0 — a proxy that misread a position too
-  small to round to a visible weight as "not held".
+The view reads the run's Portfolio (positions, transactions) and the tracked
+index's book directly: its trades and costs, when it was held, its weight over
+time, and how that weight compared with the index's target.
 """
+# Rebuilt for BN-154: the view reads the Portfolio (positions, transactions)
+# and the tracked index's book directly, instead of being handed flattened
+# frames. Two warts died in the move:
+#
+# * `actual_weight_series()` is gone: it was a one-line alias of
+#   `weight_series()`, two names for one series.
+# * `holding_periods()` reads the positions panel (quantity > 0) rather than
+#   inferring holding from weight > 0, a proxy that misread a position too
+#   small to round to a visible weight as "not held".
 
 import pandas as pd
 
@@ -30,7 +33,7 @@ class BacktestAssetView(AssetView):
     Args:
         asset_id: The identifier used to look up data in the DataFetcher.
         data_fetcher: The data provider instance.
-        portfolio: The run's books — positions, weights, transactions.
+        portfolio: The run's books: positions, weights, transactions.
         index_book: The tracked index's book, when the run tracked one.
             Target weights come from its `source` snapshots: what each
             rebalance *decided*, which is the comparison slippage is about.
@@ -85,7 +88,7 @@ class BacktestAssetView(AssetView):
     def holding_periods(self) -> list[dict[str, pd.Timestamp]]:
         """Continuous periods when this asset was held.
 
-        Read from the positions panel — the record of quantities — rather
+        Read from the positions panel (the record of quantities) rather
         than inferred from weights. Quantity above zero is the fact of
         holding; a weight of 0.0000 is a rounding statement about size.
 
@@ -147,7 +150,7 @@ class BacktestAssetView(AssetView):
     def target_weight_series(self) -> pd.Series:
         """Time series of this asset's target index weight.
 
-        Read from the rebalance snapshots — what each rebalance decided —
+        Read from the rebalance snapshots (what each rebalance decided)
         rather than the index's daily panel: the target the portfolio traded
         to is the snapshot, and the daily drift between rebalances is the
         index's business, not the portfolio's instruction.

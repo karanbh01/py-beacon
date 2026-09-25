@@ -3,7 +3,7 @@
 The block model: what a report is made of, as plain data.
 
 A report template is a page setup and an ordered list of blocks. Nothing here
-knows how to draw anything — these are dataclasses that round-trip through JSON
+knows how to draw anything: these are dataclasses that round-trip through JSON
 so a template can be stored, edited by a client, and rendered later by a
 process that never saw the one that created it. The drawing lives in
 `beacon.report.pdf` behind the `pdf` extra, which means a client can build and
@@ -16,13 +16,15 @@ guess.
 
 ## Why the chart block holds a path rather than a figure
 
-A chart is rendered by the plotting layer (BN-78) into an image, and this block
-points at it. Holding a live matplotlib figure would drag an optional
-dependency into the data model and make a template unserialisable — the exact
-coupling the split above exists to avoid. Until those images exist, a chart
-block with no image renders as a labelled placeholder, so a template can be
-designed and reviewed before the charts it will hold are built.
+A chart is rendered by the plotting layer (`beacon.plot`) into an image file,
+and this block points at it. Holding a live matplotlib figure would drag an
+optional dependency into the data model and make a template unserialisable,
+the exact coupling the split above exists to avoid. A chart block with no
+image, or with a path that does not exist, renders as a labelled placeholder,
+so a template can be designed and reviewed before the charts it will hold are
+built.
 """
+# The plotting layer referred to above arrived with BN-78.
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -119,7 +121,7 @@ class Header(Block):
         title: Main line.
         subtitle: Optional second line.
         as_of: Optional date string. Kept as text rather than a date because a
-            report's as-of label is presentation — "31 Dec 2024" and
+            report's as-of label is presentation: "31 Dec 2024" and
             "2024-12-31" are the same date and a different report.
     """
     title: str
@@ -150,7 +152,7 @@ class Stat:
     Attributes:
         label: What it is.
         value: Preformatted for display. The block model does not format
-            numbers — a percentage, a currency amount and a ratio all need
+            numbers: a percentage, a currency amount and a ratio all need
             different treatment, and the caller knows which this is.
         change: Optional secondary line, e.g. a period change.
     """
@@ -229,8 +231,8 @@ class Table(Block):
 class BarChart(Block):
     """A simple horizontal bar chart, drawn natively rather than as an image.
 
-    Kept separate from :class:`Chart` because a handful of labelled bars — top
-    holdings, sector weights, per-factor contributions — is most of what a
+    Kept separate from :class:`Chart` because a handful of labelled bars (top
+    holdings, sector weights, per-factor contributions) is most of what a
     factsheet actually shows, and routing that through an image pipeline would
     mean a report could not be produced without the plotting extra.
 
@@ -271,7 +273,7 @@ class Chart(Block):
 
     Attributes:
         image_path: Path to a rendered image. None, or a path that does not
-            exist, draws a labelled placeholder instead of failing — a template
+            exist, draws a labelled placeholder instead of failing: a template
             is designed before the charts it will hold are built, and a missing
             image should not stop a layout being reviewed.
         title: Optional caption.

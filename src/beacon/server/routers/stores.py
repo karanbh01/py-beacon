@@ -1,5 +1,5 @@
 # src/beacon/server/routers/stores.py
-"""Named data stores: list, register, rename, forget, and load one (BN-236).
+"""Named data stores: list, register, rename, forget, and load one.
 
 Loading runs as a job, like a backtest: reading a large store takes seconds,
 and the client watches its progress on the event socket. When it finishes,
@@ -9,6 +9,7 @@ publishes a `data.loaded` event.
 A request already running when a load finishes keeps the data it started
 with: the swap replaces the engine's data whole, it never changes it in place.
 """
+# Named stores arrived in BN-236.
 import asyncio
 import logging
 import shutil

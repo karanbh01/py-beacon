@@ -1,7 +1,7 @@
 # src/beacon/index/calculation/corporate_actions.py
 """
-Module for CorporateActionsMixin, responsible for adjusting the index
-divisor in response to corporate actions.
+CorporateActionsMixin: adjusting the index divisor in response to corporate
+actions.
 """
 import logging
 from collections.abc import Callable
@@ -36,24 +36,26 @@ class CorporateActionsMixin:
                                 current_divisor_before_ca: float) -> float:
         """Adjust the index divisor for a corporate action to maintain continuity.
 
-        Currently supports **SPECIAL_DIVIDEND** fully.  Other recognised types
+        Supports **SPECIAL_DIVIDEND**. Other recognised types
         (``RIGHTS_ISSUE``, ``SPIN_OFF``, ``STOCK_DIVIDEND``, ``MERGER``) are
-        unimplemented and are refused.
+        not implemented and are refused.
 
-        Returning the divisor unchanged is this method's answer for *an action
-        that genuinely has no effect on the index* — one affecting a name the
-        index does not hold, or one whose adjustment rounds to nothing. Under
-        BN-184 it is no longer also the answer for "this action was malformed",
-        "this type is not implemented" or "this type is unknown": an
-        unadjustable action and a harmless one must not be spelled the same,
-        because the second is safe to publish and the first leaves the level
-        wrong from that day onward.
+        Returning the divisor unchanged is this method's answer only for *an
+        action that genuinely has no effect on the index*: one affecting a
+        name the index does not hold, or one whose adjustment rounds to
+        nothing. A malformed action, an unimplemented type or an unknown type
+        is refused instead, because an unadjustable action and a harmless one
+        must not be spelled the same: the second is safe to publish and the
+        first leaves the level wrong from that day onward.
 
         For a special dividend the market-value reduction is::
 
             reduction = dividend_per_share * shares_outstanding * ff * fx
 
-        and the new divisor is::
+        where ``ff`` is the free-float factor (only when the weighting scheme
+        is free-float adjusted) and ``fx`` converts the name's currency into
+        the index currency on the ex-date under the dataset's FX policy. The
+        new divisor is::
 
             new_divisor = old_divisor * (mv_after / mv_before)
 
@@ -71,10 +73,16 @@ class CorporateActionsMixin:
             The (possibly adjusted) divisor.
 
         Raises:
-            CalculationError: If the action is malformed, if its type is
-                unknown or recognised-but-unimplemented, or if the affected
-                asset is a constituent and is not an equity (BN-185).
+            CalculationError: If the action is malformed (no ex_date, asset or
+                value), if its type is unknown or recognised but not
+                implemented, if the affected asset is a constituent and is not
+                an equity, or if a special dividend cannot be sized (no shares
+                outstanding, no usable free-float factor, no FX rate) or would
+                leave the index worth nothing.
         """
+        # Before BN-184 a malformed, unimplemented or unknown action returned
+        # the divisor unchanged, indistinguishable from a no-effect action.
+        # The equity requirement is BN-185.
         action_type = action.get('type', '').upper()
         asset_involved = action.get('asset')
         value = action.get('value')

@@ -1,6 +1,5 @@
-# beacon.environment
+# Environment
 
-The `Environment` configuration object that centralises run-level settings
-(data source paths/frames, date format, calendar, and simulation defaults).
+Run-level settings gathered in one place: data sources, date format, calendar and simulation defaults.
 
 ::: beacon.environment

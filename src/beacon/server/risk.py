@@ -12,13 +12,13 @@ A correlation matrix looks equally plausible whether or not it can be trusted,
 so the endpoint reports how it was made and how well conditioned it is rather
 than only the numbers:
 
-* **intensity** — how much weight went on the structured target. Zero means the
+* **intensity**: how much weight went on the structured target. Zero means the
   raw sample covariance, which on a short history across many names is mostly
   noise.
-* **condition number** — largest eigenvalue over smallest. An optimiser inverts
+* **condition number**: largest eigenvalue over smallest. An optimiser inverts
   this matrix, and a large condition number means the inverse amplifies
   estimation error rather than reflecting it.
-* **positive semi-definite** — computed from the eigenvalues, not asserted.
+* **positive semi-definite**: computed from the eigenvalues, not asserted.
   A matrix that fails this can produce a negative portfolio variance, and a
   caller about to invert it needs to know rather than be reassured.
 

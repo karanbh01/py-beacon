@@ -2,12 +2,17 @@
 """
 Generating a `.pyi` so a static analyser can complete the open namespaces.
 
-`__dir__` (BN-140) is enough for Jupyter and IPython, which ask a live object
-what it has. Pylance and mypy do not run code — they read declarations — so
-the half of the namespace that is open by design is invisible to them. This
-writes that half down.
+`__dir__` is enough for Jupyter and IPython, which ask a live object what it
+has. Pylance and mypy do not run code (they read declarations), so the half of
+the namespace that is open by design is invisible to them. This writes that
+half down.
 
     python -m beacon.expressions.stubs --out beacon-data.pyi
+
+`--store` picks the store directory (default: the one the server auto-loads)
+and `--out` the file to write (default: `beacon-data.pyi`). Feature fields
+that are not valid Python names are left out of the stub with a warning; they
+still resolve at runtime.
 
 ## Opt-in, and regenerable
 
@@ -15,18 +20,18 @@ The answer depends on what is loaded, so there is no correct file to ship. A
 user who wants completions for their own feature datasets generates one; a
 user who does not, does not, and everything still works.
 
-## A stale stub is safe, and that ordering is deliberate
+## A stale stub is safe
 
 A stub kept from an older store will autocomplete a field the data no longer
 carries. That is fine, because it then fails validation (`validation.py`) with
 a finding naming the field.
 
 The generated file is a **convenience**; the loaded data is the **authority**.
-Getting this the other way round — treating the stub as the contract and
-validating against it — would let a stale file silently authorise a screen the
-data cannot answer, which is precisely the wrong failure: it would select
-nothing and say nothing.
+Treating the stub as the contract and validating against it would let a stale
+file silently authorise a screen the data cannot answer, which is the wrong
+failure: it would select nothing and say nothing.
 """
+# `__dir__` completion on the live namespaces is BN-140.
 import argparse
 import logging
 import sys

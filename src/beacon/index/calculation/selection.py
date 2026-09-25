@@ -2,31 +2,25 @@
 """
 Constituent selection, and the record of how it happened.
 
-One function answers "which assets are eligible", and it answers it by walking
-the rules in order and narrowing the universe a rung at a time — keeping a note
-of which rule removed each name as it goes.
+One function, `select_with_provenance`, answers "which assets are eligible",
+and it answers it by walking the rules in order and narrowing the universe a
+rung at a time, keeping a note of which rule removed each name as it goes.
+
+Before any rule runs, names with no trade within the data source's
+`max_price_staleness_days` are dropped at their own rung
+(`STALENESS_POSITION`, named `StalePrice`), so no rule evaluates a stale close.
 
 ## Why provenance is the general form
 
-There used to be two implementations of this. `IndexCalculator` looped assets
-on the outside and rules on the inside, asking "does this asset clear every
-rule?", and returned the survivors. The preview waterfall looped the other way
-round, narrowing the set rule by rule, and returned the survivors *plus* who
-removed what.
+Survivors fall out of the provenance for free; provenance cannot be recovered
+from a list of survivors. So the calculator and the preview waterfall both use
+this one walk, and a preview cannot disagree with the run it is previewing.
 
-The two are not symmetric. Survivors fall out of the provenance for free;
-provenance cannot be recovered from a list of survivors. So one of these is the
-computation and the other is a projection of it, and keeping only the general
-form is the only arrangement in which a preview and a real run cannot disagree
-— which matters, because a preview that disagrees with the run it is previewing
-is worse than no preview.
-
-It also decides something the old calculator shape could not express. A rule
-that ranks — *the largest hundred by market capitalisation*, *at most ten per
-sector* — needs to see the set it is choosing from. `is_eligible` is a
-per-asset predicate today, so the question does not arise; but the loop
-structure here can accommodate one and an asset-outer loop structurally cannot,
-because it never has a set in hand.
+The rule-outer loop also leaves room for a rule that ranks (*the largest
+hundred by market capitalisation*, *at most ten per sector*), which needs to
+see the set it is choosing from. `is_eligible` is a per-asset predicate, so no
+rule ranks yet, but this loop structure can accommodate one where an
+asset-outer loop could not, because it never has a set in hand.
 
 ## Rules are identified by position, not by name
 
@@ -36,6 +30,11 @@ identifiers exist only in the server's stored document, which is the server's
 concern and not this layer's. So provenance here is keyed by position in the
 rule list, and a caller that has its own identifiers maps position to them.
 """
+# There used to be two implementations of selection: `IndexCalculator` looped
+# assets on the outside and rules on the inside and returned the survivors,
+# while the preview waterfall narrowed the set rule by rule and returned the
+# survivors plus who removed what. Keeping only the general form is what stops
+# the two disagreeing.
 import logging
 from dataclasses import dataclass, field
 
@@ -72,9 +71,11 @@ class SelectionStep:
     """One rung of the selection funnel.
 
     Attributes:
-        position: 1-based index of the rule, or UNIVERSE_POSITION for the
-            starting universe.
-        rule_name: Type of the rule applied, empty for the universe rung.
+        position: 1-based index of the rule, UNIVERSE_POSITION (0) for the
+            starting universe, or STALENESS_POSITION (-1) for the stale-price
+            rung.
+        rule_name: Type of the rule applied (``"StalePrice"`` for the
+            stale-price rung), empty for the universe rung.
         remaining: How many assets survived this rung.
         excluded: Identifiers this rung removed, sorted. Empty for the
             universe rung.
@@ -96,8 +97,10 @@ class SelectionResult:
 
     Attributes:
         survivors: Assets that passed every rule, in universe order.
-        steps: One entry per rung, starting with the universe.
-        exclusions: Identifier to the position of the rule that removed it.
+        steps: One entry per rung, starting with the universe, then the
+            stale-price rung when any name was stale, then one per rule.
+        exclusions: Identifier to the position of the rule that removed it
+            (STALENESS_POSITION for a name dropped as stale).
             Each excluded asset appears exactly once: an asset leaves the
             surviving set the moment it fails, so no later rule ever sees it
             and no name can be blamed on two rules. That single-owner property
@@ -115,7 +118,7 @@ class SelectionResult:
 
     @property
     def rule_steps(self) -> list[SelectionStep]:
-        """The rungs that are rules, excluding the universe."""
+        """Every rung after the universe, including any stale-price rung."""
         return [step for step in self.steps if not step.is_universe]
 
     def excluded_by(self,
@@ -133,7 +136,12 @@ class SelectionResult:
         if position is None:
             return None
 
-        return self.steps[position]
+        # Matched on the recorded position rather than used as a list index:
+        # the stale-price rung sits in `steps` at index 1 with position -1, so
+        # indexing would attribute every rule's exclusion to the rung before
+        # it, and a stale name to the last rule.
+        return next((step for step in self.steps if step.position == position),
+                    None)
 
 
 def select_with_provenance(universe: list[Asset],
@@ -149,17 +157,18 @@ def select_with_provenance(universe: list[Asset],
             survived the ones before it.
         current_date: The date to evaluate at.
         data_fetcher: Data source the rules read from.
-        context: What the index settles for its rules — its currency, so a
+        context: What the index settles for its rules: its currency, so a
             bound stated in it is compared against a converted figure rather
-            than a local one (BN-188). None outside an index, and then a rule
-            that needs it says so rather than assuming one.
+            than a local one. None outside an index, and then a rule that
+            needs it says so rather than assuming one.
 
     Returns:
         SelectionResult: Survivors, the funnel, and per-asset provenance.
 
     Raises:
-        Exception: Whatever a rule raises, unchanged. A failed rule is not an
-            exclusion — see :func:`_apply_rule`.
+        Exception: Whatever a rule raises, unchanged. A rule that could not
+            run has not excluded anything, so its failure propagates rather
+            than being recorded as an exclusion.
     """
     surviving = list(universe)
     steps = [SelectionStep(position=UNIVERSE_POSITION, remaining=len(surviving))]

@@ -1,351 +1,32 @@
-# Beacon
+# py-beacon
 
 [![CI](https://github.com/karanbh01/py-beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/karanbh01/py-beacon/actions/workflows/ci.yml)
 
 ![Beacon logo](https://raw.githubusercontent.com/karanbh01/py-beacon/main/logo.svg)
 
-Beacon (***Be***t***a*** ***Con***structor) is a Python toolkit for end-to-end
-index, ETF, and Delta-1 derivatives development — from defining an index
-methodology, through calculating its historical levels, to backtesting a
-tracking portfolio and analysing the result.
+py-beacon is a Python library for building indices, ETFs and Delta-1
+derivatives. You define an index methodology, calculate the index's history
+on a real exchange calendar, backtest a portfolio that tracks it, and analyse
+the result.
 
-> Status: under active development.
+**Documentation:** [pybeacon.dev/library](https://pybeacon.dev/library/)
+&middot; **Changelog:** [pybeacon.dev/changelog](https://pybeacon.dev/changelog/)
+&middot; **Source:** [github.com/karanbh01/py-beacon](https://github.com/karanbh01/py-beacon)
 
-## Architecture
+## Install
 
-Beacon is organised around a three-layer pipeline. Each layer has a single
-responsibility and depends only on the layer(s) below it, which keeps the
-methodology, the calculation, and the simulation cleanly separated.
-
-```
-        ┌──────────────────────────────────────────────┐
-        │  Methodology                                   │
-        │  eligibility rules + weighting schemes         │
-        │  (what belongs in the index and at what weight)│
-        └───────────────────────┬────────────────────────┘
-                                │  defines
-                                ▼
-        ┌──────────────────────────────────────────────┐
-        │  Calculator                                    │
-        │  IndexCalculator.run() -> IndexResult          │
-        │  (levels, divisor, constituent/weight history) │
-        └───────────────────────┬────────────────────────┘
-                                │  target weights
-                                ▼
-        ┌──────────────────────────────────────────────┐
-        │  Backtest                                      │
-        │  BacktestEngine.run() -> BacktestResult        │
-        │  (NAV, trades, tracking error vs. the index)   │
-        └──────────────────────────────────────────────┘
-```
-
-Funds (`IndexFund`, `ETF`) compose the Calculator and Backtest layers, and the
-Derivatives layer prices instruments off the levels an `IndexResult` produces.
-
-## Modules
-
-- **`index`** — Index construction and calculation. `IndexDefinition` captures
-  the static rules (universe, currency, base date, rebalance frequency);
-  `methodology` provides the eligibility rules and weighting schemes (e.g.
-  `EqualWeighted`, `MarketCapWeighted`); `IndexCalculator` runs the day-by-day
-  calculation and returns an `IndexResult` with index levels, divisor history,
-  and constituent/weight snapshots.
-- **`backtest`** — Portfolio simulation. `BacktestEngine` consumes a target
-  weight schedule (an `IndexResult` or a custom weight dict), simulates trading
-  with configurable transaction costs, and returns a `BacktestResult` exposing
-  NAV, cash and weight history, transactions, and tracking metrics.
-- **`portfolio`** — The `Portfolio` accounting primitive: holdings, cash,
-  transactions, valuation and weights, plus Excel reporting helpers. It has no
-  dependency on assets or data sources — callers pass identifiers and prices.
-- **`fund`** — Investable vehicles. `IndexFund` composes an `IndexCalculator`
-  and a `BacktestEngine` to track an index (with management-fee accrual); `ETF`
-  extends it with a ticker, creation-unit size, market-price simulation, and
-  tracking-performance analysis.
-- **`derivatives`** — Delta-1 instruments referencing indices/ETFs/equities:
-  `IndexFuture`, `ETFFuture`, and `TotalReturnSwap`, built on a `DerivativeBase`
-  ABC, plus pure `pricing` functions (cost-of-carry, discrete-dividend forward,
-  implied repo, roll return, TRS breakeven spread).
-- **`analysis`** — Performance and risk analytics, including ETF tracking
-  metrics (`analysis.etf`), attribution, and risk measures.
-- **`data`** — Market and reference data access. `MarketData`/`ReferenceData`
-  wrap tabular sources and `DataFetcher` provides a unified query interface used
-  throughout the calculation and backtest layers. `data.store` persists a
-  fetcher to disk so a spawned server can find one at startup.
-- **`synthetic`** — A generator for market-like data at demo scale: a factor
-  model with GJR-GARCH volatility and Student-t innovations, plus the reference
-  data, shares outstanding, free float and corporate actions that agree with
-  the prices it produces.
-- **`environment`** — The `Environment` configuration object that centralises
-  run-level settings.
-
-## Installation
-
-Beacon needs Python 3.11 or later. Install it from PyPI:
+py-beacon needs Python 3.11 or later.
 
 ```bash
 pip install py-beacon-kit
 ```
 
-In code, import it as `beacon`. The core installs pandas, numpy, pydantic
-and exchange_calendars.
-
-Everything beyond the core pipeline lives behind an extra, so a plain install
-stays light:
-
-| Extra | Installs | Needed for |
-| --- | --- | --- |
-| `data` | yfinance | Downloading market data |
-| `excel` | openpyxl | `ReportGenerator` Excel output |
-| `pdf` | reportlab | PDF reports |
-| `optimise` | scipy | Portfolio optimisation |
-| `plot` | matplotlib | Chart accessors on result objects |
-| `plot-interactive` | plotly | Reserved for interactive charts; not used yet |
-| `server` | fastapi, uvicorn, orjson, websockets, platformdirs, plus `optimise` and `pdf` | The local API server |
-| `dev` | pytest, ruff, mypy, pre-commit, hypothesis | Contributing |
-
-Install one with `pip install "py-beacon-kit[plot]"`, or several with
-`pip install "py-beacon-kit[plot,data]"`. Using a feature without its extra raises
-an error naming the extra to install.
-
-To work on Beacon itself, clone the repository and install it in editable
-mode with the development extra:
-
-```bash
-git clone https://github.com/karanbh01/py-beacon.git
-cd py-beacon
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-pytest
-```
-
-Contributors should also install the git hooks once per clone:
-
-```bash
-pre-commit install                        # lint + whitespace checks on commit
-pre-commit install --hook-type pre-push   # strict type check on push
-```
-
-`ruff check` and `mypy` are the enforced gates. Code formatting is not
-tool-enforced — signature layout follows a reviewed convention rather than a
-formatter, so `ruff format` is deliberately not part of the hook set.
-
-See [CONTRIBUTING.md](https://github.com/karanbh01/py-beacon/blob/main/CONTRIBUTING.md) for the conventions, the issue and
-commit format, and the release process, and [CHANGELOG.md](https://github.com/karanbh01/py-beacon/blob/main/CHANGELOG.md) for
-what has changed.
-
-## Running the API server
-
-```bash
-pip install "py-beacon-kit[server]"
-python -m beacon.server --port 0 --token dev
-```
-
-The process binds first and prints `BEACON_PORT=<n>` on stdout before serving,
-so a parent process launching it with `--port 0` can read back the port the OS
-chose. Every later stdout line is ordinary logging.
-
-### Where the server gets its data
-
-A data source is resolved at startup, in this order:
-
-1. `--data <path>` — an explicit store directory
-2. `$BEACON_DATA_PATH`
-3. the active data store, the one served last time
-4. the app-data store, registered as "Synthetic data" the first time it is
-   found
-5. nothing: the server starts without data, and a request that needs data
-   answers 409 `NO_DATA_LOADED` until a store is loaded
-
-The branch that ran is logged immediately after the port announcement, so an
-empty client is diagnosed by reading the log rather than by guessing. The first
-two branches fail loudly: asking for a store that cannot be read stops startup,
-because starting empty instead would disguise the mistake. Auto-load only
-warns, so a corrupt store cannot leave the client unable to start the server
-that would replace it.
-
-### Which origins may call it
-
-`localhost` on any port is always allowed, so a dev build needs no
-configuration. Beyond that the defaults are `beacon://app` (the packaged
-renderer's origin) and `app://`. To set them explicitly:
-
-```bash
-python -m beacon.server --cors-origin beacon://app --cors-origin app://custom
-BEACON_CORS_ORIGINS="beacon://app,app://custom" python -m beacon.server
-```
-
-Explicit origins **replace** the defaults rather than adding to them — an
-operator narrowing what may call the server should not find extras still
-permitted. The allowed set is logged at startup, because a CORS failure
-otherwise appears only in a browser console on the far side of the process
-boundary.
-
-### Price, total and net total return
-
-An index accumulates returns one of three ways. `PRICE` ignores distributions
-and is the default. `TOTAL_RETURN` reinvests each cash distribution across the
-index by shrinking the divisor, and `NET_TOTAL_RETURN` does the same after a
-flat `withholding_tax_rate`.
-
-Reinvestment is a divisor adjustment rather than a purchase: buying more units
-of whichever constituent paid would re-weight the index towards it and make the
-composition depend on the return type, so a price and a total-return version of
-one index would hold different things. Only actions whose `kind` is `cash`
-reinvest — a split changes the share count and the price together and
-distributes nothing.
-
-### Rebalance schedules and trading calendars
-
-An index carries a cadence (`MONTHLY`…`ANNUAL`) and a day rule —
-`FIRST_BUSINESS_DAY`, `LAST_BUSINESS_DAY` or `THIRD_FRIDAY`. Naming a `calendar`
-(an exchange MIC such as `XNYS`) backs the arithmetic with real holidays, and a
-date landing on one rolls back to the previous session.
-
-`GET /indices/{id}/schedule` returns the next rebalance and the days until it,
-derived from the schedule and the calendar rather than stored — a stored date
-would silently expire.
-
-The calendar is **required** since BN-180 — on the wire and in
-`IndexDefinition`, which has no default for it — and `exchange_calendars` is a
-core dependency rather than an extra. It used to be optional, defaulting to
-Monday to Friday, which scheduled rebalances on 1 January, 4 July and 25
-December: days no exchange has a session for. There is deliberately no
-constructor default either, since one would let a European index schedule
-itself on New York's holidays without saying so. Definitions stored before this
-were migrated to `XNYS`, because choosing for an index that already exists is
-repair while choosing for a new one is a guess.
-
-`GET /indices/calendars` publishes every accepted MIC with a display name, an
-IANA timezone and a region derived from that timezone, so a client can group a
-picker without hard-coding anything. The day rule still defaults to the first
-business day of the month.
-
-### Discovering what a methodology can contain
-
-`GET /indices/rule-types` publishes the eligibility rules and weighting schemes
-the library provides, with enough detail to render an editor: each parameter's
-name, display type, whether it is required, its default, a label, its position
-in the form, and any closed set of choices.
-
-`GET /optimise/constraint-types` serves the optimiser's constraints in the same
-shape under `specs`, so one client component can render both editors. Its
-original `types` field is unchanged.
-
-Both come from a registry the classes populate themselves
-(`beacon.catalogue`). Names, types, defaults and required-ness are read from
-the constructors, so they cannot drift from what the code accepts; only labels
-and ordering are declared, because a signature cannot carry them. A rule class
-that exists without a catalogue entry fails a completeness test — the symptom
-otherwise is silent, since the rule still works and the editor simply never
-offers it.
-
-### Finding out which instruments exist
-
-`GET /data/identifiers` answers "which identifiers do you have, and which match
-what the user is typing" — search when given `q`, enumeration when not.
-
-```
-/data/identifiers?q=cmpa&limit=20
-/data/identifiers?datasets=market          # everything with prices
-```
-
-Each row carries `datasets`, which is what lets a client offer a
-reference-only name in a reference view and mark it unavailable for prices,
-rather than suggesting something the engine cannot then serve. `total` is the
-match count before the limit, so a UI can say "showing 20 of 340".
-
-Ranking is decided server-side and is part of the contract — exact identifier,
-identifier prefix, name prefix, identifier substring, name substring,
-alphabetical within each — because once `limit` is applied a client cannot
-re-rank what it was not sent.
-
-Served from an index built once and cached against a fingerprint of the
-datasets' refresh times, so loading or refreshing data invalidates it and
-nothing else does. A
-server with no data returns `200` with an empty list rather than an error:
-"nothing matches" and "this engine is misconfigured" are different statements.
-
-### Looking up many instruments at once
-
-`GET /data/reference` is the batch form of `/data/reference/{identifier}`:
-
-```
-/data/reference?identifiers=AAA,BBB,CCC&fields=NAME,SECTOR,adv_3m
-```
-
-Entries come back in the order the request named them, one per identifier, so
-a table renders straight down the list. An unknown identifier is an entry with
-`found: false` rather than a failed batch — one bad ticker in five hundred
-should not lose the other 499. At most 1000 identifiers per call.
-
-`fields` selects stored reference columns and may also name a derived field.
-`adv_3m` is mean daily volume over the trailing three *calendar* months,
-computed server-side from held prices; it is opt-in, because computing it means
-slicing price history for every identifier in the batch.
-
-### Generating data to serve
-
-`beacon.synthetic` produces a universe at demo scale — thousands of anonymised
-companies with years of history — and writes it straight to the location above:
-
-```bash
-python -m beacon.synthetic --seed 42               # 6,000 names, 10 years, ~19s
-python -m beacon.server --port 0 --token dev       # picks it up automatically
-```
-
-`--extended-universe` doubles the universe to 10,000 names and
-`--long-history` reaches back past every crisis the generator models. See
-[docs/serving-data.md](https://github.com/karanbh01/py-beacon/blob/main/docs/serving-data.md) for what each costs.
-
-`python -m beacon.synthetic --extend PATH` brings a generated store up to
-today without changing any day it already holds.
-
-Prices reproduce the stylized facts of equity returns rather than being a
-random walk: volatility clustering (GJR-GARCH), fat tails (Student-t
-innovations), negative skew, and a market/sector factor structure that puts
-average pairwise correlation near 0.39 with same-sector pairs above
-cross-sector ones. Shares outstanding, free float, dividends and splits are
-generated alongside the prices and agree with them — undoing the splits and
-adding the dividends back recovers the return path exactly.
-
-Nothing resembles a real company: names are `Company A` … and every ticker
-carries a `CMP` prefix. The same seed and dates always produce the same store,
-byte for byte.
-
-It is importable too, which is what examples and integration tests use:
-
-```python
-from beacon.synthetic import SyntheticConfig, generate
-
-dataset = generate(SyntheticConfig(assets=64, seed=1))
-fetcher = dataset.fetcher()
-```
-
-This is not `beacon.testing.dataset`, which stays a tiny frozen fixture whose
-exact values the chart baselines depend on.
-
-### The store format
-
-A store is a directory of gzipped CSV written by `beacon.data.store`:
-
-```python
-from pathlib import Path
-from beacon.data import store
-
-store.save(fetcher, Path("~/beacon-data").expanduser(), source="local")
-```
-
-`store.default_path()` is the app-data location branch 3 reads.
-
-## Versioning
-
-Beacon follows standard [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-From 1.0, a major version is a breaking change, a minor adds without breaking,
-and a patch fixes. Before 1.0 the API is still settling: a breaking change bumps
-the minor version (`0.1` to `0.2`), and additions and fixes bump the patch.
-From 1.0 onward, anything deprecated keeps working with a warning for at least
-one minor release, and removals wait for the next major. The full policy is in
-[CONTRIBUTING.md](https://github.com/karanbh01/py-beacon/blob/main/CONTRIBUTING.md#versioning-and-deprecation-policy).
+In code, import it as `beacon`. The core installs pandas, numpy, pydantic and
+exchange_calendars. Optional features are extras: `data` (Yahoo Finance
+downloads), `excel`, `postgres`, `optimise`, `plot`, `pdf` and `server`.
+Install them as `pip install "py-beacon-kit[plot,optimise]"`. The
+[documentation](https://pybeacon.dev/library/#install) lists what each one
+adds.
 
 ## Quickstart
 
@@ -357,12 +38,9 @@ import logging
 
 import pandas as pd
 
-from beacon.backtest.engine import BacktestEngine
-from beacon.data.base import MarketData, ReferenceData
-from beacon.data.fetcher import DataFetcher
-from beacon.index.calculation import IndexCalculator
-from beacon.index.constructor import IndexDefinition
-from beacon.index.methodology import EqualWeighted
+from beacon.backtest import Backtest
+from beacon.data import DataFetcher, MarketData, ReferenceData
+from beacon.index import EqualWeighted, IndexDefinition
 from beacon.index.schedule import sessions
 
 logging.getLogger("beacon").setLevel(logging.ERROR)  # keep the output short
@@ -392,20 +70,83 @@ definition = IndexDefinition(
     rebalancing_frequency="MONTHLY", calendar="XNYS",
     universe_identifiers=list(growth),
 )
-index_result = IndexCalculator(definition, data).run(end_date="2024-03-28")
-print("Final index level:", round(index_result.index_levels.iloc[-1], 2))
 
-# 3. A backtest of a portfolio that trades to the index's weights.
-backtest = BacktestEngine(
-    start_date="2024-01-02", end_date="2024-03-28",
-    initial_capital=1_000_000.0, data_provider=data,
-    index_result=index_result, calendar="XNYS",
-).run()
+# 3. Calculate the index, then simulate a portfolio trading to its weights,
+#    paying 5 basis points on every trade.
+backtest = Backtest(initial_capital=1_000_000.0,
+                    transaction_cost_bps=5.0,
+                    data_provider=data)
+result = backtest.run(definition,
+                      end="2024-03-28")
 
-summary = backtest.summary()
-print("Total return:  ", round(summary["total_return"], 4))
-print("Tracking error:", round(summary["tracking_error"], 6))
+print("Final index level:", round(result.index.target.levels.iloc[-1], 2))
+print("Final NAV:        ", round(result.portfolio.nav.iloc[-1], 2))
+print("Tracking error:   ", round(result.summary()["tracking_error"], 6))
 ```
 
-The [example notebooks](https://github.com/karanbh01/py-beacon/tree/main/examples)
-go further: backtest analysis, index futures, and optimised indices.
+`result.index.target` holds the index the run aimed at, and
+`result.portfolio` holds the simulated portfolio: its NAV, positions, cash and
+transactions. The portfolio ends a little behind the index because it pays
+for its trades.
+
+## What it does
+
+- **Indices.** Select constituents with eligibility rules, including
+  expressions such as `data.market.market_cap > 1e9`; weight them equally or
+  by (free-float) market cap; cap any one name's weight; and rebalance on a
+  schedule against a real exchange calendar. Indices can be price, total
+  return or net total return, and the divisor handles rebalances, special
+  dividends and delistings.
+  ([Methodology](https://pybeacon.dev/library/concepts/methodology/))
+- **Backtests.** Simulate a portfolio trading towards the index's weights,
+  with transaction costs, drift thresholds and a benchmark, then read its
+  NAV, trades and tracking error.
+  ([Backtest](https://pybeacon.dev/library/concepts/backtest/))
+- **Data.** Load prices and reference data from CSV or Excel files, a data
+  store on disk, a Postgres database or Yahoo Finance, or generate a
+  realistic synthetic market. Names in several currencies are converted with
+  FX rates. ([Data](https://pybeacon.dev/library/concepts/data/))
+- **Funds and derivatives.** Index funds and ETFs with management fees;
+  index and ETF futures and total return swaps, with pricing functions.
+  ([Funds](https://pybeacon.dev/library/concepts/funds/),
+  [Derivatives](https://pybeacon.dev/library/concepts/derivatives/))
+- **Optimisation and risk.** Optimised indices and portfolios under
+  constraints, covariance estimation with shrinkage, factor models, and risk
+  contributions.
+  ([Optimiser](https://pybeacon.dev/library/concepts/optimiser/),
+  [Risk model](https://pybeacon.dev/library/concepts/risk-model/))
+- **Analysis and output.** Return and risk attribution, concentration and
+  drift, charts drawn from results, and PDF and Excel reports.
+  ([Attribution](https://pybeacon.dev/library/concepts/attribution/),
+  [Charts](https://pybeacon.dev/library/concepts/charts/),
+  [Reports](https://pybeacon.dev/library/concepts/reports/))
+
+## The local server
+
+py-beacon also runs as a local API server, which is how the Beacon desktop
+app uses it. This generates a synthetic dataset and serves it:
+
+```bash
+pip install "py-beacon-kit[server]"
+python -m beacon.synthetic --seed 42
+python -m beacon.server --port 0 --token dev
+```
+
+See the [server guide](https://pybeacon.dev/library/server/) and
+[serving data](https://pybeacon.dev/library/serving-data/).
+
+## Versioning
+
+py-beacon follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Before 1.0 the API is still settling: a breaking change raises the minor
+version (0.1 to 0.2), and additions and fixes raise the patch. The full
+policy is in
+[CONTRIBUTING.md](https://github.com/karanbh01/py-beacon/blob/main/CONTRIBUTING.md#versioning-and-deprecation-policy).
+
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/karanbh01/py-beacon/blob/main/CONTRIBUTING.md)
+for setting up a development install, the checks every change must pass, and
+the release process.
+
+py-beacon is released under the MIT licence.

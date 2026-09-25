@@ -2,26 +2,27 @@
 """
 Interest-rate curves.
 
-`pricing.py` takes rates as scalars and must stay free of Beacon imports, so the
-curve lives here rather than inside it. The interface between the two is plain
-floats: a curve is asked for a rate at a tenor and the answer goes into a
-pricing function. Nothing about the curve crosses that boundary, which is what
-keeps the purity test passing and keeps the pricing maths independently
-checkable against a textbook.
+A curve is asked for a rate at a tenor, and the answer (a plain float) goes
+into a function from `beacon.derivatives.pricing`, which takes rates as
+scalars.
 
-Rates are **continuously compounded zero rates**, matching what `pricing.py`
-already expects, so a flat curve and the scalar rate it replaces are the same
+Rates are **continuously compounded zero rates**, matching what the pricing
+functions expect, so a flat curve and the scalar rate it replaces are the same
 number and produce the same answer to the last bit.
 
 ## Interpolation, and what happens off the ends
 
-Linear in the zero rate between pillars — the conventional choice, and the one
+Linear in the zero rate between pillars: the conventional choice, and the one
 whose failure modes are understood. Beyond the first and last pillar the curve
 is **flat**, holding the nearest pillar's rate rather than continuing its slope.
 Extrapolating a slope off the end of a curve is how a two-year rate becomes a
 negative thirty-year rate: it is arithmetically reasonable and financially
 nonsense, and the error appears far from the code that caused it.
 """
+# `pricing.py` takes rates as scalars and must stay free of Beacon imports, so
+# the curve lives here rather than inside it. Nothing about the curve crosses
+# that boundary, which is what keeps the purity test passing and keeps the
+# pricing maths independently checkable against a textbook.
 import bisect
 import math
 from dataclasses import dataclass
@@ -39,6 +40,10 @@ TENOR_TOLERANCE = 1e-9
 @dataclass(frozen=True)
 class RateCurve:
     """A zero-rate curve defined by pillar points.
+
+    Construction raises `CalculationError` if there are no pillars, the tenor
+    and rate counts differ, a tenor is negative, or the tenors are not
+    strictly increasing. :meth:`from_pillars` sorts them for you.
 
     Attributes:
         tenors: Pillar tenors in years, strictly increasing.
@@ -71,8 +76,8 @@ class RateCurve:
         """A curve with the same rate at every tenor.
 
         The bridge back to scalar-rate pricing: a flat curve returns exactly the
-        rate it was given, so every existing result is reproduced bit for bit
-        rather than approximately.
+        rate it was given at every tenor, so pricing off it reproduces
+        scalar-rate pricing bit for bit rather than approximately.
 
         Args:
             rate: The continuously compounded rate.
@@ -92,6 +97,10 @@ class RateCurve:
 
         Returns:
             RateCurve: The curve.
+
+        Raises:
+            CalculationError: If *pillars* is empty, a tenor is negative, or
+                two tenors are equal.
         """
         if not pillars:
             raise CalculationError("RateCurve", "a curve needs at least one pillar.")
@@ -171,7 +180,7 @@ class RateCurve:
         """The rate implied between two future dates.
 
         The rate that makes discounting to *end* the same as discounting to
-        *start* and then forward at this rate — which is what a financing leg
+        *start* and then forward at this rate, which is what a financing leg
         resetting at *start* should be projected at.
 
         Args:
@@ -217,7 +226,7 @@ class RateCurve:
         """A copy with one pillar moved, for a key-rate sensitivity.
 
         Args:
-            tenor: The pillar to move. Must be an existing pillar — bumping a
+            tenor: The pillar to move. Must be an existing pillar: bumping a
                 tenor that is not there would silently add a pillar and change
                 the curve's shape rather than its level, which is not what a
                 key-rate bump means.

@@ -2,8 +2,6 @@
 """
 Futures contracts referencing beacon instruments: IndexFuture (on an index)
 and ETFFuture (on an ETF).
-
-IndexFuture is implemented here. ETFFuture is implemented in issue BN-44.
 """
 import logging
 from typing import Any
@@ -30,9 +28,9 @@ class IndexFuture(DerivativeBase):
     Market-data inputs (passed via the ``market_data`` dict on valuation
     methods) are read by key:
 
-    - ``risk_free_rate`` — continuous risk-free rate ``r`` (default 0)
-    - ``dividend_yield`` — continuous dividend yield ``q`` (default 0)
-    - ``borrow_cost`` — continuous borrow/financing spread ``c`` (default 0)
+    - ``risk_free_rate``: continuous risk-free rate ``r`` (default 0)
+    - ``dividend_yield``: continuous dividend yield ``q`` (default 0)
+    - ``borrow_cost``: continuous borrow/financing spread ``c`` (default 0)
     """
 
     def __init__(self,

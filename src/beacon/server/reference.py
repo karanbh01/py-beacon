@@ -2,13 +2,8 @@
 """
 Assembling a batch reference response.
 
-`/data/reference/{identifier}` is single-name only, so a 512-member universe
-table cost 512 requests. The client's answer was to truncate detail at sixty
-rows and show dashes for the rest — which reads as a bug rather than as a
-limit — and to drop ADV entirely, because that would have needed a *prices*
-call per name on top.
-
-Three decisions shape what this returns.
+Reference data for many identifiers in one request, so a universe table does
+not need one call per name.
 
 **Order is the request's order.** A table renders rows in the order it asked
 for them, and a response sorted by identifier or by whatever the store happened
@@ -18,8 +13,7 @@ requested identifier gets exactly one entry at its requested position.
 **A miss is an entry, not a failure.** One unknown ticker in five hundred must
 not fail the batch: the table should render 499 rows and mark one unknown.
 Entries carry `found`, so "we have no data for this" and "this name has no
-value for that field" stay distinguishable — a distinction a client showing
-dashes for both cannot make.
+value for that field" stay distinguishable.
 
 **Derived fields are requested by name alongside stored ones.** `adv_3m` sits
 in the same `fields` list as `NAME` and `SECTOR`, so a client asks for what it
@@ -27,21 +21,31 @@ wants to display in one place and reads the answer out of one mapping. It is
 opt-in because computing it means slicing the price history for every
 identifier in the batch, which is work nobody should pay for by default.
 
-**A money field is published twice, in two named currencies (BN-189).** A
-market cap used to come back converted into a hard-coded USD, which was right
-for a dollar index and mislabelled for any other: after BN-188 the weighting
-converts into the *index's* currency, so a EUR index showed dollar caps beside
-euro weights and the row that made BN-188's bug visible stopped being
-comparable. Each money field now carries its local figure (`market_cap_local`,
-in `local_currency`) beside the converted one (`market_cap`, in
-`market_cap_currency`), and the optional `currency` parameter names what the
-converted one is converted into -- USD when the caller says nothing, so no
-existing caller moves. The local number is a fact about the company, the
+**A money field is published twice, in two named currencies.** Each money field
+carries its local figure (`market_cap_local`, in `local_currency`) beside the
+converted one (`market_cap`, in `market_cap_currency`), and the optional
+`currency` parameter names what the converted one is converted into, USD when
+the caller says nothing. The local number is a fact about the company, the
 converted one is what compares to a weight, and publishing both means no
 client has to choose and none can be misled by the choice. A missing rate
 nulls the converted figure only: the local one is knowable whatever the FX
 situation, and nulling it would hide something the server holds.
 """
+# History.
+#
+# `/data/reference/{identifier}` is single-name only, so a 512-member universe
+# table cost 512 requests. The client's answer was to truncate detail at sixty
+# rows and show dashes for the rest (which reads as a bug rather than as a
+# limit) and to drop ADV entirely, because that would have needed a *prices*
+# call per name on top. A client showing dashes for both a miss and an empty
+# field could not tell them apart, hence `found`.
+#
+# Two currencies since BN-189. A market cap used to come back converted into a
+# hard-coded USD, which was right for a dollar index and mislabelled for any
+# other: after BN-188 the weighting converts into the *index's* currency, so a
+# EUR index showed dollar caps beside euro weights and the row that made
+# BN-188's bug visible stopped being comparable. USD stays the default so no
+# existing caller moved.
 import logging
 from typing import Any
 
@@ -539,11 +543,11 @@ def build_entries(fetcher: DataFetcher,
         identifiers: What to look up, already validated.
         date: Point-in-time date for reference validity.
         fields: Stored columns and derived field names to return. None returns
-            every stored column and no derived field — computing ADV for a
+            every stored column and no derived field: computing ADV for a
             batch nobody asked it for would be the endpoint's whole cost paid
             by every caller.
         currency: What the converted money fields are converted into,
-            defaulting to USD (BN-189). The local figures come back in the
+            defaulting to USD. The local figures come back in the
             instrument's own currency whatever this says, so a caller that
             names nothing still gets both numbers and both labels.
 

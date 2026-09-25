@@ -3,17 +3,16 @@
 Features: everything about an instrument that is not price, reference or action.
 
 Fundamentals, alternative datasets, macroeconomic series, and values somebody
-derived and imported all share one shape, so they share one table. The
-alternative was a surface per kind — a fundamentals endpoint, then an
-alternative-data endpoint, then a macro one — each with its own schema and its
-own point-in-time rules to get subtly wrong.
+derived and imported all share one shape, so they share one table, with one
+set of point-in-time rules, rather than a surface per kind each with its own
+schema.
 
 ## The shape
 
 Field-value pairs, keyed by instrument and date:
 
     IDENTIFIER   ticker, ISIN, or whatever the loaded data keys on
-    DATE        the date the value became knowable — see below
+    DATE         the date the value became knowable (see below)
     TYPE         which dataset it came from
     FIELD        the datapoint: revenue, total_debt, pe_ratio, card_spend
     VALUE        the number
@@ -30,7 +29,7 @@ This is the decision the whole table rests on.
 A fundamental has at least two dates: the period it describes (Q1 2024) and
 the date it was published (2024-05-15). **Only the second decides
 visibility.** A backtest standing on 2024-04-01 must not see Q1 revenue that
-nobody knew until May — that is look-ahead bias, it is the most common way a
+nobody knew until May. That is look-ahead bias, the most common way a
 fundamental-driven strategy shows returns it could never have earned, and the
 dangerous part is that the obvious point-in-time query looks correct while
 producing it.
@@ -40,25 +39,25 @@ goes in `DETAIL`.
 
 The column is called `DATE`, matching what every other dataset here names its
 date, rather than something like `AS_OF` that encodes the rule. The
-point-in-time behaviour is a property of *how the table is read* — it belongs
-to the accessor, not to the column name. Storing the period end in `DATE` would make every
-downstream query wrong in the same direction at once.
+point-in-time behaviour is a property of *how the table is read*: it belongs
+to the accessor, not to the column name. Storing the period end in `DATE`
+would make every downstream query wrong in the same direction at once.
 
 `DETAIL` is deliberately unconstrained. A restatement, a fiscal-period label,
-a vendor revision number, a units note — all real, all things somebody will
+a vendor revision number, a units note: all real, all things somebody will
 need to record, and a fixed schema invented here would be invented wrong.
 
 ## Restatements are kept, not overwritten
 
 A vendor revising Q1 revenue in August does not erase what it said in May, and
-a backtest standing in June must still see the May figure. So a repeated
-``(IDENTIFIER, DATE, TYPE, FIELD)`` is kept rather than deduplicated, and the
-accessor resolves which one is in force. Overwriting would make the table
-smaller and the history unrecoverable.
+a backtest standing in June must still see the May figure. So the same
+``(IDENTIFIER, TYPE, FIELD)`` published on a different ``DATE`` is kept as a
+new row rather than deduplicated, and the accessor resolves which one is in
+force. Overwriting would make the table smaller and the history unrecoverable.
 
-Two rows with the *same* key are a genuine duplicate — the same claim loaded
-twice — and the last one wins, because that is what re-importing a corrected
-file should do.
+Two rows with the same ``(IDENTIFIER, DATE, TYPE, FIELD)`` are a genuine
+duplicate (the same claim loaded twice), and the last one wins, because that
+is what re-importing a corrected file should do.
 """
 from typing import Any
 
@@ -222,7 +221,7 @@ class FeatureData:
                     max_age_days: int | None = MAX_AGE_DAYS) -> float | None:
         """The value in force on a date, or None.
 
-        The most recent row whose own `DATE` is on or before `date` — not the
+        The most recent row whose own `DATE` is on or before `date`, not the
         row *for* that date. Fundamentals are quarterly and a backtest runs
         daily, so "the latest thing knowable on this date" is the only
         question worth asking.
@@ -237,15 +236,16 @@ class FeatureData:
             field: The datapoint.
             date: Stand here. None uses the latest date in the table, which is
                 the right default for "what do we know now" and the wrong one
-                for a backtest — which always passes its own.
+                for a backtest, which always passes its own.
             feature_type: Restrict to one dataset. None searches every type,
                 which will pick arbitrarily between two carrying the same
                 field name, so a caller that has both should say which.
             max_age_days: How stale is too stale. None disables the check.
 
         Returns:
-            float | None: The value, or None when nothing is knowable — no
-            coverage, nothing published yet, or nothing recent enough.
+            float | None: The value, or None when nothing is knowable: no
+            coverage, nothing published yet, nothing recent enough, or a
+            value that is not a number.
         """
         rows = self.history(identifier, field, date, feature_type)
 
@@ -305,10 +305,10 @@ class FeatureData:
         """A new table with `frame` added.
 
         Merge rather than replace, because a feature table is append-only by
-        nature: a restatement is a new row (see above), and a second upload of
-        a different `TYPE` should not discard the first. A row matching an
-        existing identifier, date, type and field replaces it, which is what
-        re-uploading a corrected file means.
+        nature: a restatement is a new row (see the module docstring), and a
+        second upload of a different `TYPE` should not discard the first. A
+        row matching an existing identifier, date, type and field replaces
+        it, which is what re-uploading a corrected file means.
 
         Returns a new instance rather than mutating: the loaded data is shared
         by every request in flight, and editing it underneath them would make
@@ -329,9 +329,11 @@ class FeatureData:
                  fields: list[str] | None = None) -> list[dict[str, Any]]:
         """Every field in force for one instrument, resolved point-in-time.
 
-        One row per field, carrying the value and the date it became knowable
-        -- so a client can show *when* a number is from, which for a
-        fundamental is most of what makes it interpretable.
+        One row per field, carrying the value, its dataset, its detail and the
+        date it became knowable, so a client can show *when* a number is from,
+        which for a fundamental is most of what makes it interpretable. A
+        field with nothing knowable yet still gets a row, with value, detail
+        and date None. Unlike `value_as_of`, no staleness bound is applied.
         """
         wanted = fields if fields is not None else self.fields(feature_type)
 

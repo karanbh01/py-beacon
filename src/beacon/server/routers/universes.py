@@ -2,27 +2,24 @@
 """
 Universes: named sets of instrument identifiers.
 
-A universe is a server-side concept. The library has no universe object — an
-`IndexDefinition` carries a plain list of identifiers — so these documents
+A universe is a server-side concept. The library has no universe object (an
+`IndexDefinition` carries a plain list of identifiers), so these documents
 exist to let several definitions share one curated list rather than each
 repeating it.
 
-## Members are checked against the loaded data
+**Members are checked against the loaded data.** A universe naming an
+instrument the server has no data for is a universe that produces an empty
+index and no explanation. Both `POST` and `PUT` resolve every member against
+the loaded data and refuse the ones that are not there, as *findings* naming
+each missing identifier, in the shape the index editor already renders. A bare
+422 would tell somebody a list of five hundred tickers was wrong without
+saying which one.
 
-A universe naming an instrument the server has no data for is a universe that
-produces an empty index and no explanation. Both `POST` and `PUT` resolve
-every member against the loaded data and refuse the ones that are not there —
-as *findings*, naming each missing identifier, in the shape the index editor
-already renders. A bare 422 would tell somebody a list of five hundred tickers
-was wrong without saying which one.
-
-## Seeded universes are read-only
-
-The synthetic generator writes a `GLOBAL` universe covering everything it
-produced, so a fresh workspace has something to select. It is marked
-`source: "seeded"` and refuses edits: it derives from the dataset, so
-regenerating would discard whatever had been changed. Refusing now beats
-losing it later.
+**Seeded universes are read-only.** The synthetic generator writes a `GLOBAL`
+universe covering everything it produced, so a fresh workspace has something
+to select. It is marked `source: "seeded"` and refuses edits: it derives from
+the dataset, so regenerating would discard whatever had been changed. Refusing
+now beats losing it later.
 """
 from typing import Annotated, Any
 
@@ -307,9 +304,10 @@ def load_universe(request: Request,
 
     Raises:
         DataNotFoundError: If no such universe exists, or the stored document
-            cannot be parsed or validated (BN-174) — the listing skips exactly
-            those, so the two surfaces agree by construction.
+            cannot be parsed or validated. The listing skips exactly those, so
+            the two surfaces agree by construction.
     """
+    # Invalid documents became not-found in BN-174.
     return load_document(_store(request),
                          universe_id,
                          _universe,
@@ -446,12 +444,13 @@ def build_universes_router() -> APIRouter:
         """Replace a universe, repairing an unreadable one if that is what it is.
 
         A PUT carries a complete valid replacement, so over an unreadable
-        document it is a repair — and the read-only check cannot run, because
+        document it is a repair, and the read-only check cannot run, because
         `source` is one of the fields the server cannot read. Refusing would
-        leave the document unfixable through the API, the same trap the delete
-        had (BN-177), so the check is skipped and logged. It is *not* skipped
-        for a document that reads: that is the whole point of it.
+        leave the document unfixable through the API, so the check is skipped
+        and logged. It is *not* skipped for a document that reads: that is the
+        whole point of it.
         """
+        # The same trap the delete had before BN-177.
         store = _store(request)
         held = stored(store, universe_id, raw)
 
@@ -483,10 +482,10 @@ def build_universes_router() -> APIRouter:
                         universe_id: Identifier) -> Response:
         """Remove a universe, whether or not the server can read it.
 
-        Removal needs the file to be PRESENT, not valid, so this asks existence
-        and not readability (BN-177). Going through a strict read made an
-        unreadable universe 500 here, which left the id occupied forever — only
-        deleting the file on the server could clear it.
+        Removal needs the file to be present, not valid, so this asks existence
+        and not readability. A strict read would answer 500 for an unreadable
+        universe and leave the id occupied until someone deleted the file on
+        the server.
 
         The read-only check is skipped when the document cannot be read: you
         cannot protect the contents of a file you cannot read, and refusing
@@ -494,6 +493,8 @@ def build_universes_router() -> APIRouter:
         risk it guards against. A seeded universe can be regenerated; a stuck id
         cannot be cleared through the API at all.
         """
+        # Before BN-177 this went through a strict read, which made an
+        # unreadable universe 500 here and left the id occupied forever.
         store = _store(request)
         held = stored(store, universe_id, raw)
 

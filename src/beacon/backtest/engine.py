@@ -1,6 +1,6 @@
 # src/beacon/backtest/engine.py
 """
-BacktestEngine — simulates portfolio execution against a target weight schedule.
+BacktestEngine: simulates portfolio execution against a target weight schedule.
 """
 import logging
 
@@ -40,13 +40,20 @@ MIN_TRADE_VALUE = 0.01
 logger = logging.getLogger(__name__)
 
 
+# The IndexResult has been the sole schedule source since BN-165, when the raw
+# weight-dict mode was removed. The derived-index shape (target_index) is
+# BN-167. The calendar has been carried by every definition since BN-180; it
+# decides which days the run steps onto (BN-186) and how a missing bar is read
+# (BN-183).
 class BacktestEngine(PricingMixin):
     """Simulates portfolio execution against a target weight schedule.
 
-    The engine consumes target weights from an ``IndexResult`` — the sole
-    schedule source since BN-165, when the raw weight-dict mode was removed —
-    and simulates trading over a date range using prices from a
-    ``DataFetcher``.
+    The engine consumes target weights from an ``IndexResult`` and simulates
+    trading over a date range using prices from a ``DataFetcher``. On each
+    rebalance date it sells before it buys, charges costs in basis points of
+    notional, and sizes a buy down to the cash available rather than dropping
+    it. Holdings whose listing has ended are settled into cash at their last
+    price, without cost.
 
     Args:
         start_date: The start date of the backtest (YYYY-MM-DD).
@@ -57,27 +64,30 @@ class BacktestEngine(PricingMixin):
             the rebalance schedule and target weights.
         price_column: Column name to read from market data. Defaults to
             ``"CLOSE"``.
+        currency: The portfolio's currency. Prices quoted in another currency
+            are converted into it with the FX rate on or before each day.
+            Defaults to ``"USD"``.
         transaction_cost_bps: Transaction cost in basis points applied to
             each trade's notional value. Defaults to 0 (no cost).
         modifiers: Optional hooks that can skip rebalances or adjust trades.
         benchmark: The benchmark of record, stored on the result so every
             reader quotes excess return against the same comparator.
         target_index: The calculated index the traded schedule was derived
-            from, when it differs from the schedule itself — the
-            derived-index shape (BN-167): *index_result* is an optimised
+            from, when it differs from the schedule itself (the
+            derived-index shape): *index_result* is an optimised
             calculation and this is its parent, and they land in
             `index.optimised` and `index.target` respectively. Omitted on a
             plain run, whose own calculation fills the target book.
-        calendar: The exchange MIC the traded index schedules on, which since
-            BN-180 every definition carries. It decides which days the run
-            steps onto at all (BN-186) and how a missing bar on one of them is
-            read (BN-183): on a day the calendar says was closed the
-            market was shut and the previous session's price is what the
-            position was worth, while on a day it says was open the data is
-            missing something and the carried price is recorded as a gap.
-            None falls back to the data's own sessions — a day the store has
-            bars for is treated as open — which is all a caller assembling an
-            engine by hand can offer.
+        calendar: The exchange MIC the traded index schedules on, which every
+            index definition carries. It decides which days the run steps
+            onto and how a missing bar on one of them is read: on a day the
+            calendar says was closed the market was shut and the previous
+            session's price is what the position was worth, while on a day it
+            says was open the data is missing something and the carried price
+            is recorded as a gap. With None the run steps onto Monday to
+            Friday, and a missing bar is judged against the data's own
+            sessions (a day the store has bars for is treated as open), which
+            is all a caller assembling an engine by hand can offer.
     """
 
     def __init__(self,
@@ -590,8 +600,11 @@ class BacktestEngine(PricingMixin):
     # ------------------------------------------------------------------
 
     #todo: vectorise run for efficiency, currently iterative and may be slow
+    # The up-front price-column check is BN-217.
     def run(self) -> BacktestResult:
         """Execute the backtest and return a :class:`BacktestResult`.
+
+        Calling `run()` again on the same engine starts a fresh run.
 
         Returns:
             BacktestResult
@@ -599,7 +612,9 @@ class BacktestEngine(PricingMixin):
         Raises:
             CalculationError: If the dataset has no column to price positions
                 from, checked before the first trade rather than discovered at
-                it (BN-217).
+                it. Also raised when a position cannot be priced: a date
+                outside the market data's coverage, or a holding with no FX
+                rate into the book's currency on or before the day.
         """
         require_price_column(self.data_provider, self.price_column,
                              "The backtest")

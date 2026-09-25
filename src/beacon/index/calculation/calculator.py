@@ -1,7 +1,7 @@
 # src/beacon/index/calculation/calculator.py
 """
-Module for the IndexCalculator, responsible for the logic of
-constituent selection, weighting, index level calculation, and corporate action adjustments.
+The IndexCalculator: constituent selection, weighting, index level
+calculation, and corporate-action, deletion and distribution adjustments.
 """
 import logging
 from typing import Any
@@ -37,15 +37,14 @@ def weight_rows(date: pd.Timestamp,
                 values: dict[Asset, float]) -> list[dict[str, object]]:
     """One record per constituent for one day: what was held, and its share.
 
-    The weights are *realised* shares of the day's aggregate — value over
-    total — so they drift with prices between rebalances, and they renormalise
-    the moment a name is deleted. That is why the panel is recorded here
-    rather than derived later from the rebalance snapshot: the two only agree
-    on the rebalance date itself.
+    The weights are *realised* shares of the day's aggregate (value over
+    total), so they drift with prices between rebalances, and they renormalise
+    the moment a name is deleted. That is why the panel is recorded as the
+    calculation runs rather than derived later from the rebalance snapshot:
+    the two only agree on the rebalance date itself.
 
-    Plain dicts appended during the run and converted once at the end, the
-    pattern the backtest engine already uses for its own records — there is no
-    per-day object to build and throw away.
+    Plain dicts, appended during the run and converted once at the end with
+    :func:`~beacon.index.result.daily_weights_frame`.
 
     Args:
         date: The calculation day.
@@ -56,7 +55,7 @@ def weight_rows(date: pd.Timestamp,
     Returns:
         list: Records keyed by :data:`~beacon.index.result.DAILY_WEIGHT_COLUMNS`.
         A day whose holdings are worth nothing at all records nothing, because
-        it has no weights to record — the level is carried forward on such a
+        it has no weights to record: the level is carried forward on such a
         day, and a row of zeros would read as "held nothing" rather than
         "could not be valued".
     """
@@ -74,11 +73,13 @@ def weight_rows(date: pd.Timestamp,
 
 class IndexCalculator(MarketValuesMixin, DeletionMixin,
                       TotalReturnMixin, CorporateActionsMixin):
-    """
-    Stateless index calculator. Accepts an IndexDefinition and DataFetcher,
-    and provides methods for constituent selection, weighting, index level
-    calculation, and corporate action adjustments. All state is passed
-    through method parameters and return values.
+    """Calculates an index from its definition and a data source.
+
+    Stateless between runs: it holds only its configuration (the definition,
+    the data source, the price column and the index context), and everything
+    a run produces is returned in its :class:`IndexResult`. It provides
+    constituent selection, weighting, index level calculation, and
+    corporate-action, deletion and distribution adjustments.
     """
     def __init__(self,
                  index_definition: IndexDefinition,
@@ -232,29 +233,34 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         """Resolve the definition's universe identifiers into Asset objects.
 
         The public entry point for universe resolution, for callers outside
-        the calculation loop — the constituent preview, for one. Delegates to
-        the internal implementation, so anything that stubs that also governs
-        this.
+        the calculation loop (the constituent preview, for one). The reference
+        data is read once for the whole universe, and each resolved name
+        becomes an :class:`~beacon.asset.equity.Equity` built from its own
+        row. An identifier the reference data does not know is skipped with a
+        warning.
 
         Args:
             date: Point-in-time date for the reference-data lookup.
 
         Returns:
-            list[Asset]: Assets for every identifier that resolved.
+            list[Asset]: Assets for every identifier that resolved, in the
+            order the definition names them.
+
+        Raises:
+            CalculationError: If the definition names no universe at all.
         """
         return self._get_universe(date)
 
     def select_constituents(self,
                             universe: list[Asset],
                             current_date: pd.Timestamp) -> list[Asset]:
-        """
-        Selects index constituents from a given universe based on eligibility rules.
+        """Select index constituents from a universe by the eligibility rules.
 
         A thin projection of :meth:`select_with_provenance`: the survivors, with
         the record of which rule removed each excluded name discarded. Callers
-        wanting that record — the preview waterfall, anything answering "why is
-        this name missing" — should use the fuller method rather than repeating
-        the walk, which is what BN-102 existed to stop.
+        wanting that record (the preview waterfall, anything answering "why is
+        this name missing") should use the fuller method rather than repeating
+        the walk.
 
         Args:
             universe: A list of potential Asset objects to consider for inclusion.
@@ -263,6 +269,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         Returns:
             A list of Asset objects that are eligible for the index.
         """
+        # One walk for both methods is what BN-102 existed to ensure.
         return self.select_with_provenance(universe, current_date).survivors
 
     def select_with_provenance(self,
@@ -309,28 +316,32 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
     def calculate_constituent_weights(self,
                                       constituents: list[Asset],
                                       current_date: pd.Timestamp) -> dict[Asset, float]:
-        """
-        Calculates the weights for the given constituents based on the index's weighting scheme.
+        """Weight the constituents by the index's weighting scheme.
 
         Args:
             constituents: A list of Asset objects that are part of the index.
             current_date: The date for which weights are calculated.
 
         Returns:
-            A dictionary mapping each Asset to its float weight. Sum of weights should be 1.0.
+            A dictionary mapping each Asset to its weight, summing to 1. Empty
+            (with a warning) when *constituents* is empty.
 
         Raises:
-            CalculationError: If the scheme refuses — an unpriced constituent,
-                an unknown share count, a market cap of zero — in which case it
-                propagates exactly as the scheme raised it, remedy and all
-                (BN-196). Also if its weights do not sum to 1: that used to be
-                silently renormalised with a warning, and a scheme's own output
-                rescaled is the scheme not being applied, which is the BN-179
-                argument exactly (BN-184).
+            CalculationError: If the scheme refuses (an unpriced constituent,
+                an unknown share count, a market cap of zero), in which case it
+                propagates exactly as the scheme raised it, remedy and all.
+                Also if the scheme's weights do not sum to 1: rescaling them
+                would publish an allocation the scheme did not produce under
+                the scheme's own name.
             UnexpectedCalculationError: If the scheme raises anything else. A
                 crash, not a decision, and it carries its own published code so
-                a client does not read it as a refusal (BN-194).
+                a client does not read it as a refusal.
         """
+        # Scheme refusals pass through unwrapped since BN-196. Weights not
+        # summing to 1 used to be silently renormalised with a warning; that
+        # was removed in BN-184 on the BN-179 argument (a scheme's own output
+        # rescaled is the scheme not being applied). The unexpected-error
+        # wrapper and its published code are BN-194.
         date_str = current_date.strftime('%Y-%m-%d')
         if not constituents:
             logger.warning(
@@ -453,9 +464,9 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
 
     def initialize_divisor(self,
                            initial_total_market_value: float) -> float:
-        """
-        Calculates the initial divisor for the index on its base_date.
-        Divisor = Initial Total Market Value / Base Index Value.
+        """Calculate the index's initial divisor on its base date.
+
+        ``divisor = initial_total_market_value / base_value``.
 
         Args:
             initial_total_market_value: The sum of (price * shares * fx_rate *
@@ -464,6 +475,10 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
 
         Returns:
             The initial divisor as a float.
+
+        Raises:
+            CalculationError: If *initial_total_market_value* or the
+                definition's base value is not positive.
         """
         if initial_total_market_value <= 0:
             logger.error("Initial total market value must be positive to initialize divisor.")
@@ -531,38 +546,53 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             end_date: str | None = None) -> IndexResult:
         """Run the full index calculation over a date range.
 
-        Iterates the index's own trading sessions from *start_date* to
-        *end_date* — the definition's calendar, not Monday to Friday (BN-186)
-        — handling three day types:
+        Iterates the index's own trading sessions (the definition's calendar,
+        not Monday to Friday) from *start_date* to *end_date*, handling three
+        day types:
 
-        1. **Base date** – resolve universe, select constituents, compute
-           weights, initialise divisor, set level = base_value. Rolled forward
-           to the first session when the base date itself was not one.
-        2. **Rebalance date** – reconstitute (re-resolve universe, re-select,
-           re-weight) and adjust divisor for continuity.
-        3. **Regular day** – compute index level using current constituents
-           and weights.
+        1. **Base date**: resolve universe, select constituents, compute
+           weights, apply the cap, initialise divisor, set level = base_value.
+           Rolled forward to the first session when the base date itself was
+           not one.
+        2. **Rebalance date**: reinvest the day's distributions (total-return
+           indices), then reconstitute (re-resolve universe, re-select,
+           re-weight, re-cap) and adjust the divisor for continuity. With an
+           announcement lag, the composition is selected and weighted as of
+           the announcement date and applied on the effective date.
+        3. **Regular day**: drop any holding that stopped being listed,
+           reinvest distributions (total-return indices), and compute the
+           level from the units held.
 
-        The method is idempotent: it carries no state between calls.
+        The method is idempotent: it carries no state between calls. When the
+        calendar covers only part of the window, the run is calculated over
+        the covered part and the result's ``calendar_coverage`` says so; a
+        window with no sessions at all (a single weekend, say) gives an empty
+        result.
 
         Args:
-            start_date: First calculation date (YYYY-MM-DD).  Defaults to
-                ``definition.base_date``.
-            end_date: Last calculation date (YYYY-MM-DD).  Required.
+            start_date: First calculation date (YYYY-MM-DD). Defaults to
+                ``definition.base_date``; an earlier date is moved up to it.
+            end_date: Last calculation date (YYYY-MM-DD). Required.
 
         Returns:
             An :class:`IndexResult` containing index levels, divisor history,
-            constituent snapshots, weight snapshots, and the daily weights
-            panel — one row per constituent per day, recorded as the loop
-            goes, since the state it holds each day is path-dependent and
-            cannot be reconstructed from the rebalance snapshots afterwards.
+            constituent snapshots, weight snapshots, cap reports, announcement
+            dates and the daily weights panel (one row per constituent per
+            day, recorded as the loop goes, since the state it holds each day
+            is path-dependent and cannot be reconstructed from the rebalance
+            snapshots afterwards). The result is bound to the data source.
 
         Raises:
             ValueError: If *end_date* is not provided or precedes the base date.
             CalculationError: If the dataset lacks a column the definition
-                reads -- checked before any work, rather than discovered at the
-                first read and reported as one company's problem (BN-217).
+                reads (checked before any work, rather than discovered at the
+                first read and reported as one company's problem), if the
+                calendar can cover none of the window, if the index holds
+                nothing on its base date, or if a rule, scheme or valuation
+                refuses.
         """
+        # Sessions rather than business days since BN-186; the up-front column
+        # check is BN-217.
         self.require_columns()
 
         base_date = self.definition.base_date

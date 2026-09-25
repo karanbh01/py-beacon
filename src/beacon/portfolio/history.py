@@ -2,10 +2,11 @@
 """
 The portfolio's books over time: positions, cash and NAV, event by event.
 
-Separated from :mod:`beacon.portfolio.base` only for size — the recorder is
-part of the Portfolio, composed rather than inherited, and nothing outside the
-portfolio layer writes to one.
+The recorder is part of the Portfolio, composed rather than inherited, and
+nothing outside the portfolio layer writes to one. Read the history through
+`Portfolio.positions`, `Portfolio.cash` and `Portfolio.nav`.
 """
+# Separated from `beacon.portfolio.base` only for size.
 import logging
 from collections.abc import Mapping
 from typing import Any, Protocol
@@ -57,8 +58,7 @@ class PortfolioHistory:
     """Records what the books said, on every event that changed them.
 
     Written as plain dicts during a run and converted to a DataFrame or Series
-    on read — the pattern the backtest engine already used for its weight
-    records. There is deliberately no `Position` class: the panel rests as a
+    on read. There is deliberately no `Position` class: the panel rests as a
     frame and lookups return frame slices.
 
     Keyed by date, and the **last** write for a date wins. A mark followed by
@@ -85,8 +85,9 @@ class PortfolioHistory:
         The weight on each row is computed here and stored, rather than
         derived on read from the market value and the NAV. That is the point
         of the panel: it records what the books said at the time, so a later
-        change to the derivation — or to the price data underneath — cannot
-        silently restate history.
+        change to the derivation, or to the price data underneath, cannot
+        silently restate history. A holding with no market value is recorded
+        with weight 0.0 and left out of the NAV.
 
         Args:
             date: The date the state belongs to. Re-recording a date replaces

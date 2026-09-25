@@ -38,12 +38,14 @@ LOCALHOST_ORIGIN_PATTERN = r"^http://localhost(:\d+)?$"
 CORS_ORIGINS_ENV_VAR = "BEACON_CORS_ORIGINS"
 
 
+# `data_store_id` and `data_store_name` arrived with switchable data stores
+# (BN-236).
 @dataclass(frozen=True)
 class ServerConfig:
     """Settings for a single server process.
 
     Attributes:
-        auth_token: Bearer token required on every request. Never empty — a
+        auth_token: Bearer token required on every request. Never empty: a
             server with no token would be open to any process on the machine.
         host: Interface to bind. Defaults to loopback and should stay there:
             the server has no transport security and trusts its bearer token
@@ -53,14 +55,15 @@ class ServerConfig:
         data_fetcher: The data source to serve, or None to run without one.
         cors_origins: Exact origins allowed, in addition to the localhost
             pattern.
-        market_downloader: Where a sync fetches market data from. None builds
+        market_downloader: Where a store refresh fetches market data from,
+            for a folder store set to refresh from Yahoo Finance. None builds
             the yfinance-backed downloader on first use, which is the real
-            deployment; tests and offline runs inject their own so the sync
-            path is exercisable without a network.
+            deployment; tests and offline runs inject their own so the
+            download path is exercisable without a network.
         storage_root: Base directory for persisted documents. None uses the
             platform app-data location; tests point it at a temporary path.
         data_store_id: The registered data store `data_fetcher` came from,
-            or None (BN-236).
+            or None.
         data_store_name: A name to show for the data being served: the
             store's name, or where unregistered data came from.
     """
@@ -137,7 +140,7 @@ def resolve_cors_origins(explicit: list[str] | None = None) -> tuple[str, ...]:
 
     Explicit origins **replace** the defaults rather than adding to them. An
     operator narrowing what may call the server should not find two extra
-    origins still permitted — that is the opposite of what configuring it
+    origins still permitted: that is the opposite of what configuring it
     means. The localhost pattern is applied separately by the middleware and
     is unaffected either way.
 
@@ -167,12 +170,12 @@ def resolve_data_source(explicit: Path | None = None) -> tuple[DataFetcher | Non
     1. ``--data <path>``, passed here as ``explicit``
     2. ``$BEACON_DATA_PATH``
     3. the app-data store, if one has been written there
-    4. nothing — the server starts data-less, as it always did
+    4. nothing: the server starts data-less
 
     The two explicit branches fail loudly: asking for a store that cannot be
     read is a mistake worth stopping for, and starting data-less instead would
-    turn it into a puzzle about why every endpoint returns
-    ``CONFIGURATION_ERROR``. The auto-load branch does the opposite and only
+    turn it into a puzzle about why every endpoint that needs data answers
+    409 ``NO_DATA_LOADED``. The auto-load branch does the opposite and only
     warns, because a corrupt app-data store must not leave the client unable to
     start the server that would let it write a new one.
 
@@ -200,7 +203,7 @@ def resolve_data_source(explicit: Path | None = None) -> tuple[DataFetcher | Non
         except ConfigurationError as exc:
             logger.warning(
                 "The app-data store at %s could not be read (%s). Starting "
-                "without a data source so a sync can replace it.", auto, exc)
+                "without data, so another store can be loaded.", auto, exc)
 
             return None, f"no data source: the store at {auto} is unreadable"
 

@@ -1,8 +1,12 @@
 # src/beacon/asset/__init__.py
 """
-The __init__.py for the 'asset' module.
+Financial assets and the per-asset view.
 
-This module defines and manages financial assets.
+`Asset` is the immutable base class holding a name, currency, identifier and
+asset type; `Equity`, `Bond` and `Commodity` extend it. The index pipeline
+accepts only `Equity`. `AssetView` pairs an asset identifier with a
+`DataFetcher` so you can ask one asset for its prices, returns, reference data
+and corporate actions.
 """
 from .base import Asset
 from .bond import Bond

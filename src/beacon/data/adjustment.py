@@ -10,7 +10,7 @@ removes both.
 
 ## What `ADJ_CLOSE` means here
 
-**Splits and dividends**, which is the vendor convention — Yahoo and Bloomberg
+**Splits and dividends**, which is the vendor convention: Yahoo and Bloomberg
 both ship a column of this name that reinvests cash. It is what most people
 mean when they say "adjusted", and shipping a splits-only series under the
 same name would give a number that looks right and is not.
@@ -27,7 +27,7 @@ chart matches the quote a user can see elsewhere, so the series is checkable.
 Adjusting forwards from the start would make the *last* number unrecognisable,
 which is the one people look at.
 
-It also means the series changes when a new action lands — every historical
+It also means the series changes when a new action lands: every historical
 value shifts. That is inherent to the convention rather than a defect, and a
 client caching an adjusted series needs to know it is not immutable.
 
@@ -36,8 +36,11 @@ client caching an adjusted series needs to know it is not immutable.
 A cash adjustment is a *fraction* of the price the day before the ex-date:
 paying 0.75 out of a 220 stock is a different event from paying it out of a 5
 stock. So a dividend whose preceding close is missing cannot be applied, and
-is skipped with a warning rather than guessed at — a guessed factor silently
-misstates every earlier value in the series.
+is skipped with a warning rather than guessed at, because a guessed factor
+silently misstates every earlier value in the series.
+
+Structural actions (a merger, a spin-off) are not a scaling of the same
+instrument's price, so they are left unadjusted.
 """
 import logging
 

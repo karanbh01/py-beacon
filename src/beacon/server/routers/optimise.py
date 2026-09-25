@@ -3,7 +3,7 @@
 Optimiser endpoints: constraint sets, runs, frontier and exposures.
 
 Constraint sets are stored documents like indices and watchlists. A run is a
-job, because the solve itself is fast but the risk model it needs is not — that
+job, because the solve itself is fast but the risk model it needs is not: that
 means a price history for every constituent and a covariance built from it.
 
 The frontier and exposures panes read a completed run rather than re-solving,
@@ -12,7 +12,7 @@ reason: a client switching tabs should not wait on a recalculation.
 
 Validation happens before the job. A malformed constraint set is a bad request
 and the client should learn that from the submission, not from a job that fails
-a moment later — and it reports every problem it finds, addressed to the row
+a moment later. It reports every problem it finds, addressed to the row
 that caused it, because someone fixing a constraint editor needs all the errors
 rather than the first.
 """

@@ -1,6 +1,6 @@
 # src/beacon/index/result.py
 """
-IndexResult — output container for index calculation results.
+IndexResult: the output of an index calculation run.
 """
 from dataclasses import dataclass, field
 
@@ -78,7 +78,7 @@ class IndexResult:
         announcement_dates: Mapping of *effective* date -> the date that
             composition was announced. Snapshots are keyed by the effective
             date, because that is when the weights are in force and what every
-            consumer — drift, attribution, the backtest engine — needs. The
+            consumer (drift, attribution, the backtest engine) needs. The
             announcement is carried alongside rather than instead, since a
             client showing "rebalance of 18 Sep, effective 22 Sep" needs both.
             Empty for an index with no lag, where the two always coincide.
@@ -86,20 +86,25 @@ class IndexResult:
             calculation day: ``DATE``, ``IDENTIFIER``, ``AMOUNT`` (units held)
             and ``WEIGHT`` (that holding's share of the day's aggregate
             value). Recorded by the calculator as it walks, not derived
-            afterwards — see the note below. Defaults to an empty frame, so a
-            result built by hand or by an older caller is still valid.
+            afterwards (see the note below). Defaults to an empty frame, so a
+            result built by hand is still valid.
+        calendar_coverage: How much of the requested window the trading
+            calendar covered, or None when it covered all of it (the ordinary
+            case). Its presence is the signal that the run's range was
+            narrowed to what the calendar covers.
 
     The daily panel is *recorded* rather than re-derived because the index's
     daily state is path-dependent. It is not a forward-fill of the rebalance
     snapshot, and not even "amounts fixed between rebalances, repriced daily":
-    :class:`~beacon.index.calculation.deletions.DeletionMixin` drops a delisted
-    name mid-period and adjusts the divisor, and
-    :class:`~beacon.index.calculation.corporate_actions.CorporateActionsMixin`
-    adjusts it on ex-dates. Both change what is held and what each name weighs
-    on a day that is not a rebalance. A path is written down as it happens.
+    a delisted name is dropped mid-period and the divisor adjusted, and a
+    total-return index reinvests its cash, both on days that are not
+    rebalances. A path is written down as it happens.
 
-    The rebalance snapshots stay what they always were: the record of what a
-    rebalance *decided*. This panel is the record of what then *happened*.
+    Splits are not applied between rebalances: units stay as the last
+    rebalance set them, valued at the stored close.
+
+    The rebalance snapshots are the record of what a rebalance *decided*. This
+    panel is the record of what then *happened*.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -224,7 +229,7 @@ class IndexResult:
         :meth:`get_weights_on_date`, which answers the different question of
         what the last rebalance decided.
 
-        Falls back to the latest recorded date on or before *date* — which
+        Falls back to the latest recorded date on or before *date*, which
         covers a day the holdings could not be valued at all, since such a day
         records no rows.
 

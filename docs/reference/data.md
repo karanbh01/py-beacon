@@ -1,7 +1,5 @@
-# beacon.data
+# Data
 
-Market and reference data access: `MarketData`/`ReferenceData` wrap tabular
-sources, and `DataFetcher` provides the unified query interface used
-throughout the calculation and backtest layers.
+The data model and how data is read: `DataFetcher` and the containers behind it, currencies and FX, the data store, file import, Postgres stores and downloads.
 
 ::: beacon.data

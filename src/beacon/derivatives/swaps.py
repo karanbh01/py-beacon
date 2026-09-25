@@ -29,11 +29,13 @@ class TotalReturnSwap(DerivativeBase):
 
     ``market_data`` inputs (read by key on the valuation methods):
 
-    - ``initial_price`` — reference price ``S_0`` at inception/last reset
+    - ``initial_price``: reference price ``S_0`` at inception/last reset
       (defaults to *spot_price*, i.e. zero return)
-    - ``reference_rate`` — the floating rate for the current period (default 0)
-    - ``last_reset_date`` — start of the current accrual period
+    - ``reference_rate``: the floating rate for the current period (default 0)
+    - ``last_reset_date``: start of the current accrual period
       (defaults to the swap start date)
+
+    The underlying type is always ``INDEX``, and financing accrues ACT/360.
     """
 
     #: Payment frequencies recognised for the financing leg.
@@ -150,17 +152,19 @@ class TotalReturnSwap(DerivativeBase):
         day_count_fraction = days / _FINANCING_DAY_COUNT
         return self.notional * rate * day_count_fraction
 
+    # A test holds the bump-and-revalue DV01 to the closed form. The bumped
+    # version is the one kept because it stays correct if the financing leg
+    # ever stops being linear, and because it is obviously right by inspection.
     def dv01(self,
              valuation_date: pd.Timestamp,
              last_reset_date: pd.Timestamp,
              reference_rate: float = 0.0) -> float:
         """Change in the receiver's value for a one-basis-point rate rise.
 
-        Computed by bumping and revaluing rather than by the closed form. The
-        two agree exactly here — financing is linear in the rate — and a test
-        holds them to that. The bump-and-revalue version is the one kept
-        because it stays correct if the financing leg ever stops being linear,
-        and because it is obviously right by inspection.
+        Computed by bumping the reference rate by one basis point and
+        revaluing the accrued financing, rather than by the closed form. The
+        two agree exactly here, since financing is linear in the rate
+        (``-notional * 1bp * financing_duration``).
 
         **The sign is negative for a total-return receiver**, and that is not a
         convention choice. The receiver *pays* financing, so a higher rate
@@ -169,7 +173,7 @@ class TotalReturnSwap(DerivativeBase):
         needs: which way this position hurts.
 
         A ``FUNDED`` swap returns 0.0. Only the spread accrues on one, and the
-        spread does not move with the reference rate — so the position genuinely
+        spread does not move with the reference rate, so the position genuinely
         has no sensitivity to it, rather than a small one.
 
         Args:
@@ -203,6 +207,9 @@ class TotalReturnSwap(DerivativeBase):
         Exposed because it is the whole of the DV01 story: the sensitivity is
         notional × 1bp × this, so a reader who wants to check the number by hand
         needs it rather than having to rederive the day count.
+
+        Raises:
+            ValueError: If *valuation_date* precedes *last_reset_date*.
         """
         days = int((pd.Timestamp(valuation_date) - pd.Timestamp(last_reset_date)).days)
         if days < 0:
@@ -216,7 +223,13 @@ class TotalReturnSwap(DerivativeBase):
                    market_data: dict[str, Any]) -> float:
         """Total-return-receiver P&L: total return leg minus accrued financing.
 
-        ``receiver_pnl = notional * (S_t / S_0 - 1) - accrued_financing``
+        ``receiver_pnl = notional * (S_t / S_0 - 1) - accrued_financing``,
+        with ``S_0``, the reference rate and the last reset date read from
+        *market_data* as described on the class.
+
+        Raises:
+            ValueError: If ``initial_price`` is not positive, or
+                *valuation_date* precedes the last reset date.
         """
         market_data = market_data or {}
         s0 = float(market_data.get("initial_price", spot_price))

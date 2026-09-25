@@ -150,7 +150,7 @@ class TestIntrospection:
     def test_the_summary_comes_from_the_docstring(self):
         entry = catalogue.entry_for(catalogue.WEIGHTING, "MarketCapWeighted")
 
-        assert entry.summary.startswith("Market capitalization weighting")
+        assert entry.summary.startswith("Market capitalisation weighting")
 
     def test_a_class_with_no_docstring_has_an_empty_summary(self):
         """Rather than None or a placeholder — the field is always a string, so

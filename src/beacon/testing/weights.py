@@ -2,22 +2,25 @@
 """
 A minimal valid IndexResult built from a raw weight schedule.
 
-The backtest engine's raw weight-dict mode was removed in BN-165:
-``index_result`` is the sole schedule source. Tests, examples and notebooks
-still want the cheap construction — "these weights on these dates, nothing
-else" — so this helper turns that dict into an :class:`IndexResult` the engine
-accepts, with every field a consumer reads filled consistently:
+The backtest engine takes its schedule from an ``index_result``. Tests,
+examples and notebooks often want the cheap construction instead ("these
+weights on these dates, nothing else"), so this helper turns that dict into an
+:class:`IndexResult` the engine accepts, with every field a consumer reads
+filled consistently:
 
 * ``weight_snapshots`` and ``constituent_snapshots`` carry the schedule
   verbatim, so the engine trades exactly the weights that were written down.
 * ``index_levels`` is a flat series at *base_value* over the schedule's
-  business-day span — a stand-in level, not a claim about performance.
+  business-day span: a stand-in level, not a claim about performance.
 * ``divisor_history`` is 1.0 throughout, and the daily weights panel prices
   every constituent at 1.0, so the divisor identity holds trivially:
   Σ amount × price ÷ divisor = base_value on every day.
 
 Core-only: pandas, nothing optional.
 """
+# The engine's raw weight-dict mode was removed in BN-165, leaving
+# ``index_result`` as the sole schedule source; this helper keeps the cheap
+# construction available.
 import pandas as pd
 
 from ..index.result import IndexResult, daily_weights_frame
@@ -41,7 +44,7 @@ def index_result_from_weights(schedule: dict[pd.Timestamp, dict[str, float]],
         that forward-fills each snapshot until the next.
 
     Raises:
-        ValueError: If *schedule* is empty — an engine with no rebalance
+        ValueError: If *schedule* is empty: an engine with no rebalance
             schedule at all has nothing to simulate.
     """
     if not schedule:

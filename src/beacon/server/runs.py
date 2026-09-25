@@ -22,10 +22,12 @@ def snapshots_from(run: dict[str, Any]) -> list[RebalanceSnapshot]:
     """Read the rebalance snapshots off a stored run.
 
     Raises:
-        DataNotFoundError: If the run carries none. A result stored before
-            BN-71 extended the payload has a level and metrics but no
-            composition, and saying so is better than serving an empty index.
+        DataNotFoundError: If the run carries none. An older stored result
+            may have a level and metrics but no composition, and saying so is
+            better than serving an empty index.
     """
+    # Results stored before BN-71 extended the payload carry a level and
+    # metrics but no rebalance snapshots; that is the case refused below.
     raw = run.get("rebalances")
     if not raw or not isinstance(raw, list):
         raise DataNotFoundError(

@@ -23,29 +23,17 @@ def _read_file(file_path: str) -> pd.DataFrame:
 
 def as_of_position(index: pd.Index,
                    date: str | pd.Timestamp) -> int | None:
-    """Where the last observation at or before *date* sits, or None (BN-208).
+    """Where the last observation at or before *date* sits, or None.
 
     The one way a point-in-time lookup is done, so that look-ahead is not
     something a caller has to remember to avoid.
 
-    ## Why this exists rather than the two-line form
-
-    The natural expression is `index.searchsorted(date, side="right") - 1`,
-    which returns **-1** when every observation is dated after *date*. In
-    pandas -1 is a perfectly legal index meaning *the last element*, so the
-    honest value for "nothing to find" is silently a lookup that returns the
-    newest observation in the series -- the largest look-ahead available.
-
-    Both FX sites hit this. Both had a guard, and both guards clamped rather
-    than refused:
-
-        series.iloc[max(position, 0)]      # the FIRST rate, still the future
-        if position < 0: series.iloc[0]    # the same, written out
-
-    Whoever wrote them saw that -1 was dangerous and reached for the nearest
-    plausible value. That swaps a large look-ahead for a small one. The only
-    correct answer is that there is no answer, and returning None is the only
-    way to say it that a caller cannot accidentally index with.
+    The natural expression, `index.searchsorted(date, side="right") - 1`,
+    returns **-1** when every observation is dated after *date*, and in
+    pandas -1 is a legal index meaning *the last element*: the newest
+    observation, the largest look-ahead available. Clamping to 0 instead
+    still returns a future value. This returns None, which a caller cannot
+    accidentally index with.
 
     Args:
         index: Ascending dates. Sorting is the caller's business; a search
@@ -106,18 +94,19 @@ class MarketData:
     def identifiers(self) -> list[str]:
         """Unique identifiers present in the dataset.
 
-        Cached, because this is not the cheap property it reads as. It scans
-        the whole MultiIndex, and `fetch_fx_rates` consults it on every call
-        to decide whether a pair exists -- which the calculator makes once per
-        foreign holding per day. Against a single-currency universe that never
-        fired; against a global one it turned an O(rows) scan into an inner
-        loop, and an index over eighty names took longer than the entire rest
-        of the test suite.
-
-        Keyed on the frame's identity rather than a flag, so replacing `_df`
-        invalidates it automatically instead of relying on every future
-        mutation remembering to.
+        Cached on the frame's identity, so the scan of the whole MultiIndex
+        happens once per frame. `fetch_fx_rates` consults this on every call
+        to decide whether a pair exists.
         """
+        # Why cached: the calculator makes that FX call once per foreign
+        # holding per day. Against a single-currency universe that never
+        # fired; against a global one it turned an O(rows) scan into an inner
+        # loop, and an index over eighty names took longer than the entire
+        # rest of the test suite.
+        #
+        # Keyed on the frame's identity rather than a flag, so replacing `_df`
+        # invalidates it automatically instead of relying on every future
+        # mutation remembering to.
         cached: tuple[object, list[str]] | None = getattr(
             self, "_identifier_cache", None)
 
@@ -134,12 +123,12 @@ class MarketData:
     def columns(self) -> list[str]:
         """Non-index column names.
 
-        Cached on the frame's identity, like `identifiers` and for the same
-        reason (BN-214). `_market_scalar` asks `column not in market.columns`
-        on **every price read** -- 186,400 times over a 200-name three-year
-        run -- and this built a fresh list of strings each time to answer a
-        membership test.
+        Cached on the frame's identity, like `identifiers`, because it is
+        consulted on every price read.
         """
+        # BN-214. `_market_scalar` asks `column not in market.columns` on every
+        # price read (186,400 times over a 200-name three-year run), and this
+        # built a fresh list of strings each time to answer a membership test.
         cached: tuple[object, list[str]] | None = getattr(
             self, "_columns_cache", None)
 
@@ -155,15 +144,16 @@ class MarketData:
     def sessions(self) -> pd.DatetimeIndex:
         """The distinct dates the dataset carries, ascending.
 
-        Cached on the frame's identity, for the reason the identifiers above
-        are (BN-190). Materialising the DATE level is an O(rows) take over the
-        whole frame, and `date_range` and `last_session_on_or_before` each did
-        it on every call — which `resolve_session` makes once *per name* while
-        a methodology walks a universe. On a 1,600-name preview that was 59% of
-        the runtime spent re-deriving a constant: every name on a given date
-        resolves to the same session, and the frame does not move underneath
-        them.
+        Cached on the frame's identity, like `identifiers`. Materialising the
+        DATE level is an O(rows) take over the whole frame, and `date_range`
+        and `last_session_on_or_before` both read it.
         """
+        # BN-190. Before the cache, `date_range` and `last_session_on_or_before`
+        # each materialised the level on every call, which `resolve_session`
+        # makes once *per name* while a methodology walks a universe. On a
+        # 1,600-name preview that was 59% of the runtime spent re-deriving a
+        # constant: every name on a given date resolves to the same session,
+        # and the frame does not move underneath them.
         cached: tuple[object, pd.DatetimeIndex] | None = getattr(
             self, "_session_cache", None)
 
@@ -204,24 +194,25 @@ class MarketData:
 
     def session_columns(self,
                         date: str | pd.Timestamp) -> tuple[dict[str, dict[str, object]], set[str]]:
-        """Every column's values for one session, keyed by identifier (BN-213).
+        """Every column's values for one session, keyed by identifier.
 
-        The read the daily loops make eight hundred times a run, done without
-        touching pandas. `get()` filters the whole frame to find one day's rows
-        -- the frame is indexed `(IDENTIFIER, DATE)`, so a single day's rows are
-        scattered through it rather than adjacent, and finding them costs what
-        the frame costs. Measured over 156,400 rows: 13.5 ms a day, which is
-        most of an index calculation.
-
-        This uses :meth:`_date_index` instead: the row positions for a date are
-        already known, so the read is a gather and two dict builds.
+        The read the daily loops make once per session, done without touching
+        pandas. The frame is indexed `(IDENTIFIER, DATE)`, so a single day's
+        rows are scattered through it rather than adjacent, and `get()` has to
+        filter the whole frame to find them. This looks up the row positions
+        for the date from a per-frame index instead, so the read is a gather
+        and two dict builds. Where an (identifier, date) pair is repeated, the
+        first row wins, as it does for `get()` followed by `.iloc[0]`.
 
         Returns:
-            tuple: ``({column: {identifier: value}}, identifiers)`` -- exactly
+            tuple: ``({column: {identifier: value}}, identifiers)``, exactly
             what a :class:`~beacon.data.session.SessionPanel` holds, so no
             DataFrame is built on the way. Empty for a date the data has no
             rows on.
         """
+        # BN-213. `get()` measured over 156,400 rows: 13.5 ms a day, which is
+        # most of an index calculation, and the daily loops make this read
+        # eight hundred times a run. `_date_index` holds the per-frame index.
         order, bounds, identifiers, arrays = self._date_index()
         span = bounds.get(pd.Timestamp(date))
 
@@ -345,8 +336,9 @@ class MarketData:
 class ReferenceData:
     """Reference data container with validity ranges.
 
-    The source file must contain ``IDENTIFIER``, ``DATE_FROM``, and ``DATE_TO``
-    columns. ``DATE_TO`` may be NaT to indicate a currently-active record.
+    The source file must contain ``IDENTIFIER`` and ``DATE_FROM`` columns.
+    ``DATE_TO`` is optional: a missing column, or NaT in it, marks a
+    currently-active record.
 
     Indexed on ``IDENTIFIER`` (non-unique, since an identifier may have
     multiple validity periods).
@@ -389,7 +381,7 @@ class ReferenceData:
 
     @property
     def identifiers(self) -> list[str]:
-        """Unique identifiers present in the dataset. Cached, as above."""
+        """Unique identifiers present in the dataset, cached on the frame's identity."""
         cached: tuple[object, list[str]] | None = getattr(
             self, "_identifier_cache", None)
 

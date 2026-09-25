@@ -1,6 +1,6 @@
 # src/beacon/__init__.py
 """
-Beacon — an end-to-end toolkit for index, ETF, and Delta-1 derivatives
+py-beacon, an end-to-end toolkit for index, ETF, and Delta-1 derivatives
 development.
 """
 __version__ = "0.1.1"

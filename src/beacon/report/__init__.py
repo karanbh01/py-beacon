@@ -2,8 +2,8 @@
 """
 Paginated report documents.
 
-Two halves, deliberately separable. `blocks` is the data model — what a report
-is made of — and needs nothing beyond the standard library, so a client can
+Two halves, deliberately separable. `blocks` is the data model (what a report
+is made of) and needs nothing beyond the standard library, so a client can
 build templates and persist them through `DocumentStore` with no PDF library
 installed. `pdf` renders one, and is the only part behind the `pdf` extra:
 

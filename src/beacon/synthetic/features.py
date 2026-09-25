@@ -3,7 +3,7 @@
 Synthetic features: fundamental ratios and a little alternative data.
 
 A small set, deliberately. The point is to have something to screen on and
-something to exercise the point-in-time path with — not to simulate a data
+something to exercise the point-in-time path with, not to simulate a data
 vendor. Four fundamental ratios and two alternative series is enough for a
 universe filter, an index rule and a look-ahead test, and cheap enough that
 every generated store can carry it.
@@ -21,7 +21,7 @@ So the ratios are *derived from* the generated prices:
 
     eps        = close / pe_ratio          (so pe x eps == price, exactly)
     book_value = close / pb_ratio
-    d/e        = drawn per name, by sector — the one genuinely independent of
+    d/e        = drawn per name, by sector: the one genuinely independent of
                  price, because leverage is a balance-sheet fact
 
 The multiple is what gets drawn, sector by sector, and the per-share figure
@@ -37,14 +37,14 @@ moves. A name nobody has heard of does not trend on a quiet day.
 `DATE` holds when a value became knowable (`beacon.data.features`), so a
 fundamental for the quarter ending 31 March is published somewhere in the
 following weeks. **A constant lag would make every look-ahead test pass
-whether or not the accessor was correct** — with all values 45 days late, any
+whether or not the accessor was correct**: with all values 45 days late, any
 off-by-one still lands in the same gap. The lag is drawn per name per quarter,
 so a test standing on a given date sees a genuinely ragged edge.
 
 ## Coverage is deliberately incomplete
 
 Real fundamentals are missing for some names and some quarters, and
-alternative datasets cover a fraction of a universe — mostly the large,
+alternative datasets cover a fraction of a universe, mostly the large,
 visible names. Generating a complete grid would make the missing-coverage
 behaviour in `FeatureRule` untestable against this data, and would overstate
 what an alternative vendor sells.

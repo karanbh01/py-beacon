@@ -10,15 +10,17 @@ one contract at a time.
 Two views of the same disagreement, and it is worth being clear that they are
 the same disagreement:
 
-* **Basis** — market price minus theoretical price. Answers "how much is this
+* **Basis**: market price minus theoretical price. Answers "how much is this
   contract off my model", in price terms.
-* **Implied repo** — the financing rate that would make the model agree with
+* **Implied repo**: the financing rate that would make the model agree with
   the market. Answers "what would I have to believe for this price to be
   right", in rate terms.
 
-A rich contract has a positive basis and an implied repo above the curve. They
-cannot disagree about direction, and a test holds them to that.
+A rich contract has a positive basis and an implied repo above the curve
+(plus any borrow cost, which the implied repo absorbs). They cannot disagree
+about direction.
 """
+# A test holds basis and implied repo to agreeing on direction.
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -50,6 +52,11 @@ class FuturesQuote:
 @dataclass
 class TermStructure:
     """A strip of futures on one underlying, valued off one curve.
+
+    Fair values use continuous cost of carry, with each expiry financed at the
+    curve's zero rate for its ACT/365 time to expiry. Construction raises
+    `CalculationError` if there are no quotes, *spot* is not positive, or an
+    expiry is before *valuation_date*.
 
     Attributes:
         underlying: Identifier of the underlying.
@@ -138,7 +145,11 @@ class TermStructure:
     def implied_repo(self) -> pd.Series:
         """The financing rate each quoted price implies.
 
-        NaN for expiries with no quote, and for an expiry today — a zero year
+        ``(ln(F / S) + q * T) / T`` per expiry, using the strip's dividend
+        yield. The borrow cost is not subtracted, so it shows up inside the
+        implied rate.
+
+        NaN for expiries with no quote, and for an expiry today: a zero year
         fraction carries no information about a rate, and dividing by it would
         manufacture one.
 
@@ -183,7 +194,7 @@ def sensitivity_grid(spot: float,
     """Fair value across a tenor × rate grid.
 
     What a position is worth if the curve is somewhere else and expiry is
-    further out — the two axes a Delta-1 desk actually moves along, laid out so
+    further out: the two axes a Delta-1 desk actually moves along, laid out so
     the shape is visible at once rather than one revaluation at a time.
 
     Args:

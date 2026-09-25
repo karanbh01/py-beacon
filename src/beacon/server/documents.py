@@ -2,51 +2,62 @@
 """
 Reading stored documents: tolerant listings, strict details.
 
-A listing and a detail route over the same store answer two different
-questions, and BN-174 is what happens when they answer them inconsistently.
+A listing answers "what is there". A document the server cannot parse or
+validate is skipped, with a WARNING naming the id and the fault, and the rest of
+the collection is served; the response counts what was left out and why.
 
-**A listing answers "what is there."** A document the server cannot parse or
-cannot validate genuinely is not there, as far as anything a client can do with
-it goes — so it is skipped, with a WARNING naming the id and the fault, and the
-rest of the collection is served. The alternative is what `/indices`,
-`/universes` and `/optimise/constraint-sets` used to do: one unreadable file
-500d the whole listing, so a picker went blank and every *other* document became
-unreachable through the UI because of one bad file.
+A detail route answers "give me this one". A document the server cannot read
+gets the same 404, envelope and pointer as an absent one, and the underlying
+fault is logged at WARNING rather than returned, because it is about this
+server's storage and not about the request. Listings and detail routes share one
+definition of "unreadable", so they cannot disagree about what exists.
 
-**A detail route answers "give me this one."** There the only honest reply is a
-refusal, and the refusal is 404 with the same envelope and pointer an absent
-document gets: a stored artefact the server cannot interpret is
-indistinguishable, from the client's side, from one that was never written.
-The underlying fault is logged at WARNING rather than being returned, because it
-is about this server's storage and not about the request.
-
-These are not two halves of a compromise. They are one pattern, and a pair that
-has only half of it diverges — which is the bug this module exists to make
-impossible: the listing and the detail now share the same definition of
-"unreadable", so they cannot disagree about what exists.
-
-**Write paths need the two questions apart (BN-177).** A read asks "can you give
-me this", and a document it cannot parse is answered as absent. A *write* asks
-something else, and which something depends on the verb: a delete needs the file
-to be PRESENT, not valid, and a PUT needs to know whether a guard that inspects
-the predecessor can run at all. Conflating the two is what left a corrupt
-universe undeletable *and* unrepairable — 404 on read, 500 on delete, 500 on
-overwrite, with the id occupied forever and only a manual file deletion on the
-server to clear it. `stored` is the vocabulary for asking explicitly: it hands
-back the document when it reads and records the fault when it does not, so
-`present` and `readable` are separate properties of one answer and a route
-cannot accidentally ask one while meaning the other.
-
-**Why here rather than on `DocumentStore`.** The store deals in dicts: it knows
-about JSON and schema versions, and nothing about pydantic models or HTTP. But
-most of the documents this guards against are perfectly good JSON — the failure
-is that they do not satisfy the response model, which is a fact about the API
-layer and is where the forward-compatibility hazard lives (the day a required
-field is added to a model, every document stored before it lands on exactly
-this path). `store.read_all()` stays strict, and since BN-178 nothing in the
-server calls it — the tolerance is applied here, where the model is known, and
-a test asserts that no server code reads a collection strictly again.
+Write paths use `stored`, which keeps "is something stored here" and "can it be
+read" apart, so a corrupt document can still be deleted or replaced.
 """
+# Design notes.
+#
+# A listing and a detail route over the same store answer two different
+# questions, and BN-174 is what happens when they answer them inconsistently.
+#
+# A listing answers "what is there." A document the server cannot parse or
+# cannot validate genuinely is not there, as far as anything a client can do
+# with it goes, so it is skipped and the rest of the collection is served. The
+# alternative is what `/indices`, `/universes` and `/optimise/constraint-sets`
+# used to do: one unreadable file 500d the whole listing, so a picker went blank
+# and every *other* document became unreachable through the UI because of one
+# bad file.
+#
+# A detail route answers "give me this one." There the only honest reply is a
+# refusal, and the refusal is 404 with the same envelope and pointer an absent
+# document gets: a stored artefact the server cannot interpret is
+# indistinguishable, from the client's side, from one that was never written.
+#
+# These are not two halves of a compromise. They are one pattern, and a pair
+# that has only half of it diverges, which is the bug this module exists to make
+# impossible.
+#
+# Write paths need the two questions apart (BN-177). A read asks "can you give
+# me this", and a document it cannot parse is answered as absent. A *write* asks
+# something else, and which something depends on the verb: a delete needs the
+# file to be PRESENT, not valid, and a PUT needs to know whether a guard that
+# inspects the predecessor can run at all. Conflating the two is what left a
+# corrupt universe undeletable *and* unrepairable (404 on read, 500 on delete,
+# 500 on overwrite), with the id occupied forever and only a manual file
+# deletion on the server to clear it. `stored` is the vocabulary for asking
+# explicitly: it hands back the document when it reads and records the fault
+# when it does not, so `present` and `readable` are separate properties of one
+# answer and a route cannot accidentally ask one while meaning the other.
+#
+# Why here rather than on `DocumentStore`. The store deals in dicts: it knows
+# about JSON and schema versions, and nothing about pydantic models or HTTP. But
+# most of the documents this guards against are perfectly good JSON; the failure
+# is that they do not satisfy the response model, which is a fact about the API
+# layer and is where the forward-compatibility hazard lives (the day a required
+# field is added to a model, every document stored before it lands on exactly
+# this path). `store.read_all()` stays strict, and since BN-178 nothing in the
+# server calls it: the tolerance is applied here, where the model is known, and
+# a test asserts that no server code reads a collection strictly again.
 import logging
 import re
 from collections.abc import Callable
@@ -107,13 +118,15 @@ def raw(document_id: str,
     return document
 
 
+# Until BN-201 one integer covered all three causes, and a client could render
+# only the sentence that fits none of them ("could not be read"), which invites
+# restoring a file that may be fine.
 @dataclass(frozen=True)
 class SkipCounts:
-    """How many documents a listing left out, and why (BN-201).
+    """How many documents a listing left out, and why.
 
-    One integer used to cover three causes that call for different responses,
-    and a client could render only the sentence that fits none of them --
-    "could not be read" -- which invites restoring a file that may be fine.
+    The three causes call for different responses, so they are counted
+    separately.
 
     Attributes:
         unparseable: Not valid JSON, or a schema version nothing can migrate.
@@ -129,9 +142,10 @@ class SkipCounts:
     from_newer_build: int = 0
     unrecognised: int = 0
 
+    # This is the single `skipped` count listings published before BN-201.
     @property
     def total(self) -> int:
-        """Every document left out, whatever the cause -- the old `skipped`."""
+        """Every document left out, whatever the cause."""
         return self.unparseable + self.from_newer_build + self.unrecognised
 
 
@@ -261,8 +275,8 @@ def read_collection(store: DocumentStore,
         tuple: ``(rows, skipped)``. The counts are published by the response
         model rather than only logged: a picker silently short by three is
         indistinguishable from a correct one, and the server is the only side
-        that knows. Broken down by cause since BN-201, because this side also
-        knows *why*, and the client cannot work it out.
+        that knows. Broken down by cause, because this side also knows *why*,
+        and the client cannot work it out.
     """
     rows: list[T] = []
     causes = {"unparseable": 0, "from_newer_build": 0, "unrecognised": 0}

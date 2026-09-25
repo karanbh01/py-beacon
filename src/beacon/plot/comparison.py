@@ -4,13 +4,8 @@ Comparing several results on one axis.
 
 A free function rather than an accessor because it is not about any one result:
 `compare(a, b, c)` is a statement about the set, and hanging it off the first
-argument would make that arbitrary.
-
-The module is `comparison` rather than `compare` so it does not shadow the
-function it exports. `from beacon.plot import compare` resolves a submodule
-before it consults the package's lazy attribute hook, so a module of the same
-name would hand back the module and every call site would fail on a
-not-callable error.
+argument would make that arbitrary. Import it as
+`from beacon.plot import compare`.
 
 ## Aligned, not concatenated
 
@@ -20,6 +15,11 @@ periods differ for no reason but their spans, and the one with the shorter
 history looks better or worse than it is. Rebasing on the shared start means
 the lines begin together and the comparison is of shape.
 """
+# The module is `comparison` rather than `compare` so it does not shadow the
+# function it exports. `from beacon.plot import compare` resolves a submodule
+# before it consults the package's lazy attribute hook, so a module of the same
+# name would hand back the module and every call site would fail on a
+# not-callable error.
 import logging
 from typing import Any
 
@@ -79,7 +79,8 @@ def compare(*results: Any,
 
     Args:
         *results: Two or more `IndexResult` or `BacktestResult` objects.
-        labels: Display names. Defaults to each result's own identifier.
+        labels: Display names. Defaults to each result's own identifier
+            (its index id or portfolio id), or "Series N" when it has none.
         ax: Axes to draw on. A new figure is created when absent.
 
     Returns:

@@ -1,9 +1,11 @@
 # src/beacon/analysis/__init__.py
 """
-The __init__.py for the 'analysis' module.
+Analytics for indices, ETFs and portfolios.
 
-This module provides tools for analyzing the performance and
-risk characteristics of indices, ETFs, and portfolios.
+Covers performance attribution (`attribute`, `Attribution`, cost and cap
+drag), concentration and drift from target weights, liquidity, risk metrics
+(volatility, Sharpe ratio, maximum drawdown) and ETF tracking analytics
+(tracking difference, tracking error, premium or discount to NAV).
 """
 from .attribution import (
     Attribution,

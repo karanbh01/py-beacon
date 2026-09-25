@@ -3,14 +3,16 @@
 Resolving a benchmark reference to a level series.
 
 A benchmark arrives as a reference, not data: either the id of a stored index
-definition — which has to be calculated before it can be compared against — or
+definition (which has to be calculated before it can be compared against) or
 a market-data identifier whose price series is the benchmark directly.
 
-A stored index of *either* face qualifies (BN-169): a benchmark needs only a
-level series to compare against, and an optimised index has one exactly as a
+A stored index of *either* face qualifies: a benchmark needs only a level
+series to compare against, and an optimised index has one exactly as a
 rule-driven one does. It is calculated through whichever path its definition
 requires, which is the only difference the two faces make here.
 """
+# BN-169 made a stored optimised index acceptable as a benchmark alongside a
+# rule-driven one.
 import logging
 
 import pandas as pd
@@ -46,7 +48,7 @@ def resolve_benchmark(reference: BenchmarkRef,
         end: End date, YYYY-MM-DD.
 
     Returns:
-        pd.Series: Levels indexed by date. Not rebased — the caller decides,
+        pd.Series: Levels indexed by date. Not rebased: the caller decides,
         and returns are scale-invariant anyway.
 
     Raises:

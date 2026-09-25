@@ -2,10 +2,10 @@
 """
 Listing venues: where a generated company trades, and in what currency.
 
-A single-currency universe cannot exercise most of what Beacon does with
+A single-currency universe cannot exercise most of what py-beacon does with
 currency. The calculator converts every market value through
 `fetch_fx_rates`, corporate actions convert their cash amounts the same way,
-and both paths are dead code against a universe that is entirely USD — they
+and both paths are dead code against a universe that is entirely USD: they
 run, they multiply by 1.0, and nothing they could get wrong would show up.
 
 ## What a region is here
@@ -61,8 +61,8 @@ class Region:
             asking "listed in Germany" cannot be answered by the first.
         weight: Share of the universe, roughly MSCI ACWI.
         rate: Units of `currency` per one US dollar at the start of the panel.
-            Quoted this way round -- rather than as the market convention,
-            which differs per pair -- because it is the direction the
+            Quoted this way round (rather than as the market convention,
+            which differs per pair) because it is the direction the
             conversion needs and a single convention cannot be misread.
         volatility: Annualised volatility of the exchange rate.
     """
@@ -135,7 +135,7 @@ def assign(count: int,
     Args:
         count: How many names.
         rng: Seeded generator, used only to shuffle the assignment so region
-            does not correlate with position -- and therefore not with sector,
+            does not correlate with position, and therefore not with sector,
             which is assigned round-robin.
 
     Returns:

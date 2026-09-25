@@ -2,44 +2,36 @@
 """
 The weights pane: composition at a date, per constituent.
 
-Split out of `views.py`, which was at the point where adding per-row detail
-would have taken it well past the size this codebase keeps modules to. What
-lives here is one question — *what does the index hold, and how did it get
-there* — and everything the table needs to answer it.
+It answers one question, *what does the index hold, and how did it get
+there*, with everything the table needs to answer it.
 
-## Two weights per row, not one
-
-`raw_weight` is what the weighting scheme produced; `weight` is what survived
-the cap. The pair is what makes a capped index legible: without the raw figure
-a reader sees several names sitting at exactly 20% and cannot tell whether the
-cap was binding hard on one and barely on another. The library has kept
-`uncapped_weights` on every snapshot since capping was written, precisely so
-this counterfactual stays available — this endpoint surfaces it rather than
-computing anything new.
-
-Their sums are the check worth knowing: raw weights sum to 1 and applied
-weights sum to 1, and the weight moved between them is `cap_redistributed`.
-
-## Drift is per name and in aggregate, from one walk
+Each row carries two weights. `raw_weight` is what the weighting scheme
+produced; `weight` is what survived the cap. The pair is what makes a capped
+index legible: without the raw figure a reader sees several names sitting at
+exactly 20% and cannot tell whether the cap was binding hard on one and barely
+on another. Raw weights sum to 1 and applied weights sum to 1, and the weight
+moved between them is `cap_redistributed`.
 
 The aggregate `DriftPayload` and every row's `delta_since_rebalance` come from
-the same held-weight vector. Computing them separately would let the total stop
-matching the rows it is a total of, which is the kind of disagreement nobody
-notices until a client displays both.
-
-Drift is measured against the *targets the last rebalance set*, not against the
-previous rebalance. An equal-weighted index resets to 1/n every time, so
+the same held-weight vector, so the total always matches the rows it is a total
+of. Drift is measured against the *targets the last rebalance set*, not against
+the previous rebalance. An equal-weighted index resets to 1/n every time, so
 comparing consecutive rebalances would report zero drift forever; the question
 worth answering is how far prices have moved the index since it was last reset.
 
-## `shares_outstanding` is the company's, not the index's
-
-An index fact sheet's "shares" column is usually shares *held per index unit*,
-which needs a divisor and a notional this endpoint has neither of. What the
-data layer holds is the company's shares outstanding, so that is what is
-served — under a name that cannot be mistaken for the other figure. A field
-called `shares` would have been read as index shares by at least one person.
+`shares_outstanding` is the company's shares outstanding, not shares held per
+index unit (the usual fact-sheet "shares" column, which needs a divisor and a
+notional this endpoint has neither of).
 """
+# Split out of `views.py`, which was at the point where adding per-row detail
+# would have taken it well past the size this codebase keeps modules to.
+#
+# The library has kept `uncapped_weights` on every snapshot since capping was
+# written, precisely so the raw-weight counterfactual stays available; this
+# endpoint surfaces it rather than computing anything new.
+#
+# The field is named `shares_outstanding` rather than `shares` because a field
+# called `shares` would have been read as index shares by at least one person.
 import logging
 from typing import Any
 

@@ -1,7 +1,7 @@
 # src/beacon/portfolio/base.py
 """
-Module defining classes for managing investment portfolios, including
-Transaction, Holding, and the main Portfolio class.
+Portfolio accounting: `Portfolio`, the `Holding`s it keeps, the
+`Transaction`s it records, and the `TradeInstruction`s it accepts.
 """
 import logging
 from dataclasses import dataclass
@@ -50,16 +50,17 @@ class Transaction:
                     f"transaction_date must be a pandas Timestamp. Error: {e}") from e
 
 
+# TradeInstruction lives here rather than in the backtest layer because the
+# portfolio is the layer that accepts one, and a ledger's input type belongs
+# with the ledger (BN-151; previously in ``backtest/engine.py``, where it
+# forced the codebase's one circular-import workaround).
 @dataclass(frozen=True)
 class TradeInstruction:
     """A single trade for a portfolio to record.
 
-    Produced by whatever *decides* trades — the backtest engine sizes, prices
-    and costs an order — and consumed by :meth:`Portfolio.apply`, which does
-    the accounting. It lives here rather than in the backtest layer because
-    the portfolio is the layer that accepts one, and a ledger's input type
-    belongs with the ledger (BN-151; previously in ``backtest/engine.py``,
-    where it forced the codebase's one circular-import workaround).
+    Produced by whatever *decides* trades (the backtest engine sizes, prices
+    and costs an order) and consumed by :meth:`Portfolio.apply`, which does
+    the accounting.
 
     Attributes:
         asset_id: Asset identifier.
@@ -108,28 +109,35 @@ class Holding:
         self.market_value = self.quantity * self.current_price
 
 
+# The store-of-record role is BN-152.
 class Portfolio:
     """
     Manages a collection of asset holdings, cash balance, and transaction history.
 
-    Holdings are keyed by string asset identifiers. The Portfolio has no
-    dependency on Asset objects or DataFetcher — callers pass simple strings
-    and prices.
+    Holdings are keyed by string asset identifiers. The accounting needs no
+    Asset objects or data source: callers pass simple strings and prices.
 
-    It is also the **store of record** (BN-152): what it started with, and
-    what the books said on every date something changed them, are kept here
-    rather than flattened onto whatever ran it. See :attr:`positions`,
-    :attr:`cash` and :attr:`nav`.
+    It is also the **store of record**: what it started with, and what the
+    books said on every date something changed them, are kept here rather
+    than flattened onto whatever ran it. See :attr:`positions`, :attr:`cash`
+    and :attr:`nav`.
 
     Args:
         portfolio_id: Identifier for these books.
         initial_cash: Opening cash balance. Retained as
-            :attr:`initial_capital` — `cash_balance` goes on mutating, so
-            without it a portfolio could not say what it started with.
+            :attr:`initial_capital`, because `cash_balance` goes on mutating
+            and without it a portfolio could not say what it started with.
         inception: Optional day zero. When given, the books open on that date
             with NAV and cash equal to the initial capital, before anything
-            trades. A backtest passes its start date; a hand-built portfolio
-            can leave it out, and its history then starts at its first event.
+            trades. A backtest passes the business day before its first
+            trading day; a hand-built portfolio can leave it out, and its
+            history then starts at its first event.
+        source: Data source that :meth:`asset` reads market data from. None
+            uses the process's ambient source (:func:`beacon.sources.resolve`)
+            at the time of the call.
+
+    Raises:
+        ValueError: If *portfolio_id* is empty or *initial_cash* is negative.
     """
     def __init__(self,
                  portfolio_id: str,
@@ -174,8 +182,8 @@ class Portfolio:
         """What was held, long-form: DATE, ASSET_ID, QUANTITY, PRICE,
         MARKET_VALUE, WEIGHT.
 
-        A row per held asset per date on which the books changed — a trade or
-        a mark. `WEIGHT` was computed and stored at write time, so it records
+        A row per held asset per date on which the books changed (a trade or
+        a mark). `WEIGHT` was computed and stored at write time, so it records
         what the portfolio believed then rather than what recomputing it now
         would say.
         """
@@ -185,10 +193,10 @@ class Portfolio:
     def weights(self) -> pd.DataFrame:
         """The stored weights, wide: dates by asset.
 
-        A pivot of the positions panel's `WEIGHT` column — the same recorded
-        numbers, shaped for cross-book arithmetic: `portfolio.weights`
+        A pivot of the positions panel's `WEIGHT` column: the same recorded
+        numbers, shaped for cross-book arithmetic. `portfolio.weights`
         subtracts cleanly against an index book's weights because both are
-        date-by-asset frames (decision 5).
+        date-by-asset frames.
         """
         positions = self.positions
 
@@ -224,7 +232,7 @@ class Portfolio:
             facts from the resolved data source.
 
         Raises:
-            KeyError: If the books have never seen *asset_id* — matching
+            KeyError: If the books have never seen *asset_id*, matching
                 `IndexResult.asset` for a non-constituent.
             DataSourceError: If no source is bound and the process has none.
         """
@@ -282,6 +290,11 @@ class Portfolio:
                     date: pd.Timestamp | None = None) -> None:
         """Buy an asset: deduct cash, create/update holding, record transaction.
 
+        The holding's average cost is updated as a quantity-weighted average
+        and it is marked at *price*. If cash (allowing a tiny tolerance for
+        float error) does not cover ``quantity * price + cost``, the buy is
+        not made: an error is logged and nothing changes.
+
         Args:
             asset_id: String identifier for the asset.
             quantity: Number of units to buy (must be positive).
@@ -291,6 +304,7 @@ class Portfolio:
                 row is written under that same timestamp.
 
         Raises:
+            ValueError: If *quantity* is not positive or *price* is negative.
             FrozenPortfolioError: If the books have been frozen.
         """
         self._refuse_if_frozen("execute_buy")
@@ -352,6 +366,11 @@ class Portfolio:
                      date: pd.Timestamp | None = None) -> None:
         """Sell an asset: add cash proceeds, reduce/remove holding, record transaction.
 
+        Cash rises by ``quantity * price - cost``. A holding reduced to
+        (almost) zero is removed; what remains of a partly sold holding is
+        re-marked at *price*. If the portfolio holds less than *quantity*,
+        the sell is not made: an error is logged and nothing changes.
+
         Args:
             asset_id: String identifier for the asset.
             quantity: Number of units to sell (must be positive).
@@ -361,6 +380,7 @@ class Portfolio:
                 row is written under that same timestamp.
 
         Raises:
+            ValueError: If *quantity* is not positive or *price* is negative.
             FrozenPortfolioError: If the books have been frozen.
         """
         self._refuse_if_frozen("execute_sell")
@@ -408,12 +428,12 @@ class Portfolio:
               date: pd.Timestamp | None = None) -> None:
         """Record one trade in the books.
 
-        The entry point for anything that has already *decided* a trade —
-        the engine, after sizing and pricing it. Dispatches to the buy/sell
-        accounting, which stays on the portfolio: weighted average cost,
-        closing at ~zero quantity, refusing entries that would push cash or
-        holdings negative are what make a ledger a ledger, wherever the
-        decision came from.
+        The entry point for anything that has already *decided* a trade, such
+        as the engine after sizing and pricing it. Dispatches to
+        :meth:`execute_buy` or :meth:`execute_sell`, so the accounting stays
+        on the portfolio: weighted average cost, closing at ~zero quantity,
+        and declining (with a logged error) entries that would push cash or
+        holdings negative.
 
         Args:
             trade: The instruction, as the decider issued it.
@@ -421,9 +441,10 @@ class Portfolio:
                 accounting does.
 
         Raises:
-            ValueError: If the side is neither ``"BUY"`` nor ``"SELL"`` —
-                refused rather than guessed, because silently ignoring an
-                unknown side would drop a trade from the record.
+            ValueError: If the side is neither ``"BUY"`` nor ``"SELL"``
+                (case-insensitive). Refused rather than guessed, because
+                silently ignoring an unknown side would drop a trade from the
+                record.
             FrozenPortfolioError: If the books have been frozen. Checked here
                 as well as in the accounting, so the message names the entry
                 point the caller actually used.

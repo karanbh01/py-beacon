@@ -2,14 +2,13 @@
 """
 Fetching market and reference data from an external source.
 
-The `data` extra (yfinance) was declared and unused: data arrived only by being
-loaded into `MarketData` at startup, which is why
-`POST /data/coverage/{dataset}/sync` returned 501. This is the path that makes
-it real.
+Downloads history and reference records per identifier and reshapes them into
+the long form `MarketData` and `ReferenceData` load. The yfinance-backed
+downloaders need the `data` extra.
 
 ## The downloader is injected
 
-Everything here takes a *downloader* — a callable from
+Everything here takes a *downloader*: a callable from
 ``(identifier, start, end)`` to a date-indexed OHLCV frame. The yfinance-backed
 one is built by :func:`yfinance_downloader`, and that is the only place the
 optional dependency is touched.
@@ -17,7 +16,7 @@ optional dependency is touched.
 The point is not abstraction for its own sake. It means this module imports and
 runs with no network and no extra installed, so the reshaping, the partial-
 failure handling and the progress reporting are all testable against a fake
-that returns known numbers — none of which could be tested honestly against a
+that returns known numbers, none of which could be tested honestly against a
 live market-data service.
 
 ## One identifier at a time, and failures do not spread
@@ -32,6 +31,9 @@ Fetching them one at a time also makes progress mean something: "142 of 500"
 is a real statement, whereas a single bulk request can only ever report 0% and
 then 100%.
 """
+# History: the `data` extra (yfinance) was once declared and unused. Data
+# arrived only by being loaded into `MarketData` at startup, which is why
+# `POST /data/coverage/{dataset}/sync` returned 501; this module made it real.
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -69,7 +71,7 @@ REFERENCE_MAP = {
 
 # The validity start stamped on ingested reference records. Reference data
 # needs a DATE_FROM and a download carries no history of when a field changed,
-# so it is recorded as valid from the start of the requested window.
+# so it is recorded as valid from a date before any market data.
 DEFAULT_VALID_FROM = "1900-01-01"
 
 
@@ -167,7 +169,7 @@ def normalise_history(identifier: str,
 
     Raises:
         DataNotFoundError: If there is no close price. Every other column is
-            optional — a series with no volume is still a usable price series —
+            optional (a series with no volume is still a usable price series),
             but the calculator and the engine both read CLOSE, so a frame
             without one would be accepted here and fail much later.
     """
@@ -234,7 +236,8 @@ def ingest_market_data(identifiers: list[str],
         identifiers: What to fetch.
         downloader: Where to fetch it from.
         start: Inclusive start date.
-        end: Inclusive end date.
+        end: End date, passed to the downloader as given. Yahoo Finance
+            treats it as exclusive: pass the day after the last one wanted.
         on_progress: Called with ``(done, total, identifier)`` after each one,
             so a job can report real progress rather than 0% then 100%.
 

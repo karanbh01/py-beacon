@@ -1,21 +1,19 @@
 # src/beacon/portfolio/asset_view.py
 """
-PortfolioAssetView — one asset seen from a portfolio, position and market.
+PortfolioAssetView: one asset seen from a portfolio, position and market.
 
     p.asset("AAA").quantity            # from the books
     p.asset("AAA").unrealised_pnl
     p.asset("AAA").prices(start, end)  # from the data source
     p.asset("AAA").sector(on=date)     # point-in-time, not today's
 
-The view reads **everything live** — position numbers from the portfolio
-object, market facts from the data source — so nothing is cached that can go
-stale. That is the same rule the redesign applied everywhere: a copied fact
-can quietly disagree with its source, a read cannot.
-
-The portfolio is typed as a Protocol rather than imported: `base.py` imports
-this module to hand views out, so importing `Portfolio` back would be a
-cycle — the same shape `history.py` avoided the same way (BN-152).
+The view reads **everything live** (position numbers from the portfolio
+object, market facts from the data source), so nothing is cached that can go
+stale: a copied fact can quietly disagree with its source, a read cannot.
 """
+# The portfolio is typed as a Protocol rather than imported: `base.py` imports
+# this module to hand views out, so importing `Portfolio` back would be a
+# cycle, the same shape `history.py` avoided the same way (BN-152).
 
 from collections.abc import Mapping
 from typing import Protocol
@@ -108,7 +106,7 @@ class PortfolioAssetView(AssetView):
     def unrealised_pnl(self) -> float | None:
         """What the current position has made against its average cost.
 
-        None when the asset is not held or has never been priced — an
+        None when the asset is not held or has never been priced: an
         unknown P&L is not a zero P&L.
         """
         holding = self._portfolio.holdings.get(self._asset_id)

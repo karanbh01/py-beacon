@@ -2,33 +2,24 @@
 """
 A persisted market-data store on disk.
 
-Until now data reached the server only by being loaded into `MarketData` by a
-caller that built the process. `python -m beacon.server` builds its own process,
-so it had no such caller and always started data-less: every data endpoint
-answered `CONFIGURATION_ERROR`, and sync could not bootstrap because there was
-nothing to sync *into*. This is the format that gives a spawned server
-something to find.
+A store is a directory holding a `manifest.json` and one gzipped CSV per
+dataset: `market.csv.gz` (required), and `reference.csv.gz`,
+`corporate_actions.csv.gz` and `features.csv.gz` when the data has them.
+:func:`save` writes one from a `DataFetcher` and :func:`load` reads one back.
+A server started with `python -m beacon.server` loads the store at
+:func:`default_path` (or the path it is given), which is what
+`python -m beacon.synthetic` writes.
 
-## Why CSV and gzip
-
-A columnar format would load faster and pack smaller. It would also put a
-binary dependency (pyarrow, ~40MB) in front of the one thing that has to work
-before anything else does. The store is read once at startup, and 645k rows —
-512 names over five years — take about a second and a half through
-`read_csv`, which is not the difference between a usable desktop application
-and an unusable one.
-
-What CSV buys is worth more here: the store opens in any text editor after a
-`gunzip`, so "the server started with no data" is a question you can answer by
-looking, and the format needs nothing beyond pandas. If load time ever becomes
+CSV rather than a columnar format, so the store opens in any text editor
+after a `gunzip` and needs nothing beyond pandas. If load time ever becomes
 the complaint, `schema_version` is how the format changes without stranding
-anyone's store.
+anyone's store: a store written by a newer version is refused rather than
+misread.
 
 ## Byte-for-byte reproducibility
 
-Two runs of the same generator must produce the same store, or BN-114's
-determinism guarantee is untestable. Three things would otherwise break it,
-and each is pinned below:
+Two runs of the same generator produce the same store. Three things would
+otherwise break that, and each is pinned:
 
 * **Line endings.** `to_csv` follows the platform by default, so the same
   frame written on Windows and Linux differs in every row. Pinned to ``\\n``.
@@ -37,10 +28,24 @@ and each is pinned below:
 * **Manifest key order.** Written sorted.
 
 Timestamps are deliberately *not* recorded in the manifest. The store's age is
-the file's mtime, and `DataFetcher` stamps its own refresh time when it loads —
-writing a creation time into the manifest would be a third answer to a question
-that already has two, and would make every store byte-unique.
+the file's mtime, and `DataFetcher` stamps its own refresh time when it loads.
+Writing a creation time into the manifest would be a third answer to a
+question that already has two, and would make every store byte-unique.
 """
+# Why a store at all: data once reached the server only by being loaded into
+# `MarketData` by a caller that built the process. `python -m beacon.server`
+# builds its own process, so it had no such caller and always started
+# data-less: every data endpoint answered `CONFIGURATION_ERROR`, and sync
+# could not bootstrap because there was nothing to sync *into*.
+#
+# Why CSV and gzip: a columnar format would load faster and pack smaller. It
+# would also put a binary dependency (pyarrow, ~40MB) in front of the one
+# thing that has to work before anything else does. The store is read once at
+# startup, and 645k rows (512 names over five years) take about a second and a
+# half through `read_csv`, which is not the difference between a usable
+# desktop application and an unusable one.
+#
+# Reproducibility is what makes BN-114's determinism guarantee testable.
 import gzip
 import json
 import logging
@@ -114,8 +119,8 @@ class StoreManifest:
 
     Attributes:
         schema_version: On-disk shape, for migration on load.
-        source: Where the rows came from — "synthetic", "yfinance", "local",
-            or whatever wrote it.
+        source: Where the rows came from: "synthetic", "yfinance", "local",
+            "imported", or whatever wrote it.
         datasets: Which files are present, so a loader knows what to expect
             rather than probing for each one.
     """
@@ -170,19 +175,20 @@ def dataset_size_on_disk(path: Path,
     """Bytes one dataset's file occupies.
 
     Per dataset rather than the whole store, so a coverage pane showing a size
-    against each row shows numbers that add up — reporting the store total on
+    against each row shows numbers that add up. Reporting the store total on
     every row would display the same figure once per dataset and make any sum
     of them wrong by that factor.
 
     Returns:
         int | None: The size, or None when the store does not hold that
-        dataset — "there is no file" rather than "the file is empty".
+        dataset ("there is no file" rather than "the file is empty"), when
+        the dataset name is unknown, or when the file cannot be measured.
 
-        Callers that sum these have to treat None as zero themselves. That is
-        deliberate and `test_an_unmeasurable_path_is_none` pins it: a caller
-        adding up sizes should have to notice that a dataset is absent, rather
+        Callers that sum these have to treat None as zero themselves, so a
+        caller adding up sizes has to notice that a dataset is absent rather
         than have the absence quietly contribute a zero it never checked.
     """
+    # Deliberate, and `test_an_unmeasurable_path_is_none` pins it.
     name = FILE_FOR_DATASET.get(dataset)
     if name is None:
         return None
@@ -215,7 +221,7 @@ def read_manifest(path: Path) -> StoreManifest:
 
     Raises:
         ConfigurationError: If it is missing, unreadable, or written by a
-            newer Beacon than this one.
+            newer py-beacon than this one.
     """
     manifest_path = path / MANIFEST_NAME
 
@@ -308,10 +314,10 @@ def save(fetcher: DataFetcher,
     """Write a fetcher's data to a store directory.
 
     Args:
-        fetcher: The data source to persist. Reference data and corporate
-            actions are written only when present, so a market-only fetcher
-            round-trips as a market-only store rather than as one carrying two
-            empty files.
+        fetcher: The data source to persist. Reference data, corporate
+            actions and features are written only when present, so a
+            market-only fetcher round-trips as a market-only store rather
+            than as one carrying empty files.
         path: Directory to write into; created if absent.
         source: Recorded in the manifest and reported by `/data/coverage`.
 
@@ -359,25 +365,28 @@ def load(path: Path,
     Args:
         path: Directory written by :func:`save`.
         fx_policy: How the fetcher reads a rate on a day the pair printed
-            none — see :data:`~beacon.data.fetcher.FX_CARRY_FORWARD` and
+            none: see :data:`~beacon.data.fetcher.FX_CARRY_FORWARD` and
             :data:`~beacon.data.fetcher.FX_EXACT_DAY`. A modelling assumption
             rather than a store property, so it is chosen when the store is
             opened rather than written into it: the same rows converted under
             the other assumption are a legitimate second answer, and stamping
-            one into the data would make it the only one (BN-207).
-        max_price_staleness_days: How long a name may go untraded before it
-            is dropped; None keeps everything (BN-211).
-        free_float_backfill_days: How far back a blank free float may take
-            the last reported value from (BN-219). Chosen at open for the
-            same reason as the two above.
+            one into the data would make it the only one.
+        max_price_staleness_days: How many calendar days a name may go
+            untraded before it is dropped; None keeps everything.
+        free_float_backfill_days: How many calendar days back a blank free
+            float may take the last reported value from. Chosen at open for
+            the same reason as the two above.
 
     Returns:
         DataFetcher: Serving whatever the store holds.
 
     Raises:
         ConfigurationError: If the path is not a readable store.
-        ValueError: If *fx_policy* is not a known policy.
+        ValueError: If *fx_policy* is not a known policy, or either day
+            count is out of range.
     """
+    # The three settings are BN-207 (fx_policy), BN-211 (staleness) and
+    # BN-219 (free-float backfill).
     if not exists(path):
         raise ConfigurationError(
             "data_store",

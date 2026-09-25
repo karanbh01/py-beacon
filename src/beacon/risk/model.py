@@ -1,12 +1,12 @@
 # src/beacon/risk/model.py
 """
-RiskModel — output of a covariance estimation.
+RiskModel: the output of a covariance estimation.
 
 Follows the same shape as `IndexResult` and `BacktestResult`: a dataclass
 carrying pandas structures, with opt-in data binding via `.with_data()` and
-accessors that answer the questions callers actually have — what is this
+accessors that answer the questions callers actually have (what is this
 portfolio's volatility, how much tracking error does this active position
-carry — rather than making every caller do the matrix algebra.
+carry) rather than making every caller do the matrix algebra.
 """
 import logging
 from dataclasses import dataclass, field
@@ -62,7 +62,7 @@ class RiskDiagnostics:
         smallest_eigenvalue: The most negative (or least positive) eigenvalue,
             which is what the PSD flag turns on.
         positive_semi_definite: Whether every eigenvalue is non-negative to
-            within tolerance. Truthful, not asserted — a caller inverting this
+            within tolerance. Truthful, not asserted: a caller inverting this
             matrix needs to know.
         repaired: Whether eigenvalue clipping was applied to make it PSD.
     """
@@ -172,7 +172,7 @@ class RiskModel:
                        benchmark_weights: dict[str, float]) -> float:
         """Annualised tracking error of a portfolio against a benchmark.
 
-        The volatility of the active position — the weight differences — which
+        The volatility of the active position (the weight differences), which
         is the quantity an index-tracking mandate is measured on.
 
         Args:
@@ -205,7 +205,7 @@ def estimate_risk_model(returns: pd.DataFrame,
     Args:
         returns: DataFrame of period returns, dates on the index and assets on
             the columns. Rows with any missing value are dropped, so every
-            covariance entry is estimated over the same periods — pairwise
+            covariance entry is estimated over the same periods. Pairwise
             deletion would give a matrix that need not be PSD at all.
         target: Structured target to shrink toward; one of TARGETS.
         intensity: Weight on the target in [0, 1]. None uses the heuristic

@@ -2,8 +2,8 @@
 """
 Charting.
 
-Reached through a `.plot` accessor on the result objects — `IndexResult`,
-`BacktestResult`, `AttributionResult`, `OptimisationResult`, `RiskModel` —
+Reached through a `.plot` accessor on the result objects (`IndexResult`,
+`BacktestResult`, `AttributionResult`, `OptimisationResult`, `RiskModel`)
 rather than through free functions taking a result. That follows the same
 stance as the asset views: plotting is a *result-layer* concern, so a result
 knows how to draw itself and nothing else grows a chart method.
@@ -17,8 +17,11 @@ Needs matplotlib, which ships in the `plot` extra:
 
 **Importing `beacon` costs nothing extra.** The accessor is a descriptor that
 resolves on first access, so matplotlib is imported when a chart is drawn and
-not before. `import beacon` is as fast without matplotlib installed as it was
-before this package existed, and a test asserts it.
+not before. `import beacon` works without matplotlib installed and does not
+import it, and a test asserts that.
+
+To compare several results on one chart, use `beacon.plot.compare(a, b)`. To
+restyle any matplotlib chart, use `beacon.plot.use()`.
 
 Every method takes `ax=` and returns the `Axes` it drew on, so charts compose
 into a figure the caller laid out. The signatures carry nothing

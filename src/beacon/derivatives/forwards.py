@@ -1,6 +1,6 @@
 # src/beacon/derivatives/forwards.py
 """
-Forward contracts referencing beacon instruments: EquityForward.
+Forward contracts referencing beacon instruments.
 
-Placeholder module (stub) for a future EquityForward implementation.
+A placeholder: nothing is implemented here yet. An EquityForward is planned.
 """

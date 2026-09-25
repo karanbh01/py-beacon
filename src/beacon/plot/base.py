@@ -4,16 +4,18 @@ The lazy `.plot` accessor.
 
 Every result object carries one, and none of them cost anything until it is
 touched. That is the whole point of this module: it imports nothing beyond the
-standard library, so `import beacon` stays as fast without matplotlib installed
-as it was before plotting existed, and a user who never draws a chart never
-pays for the ability to.
+standard library, so `import beacon` does not import matplotlib, and a user
+who never draws a chart never pays for the ability to.
 
 The mechanism is a descriptor. `IndexResult.plot` is an attribute lookup that
-resolves, on first access, to a class in `beacon.plot.accessors` — which is
-where matplotlib is required. Naming the accessor class as a *string* here is
-what keeps the import out of the core: a real import at module scope would drag
-matplotlib into `beacon.index.result`, and the guard would be decorative.
+resolves, on first access, to a class in `beacon.plot.accessors`, which is
+where matplotlib is required. Accessed on the class rather than an instance,
+it returns the descriptor itself, so `help()` and `hasattr` work without
+matplotlib.
 """
+# Naming the accessor class as a *string* here is what keeps the import out of
+# the core: a real import at module scope would drag matplotlib into
+# `beacon.index.result`, and the guard would be decorative.
 from typing import Any
 
 

@@ -3,8 +3,8 @@
 Synthetic market data at demo scale.
 
 Generates a universe of anonymised companies with prices that reproduce the
-stylized facts of equity returns — volatility clustering, fat tails, negative
-skew, and a factor structure that makes names co-move — together with the
+stylized facts of equity returns (volatility clustering, fat tails, negative
+skew, and a factor structure that makes names co-move), together with the
 reference data, shares outstanding, free float and corporate actions that go
 with them.
 

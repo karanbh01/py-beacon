@@ -5,11 +5,10 @@ Design tokens: the colours Beacon draws with.
 `colors.json` here is a **vendored copy** of `tokens/colors.json` in the
 beacon-ui repository, which is generated from Figma and is the source of truth.
 It is copied rather than fetched so this package installs and renders offline,
-and a CI job fails when the two copies drift apart. See
-`docs/decisions/0001-design-token-source-of-truth.md` for why.
+and a CI job fails when the two copies drift apart.
 
 Do not edit the values here. A change made in this file and not in beacon-ui is
-a change the drift check will reject, and correctly so — the design system does
+a change the drift check will reject, and correctly so: the design system does
 not live in this repository.
 
 Two kinds of colour live in the file, and the distinction is deliberate:
@@ -21,6 +20,8 @@ Two kinds of colour live in the file, and the distinction is deliberate:
   theme, and everything inside a report page is print ink that has to match the
   PDF it becomes.
 """
+# Why the tokens are vendored rather than fetched or owned here is recorded in
+# decisions/0001-design-token-source-of-truth.md at the repository root.
 import json
 import re
 from functools import lru_cache
@@ -54,9 +55,9 @@ def load() -> dict[str, Any]:
     """Read and validate the token document.
 
     Read through importlib.resources rather than by path, so it works the same
-    from a wheel, a zip import or a source checkout — and explicitly as UTF-8,
-    because the file carries em dashes and the default encoding is not UTF-8 on
-    every platform this runs on.
+    from a wheel, a zip import or a source checkout, and explicitly as UTF-8,
+    because the file carries non-ASCII text and the default encoding is not
+    UTF-8 on every platform this runs on.
 
     Returns:
         dict: The parsed document. Cached; callers must not mutate it.
@@ -176,8 +177,11 @@ def raw_colours() -> dict[str, str]:
     """The mode-independent colours, without the explanatory comment.
 
     Heatmap stops and report-page ink. These do not change with the theme by
-    design — a measurement scale that flipped with the surrounding chrome would
+    design: a measurement scale that flipped with the surrounding chrome would
     make two screenshots of the same data disagree.
+
+    Returns:
+        dict: Raw colour name to hex colour.
     """
     return {name: str(value) for name, value in load()["raw"].items()
             if name != "comment"}

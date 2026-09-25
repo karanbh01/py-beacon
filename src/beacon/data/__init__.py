@@ -1,8 +1,7 @@
 # src/beacon/data/__init__.py
 """
-The __init__.py for the 'data' module.
-
-This module handles fetching, parsing, and providing financial data.
+Market and reference data: the containers that hold it, the `DataFetcher`
+every calculation reads through, and loaders that build them.
 """
 from typing import Any
 

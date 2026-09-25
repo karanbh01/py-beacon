@@ -4,7 +4,7 @@ Portfolio risk: covariance estimation, correlation, and the RiskModel object.
 
 Distinct from `beacon.analysis.risk`, which holds scalar single-series metrics
 (volatility, Sharpe, drawdown). This subpackage is about how assets move
-*together* — the matrix an optimiser inverts and a tracking-error calculation
+*together*: the matrix an optimiser inverts and a tracking-error calculation
 contracts against.
 
 Needs only numpy, so it stays part of the core rather than sitting behind an

@@ -8,14 +8,15 @@ than no gallery: it becomes a record of what the charts used to look like, and
 nobody knows which images are still true.
 
 Every chart is drawn in both styles from `beacon.testing.dataset`, so the images
-are reproducible — the same run on any machine produces the same pictures, for
+are reproducible: the same run on any machine produces the same pictures, for
 the same reason the image-regression baselines can exist at all.
 
 Usage:
 
     python scripts/build_gallery.py [output_directory]
 
-Defaults to `docs/gallery`.
+Defaults to `docs/gallery`. The page is written as `gallery.md` beside the
+output directory, linking the images as `gallery/<file>`.
 """
 import sys
 from pathlib import Path
@@ -57,16 +58,20 @@ DPI = 110
 # scraped from docstrings because a caption and an API docstring answer
 # different questions.
 CAPTIONS = {
-    "level": "Index level, rebased to 100, against an optional benchmark.",
-    "weights": "Constituent weights at a rebalance, with the cap marked.",
-    "performance": "Growth of 100 with a linked drawdown panel.",
-    "annual_returns": "Calendar-year returns as signed bars.",
-    "contributions": "Per-constituent contribution to return, with the drags.",
-    "compare": "Several results on one axis, rebased on their shared window.",
-    "exposures": "Active weights against the index, sign-coloured.",
-    "frontier": "The efficient frontier, its named points and the capital "
-                "market line.",
-    "correlation": "Correlation matrix on the beacon_corr scale.",
+    "level": "The index level, rebased to 100, against an optional benchmark.",
+    "weights": "Constituent weights at a rebalance, with the weight cap marked.",
+    "performance": "Growth of 100, with a drawdown panel on the same dates.",
+    "annual_returns": "Calendar-year returns, green for gains and red for "
+                      "losses.",
+    "contributions": "Each constituent's contribution to return, with the cap "
+                     "and cost drags in the footnote.",
+    "compare": "Several results on one axis, rebased to 100 on the dates they "
+               "share.",
+    "exposures": "Active weights against the target, coloured by sign.",
+    "frontier": "An efficient frontier, its minimum-variance and tangency "
+                "points, and the capital market line.",
+    "correlation": "The correlation matrix as a heatmap, shaded from 0.2 "
+                   "to 1.0.",
 }
 
 
@@ -173,13 +178,13 @@ def write_page(directory: Path,
     lines = [
         "# Chart gallery",
         "",
-        "Every chart Beacon draws, rendered from the canonical synthetic",
-        "dataset in both styles. Generated at docs build time, so these are",
-        "what the code currently produces rather than screenshots taken once.",
+        "Every chart py-beacon draws, rendered from the sample dataset",
+        "(`beacon.testing.dataset`) in the light and dark styles. The images",
+        "are generated when the docs are built, so they show what the current",
+        "code draws.",
         "",
-        "Light and dark are shown together on purpose: the point of having two",
-        "styles is that a reader can see whether the dark one works, and a",
-        "toggle would hide the comparison.",
+        "Each chart appears twice, light then dark, so the two styles can be",
+        "compared. [Charts](concepts/charts.md) explains how to draw them.",
         "",
     ]
 

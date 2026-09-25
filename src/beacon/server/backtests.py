@@ -2,8 +2,8 @@
 """
 Backtest job body and result assembly.
 
-Everything reported here derives from a single canonical series — the
-portfolio NAV, rebased to 100 — so the payload is internally consistent by
+Everything reported here derives from a single canonical series (the
+portfolio NAV, rebased to 100), so the payload is internally consistent by
 construction rather than by coincidence. A client that recomputes drawdown
 from the level series, or compounds the annual returns, must land back on the
 numbers the server sent; if those were computed independently they would drift
@@ -67,7 +67,7 @@ def annual_returns(level: pd.Series) -> dict[str, float]:
 
     Each year runs from the previous year's closing level to its own, so the
     product of (1 + r) telescopes to ``last / first - 1``. Defining them any
-    other way — from the first observation *within* each year, say — leaves a
+    other way (from the first observation *within* each year, say) leaves a
     gap over each year boundary and the compounded total no longer matches.
 
     Args:

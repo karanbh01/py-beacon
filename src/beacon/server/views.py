@@ -3,37 +3,36 @@
 Reading a completed run: overview, weights, attribution, per-asset, compare.
 
 A backtest is a job because it is slow. These are the panes that read what the
-job produced, and they must be fast — a client switching tabs should not be
+job produced, and they must be fast: a client switching tabs should not be
 waiting on a recalculation. So they derive everything from the **stored run**
-rather than recomputing the index, which is what BN-91's result persistence was
-for.
+rather than recomputing the index.
 
-## What the run has to carry, and why
+The stored run carries its level and metrics, plus two things that cannot be
+recovered from a NAV series:
 
-Level and metrics were already in the payload. Two things were not, and neither
-can be recovered from a NAV series:
-
-* **rebalance snapshots** — the weights at each rebalance, both as applied and
+* **rebalance snapshots**: the weights at each rebalance, both as applied and
   as they would have been uncapped. Everything about composition comes from
   these: the weights pane reads one, attribution drifts them forward day by day,
   the per-asset pane reads a name's history across them, and cap drag needs the
   uncapped set to compare against.
-* **costs and starting capital** — two scalars, from which the cost drag falls
+* **costs and starting capital**: two scalars, from which the cost drag falls
   out.
 
-Daily weights are deliberately *not* stored. `drifted_weights()` reconstructs
-them from the snapshots and the prices, and storing a weight per name per day
-would multiply the payload by the number of trading days to save an
-inexpensive calculation.
-
-## Attribution reconciles, and that is the point
+Daily weights are not stored. `drifted_weights()` reconstructs them from the
+snapshots and the prices.
 
 `attribute()` uses Carino linking, so the contributions sum to the compounded
 total return rather than approximately to it. The endpoint reports the residual
 regardless: it should sit at machine epsilon, and one that does not means an
-assumption has broken somewhere upstream — which is worth surfacing rather than
+assumption has broken somewhere upstream, which is worth surfacing rather than
 rounding away.
 """
+# Deriving from the stored run is what BN-91's result persistence was for.
+# The level and metrics were already in the payload; the rebalance snapshots,
+# costs and starting capital were added so these panes could be answered from
+# it. Daily weights are deliberately left out: storing a weight per name per
+# day would multiply the payload by the number of trading days to save an
+# inexpensive calculation.
 import logging
 from typing import Any
 

@@ -1,11 +1,11 @@
 # src/beacon/server/data_stores.py
 """Named data stores: which exist, which one the engine serves, and loading it.
 
-BN-236. A data store holds one dataset. Users name their stores ("Synthetic
-data", "My data"), one is active at a time, and the engine remembers which,
-so the next start serves the same data. A store is a py-beacon data folder
-or, since BN-241, a Postgres database. Since BN-240 each can be refreshed from
-its own source (`refresh_plan`).
+A data store holds one dataset. Users name their stores ("Synthetic data",
+"My data"), one is active at a time, and the engine remembers which, so the
+next start serves the same data. A store is a py-beacon data folder or a
+Postgres database, and each can be refreshed from its own source
+(`refresh_plan`).
 
 The registry is saved with the engine's other documents (indices, universes),
 so it lives wherever `--documents` points.
@@ -19,7 +19,7 @@ In order:
 3. The active registered store.
 4. If nothing is registered yet but a store exists in the default app-data
    folder, it is registered as "Synthetic data" (or by its source) and made
-   active. This is how an install from before named stores keeps working.
+   active, so an existing app-data store is served without any setup.
 5. Nothing: the engine starts empty, and a store can be loaded later.
 
 The first two fail loudly, because naming data that cannot be read is a
@@ -27,6 +27,9 @@ mistake worth stopping for. The active store only warns and starts empty, so
 a store that was moved or damaged never stops the engine from starting and
 offering another.
 """
+# Named data stores arrived with BN-236; Postgres stores with BN-241; refreshing
+# a store from its own source with BN-240. Step 4 of the startup order exists so
+# an install from before named stores keeps working.
 import logging
 import os
 from dataclasses import dataclass

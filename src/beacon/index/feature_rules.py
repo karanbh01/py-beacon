@@ -5,24 +5,22 @@ Eligibility rules that screen on features.
 A feature is any per-instrument datapoint that is not price, reference or
 action data (`beacon.data.features`), so this is the rule that lets an index
 select on a fundamental, an alternative dataset, or a value somebody derived
-and imported — without a new rule class per datapoint.
+and imported, without a new rule class per datapoint.
 
 ## Resolved at the rebalance date, through the point-in-time accessor
 
-The part that has to be right.
-
 An index rebalancing on 1 April screens on what was **published** by 1 April.
 Q1 revenue announced in mid-May is invisible, however completely the quarter
-had ended. Everything in the feature table exists to make that possible, and a
-rule is where it is either used or quietly bypassed — reading the table
-directly rather than through `fetch_feature` would put look-ahead straight
-back in, and the resulting backtest would look better and be wrong.
+had ended. The rule reads through `DataFetcher.fetch_feature`, which enforces
+this; reading the table directly would put look-ahead back in, and the
+resulting backtest would look better and be wrong. A value older than
+`max_age_days` at the rebalance counts as missing.
 
 ## Missing coverage is a decision, not an accident
 
 A name with no value for the field is **excluded** by default.
 
-The alternative — including it — means a screen for "revenue above a billion"
+The alternative (including it) means a screen for "revenue above a billion"
 silently admits every company the dataset has never heard of, which is the
 opposite of what the screen says. Excluding can be wrong too: a universe with
 patchy coverage shrinks to the names the vendor happened to cover. So the
@@ -31,8 +29,8 @@ failure is visible: an index that comes out too small prompts a question,
 where one quietly containing uncovered names does not.
 
 This is deliberately *not* the same as a name whose value is legitimately
-zero. Zero passes a `> 0` test by failing it honestly; missing has no value to
-compare at all.
+zero. Zero fails a `> 0` test honestly; missing has no value to compare at
+all.
 """
 import logging
 
@@ -86,7 +84,25 @@ ON_MISSING = (EXCLUDE, INCLUDE)
                                          "not the screen it claims to be."),
           })
 class FeatureRule(EligibilityRuleBase):
-    """Select instruments whose feature value passes a threshold."""
+    """Select instruments whose feature value passes a threshold.
+
+    Args:
+        field: The feature to read, e.g. ``"revenue"``.
+        comparison: How the value is tested against *threshold*: ``"gt"``,
+            ``"ge"``, ``"lt"``, ``"le"``, ``"eq"`` or ``"ne"``.
+        threshold: The value compared against.
+        feature_type: Which feature dataset (`TYPE`) to read from. None
+            searches all, which picks arbitrarily between two datasets
+            carrying the same field name.
+        on_missing: ``"exclude"`` (the default) or ``"include"``: what happens
+            to a name with no value knowable at the rebalance.
+        max_age_days: How old a value may be and still count. None means no
+            limit.
+
+    Raises:
+        InvalidRuleError: If *comparison* or *on_missing* is not recognised,
+            or *field* is empty.
+    """
 
     def __init__(self,
                  field: str,
@@ -124,8 +140,9 @@ class FeatureRule(EligibilityRuleBase):
         Stated rather than inherited, so the absence is visibly a decision.
         Whether the named feature exists is a real question with the same
         shape as a missing column, but it is asked of a different table, and
-        this check deliberately covers market data only (BN-217).
+        the up-front column check covers market data only.
         """
+        # The up-front column check is BN-217 (`beacon.index.requirements`).
         return frozenset()
 
     def is_eligible(self,

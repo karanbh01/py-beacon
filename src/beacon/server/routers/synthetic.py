@@ -1,13 +1,11 @@
 # src/beacon/server/routers/synthetic.py
-"""Generate synthetic data into a new store, as a job (BN-237).
+"""Generate synthetic data into a new store, as a job.
 
-beacon-ui used to run the generator itself before starting the engine. Now
-the engine does it on request, so the app can start the engine first and
+The engine generates on request, so an app can start the engine first and
 offer "Generate synthetic data" when nothing is loaded.
 
-## It runs `python -m beacon.synthetic` in a child process
-
-Not the generator in this process, for three reasons:
+The job runs `python -m beacon.synthetic` in a child process rather than the
+generator in this process, for three reasons:
 
 - One path. The engine runs the same command a person would, so the same
   settings always give the same data, whichever way it was made.
@@ -19,6 +17,8 @@ Not the generator in this process, for three reasons:
 The child prints a progress line per stage (`--progress`), which the job
 reports on the event socket.
 """
+# Added in BN-237. Before it, beacon-ui ran the generator itself before
+# starting the engine. BN-240 reused `run_synthetic` to extend a store.
 import asyncio
 import shutil
 import subprocess
@@ -206,8 +206,8 @@ async def run_synthetic(arguments: list[str],
                         report: ProgressReporter) -> None:
     """Run `python -m beacon.synthetic` in a child process, reporting progress.
 
-    Used to generate a store and to extend one (BN-240), for the reasons in
-    the module docstring.
+    Generates a store or extends one, for the reasons in the module
+    docstring.
 
     Raises:
         CalculationError: If the command exits unsuccessfully, carrying the

@@ -1,16 +1,16 @@
 # src/beacon/server/active_data.py
 """The data the engine is serving right now, and the one rule for needing it.
 
-BN-236. The engine used to hold its data in `ServerConfig.data_fetcher`,
-fixed when the process started: a server started without data stayed without
-it. Now a data store can be loaded, or switched, while the engine runs, so the
-current data lives here, on app state, and every reader asks this module.
+A data store can be loaded, or switched, while the engine runs, so the current
+data lives here, on app state, and every reader asks this module.
 
-Seven routers each had a copy of the same check ("started without a data
-source"), each answering 500. That is one rule, so it is one function here,
-and it answers 409: no data being loaded is a state the caller can change by
-loading a store, not a server fault.
+A route that needs data and finds none answers 409: no data being loaded is a
+state the caller can change by loading a store, not a server fault.
 """
+# BN-236. The engine used to hold its data in `ServerConfig.data_fetcher`, fixed
+# when the process started: a server started without data stayed without it.
+# Seven routers each had a copy of the same check ("started without a data
+# source"), each answering 500. That is one rule, so it is one function here.
 import uuid
 from dataclasses import dataclass, field
 
@@ -46,11 +46,12 @@ class ActiveData:
         loading: Whether a store is being loaded right now. One load at a
             time: a second would race the first to replace the data.
         data_version: An opaque token that changes whenever the data being
-            served changes: at startup, on every load (the same store loaded
-            again included, since its files may have changed), and after a
-            sync merges rows. A client compares it for equality only, to
-            know whether what it cached is still current. Random rather than
-            a counter, so an engine restart can never bring an old value back.
+            served changes: at startup, and on every load (the same store
+            loaded again included, since its files may have changed, and a
+            refresh of the served store, which reloads it). A client
+            compares it for equality only, to know whether what it cached
+            is still current. Random rather than a counter, so an engine
+            restart can never bring an old value back.
     """
     fetcher: DataFetcher | None = None
     store_id: str | None = None

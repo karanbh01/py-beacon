@@ -1,6 +1,7 @@
 # src/beacon/fund/etf.py
 """
-Module defining the ETF (Exchange Traded Fund) class, inheriting from IndexFund.
+ETF: an exchange-traded fund, an IndexFund with a ticker, a creation unit size
+and a simulated market price.
 """
 import logging
 from typing import Any
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ETF(IndexFund):
     """
     Represents an Exchange Traded Fund (ETF), which is a type of IndexFund
-    with additional characteristics like market price and creation/redemption units.
+    with a ticker, a creation/redemption unit size and a market price.
     """
     def __init__(self,
                  fund_id: str,
@@ -37,11 +38,19 @@ class ETF(IndexFund):
             fund_id: A unique identifier for the fund.
             etf_ticker: The market ticker symbol for the ETF.
             target_index_definition: The definition of the index the ETF tracks.
-            index_agent: Calculation agent for the target index.
-            portfolio: The Portfolio object representing the ETF's holdings.
+            index_agent: An IndexCalculator for the target index. Only its
+                ``price_column`` is read.
+            portfolio: The Portfolio seeding the ETF's capital: its cash
+                balance is the backtest's initial capital. It is never
+                mutated.
             data_provider: DataFetcher for market data.
             management_fee_bps: Annual management fee in basis points.
             creation_unit_size: The number of ETF shares in a creation/redemption unit.
+
+        Raises:
+            ValueError: If an argument is missing or empty,
+                *management_fee_bps* is negative, or *creation_unit_size* is
+                not positive.
         """
         super().__init__(fund_id=fund_id,
                          target_index_definition=target_index_definition,
@@ -62,21 +71,23 @@ class ETF(IndexFund):
                               current_date: pd.Timestamp,
                               market_factors: dict[str, Any] | None = None) -> float:
         """
-        Simulates the ETF's market price based on its NAV and other market factors.
-        (Future Scope: Initial focus on NAV tracking implies market price might closely follow NAV,
-         or be supplied externally if backtesting against actual ETF data).
+        Simulates the ETF's market price and stores it on :attr:`market_price`.
 
-        For a basic simulation, market price might be NAV plus some noise or bid-ask spread.
-        This is a placeholder for more sophisticated modeling.
+        The price is currently the fund's fee-adjusted NAV from
+        :meth:`calculate_nav`, so it tracks NAV perfectly: no premium,
+        discount or bid-ask spread is modelled. The NAV is the fund's total
+        value, not a per-share figure.
 
         Args:
             current_date: The date for which to simulate the price.
-            market_factors: A dictionary of factors that might influence the price
-                            (e.g., market sentiment, liquidity, bid-ask spread).
+            market_factors: Accepted for future use and currently ignored.
 
         Returns:
             The simulated market price of the ETF.
         """
+        # Future scope: market price might be NAV plus some noise or bid-ask
+        # spread, or be supplied externally when backtesting against actual
+        # ETF data.
         nav_per_share = self.calculate_nav(current_date) # Assuming NAV is total value.
         # If NAV per share requires number of ETF shares outstanding:
         # num_etf_shares = self.portfolio.get_total_shares() # Needs implementation if ETF
@@ -96,10 +107,10 @@ class ETF(IndexFund):
                                  result: BacktestResult) -> dict[str, float | str]:
         """Calculate tracking metrics from a completed backtest.
 
-        Compares the backtest's ``trading_nav`` against the tracked index's
-        ``index_levels`` using the tracking methods built into
-        :class:`~beacon.backtest.result.BacktestResult`. The *result* must carry
-        an ``index_result`` for the comparison to be possible.
+        Compares the backtest's ``trading_nav`` against the levels of the
+        index the run tracked (``result.index.tracked``) using the tracking
+        methods built into :class:`~beacon.backtest.result.BacktestResult`.
+        The run must have tracked an index for the comparison to be possible.
 
         Args:
             result: A BacktestResult produced by tracking this ETF's index. It
@@ -109,8 +120,8 @@ class ETF(IndexFund):
             A dictionary with float ``tracking_error`` and
             ``tracking_difference`` entries. If the result has no target index
             to compare against, a single ``error`` entry is returned instead,
-            whose value is an explanatory string — hence the ``float | str``
-            value type.
+            whose value is an explanatory string (hence the ``float | str``
+            value type).
 
         Raises:
             ValueError: If *result* is None.

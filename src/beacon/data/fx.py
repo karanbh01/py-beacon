@@ -1,15 +1,11 @@
 # src/beacon/data/fx.py
 """Which rate converts one currency into another, when only some pairs are stored.
 
-BN-235. A pair is stored as its own market-data identifier, such as `GBPUSD`,
-and the lookup used to find only the exact pair asked for. With `GBPUSD`
-stored, GBP to USD worked, but USD to GBP found nothing, although it is one
-over the same rate, and GBP to EUR found nothing, although it is GBPUSD
-divided by EURUSD. So a GBP index holding US shares refused for want of a
-rate it effectively had. The synthetic data stores only `XXXUSD` pairs, which
-made every non-USD view of it refuse.
+A pair is stored as its own market-data identifier, such as `GBPUSD`. With
+only `GBPUSD` and `EURUSD` stored, USD to GBP is one over GBPUSD and GBP to
+EUR is GBPUSD divided by EURUSD, so neither needs a stored pair of its own.
 
-The rate for a pair is now found in this order:
+The rate for a pair is found in this order:
 
 1. the stored pair itself
 2. the inverse of the stored reverse pair
@@ -21,7 +17,14 @@ legs as in force that day. Under exact-day a leg must have printed on the day,
 so the cross exists only on days both legs printed. Neither ever uses a rate
 dated after the day, and the no-look-ahead search in `DataFetcher` applies to
 the derived series exactly as to a stored one.
+
+A stored rate of zero or below has no inverse; it is dropped, and that day is
+treated as one with no rate.
 """
+# BN-235. The lookup used to find only the exact pair asked for, so a GBP
+# index holding US shares refused for want of a rate it effectively had. The
+# synthetic data stores only `XXXUSD` pairs, which made every non-USD view of
+# it refuse.
 from collections.abc import Callable
 
 import pandas as pd

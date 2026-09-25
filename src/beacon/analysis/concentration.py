@@ -3,10 +3,12 @@
 Concentration and drift measures for a set of index or portfolio weights.
 
 Two questions an index owner asks constantly: how concentrated is this thing,
-and how far has it wandered from its targets. Both are a few lines of
-arithmetic, which is exactly why they belong in one tested place rather than
-being recomputed inside whichever endpoint or report needs them.
+and how far has it wandered from its targets. Weights are passed as a mapping
+of asset id to weight.
 """
+# Both are a few lines of arithmetic, which is exactly why they belong in one
+# tested place rather than being recomputed inside whichever endpoint or
+# report needs them.
 import logging
 from dataclasses import dataclass
 
@@ -32,7 +34,7 @@ class ConcentrationMetrics:
         assets: Number of weighted positions.
         herfindahl_index: Sum of squared weights. For weights summing to 1 this
             runs from 1/n (perfectly equal) to 1 (everything in one name).
-        effective_assets: ``1 / herfindahl_index`` — the number of equally
+        effective_assets: ``1 / herfindahl_index``: the number of equally
             weighted positions that would be this concentrated. Reads more
             naturally than the index itself: "this 100-stock index behaves like
             23 equal positions".
@@ -56,9 +58,10 @@ class DriftMetrics:
             Positive means overweight.
         max_absolute: Largest absolute drift across assets.
         max_absolute_asset_id: Which asset drifted most, or None when there is
-            nothing to compare.
+            nothing to compare. Drifts equal to within floating-point noise
+            count as tied, and a tie goes to the asset id that sorts first.
         total_absolute: Sum of absolute drifts.
-        turnover: Half of *total_absolute* — the one-way trading needed to
+        turnover: Half of *total_absolute*: the one-way trading needed to
             return to target, since every overweight funds an underweight.
     """
     per_asset: dict[str, float]
@@ -70,6 +73,9 @@ class DriftMetrics:
 
 def herfindahl_index(weights: dict[str, float]) -> float:
     """Sum of squared weights.
+
+    Logs a warning when the weights do not sum to 1, since the measure then
+    scales with the square of their sum.
 
     Args:
         weights: Mapping of asset id to weight, expected to sum to 1.
@@ -95,7 +101,7 @@ def effective_number_of_assets(weights: dict[str, float]) -> float:
 
     Returns:
         float: ``1 / HHI``. 0.0 when there are no positions, or when every
-        weight is zero — neither has a meaningful effective count, and
+        weight is zero: neither has a meaningful effective count, and
         returning 0.0 keeps callers from having to guard against a division by
         zero they cannot act on.
     """
@@ -140,7 +146,7 @@ def drift_from_target(current: dict[str, float],
     """Compare held weights against their targets.
 
     Every asset appearing in either mapping is included, treating absence as a
-    zero weight — a position that has been fully sold, or one the target wants
+    zero weight: a position that has been fully sold, or one the target wants
     but the portfolio does not hold, is precisely the drift worth seeing.
 
     Args:
@@ -195,8 +201,8 @@ def top_n_weight(weights: dict[str, float],
                  count: int) -> float:
     """Combined weight of the *count* largest positions.
 
-    The measure a concentration limit is usually written against — "no more
-    than 40% in the top five" — and not derivable from the Herfindahl index.
+    The measure a concentration limit is usually written against ("no more
+    than 40% in the top five"), and not derivable from the Herfindahl index.
 
     Args:
         weights: Mapping of asset id to weight.

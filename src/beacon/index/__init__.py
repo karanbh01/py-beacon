@@ -1,9 +1,10 @@
 # src/beacon/index/__init__.py
 """
-The __init__.py for the 'index' module.
+Index methodologies and calculation.
 
-This module is core for defining index methodologies, selecting constituents,
-calculating weights, and computing index levels.
+Defining an index (`IndexDefinition`, eligibility rules and weighting
+schemes), selecting its constituents, weighting them, and computing its levels
+(`IndexCalculator`, which returns an `IndexResult`).
 """
 from .asset_view import IndexAssetView
 from .calculation import IndexCalculator

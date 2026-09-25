@@ -1,8 +1,5 @@
-# beacon.backtest
+# Backtest
 
-Portfolio simulation: `BacktestEngine` consumes a target weight schedule and
-simulates trading with configurable transaction costs, returning a
-`BacktestResult`. See [Backtest](../concepts/backtest.md) for the narrative
-version.
+Simulating a portfolio that trades to an index's target weights: the `Backtest` front door, `BacktestEngine`, and `BacktestResult`. See [Backtest](../concepts/backtest.md).
 
 ::: beacon.backtest

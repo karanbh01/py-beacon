@@ -1,13 +1,12 @@
 # src/beacon/index/derived.py
 """
-Optimised indices — an index derived from an index you already built.
+Optimised indices: an index derived from an index you already built.
 
-The owner's framing (planning/optimised_index_design.md rev 2): create an
-index, then optimise it — objective function, constraints — and that creates a
-NEW index. The derivation stores exactly three things — the **source** index,
-the **objective** and the **constraints** — plus the usual identity attributes.
-No weights are stored anywhere: definitions are rules, weights are calculated,
-and calculations are cached (BN-160).
+Create an index, then optimise it (an objective function and constraints), and
+that creates a new index. The derivation stores exactly three things, the
+**source** index, the **objective** and the **constraints**, plus the usual
+identity attributes. No weights are stored anywhere: definitions are rules,
+weights are calculated, and calculations are cached.
 
 Two consequences shape this module:
 
@@ -15,25 +14,26 @@ Two consequences shape this module:
   published snapshots; a frequency of its own would have no parent weights at
   the extra dates. The derived definition therefore declares no schedule.
 * **The calculation is a normal IndexResult.** Solve the parent's weights at
-  each rebalance, then chain the solved weights into daily levels — same
-  calendar as the parent, level path equal to compounding the solved-weight
+  each rebalance, then chain the solved weights into daily levels on the
+  parent's calendar, so the level path equals compounding the solved-weight
   portfolio's returns from the parent's price data.
 
-:class:`OptimisedIndexDefinition` is deliberately a sibling of
+:class:`OptimisedIndexDefinition` is a sibling of
 :class:`~beacon.index.constructor.IndexDefinition` rather than a subclass: a
 subclass would have to invent eligibility rules, a weighting scheme and a
-rebalancing frequency it does not have, and the calculator — which stays
-untouched — must never receive one by accident.
+rebalancing frequency it does not have, and the calculator must never receive
+one by accident. The level chaining lives in `beacon.index.chaining`.
 
-The level chaining itself lives in `chaining.py` (BN-171): it is arithmetic
-over identifiers that needs nothing from a derivation but the index's
-identity, currency and base value, so it takes those as arguments and stays
-usable by anything else with weights to chain.
-
-scipy enters only when a solve actually runs (`beacon.optimise` imports
-scipy-free since BN-166); this module is importable on the core install, and
-the core-import test holds it to that.
+This module imports on the core install. scipy (the `optimise` extra) is
+needed only when a solve actually runs.
 """
+# Design record: planning/optimised_index_design.md rev 2 (the owner's
+# framing: "create an index, then optimise it, and that creates a NEW index").
+# Calculation caching is BN-160. The level chaining moved to `chaining.py` in
+# BN-171: it is arithmetic over identifiers that needs nothing from a
+# derivation but the index's identity, currency and base value. `beacon.optimise`
+# has imported scipy-free since BN-166, and the core-import test holds this
+# module to that.
 import logging
 from collections.abc import Sequence
 from typing import Union
@@ -67,7 +67,7 @@ AnyIndexDefinition = Union[IndexDefinition, "OptimisedIndexDefinition"]
 class OptimisedIndexDefinition:
     """An optimised index: a derivation on a source index, plus identity.
 
-    The source stays first-class — referenced, never copied — so editing the
+    The source stays first-class (referenced, never copied), so editing the
     parent changes its optimised children at their next calculation, which is
     what "optimise the index I built" means. Chained optimisation (a source
     that is itself optimised) falls out of the recursion for free.
@@ -75,10 +75,10 @@ class OptimisedIndexDefinition:
     Args:
         index_id: A unique identifier for the derived index.
         index_name: The common name of the derived index.
-        source: The parent — a plain :class:`IndexDefinition`, or another
+        source: The parent: a plain :class:`IndexDefinition`, or another
             :class:`OptimisedIndexDefinition` for a chain.
-        objective: What to minimise. Only ``"min_tracking_error"`` exists
-            today; an unknown value fails the calculation loudly, naming the
+        objective: What to minimise. Only ``"min_tracking_error"`` exists;
+            an unknown value fails the calculation loudly, naming the
             accepted ones.
         constraints: What the solved weights must satisfy, as
             :class:`~beacon.optimise.constraints.Constraint` instances. Empty
@@ -90,10 +90,14 @@ class OptimisedIndexDefinition:
             source's.
         currency: The derived index's currency. None inherits the source's.
         description: Optional textual description.
-        risk_model: RESERVED — carried but unused, mirroring
+        risk_model: Reserved: carried but unused, mirroring
             :class:`~beacon.optimise.config.OptimisationConfig`. Setting one
             makes the calculation uncacheable (it cannot be keyed yet) and
             changes no result.
+
+    Raises:
+        ValueError: If *index_id* or *index_name* is empty, *source* is None,
+            or *base_value* is given and not positive.
     """
 
     def __init__(self,
@@ -141,10 +145,12 @@ class OptimisedIndexDefinition:
                     config: OptimisationConfig) -> "OptimisedIndexDefinition":
         """The derivation an :class:`OptimisationConfig` describes.
 
-        One vocabulary for ad-hoc and stored runs (owner decision): the config
-        is the stored derivation minus the source, so an ad-hoc `Backtest.run`
-        builds an ephemeral definition through here and calculates it exactly
-        as a stored one would be.
+        One vocabulary for ad-hoc and stored runs: the config is the stored
+        derivation minus the source, so an ad-hoc `Backtest.run` builds an
+        ephemeral definition through here and calculates it exactly as a
+        stored one would be. The config's objective, constraints and risk
+        model are carried over; base date, base value and currency inherit
+        the source's.
         """
         return cls(index_id=index_id,
                    index_name=index_name,
@@ -184,8 +190,8 @@ class OptimisedIndexDefinition:
     def universe_identifiers(self) -> list[str] | None:
         """The investable universe, which is always the source's.
 
-        The derivation holds no universe of its own — it reallocates over
-        exactly the names the parent published — so the answer resolves
+        The derivation holds no universe of its own (it reallocates over
+        exactly the names the parent published), so the answer resolves
         through the chain to the root definition's.
         """
         return self.source.universe_identifiers
@@ -206,11 +212,10 @@ def calculate_derived_index(definition: OptimisedIndexDefinition,
                             parent_result: IndexResult | None = None) -> IndexResult:
     """Calculate an optimised index into a standard :class:`IndexResult`.
 
-    The three-step workflow of the design record: calculate the parent (or
-    accept a pre-supplied calculation — the Backtest integration passes its
-    cached one), solve the parent's published weights at every rebalance under
-    the definition's constraints, then chain the solved weights into the
-    derived index's own daily levels.
+    Three steps: calculate the parent (or accept a pre-supplied calculation,
+    as the Backtest integration does with its cached one), solve the parent's
+    published weights at every rebalance under the definition's constraints,
+    then chain the solved weights into the derived index's own daily levels.
 
     Args:
         definition: The derivation to calculate.
@@ -222,18 +227,18 @@ def calculate_derived_index(definition: OptimisedIndexDefinition,
             supplied.
         price_column: Market-data column read as the price.
         parent_result: The source's calculation, when the caller already has
-            it. None calculates the source here — recursively, when the
-            source is itself optimised.
+            it. None calculates the source here (recursively, when the source
+            is itself optimised).
 
     Returns:
         IndexResult: Daily levels, divisor history, constituent and weight
         snapshots at exactly the parent's rebalance dates, and the daily
-        weights panel — a normal index result, data-bound to *data_provider*.
+        weights panel: a normal index result, data-bound to *data_provider*.
 
     Raises:
         CalculationError: If the objective is unknown, the parent produced no
-            rebalance snapshots to solve, or a solve is infeasible — the
-            solver's own message names the binding conflict.
+            rebalance snapshots to solve, or a solve is infeasible (the
+            solver's own message names the binding conflict).
         ValueError: If no window end is available to calculate the parent.
     """
     check_objective(definition)
@@ -263,8 +268,8 @@ def calculate_derived_index(definition: OptimisedIndexDefinition,
 def check_objective(definition: OptimisedIndexDefinition) -> None:
     """Refuse an objective this module cannot solve, naming the accepted set.
 
-    Checked before anything expensive happens — a full parent calculation, in
-    the usual case — so a typo in a stored derivation fails in the time it
+    Checked before anything expensive happens (a full parent calculation, in
+    the usual case), so a typo in a stored derivation fails in the time it
     takes to read the document rather than after a minute of arithmetic.
 
     Raises:
@@ -283,12 +288,12 @@ def calculate_source(source: AnyIndexDefinition,
                      start_date: str | None = None,
                      end_date: str | None = None,
                      price_column: str = "CLOSE") -> IndexResult:
-    """The parent's calculation — recursive when the parent is itself derived.
+    """The parent's calculation, recursive when the parent is itself derived.
 
-    Public because the parent's published weights are what a derivation *is*
-    defined against, so anything reasoning about a derivation — the
-    calculation below, the server's preview — needs them, and needs them from
-    one place. A chain resolves here rather than at each caller.
+    The parent's published weights are what a derivation *is* defined
+    against, so anything reasoning about a derivation (the derived
+    calculation, the server's preview) needs them, and needs them from one
+    place. A chain resolves here rather than at each caller.
 
     Args:
         source: The parent definition: rule-driven, or another derivation.
@@ -315,17 +320,17 @@ def solve_snapshot(definition: OptimisedIndexDefinition,
                    source_weights: dict[str, float]) -> OptimisationResult:
     """Solve one of the parent's snapshots under the derivation's constraints.
 
-    The single solve of this module, so the schedule below and any caller
-    asking "what would this derivation do at that date" — the server's preview
-    — cannot disagree about what the answer is. The whole
+    The single solve of this module, so the derived calculation and any
+    caller asking "what would this derivation do at that date" (the server's
+    preview) cannot disagree about what the answer is. The whole
     :class:`~beacon.optimise.result.OptimisationResult` is returned rather than
     only its weights, because which constraints bound and how much room the
     rest had left is the interesting half of the answer, and re-deriving it
     from the weights afterwards would be a second implementation of the rules.
 
-    scipy is required inside the solve (BN-166); an infeasible constraint set
-    raises there with a message naming the binding conflict, which is exactly
-    the loud failure the design demands — nothing is caught here.
+    scipy is required inside the solve. An infeasible constraint set raises
+    there with a message naming the binding conflict, and nothing is caught
+    here, so the failure is loud.
 
     Args:
         definition: The derivation supplying the objective and constraints.

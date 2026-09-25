@@ -1,10 +1,10 @@
 # src/beacon/backtest/result.py
 """
-BacktestResult — the record of a run, holding books rather than fields.
+BacktestResult: the record of a run, holding books rather than fields.
 
 The result is an **orchestrator**: it holds the Portfolio (kept whole, not
-flattened into series) plus the run-level facts — the index tracked, the
-target index, the benchmark of record, unfilled orders — and its methods
+flattened into series) plus the run-level facts (the index tracked, the
+target index, the benchmark of record, unfilled orders) and its methods
 answer questions by comparing books:
 
     result.portfolio.nav          what the money did
@@ -14,28 +14,30 @@ answer questions by comparing books:
     result.benchmark.levels       the benchmark of record, when one was given
     result.against(other)         any comparator, after the fact
 
-Parallel structure is the point (BN-154): three-plus books, same question,
-same spelling. The old flat fields — `portfolio_nav`, `cash_history`,
-`actual_weight_history`, the `portfolio_id` alias — are gone; each fact now
-has one home.
+Parallel structure is the point: several books, same question, same
+spelling. Each fact has one home.
 
 ## The benchmark of record versus a question asked later
 
 `benchmark=` given to the engine is a fact about the run: stored here,
 serialised, reproducible, so every reader of this result quotes excess
 return against the same comparator. `against(other)` is a question asked
-afterwards — it computes and returns, and **never mutates the stored
+afterwards: it computes and returns, and **never mutates the stored
 record**, because otherwise the benchmark of record would be whatever
 somebody last idly compared against.
 
 ## Day zero and the trading NAV
 
 The portfolio's NAV opens with initial capital on the eve of the first
-trading day (decision 11). Metrics, the fund's fee accrual and the current
-wire format all derive from :attr:`trading_nav` — the same series with that
-opening row dropped — so every number computed before the redesign is
-computed identically after it.
+trading day. Metrics, the fund's fee accrual and the current wire format all
+derive from :attr:`trading_nav`, the same series with that opening row
+dropped.
 """
+# BN-154 removed the old flat fields (`portfolio_nav`, `cash_history`,
+# `actual_weight_history`, the `portfolio_id` alias) in favour of books.
+# The day-zero row is decision 11 of the backtester redesign; deriving metrics
+# from `trading_nav` keeps every number computed before the redesign
+# identical after it.
 from dataclasses import dataclass, field
 from typing import Union
 
@@ -75,21 +77,22 @@ class UnfilledOrder:
     shortfall_value: float
 
 
+# PriceGap and RebalancePricing are BN-183.
 @dataclass(frozen=True)
 class PriceGap:
-    """A day a name should have traded on and had no bar (BN-183).
+    """A day a name should have traded on and had no bar.
 
     The engine prices from the last session on or before the date it is
     marking. Two different things can put it there, and only one of them is a
     fault: a day the index's **calendar says was closed** is a market that was
     shut, and the previous session's price is what the position was genuinely
-    worth through it — no gap is recorded, because nothing is missing. A day
+    worth through it, so no gap is recorded, because nothing is missing. A day
     the calendar says was **open** is data that is missing something, and the
     price carried forward is a stale quote.
 
     Carrying it forward is standard practice and beats refusing: a backtest
     over five hundred names must not die because one of them had one bad day.
-    Doing it silently is not — the mark is not what that day's market said, so
+    Doing it silently is not: the mark is not what that day's market said, so
     it is published here rather than absorbed, the way `unfilled` publishes the
     legs a rebalance could not fill.
 
@@ -106,13 +109,13 @@ class PriceGap:
 
 @dataclass(frozen=True)
 class RebalancePricing:
-    """What one rebalance priced from (BN-183).
+    """What one rebalance priced from.
 
-    A rebalance scheduled on a day the market was shut still trades — it prices
-    from the session in force through the closure — and a record that only
-    carried the scheduled date left a reader unable to tell the two cases
-    apart. `date` and `priced_from` are equal for the ordinary rebalance, which
-    is what makes an unequal pair worth reading.
+    A rebalance scheduled on a day the market was shut still trades: it prices
+    from the session in force through the closure. Recording both dates lets a
+    reader tell that case apart from an ordinary rebalance. `date` and
+    `priced_from` are equal for the ordinary rebalance, which is what makes an
+    unequal pair worth reading.
 
     Attributes:
         date: The rebalance date from the weight schedule.
@@ -148,10 +151,13 @@ class Book:
                    result: IndexResult) -> "Book":
         """A book over an index result.
 
-        The daily panel (BN-153) becomes the wide weights frame; an index
-        produced before the panel existed yields an empty frame rather than
-        a derived one — weights are recorded, not reconstructed.
+        The result's daily weights panel becomes the wide weights frame
+        (dates by identifiers). A result with no daily weights panel yields
+        an empty frame rather than a derived one: weights are recorded, not
+        reconstructed.
         """
+        # The daily panel is BN-153; results produced before it existed have
+        # none.
         weights = pd.DataFrame()
 
         if not result.daily_weights.empty:
@@ -165,7 +171,7 @@ class Book:
     @classmethod
     def from_levels(cls,
                     levels: pd.Series) -> "Book":
-        """A book over a bare level series — a benchmark from raw data."""
+        """A book over a bare level series, such as a benchmark from raw data."""
         return cls(levels=pd.Series(levels).astype(float))
 
     @property
@@ -181,26 +187,25 @@ class Book:
                 f"weighted={not self.weights.empty})")
 
 
+# BN-164 replaced the flat `index` / `target_index` pair, which were two names
+# for one concept ("the calculated index this run aims at") chosen by mode.
+# `target` is always filled because the engine has taken an IndexResult as its
+# only schedule source since BN-165; `optimised` is BN-167's derived index.
 @dataclass
 class IndexBooks:
-    """The run's calculated indices, one home each (BN-164).
-
-    Replaces the flat `index` / `target_index` pair, which were two names
-    for one concept — "the calculated index this run aims at" — chosen by
-    mode. Here the concept has one home:
+    """The run's calculated indices, one home each.
 
     The **container is always present**; its books are what can be None.
-    That distinction reads as safe and is not — a guard written against
-    `result.index` rather than `result.index.target` never fires — so it is
-    said here rather than left to be discovered.
+    That distinction reads as safe and is not: a guard written against
+    `result.index` rather than `result.index.target` never fires.
 
     Attributes:
         target: The index being aimed at, pre-optimisation. Always filled
-            on an engine-produced result: the engine has taken an
-            IndexResult as its only schedule source since BN-165. None only
-            on a result built by hand from an empty container.
+            on an engine-produced result, since the engine's schedule is
+            always an IndexResult. None only on a result built by hand from
+            an empty container.
         optimised: The solved index's own calculation, filled when the run
-            tracked a derived index (BN-167). None on plain passive runs.
+            tracked a derived (optimised) index. None on plain passive runs.
     """
     target: Book | None = None
     optimised: Book | None = None
@@ -220,10 +225,10 @@ class BacktestResult:
     """The record of one backtest run.
 
     Args:
-        portfolio: The books — positions, weights, cash, NAV, transactions —
+        portfolio: The books (positions, weights, cash, NAV, transactions),
             kept whole and frozen by the engine on completion.
         index: The run's calculated indices, as an :class:`IndexBooks`
-            container — always present, its books None when the run
+            container: always present, its books None when the run
             calculated none. `index.target` is the index aimed at,
             `index.optimised` the solved calculation when one exists, and
             `index.tracked` the book the engine traded toward.
@@ -233,9 +238,9 @@ class BacktestResult:
             itself the signal that the portfolio drifted off target for a
             reason other than price movement.
         price_gaps: Days a name had no bar on a session its calendar says was
-            open, and was therefore marked at a carried-forward price
-            (BN-183). Empty for a run with complete data — a market holiday is
-            not a gap, since nothing is missing on a day nothing traded.
+            open, and was therefore marked at a carried-forward price.
+            Empty for a run with complete data. A market holiday is not a
+            gap, since nothing is missing on a day nothing traded.
         rebalance_pricing: What each rebalance priced from, in date order.
             `date` and `priced_from` differ only where the schedule landed on
             a day the market was shut, so the run can state which session its
@@ -259,10 +264,9 @@ class BacktestResult:
         """NAV over the simulated days, with the day-zero row excluded.
 
         The portfolio's own `nav` opens with initial capital on the eve of
-        the first trading day (decision 11) — the record of what the run
-        started with. Every *metric* derives from this series instead, which
-        matches the NAV the engine produced before the redesign exactly: the
-        eve row is a starting fact, not a day the simulation traded.
+        the first trading day, the record of what the run started with.
+        Every *metric* derives from this series instead: the eve row is a
+        starting fact, not a day the simulation traded.
         """
         nav = self.portfolio.nav
 
@@ -297,7 +301,7 @@ class BacktestResult:
             RuntimeError: If no DataFetcher has been bound via
                 :meth:`with_data`.
             KeyError: If the run's books never held *asset_id*. Membership is
-                judged from the positions panel — the record of holdings —
+                judged from the positions panel (the record of holdings)
                 rather than from a weight column, so a position too small to
                 round to a visible weight still counts as held.
         """
@@ -322,10 +326,9 @@ class BacktestResult:
                 other: Comparable) -> RelativeMetrics:
         """Compare this run's NAV against any comparator, after the fact.
 
-        The exploratory half of decision 13: the run-time benchmark is a fact
-        about the run, this is a question asked later — so it computes and
-        returns, and **stores nothing**. Ask against ten comparators and the
-        result is byte-for-byte what it was.
+        The run-time benchmark is a fact about the run; this is a question
+        asked later, so it computes and returns, and **stores nothing**. Ask
+        against ten comparators and the result is byte-for-byte what it was.
 
         Args:
             other: Another result, a book, an index result, or a bare level
@@ -354,8 +357,9 @@ class BacktestResult:
     def get_tracking_error(self) -> float | None:
         """Calculate annualised tracking error against the tracked index.
 
-        Tracking error is the annualised standard deviation of the
-        difference between portfolio returns and index returns.
+        Tracking error is the standard deviation of the difference between
+        daily portfolio returns and index returns on their common dates,
+        annualised by the square root of 252.
 
         Returns:
             float or None: Annualised tracking error, or None if the run
@@ -408,10 +412,14 @@ class BacktestResult:
     def summary(self) -> dict[str, float | None]:
         """Calculate key performance metrics for the backtest.
 
+        Returns are daily and annualised over 252 trading days; the Sharpe
+        ratio assumes a zero risk-free rate. Total return is measured against
+        the portfolio's initial capital.
+
         Returns:
             dict: Dictionary containing: total_return, annualised_return,
-            volatility, sharpe_ratio, max_drawdown, and optionally
-            tracking_error and tracking_difference.
+            volatility, sharpe_ratio, max_drawdown, and, when the run tracked
+            an index, tracking_error and tracking_difference.
         """
         returns = self.get_returns()
         n_periods = len(returns)

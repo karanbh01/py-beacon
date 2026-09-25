@@ -12,15 +12,14 @@ Where `data.market.close` and `data.features.fundamentals.revenue` come from.
 
 `from beacon import data` would be the obvious spelling and it cannot work:
 `beacon.data` is already the data *package*, and importing any of its
-submodules rebinds that name on the parent. An expression root living there
-would be whichever won the import race — which is exactly what happened, with
-tests passing alone and failing after anything that imported
-`beacon.data.store`. `beacon.data` raises a message naming this module for the
-three namespaces where the mistake is plausible.
+submodules rebinds that name on the parent, so an expression root living there
+would be whichever won the import race. `beacon.data.market`,
+`beacon.data.reference` and `beacon.data.actions` raise an error pointing to
+`beacon.expressions`, since those are where the mistake is plausible.
 
 `data` is a **description, not a dataset**. It is a module-level symbol bound
 to nothing, because an expression is written before there is anything to
-evaluate it against — in a script, in a saved definition, in a client. Binding
+evaluate it against: in a script, in a saved definition, in a client. Binding
 it to a loaded store would make the import order matter and the same screen
 mean different things in two processes.
 
@@ -28,32 +27,36 @@ mean different things in two processes.
 
 The split is what makes autocomplete possible without a generation step.
 
-**Market and reference columns are declared.** They are a documented contract
-(`beacon.data`), so they can be listed here and complete everywhere — in
-Jupyter, in an IDE, in `dir()` — and they cannot drift, because this list *is*
+**Market, reference and action columns are declared.** They are a documented
+contract (`beacon.data`), so they are listed here and complete everywhere (in
+Jupyter, in an IDE, in `dir()`), and they cannot drift, because this list *is*
 the contract rather than a copy of it.
 
 **Feature types and fields are open.** Somebody loads `satellite_imagery`
 tomorrow and it has to work with no code change, so that half accepts any
-attribute and is checked against the loaded data instead (BN-141).
+attribute and is checked against the loaded data instead.
 
 Declared does not mean closed. A store carrying an extra reference column
-resolves too — the declaration is what is *known in advance*, not what is
+resolves too: the declaration is what is *known in advance*, not what is
 allowed.
 
 ## Lower case here, upper case in storage
 
-`data.reference.sector` resolves to the `SECTOR` column. The API should read
-like Python and the store should read like a data feed, and mapping between
-them is one line here rather than a convention every caller has to remember.
+`data.reference.sector` resolves to the `SECTOR` column. The API reads like
+Python and the store reads like a data feed; `column_for` maps between them.
 
 ## Derived fields resolve like stored ones
 
 `adv_3m`, `market_cap` and `free_float_market_cap` are computed per request
-rather than stored (BN-133). A user should not have to know which side of that
-line a datapoint falls on, so they live in the market namespace beside the
-stored columns and carry a flag saying they are derived.
+rather than stored. A user should not have to know which side of that line a
+datapoint falls on, so they live in the market namespace beside the stored
+columns and carry a flag saying they are derived.
 """
+# Maintainer notes:
+# - The `from beacon import data` import race really happened: tests passed
+#   alone and failed after anything that imported `beacon.data.store`.
+# - Feature fields are checked against the loaded data by BN-141
+#   (`validation.py`); derived market fields arrived in BN-133.
 from typing import Any
 
 from ..exceptions import UnknownDatasetError
@@ -150,7 +153,7 @@ class Namespace:
 
 
 class FeatureType(Namespace):
-    """One feature dataset — `data.features.fundamentals`.
+    """One feature dataset, such as `data.features.fundamentals`.
 
     Wholly open: the fields a dataset carries are whatever was loaded, and a
     fixed list here would be wrong the first time somebody imported their own.
@@ -172,13 +175,14 @@ class FeatureType(Namespace):
         return f"<data.features.{self._dataset}>"
 
 
+# The `TYPE` column that separates feature datasets sharing one table is BN-134.
 class Features:
     """The feature namespace, which nests by dataset type.
 
     `data.features.fundamentals.revenue`, not `data.features.revenue`.
 
-    `TYPE` is what separates datasets sharing one table (BN-134): `revenue`
-    from a vendor and `revenue` from a user's own model are different series.
+    `TYPE` is what separates datasets sharing one table: `revenue` from a
+    vendor and `revenue` from a user's own model are different series.
     Flattening them here would leave the API unable to say which it meant at
     exactly the moment the user is choosing between them.
     """
@@ -207,7 +211,7 @@ class Data:
     """The root: `data`.
 
     Deliberately a small fixed set of namespaces. Unlike the fields inside
-    them, the datasets Beacon holds are a closed contract — a typo like
+    them, the datasets Beacon holds are a closed contract: a typo like
     `data.refrence.sector` should fail at the attribute rather than build a
     field in a namespace nothing will ever resolve.
     """
@@ -254,12 +258,12 @@ def column_for(field: Field) -> str:
 
 
 def market_columns_for(fields: list[Field]) -> frozenset[str]:
-    """The stored market columns a set of fields reads (BN-217).
+    """The stored market columns a set of fields reads.
 
     Stored market fields name their column directly. Derived ones are expanded
     through :data:`DERIVED_REQUIRES` into what they are computed from.
     Reference, action and feature fields read other tables and contribute
-    nothing here -- a market-column check has nothing to say about them.
+    nothing here, since a market-column check has nothing to say about them.
 
     Args:
         fields: Typically ``fields_in(expression)`` for a rule's tree.

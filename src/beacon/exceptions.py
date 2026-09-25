@@ -38,11 +38,11 @@ class InvalidRuleError(BeaconError):
 class ExpressionError(BeaconError):
     """Raised when an expression is built or used in a way that cannot work.
 
-    Most often `bool(expression)` — Python evaluates `and`, `or` and `not` by
+    Most often `bool(expression)`. Python evaluates `and`, `or` and `not` by
     calling `__bool__`, and an expression has no truth value until it is
     resolved against an instrument and a date. Returning `True` there would
     make `(a == 1) and (b > 2)` silently discard half the expression, so it
-    raises instead.
+    raises instead. Combine expressions with `&`, `|` and `~`.
     """
 
 
@@ -59,33 +59,36 @@ class UnknownDatasetError(ExpressionError, AttributeError):
 class DataSourceError(BeaconError):
     """Raised when a read needs a data source and the process has none.
 
-    The message always names both fixes — `beacon.use(fetcher)` and
-    generating the default store — because "no data" discovered deep inside a
+    The message always names both fixes, `beacon.use(fetcher)` and
+    generating the default store, because "no data" discovered deep inside a
     price lookup is useless without being told what to do about it.
     """
 
 
+# Until BN-131 a rejected document id reached the client as a 500: the
+# path-traversal guard worked, said so clearly, and was returned as an
+# internal error. This class exists so the API answers 422 instead.
 class InvalidIdentifierError(BeaconError, ValueError):
     """Raised when a caller supplies an identifier that cannot be used.
 
     Subclasses `ValueError` as well as `BeaconError`, on the same principle as
-    `MissingDependencyError` above: a caller already writing
-    ``except ValueError`` around a store operation keeps working, because a
-    rejected identifier *is* a value error. The API still answers 422 rather
-    than the generic argument handler, because `BeaconError` precedes
-    `ValueError` in the MRO and the handler lookup walks it in order.
+    `MissingDependencyError`: a caller already writing ``except ValueError``
+    around a store operation keeps working, because a rejected identifier *is*
+    a value error. The API still answers 422 rather than using the generic
+    argument handler, because `BeaconError` precedes `ValueError` in the MRO
+    and the handler lookup walks it in order.
 
     Distinct from `DataNotFoundError`, which means the identifier was fine and
     nothing was stored under it. This means the identifier itself is
-    unusable — empty, or containing path separators — so there is nothing to
+    unusable (empty, or containing path separators), so there is nothing to
     look for.
 
-    The distinction matters because it decides the status code. A document id
-    arrives from a URL path parameter, so rejecting one is a statement about
-    the *request*, and answering 500 would tell a client the server had
-    broken when in fact it had correctly refused bad input. That is exactly
-    what happened until BN-131: the path-traversal guard below worked, said so
-    clearly, and returned it as an internal error.
+    The distinction decides the status code. A document id arrives from a
+    URL path parameter, so rejecting one is a statement about the *request*,
+    not a server fault.
+
+    The identifier is truncated to 40 characters in the message and in the
+    `identifier` attribute.
     """
     def __init__(self,
                  identifier: str,
@@ -109,8 +112,9 @@ class ConfigurationError(BeaconError):
         self.config_param = config_param
         self.details = details
 
+# BN-236.
 class NoDataLoadedError(BeaconError):
-    """Raised when something needs market data and none is loaded (BN-236).
+    """Raised when something needs market data and none is loaded.
 
     The engine can run with no data: it starts empty until a data store is
     loaded, and everything that does not read data keeps working. This is the
@@ -129,15 +133,17 @@ class NoDataLoadedError(BeaconError):
                          f"store first.")
 
 
+# BN-201. Before it, a document from a newer build and a damaged file were
+# reported as one number, "could not be read", which invites restoring a file
+# that has nothing wrong with it.
 class DocumentFromNewerBuildError(ConfigurationError):
-    """A stored document written by a newer py-beacon than this one (BN-201).
+    """A stored document written by a newer py-beacon than this one.
 
-    A `ConfigurationError` so every existing handler still catches it, and a
-    subclass so a listing can tell it apart from a damaged file. The two called
-    for opposite responses and were reported as one number: "could not be
-    read" invites restoring the file, when nothing is wrong with it and the
-    remedy is to upgrade the engine reading it -- the state two installs reach
-    when the engine and the app are updated on different machines.
+    A `ConfigurationError`, so every handler for that still catches it, and a
+    subclass, so a listing can tell it apart from a damaged file. The two call
+    for opposite responses: nothing is wrong with this file, and the remedy is
+    to upgrade the engine reading it. Two installs reach this state when the
+    engine and the app are updated on different machines.
     """
 
 
@@ -179,7 +185,7 @@ class FrozenPortfolioError(BeaconError):
     result someone has already read. Continuing a strategy means seeding a new
     run from the old end state, not mutating the record.
 
-    Frozen is a state, not a subclass — a hand-built portfolio is never frozen
+    Frozen is a state, not a subclass: a hand-built portfolio is never frozen
     unless its owner freezes it.
     """
     def __init__(self,
@@ -203,29 +209,29 @@ class CalculationError(BeaconError):
         self.calculation_name = calculation_name
         self.details = details
 
+# The two shared one published code until BN-194, so a client heading
+# `CALCULATION_ERROR` with "the engine refused to answer" was told a decision
+# had been made when in fact something broke. That is a wrong remedy, which
+# costs more than no remedy: the reader goes looking for what to change,
+# there is nothing, and the real signal (a stack trace worth reporting) is
+# disguised as a considered answer.
+#
+# What separates them on the wire is the published code alone, never the
+# `WeightingScheme-` prefix that one `except` block happens to put in
+# `calculation_name`, which is an implementation detail.
 class UnexpectedCalculationError(CalculationError):
     """Raised when a calculation *crashed*, as opposed to refusing.
 
-    Every other `CalculationError` in this codebase is a deliberate refusal:
-    a guard that names what was missing and what to do about it. This one is
-    the opposite — an exception nobody anticipated, caught at a boundary and
-    re-raised so it still reaches a client inside the error envelope instead
-    of as an unlabelled 500.
-
-    The two shared one published code until BN-194, and a client heading
-    `CALCULATION_ERROR` with *"the engine refused to answer"* was therefore
-    told a decision had been made when in fact something broke. That is a
-    **wrong remedy**, which costs more than no remedy: the reader goes looking
-    for what to change, there is nothing, and the real signal — a stack trace
-    worth reporting — is disguised as a considered answer.
+    Every other `CalculationError` is a deliberate refusal: a guard that names
+    what was missing and what to do about it. This one is the opposite: an
+    exception nobody anticipated, caught at a boundary and re-raised so it
+    still reaches a client inside the error envelope, with its own published
+    code, instead of as an unlabelled 500. It means there is nothing in the
+    request to change, and the failure is worth reporting.
 
     A subclass rather than a sibling, because a crash during a calculation
     genuinely *is* a calculation error: anything already written as
-    ``except CalculationError`` keeps catching it, so no handler changes
-    behaviour. What separates them on the wire is the published code alone —
-    never the `WeightingScheme-` prefix that one `except` block happens to put
-    in `calculation_name`, which is an implementation detail and documented
-    nowhere a client is meant to read.
+    ``except CalculationError`` keeps catching it.
 
     `original_type` carries the class name of the exception that actually
     failed, so a reader can tell a `ZeroDivisionError` from a `KeyError`
@@ -251,7 +257,3 @@ class UnexpectedCalculationError(CalculationError):
 
         self.calculation_name = calculation_name
         self.details = str(cause)
-
-# For the main __init__.py, they can be exposed directly:
-# from .beacon_exceptions import DataNotFoundError, InvalidRuleError
-# if beacon_exceptions.py is in root

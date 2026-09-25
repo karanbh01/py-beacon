@@ -2,12 +2,13 @@
 """
 When a company joins the universe and when it leaves it.
 
-Every generated name used to list on day one and never leave. That is the
+A generated name may list partway through the panel and may leave before it
+ends. A universe where every name lists on day one and never leaves is the
 definition of a survivorship-biased dataset, and it makes a whole class of
 behaviour unreachable: additions and deletions, the divisor adjustment each
 one needs, a backtest that has to dispose of a holding that stopped trading,
-and point-in-time universe resolution — "who was in the index *then*",
-answered from history rather than from today's list.
+and point-in-time universe resolution ("who was in the index *then*",
+answered from history rather than from today's list).
 
 It also makes the bias itself unmeasurable, which is the point. An index built
 only from the names that survived to the end of the panel outperforms one
@@ -17,7 +18,7 @@ cannot demonstrate the single most common error in backtesting.
 
 ## The rates are real, the events are not
 
-Roughly 3% of a large-cap index leaves per year and roughly 3% joins —
+Roughly 3% of a large-cap index leaves per year and roughly 3% joins:
 acquisitions, failures, and index-committee decisions all together. Over ten
 years that is about a quarter of the universe turning over, which is enough to
 matter and not so much that the panel becomes unrecognisable.
@@ -161,10 +162,12 @@ def draw(count: int,
         dates: The panel's business days.
         rng: Seeded generator.
         delisting_rate: Annualised hazard of leaving. Zero keeps every name
-            for the whole panel, which is what every dataset did before this
-            module existed.
+            to the end of the panel.
         listing_rate: Annualised hazard of having joined partway through.
+            Zero lists every name from the start.
         regimes: Dated episodes, for the clustering.
+        alpha: Each name's alpha. When given, delistings tilt towards the
+            weakest names without changing how many there are.
 
     Returns:
         pd.DataFrame: ``listed_from`` and ``listed_to`` per name, both

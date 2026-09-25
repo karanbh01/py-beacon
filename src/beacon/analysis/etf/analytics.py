@@ -1,6 +1,9 @@
 # src/beacon/analysis/etf/analytics.py
 """
-Module for calculating analytics specific to Exchange Traded Funds (ETFs).
+Analytics specific to Exchange Traded Funds (ETFs): tracking difference,
+tracking error, and the premium or discount of market price to NAV.
+
+Each is available as a plain function and as a method of `ETFAnalytics`.
 """
 
 import numpy as np
@@ -10,10 +13,13 @@ import pandas as pd
 def calculate_tracking_difference(etf_returns: pd.Series,
                                   index_returns: pd.Series) -> float:
     """
-    Calculates the annualized tracking difference between ETF returns and index returns.
-    Tracking Difference = Sum(ETF Returns - Index Returns) / Number of Periods * Periods per Year
-    Or, more simply, Total ETF Return - Total Index Return over the period.
-    This implementation will calculate the difference of the sum of returns, annualized.
+    Calculates the tracking difference between ETF returns and index returns.
+
+    Tracking difference is the ETF's cumulative return minus the index's
+    cumulative return over the whole period, where each cumulative return
+    compounds its periodic returns: ``prod(1 + r) - 1``. It is not
+    annualised. Each Series is compounded on its own, so the two are not
+    aligned by date; NaN returns are skipped.
 
     Args:
         etf_returns: A pandas Series of ETF periodic returns.
@@ -21,9 +27,11 @@ def calculate_tracking_difference(etf_returns: pd.Series,
                        Must be of the same frequency and length as etf_returns.
 
     Returns:
-        The annualized tracking difference as a float.
+        The tracking difference over the period, as a float (e.g. -0.002
+        when the ETF returned 0.2 percentage points less than the index).
 
     Raises:
+        TypeError: If either input is not a pandas Series.
         ValueError: If the input Series are not of the same length or are empty.
     """
     if not isinstance(etf_returns, pd.Series) or not isinstance(index_returns, pd.Series):
@@ -33,16 +41,11 @@ def calculate_tracking_difference(etf_returns: pd.Series,
     if etf_returns.empty:
         raise ValueError("Input Series cannot be empty.")
 
-    # This calculates the average periodic difference, then annualizes.
-    # A common definition is (ETF Total Return - Index Total Return) for the period.
-    # Let's use the arithmetic difference of cumulative returns.
+    # The arithmetic difference of cumulative returns over the whole period.
+    # Annualising it would need the period length, which is not passed in.
     etf_cumulative_return = (1 + etf_returns).prod() - 1
     index_cumulative_return = (1 + index_returns).prod() - 1
-    # This is for the total period
     tracking_difference = etf_cumulative_return - index_cumulative_return
-    # To annualize, one might need to consider the period length.
-    # For simplicity, this blueprint asks for a float. If annualized, needs periods.
-    # Assuming this is the total difference over the period.
     return float(tracking_difference)
 
 def calculate_tracking_error(etf_returns: pd.Series,
@@ -50,7 +53,12 @@ def calculate_tracking_error(etf_returns: pd.Series,
                              periods_per_year: int = 252) -> float:
     """
     Calculates the annualized tracking error between ETF returns and index returns.
-    Tracking Error = Standard Deviation of (ETF Returns - Index Returns) * Sqrt(Periods per Year).
+
+    Tracking error is the sample standard deviation of the periodic return
+    differences (ETF minus index), multiplied by ``sqrt(periods_per_year)``.
+    The difference is taken after aligning the two Series on their index, so
+    they should share the same dates: a date present in only one Series
+    produces NaN and is skipped, and fewer than two common dates gives NaN.
 
     Args:
         etf_returns: A pandas Series of ETF periodic returns.
@@ -62,7 +70,9 @@ def calculate_tracking_error(etf_returns: pd.Series,
         The annualized tracking error as a float.
 
     Raises:
-        ValueError: If the input Series are not of the same length or are empty.
+        TypeError: If either input is not a pandas Series.
+        ValueError: If the input Series are not of the same length or are
+            empty, or *periods_per_year* is not positive.
     """
     if not isinstance(etf_returns, pd.Series) or not isinstance(index_returns, pd.Series):
         raise TypeError("etf_returns and index_returns must be pandas Series.")
@@ -81,6 +91,7 @@ def calculate_premium_discount(etf_price: float,
                                nav_price: float) -> float:
     """
     Calculates the premium/discount of an ETF's market price relative to its NAV.
+
     Premium/Discount = (ETF Market Price / NAV) - 1.
 
     Args:
@@ -91,7 +102,8 @@ def calculate_premium_discount(etf_price: float,
         The premium/discount as a float (e.g., 0.01 for 1% premium, -0.005 for 0.5% discount).
 
     Raises:
-        ValueError: If nav_price is zero or inputs are non-numeric.
+        TypeError: If either input is not an int or float.
+        ValueError: If nav_price is zero.
     """
     if not all(isinstance(p, (int, float)) for p in [etf_price, nav_price]):
         raise TypeError("etf_price and nav_price must be numeric.")
@@ -102,7 +114,8 @@ def calculate_premium_discount(etf_price: float,
 
 class ETFAnalytics:
     """
-    A class to calculate ETF-specific analytics.
+    ETF analytics as methods. Each method calls the module-level function of
+    the same name and returns its result unchanged.
     """
     def __init__(self) -> None:
         """Initializes the ETFAnalytics calculator."""
@@ -111,8 +124,9 @@ class ETFAnalytics:
                                       etf_returns: pd.Series,
                                       index_returns: pd.Series) -> float:
         """
-        Calculates the tracking difference between ETF returns and index returns.
-        See function docstring for details.
+        Cumulative ETF return minus cumulative index return over the period.
+
+        See :func:`calculate_tracking_difference`.
         """
         return calculate_tracking_difference(etf_returns, index_returns)
 
@@ -121,7 +135,9 @@ class ETFAnalytics:
                                  index_returns: pd.Series,
                                  periods_per_year: int = 252) -> float:
         """
-        Calculates the annualized tracking error. See function docstring for details.
+        Annualised standard deviation of the ETF-minus-index return differences.
+
+        See :func:`calculate_tracking_error`.
         """
         return calculate_tracking_error(etf_returns, index_returns, periods_per_year)
 
@@ -129,6 +145,8 @@ class ETFAnalytics:
                                    etf_price: float,
                                    nav_price: float) -> float:
         """
-        Calculates the premium/discount to NAV. See function docstring for details.
+        Market price divided by NAV, minus one.
+
+        See :func:`calculate_premium_discount`.
         """
         return calculate_premium_discount(etf_price, nav_price)

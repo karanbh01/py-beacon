@@ -11,22 +11,21 @@ Two kinds of template, and the distinction matters:
   is the first: it reads an index's latest backtest and lays out the headline
   figures, the constituents and the contribution chart.
 
-The alternative was a templating language — placeholders in a stored document,
-filled at render time. That is a real feature and a large one, and inventing a
-half-version of it (string substitution into text blocks) would produce
-something that looks like a template engine and breaks like a string replace.
-Built-in templates are the honest smaller thing: they are code, they are
-testable, and a user who needs a different factsheet gets a new built-in rather
-than a syntax to learn.
-
-## Rendering is a job
-
-The PDF itself takes milliseconds. Building the factsheet does not: it reads a
-stored run and derives contributions from it. More importantly the result is
-*bytes*, and bytes do not belong in a JSON job payload — so the render writes a
-file under the storage root and the job result carries its id, which
-`GET /reports/renders/{render_id}` then streams.
+Rendering runs as a job. Building a factsheet reads a stored run and derives
+contributions from it, and the result is a PDF, which does not belong in a
+JSON job payload. So the render writes a file under the storage root, the job
+result carries its id, and `GET /reports/renders/{render_id}` streams it.
 """
+# Why built-in templates rather than a templating language: placeholders in a
+# stored document, filled at render time, are a real feature and a large one,
+# and inventing a half-version of it (string substitution into text blocks)
+# would produce something that looks like a template engine and breaks like a
+# string replace. Built-in templates are the honest smaller thing: they are
+# code, they are testable, and a user who needs a different factsheet gets a
+# new built-in rather than a syntax to learn.
+#
+# The PDF itself takes milliseconds to render; the job exists for the
+# factsheet build and because the result is bytes.
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
@@ -84,10 +83,12 @@ def build_factsheet(index_name: str,
         ReportTemplate: The blocks, in reading order.
 
     Raises:
-        DataNotFoundError: If the run carries no composition — a result stored
-            before BN-71 has a level but no constituents, and a factsheet
+        DataNotFoundError: If the run carries no composition (an older stored
+            result may have a level but no constituents), since a factsheet
             without holdings is not a factsheet.
     """
+    # Results stored before BN-71 carry a level and metrics but no rebalance
+    # snapshots, which is the case the check below refuses.
     snapshots = run.get("rebalances") or []
     if not snapshots:
         raise DataNotFoundError(
@@ -219,8 +220,8 @@ def ensure_renderable(template: ReportTemplate) -> None:
     """Raise if a template obviously cannot produce a page.
 
     Only the checks that are cheap and certain. Whether the blocks *fit* is the
-    renderer's answer, and it gives a better one — naming the block that
-    overflowed — so it is left to say it.
+    renderer's answer, and it gives a better one (naming the block that
+    overflowed), so it is left to say it.
     """
     # 409 rather than the 500 ReportingError gave: nothing failed, and the
     # server was reporting itself broken over an empty template (BN-131). Not

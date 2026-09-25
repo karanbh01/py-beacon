@@ -1,6 +1,6 @@
 # src/beacon/index/constructor.py
 """
-Module for defining the structure and rules of a financial index.
+IndexDefinition: the static rules of an index.
 """
 import logging
 
@@ -18,10 +18,21 @@ from .schedule import (
 
 logger = logging.getLogger(__name__)
 
+# `calendar` is required and deliberately has no default. It had one briefly
+# while BN-180 was being written, and the default was wrong for the same
+# reason the old null was: `IndexDefinition(currency="EUR")` would silently
+# schedule a European index on New York's holidays, coherently, with nothing on
+# screen to say so. Choosing a calendar for an index that already exists is
+# repair, which is what `DEFAULT_CALENDAR` and the schema-2 migration are for;
+# choosing one for an index being created is a guess, and the caller is the
+# only one who can make it.
+#
+# Defaults that preserve earlier behaviour: `rebalance_day_rule`
+# (FIRST_BUSINESS_DAY, what every index defined before BN-121 used),
+# `return_type` (PRICE, every index defined before BN-125) and
+# `effective_lag_sessions` (0, same-day, what every index did before BN-126).
 class IndexDefinition:
-    """
-    Defines the static characteristics and rules for constructing a financial index.
-    """
+    """Defines the static characteristics and rules for constructing an index."""
     def __init__(self,
                  index_id: str,
                  index_name: str,
@@ -40,60 +51,53 @@ class IndexDefinition:
                  withholding_tax_rate: float = 0.0,
                  effective_lag_sessions: int = 0):
         """
-        Initializes an IndexDefinition.
-
         Args:
             index_id: A unique identifier for the index.
             index_name: The common name of the index.
-            base_date: The date from which the index calculation begins (YYYY-MM-DD).
-            base_value: The initial value of the index on its base_date.
-            currency: The currency of the index.
-            eligibility_rules: A list of EligibilityRuleBase objects that define
-                               criteria for constituent selection.
+            base_date: The date from which the index calculation begins
+                (YYYY-MM-DD).
+            base_value: The initial value of the index on its base_date. Must
+                be positive.
+            currency: The currency of the index (stored upper-cased).
+            eligibility_rules: A list of EligibilityRuleBase objects that
+                define criteria for constituent selection. An empty list is
+                allowed but logged as a warning.
             weighting_scheme: A WeightingSchemeBase object that defines how
-                              constituents are weighted.
-            rebalancing_frequency: A string indicating how often the index is rebalanced
-                                   (e.g., 'QUARTERLY', 'MONTHLY', 'SEMI-ANNUAL', 'ANNUAL').
-                                   More complex schedules (e.g. "Third Friday of March, June...")
-                                   would require a more sophisticated scheduler.
+                constituents are weighted.
+            rebalancing_frequency: How often the index is rebalanced:
+                ``"MONTHLY"``, ``"QUARTERLY"``, ``"SEMI-ANNUAL"`` or
+                ``"ANNUAL"`` (stored upper-cased). An unsupported value is
+                refused when rebalance dates are first computed.
             calendar: Exchange MIC backing trading-day arithmetic, e.g.
-                                  ``"XNYS"``. **Required, and deliberately
-                                  without a default.** It had one briefly while
-                                  BN-180 was being written, and the default was
-                                  wrong for the same reason the old null was:
-                                  `IndexDefinition(currency="EUR")` would
-                                  silently schedule a European index on New
-                                  York's holidays, coherently, with nothing on
-                                  screen to say so. Choosing a calendar for an
-                                  index that already exists is repair, which is
-                                  what `DEFAULT_CALENDAR` and the schema-2
-                                  migration are for; choosing one for an index
-                                  being created is a guess, and the caller is
-                                  the only one who can make it.
+                ``"XNYS"``. **Required, and deliberately without a default:**
+                a default would silently schedule, say, a European index on
+                New York's holidays. Only the caller can choose it.
             description: Optional textual description of the index.
-            universe_identifiers: Optional list of string identifiers (e.g., tickers, ISINs)
-                                  defining the asset universe from which constituents are selected.
+            universe_identifiers: Optional list of string identifiers (e.g.
+                tickers, ISINs) defining the asset universe from which
+                constituents are selected. When given, it must not be empty.
+                An index calculated with none is refused.
             max_constituent_weight: Optional cap on any single constituent's
-                                  weight, as a fraction (0.1 is 10%). Applied
-                                  after the weighting scheme and iterated until
-                                  no constituent breaches it. None means
-                                  uncapped.
+                weight, as a fraction (0.1 is 10%), in (0, 1]. Applied after
+                the weighting scheme and iterated until no constituent
+                breaches it. None means uncapped.
             rebalance_day_rule: Which day of a scheduled month the rebalance
-                                  falls on. Defaults to the first business day,
-                                  which is what every index defined before
-                                  BN-121 used.
-            return_type: PRICE, TOTAL_RETURN or NET_TOTAL_RETURN. PRICE is the
-                                  default and the behaviour of every index
-                                  defined before BN-125; the other two reinvest
-                                  cash distributions across the index.
-            withholding_tax_rate: Fraction of each distribution withheld, for a
-                                  net index. Ignored unless the return type is
-                                  NET_TOTAL_RETURN, so a definition carrying a
-                                  rate it does not use cannot quietly apply it.
+                falls on: ``"FIRST_BUSINESS_DAY"`` (the default),
+                ``"LAST_BUSINESS_DAY"`` or ``"THIRD_FRIDAY"``.
+            return_type: ``"PRICE"`` (the default), ``"TOTAL_RETURN"`` or
+                ``"NET_TOTAL_RETURN"``. The last two reinvest cash
+                distributions across the index.
+            withholding_tax_rate: Fraction of each distribution withheld, for
+                a net index, in [0, 1). Ignored unless the return type is
+                NET_TOTAL_RETURN, so a definition carrying a rate it does not
+                use cannot quietly apply it.
             effective_lag_sessions: Sessions between a composition being
-                                  announced and its weights taking effect. Zero
-                                  is same-day, which is what every index did
-                                  before BN-126.
+                announced and its weights taking effect. Zero (the default)
+                is same-day. Must not be negative.
+
+        Raises:
+            ValueError: If a required argument is empty or out of range, or
+                the day rule or return type is not supported.
         """
         if not index_id:
             raise ValueError("index_id cannot be empty.")
@@ -164,26 +168,29 @@ class IndexDefinition:
     def get_rebalance_dates(self,
                             start_date: str,
                             end_date: str) -> list[pd.Timestamp]:
-        """
-        Return all rebalance dates within [start_date, end_date] based on
-        the index's rebalancing frequency, day rule and calendar.
+        """Every rebalance date within [start_date, end_date].
 
-        Delegates to `beacon.index.schedule`, which replaced the first-business-
-        day-of-month assumption this method used to hard-code. Since BN-180 the
-        calendar is always a real one, so a date this returns is always a date
-        the exchange has a session for — an index that named none used to
-        schedule 1 January and 25 December.
+        Follows the index's rebalancing frequency, day rule and calendar (see
+        `beacon.index.schedule`). The calendar is always a real exchange
+        calendar, so a date this returns is always a date the exchange has a
+        session for. The cadence is anchored on the first scheduled date in
+        the range.
 
         Args:
             start_date: Start of the range (YYYY-MM-DD), inclusive.
             end_date: End of the range (YYYY-MM-DD), inclusive.
 
         Returns:
-            A chronologically sorted list of business-day-adjusted rebalance dates.
+            A chronologically sorted list of rebalance dates, each a session on
+            the index's calendar.
 
         Raises:
             ValueError: If the rebalancing frequency is unsupported.
         """
+        # `beacon.index.schedule` replaced the first-business-day-of-month
+        # assumption this method used to hard-code. Since BN-180 the calendar
+        # is always a real one; an index that named none used to schedule
+        # 1 January and 25 December.
         return rebalance_dates(self.rebalancing_frequency,
                                start_date,
                                end_date,
@@ -194,8 +201,8 @@ class IndexDefinition:
                        as_of: str) -> pd.Timestamp | None:
         """The first rebalance strictly after a date.
 
-        Anchored on the base date, like every other date this class produces,
-        so the answer names a day the index would genuinely rebalance on.
+        Anchored on the base date, as a calculation run from the base date
+        is, so the answer names a day the index would genuinely rebalance on.
 
         Args:
             as_of: The date being asked from, YYYY-MM-DD.

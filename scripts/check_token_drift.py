@@ -4,7 +4,7 @@ Fail when the vendored design tokens drift from beacon-ui's copy.
 
 The tokens are generated from Figma in beacon-ui and copied into this package
 so that it installs and renders offline (see
-docs/decisions/0001-design-token-source-of-truth.md). A copy is only safe if
+decisions/0001-design-token-source-of-truth.md). A copy is only safe if
 divergence is loud, which is what this script is for.
 
 The comparison is **semantic, not byte-for-byte**: both files are parsed and

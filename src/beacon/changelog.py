@@ -1,20 +1,21 @@
 # src/beacon/changelog.py
-"""The engine's own changelog, as data (BN-222).
+"""The engine's own changelog, as data.
 
-beacon-ui shows the user what the engine they are running has changed. It
-learns the engine's version from `/health`, so the changelog comes from the
-same place for the same reason: the notes have to be for the engine actually
-running, not whatever the app was built against.
+The app (Beacon) shows the user what the engine they are running has
+changed. It learns the engine's version from `/health`, so the changelog
+comes from the engine for the same reason: the notes have to be for the
+engine actually running, not whatever the app was built against.
 
-`CHANGELOG.md` at the repository root is the one file anybody edits. The
-wheel carries a copy inside the package (see `force-include` in
-pyproject.toml), because an installed engine has no repository beside it. An
-editable install reads the root file directly.
+An installed wheel carries a copy of `CHANGELOG.md` inside the package,
+because an installed engine has no repository beside it. An editable install
+reads the file at the repository root directly.
 
 The format is Keep a Changelog: `## [version] - date`, then `### Added`,
 `### Changed` and so on, each a list of `- ` items. Items stay markdown, so
 the emphasis and code spans in them survive to whatever renders them.
 """
+# BN-222. `CHANGELOG.md` at the repository root is the one file anybody
+# edits; the wheel's copy comes from `force-include` in pyproject.toml.
 import re
 from dataclasses import dataclass, field
 from importlib import resources
@@ -52,8 +53,8 @@ class ChangelogEntry:
 def parse(text: str) -> list[ChangelogEntry]:
     """Read a Keep a Changelog document into entries, newest first.
 
-    Prose between a release heading and its first section -- a note that
-    nothing has been released yet, say -- is not an item and is skipped. A
+    Prose between a release heading and its first section (a note that
+    nothing has been released yet, say) is not an item and is skipped. A
     list item that wraps onto indented lines is joined back into one string.
     """
     entries: list[ChangelogEntry] = []

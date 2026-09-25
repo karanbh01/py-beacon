@@ -3,40 +3,51 @@
 A catalogue of the configurable types a client can offer, built from the
 classes themselves.
 
-`RuleSpec` carries a free-text `type` and an open `params` dict, and nothing
-published which types existed or what each accepted. So the methodology editor
-could only be a text box and a list of key/value pairs: a user had to *know*
-that the rule is spelled `MarketCapRule` and its parameter `min_market_cap`,
-and a typo surfaced only after a round trip. Everything needed to render a
-proper form was already in the constructor signatures.
+Selection rules, weighting schemes and optimiser constraints each register
+here with the :func:`register` decorator where they are defined. A client
+reads the catalogue to render a proper form for each type (field names,
+types, defaults, labels, choices) and to validate a submitted `RuleSpec`
+before it is built, instead of asking the user to type a class name and a
+set of key/value pairs.
 
 ## What is introspected and what is declared
 
-Introspection reads `__init__` and gets the facts: parameter names, types,
-which are required, and their defaults. Those cannot go stale, because they
-*are* the signature.
+Introspection reads the constructor and gets the facts: parameter names,
+types, which are required, and their defaults. Those cannot go stale, because
+they *are* the signature.
 
-Three things introspection cannot know, so they are declared:
+Three things introspection cannot know, so they are declared with
+:class:`Display`:
 
-* a **label** — `min_avg_daily_volume` is a field name, "Minimum ADV" is a label
-* an **order** — a form has a designed reading order; a signature's order is
+* a **label**: `min_avg_daily_volume` is a field name, "Minimum ADV" is a label
+* an **order**: a form has a designed reading order; a signature's order is
   whatever was convenient to write
-* **choices** — a parameter annotated `str` may accept exactly three values,
+* **choices**: a parameter annotated `str` may accept exactly three values,
   and the annotation cannot say so
 
-The split is deliberate and the declaration is kept as small as possible: the
-half that can drift from reality is then only the presentational half, where
-drift means an awkward label rather than a wrong form.
-
-## Registration is by decorator, and forgetting it is a test failure
-
-A hand-kept list is the thing this module exists to delete — three of them
-existed, and they had to agree with each other and with the classes. Here a
-class registers itself where it is defined. A new rule that forgets to is
-caught by a completeness test walking the base class's subclasses, because the
-failure mode of a missed registration is silent: nothing breaks, the editor
-simply never offers the rule and nobody notices.
+Anything not declared falls back to a label derived from the parameter name
+and to signature order.
 """
+# Why this exists: `RuleSpec` carries a free-text `type` and an open `params`
+# dict, and nothing published which types existed or what each accepted. So
+# the methodology editor could only be a text box and a list of key/value
+# pairs: a user had to *know* that the rule is spelled `MarketCapRule` and its
+# parameter `min_market_cap`, and a typo surfaced only after a round trip.
+# Everything needed to render a proper form was already in the constructor
+# signatures.
+#
+# The introspected/declared split is deliberate and the declaration is kept
+# as small as possible: the half that can drift from reality is then only the
+# presentational half, where drift means an awkward label rather than a wrong
+# form.
+#
+# Registration is by decorator, and forgetting it is a test failure. A
+# hand-kept list is the thing this module exists to delete: three of them
+# existed, and they had to agree with each other and with the classes. A new
+# rule that forgets to register is caught by a completeness test walking the
+# base class's subclasses, because the failure mode of a missed registration
+# is silent: nothing breaks, the editor simply never offers the rule and
+# nobody notices.
 import inspect
 import logging
 from dataclasses import dataclass, field
@@ -232,10 +243,11 @@ def register(kind: str,
 
     Returns:
         The class, unchanged. Registration is a side effect, so decorating
-        never alters behaviour — a rule works identically registered or not,
-        which is precisely why forgetting needs a test rather than showing up
-        at runtime.
+        never alters behaviour: a class works identically registered or not,
+        but an unregistered one is never offered to a client.
     """
+    # Because behaviour is identical either way, forgetting to register needs
+    # a test rather than showing up at runtime.
     def decorate(cls: type) -> type:
         entry = Entry(name=cls.__name__,
                       kind=kind,
@@ -267,10 +279,10 @@ def entry_for(kind: str,
 def classes(kind: str) -> dict[str, type]:
     """Name -> class for one kind.
 
-    What replaces the hand-kept builder tables: the object that gets
-    constructed and the entry that describes it come from one registration, so
-    they cannot name different things.
+    The class that gets constructed and the entry that describes it come from
+    one registration, so they cannot name different things.
     """
+    # This replaced the hand-kept builder tables.
     return {name: cls for name, (cls, _) in _REGISTRY.get(kind, {}).items()}
 
 

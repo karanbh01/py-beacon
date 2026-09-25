@@ -1,6 +1,6 @@
 # src/beacon/derivatives/base.py
 """
-DerivativeBase — abstract base class for all Delta-1 derivative instruments.
+DerivativeBase: abstract base class for all Delta-1 derivative instruments.
 """
 import logging
 from abc import ABC, abstractmethod

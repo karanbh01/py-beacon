@@ -2,18 +2,15 @@
 """
 Searching and enumerating the identifiers a data source actually holds.
 
-Nothing in the API could answer "which identifiers do you have, and which of
-them match what the user is typing". `/data/coverage` counts them,
-`/data/reference` looks up ones the caller already knows, and a universe's
-members are a membership list rather than coverage. So a client wanting
-type-ahead had to build its own index from the union of every universe — which
-silently omits any identifier no universe happens to contain, and is empty when
-none are configured.
+Answers "which identifiers do you have, and which of them match what the user
+is typing" across market data, reference data and corporate actions, so a
+client can offer type-ahead over everything the source holds, not only the
+members of configured universes.
 
 ## Built once, searched many times
 
 This is called on every keystroke. A scan that reads reference data per request
-would be doing the expensive part — pulling names out of pandas — over and over
+would be doing the expensive part (pulling names out of pandas) over and over
 for an answer that only changes when the data does.
 
 So the index is built once and cached against a fingerprint of the fetcher's
@@ -44,9 +41,15 @@ fragment.
 
 `total` is the number of matches *before* the limit, so the client can say
 "showing 20 of 340". That cannot be known without examining every candidate, so
-there is no early exit — the limit bounds what is returned, never what is
+there is no early exit: the limit bounds what is returned, never what is
 looked at. Worth knowing before trying to optimise the loop away.
 """
+# Why this exists: `/data/coverage` counts identifiers, `/data/reference`
+# looks up ones the caller already knows, and a universe's members are a
+# membership list rather than coverage. So a client wanting type-ahead had to
+# build its own index from the union of every universe, which silently omits
+# any identifier no universe happens to contain, and is empty when none are
+# configured.
 import logging
 from dataclasses import dataclass, field
 
@@ -172,7 +175,7 @@ class IdentifierIndex:
     def empty(cls) -> "IdentifierIndex":
         """An index over no data.
 
-        A server with no data source still answers this endpoint — "nothing
+        A server with no data source still answers searches: "nothing
         matches" and "this engine is misconfigured" are different statements,
         and an empty suggestion list must not look like a broken install.
         """
@@ -266,8 +269,9 @@ class IdentifierIndex:
         """Find identifiers matching a fragment, or enumerate them all.
 
         Args:
-            query: Fragment to match against identifier and name. None or
-                empty means no filter — the first `limit` in index order.
+            query: Fragment to match against identifier and name,
+                case-insensitively. None or empty means no filter: the first
+                `limit` in index order, after `offset`.
             limit: Maximum rows to return.
             offset: Rows to skip, for walking a full enumeration.
             datasets: Only return identifiers covered by *all* of these.
@@ -376,9 +380,10 @@ def _text(value: object) -> str | None:
 def fingerprint(fetcher: DataFetcher) -> str:
     """A short version tag for the data an index would be built from.
 
-    Made from the per-dataset refresh timestamps alone. Every path that can
-    change which identifiers exist — both merge methods — records a refresh, so
-    the timestamps are a complete signal.
+    Made from the market, reference and corporate-action refresh
+    timestamps alone. Every path that can change which identifiers exist
+    (both merge methods) records a refresh, so the timestamps are a
+    complete signal.
 
     Deliberately *not* derived from the identifier count: reading that means a
     `unique()` over the whole market panel, which on a hundred thousand names

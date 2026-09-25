@@ -4,14 +4,14 @@ What an index definition resolves to at a date, in whichever face it has.
 
 For a **rule pipeline**, that is the constituent derivation waterfall: how a
 universe narrows to an index, one rung per selection rule, each naming what it
-removed, then weighting and capping. The point is attributability — every
+removed, then weighting and capping. The point is attributability: every
 excluded asset reports the rule that excluded it, so a methodology author can
 see *why* a name is missing rather than only *that* it is.
 
-For a **derivation** (BN-170) there is no waterfall to show. An optimised index
+For a **derivation** there is no waterfall to show. An optimised index
 eliminates nothing: it reallocates exactly the names its parent published, and
 the solve moves every weight at once. Answering with an empty funnel would be a
-worse lie than refusing, so the answer is a different shape — the parent's
+worse lie than refusing, so the answer is a different shape: the parent's
 weights beside the solved ones, and which constraints cost something. Both
 faces come back through one endpoint and one response model, with `steps` and
 `solve` mutually exclusive, exactly as `pipeline` and `derivation` are on the
@@ -19,16 +19,17 @@ document being previewed.
 
 Neither face computes anything itself. The pipeline walk is
 `beacon.index.calculation.selection`'s, and the solve is
-`beacon.index.derived.solve_snapshot` — the same call `calculate_derived_index`
+`beacon.index.derived.solve_snapshot`, the same call `calculate_derived_index`
 makes at every rebalance. A preview and the run it previews cannot disagree,
 because they are the same code.
-
-What remains here is presentation: mapping the core's rule *positions* onto the
-stored document's rule *ids*, and pairing a parent snapshot with its solution.
-Those ids belong to the document rather than to the rules — a rule object knows
-its type, not which line of a saved definition it came from — so the mapping is
-the server's job and stays the server's job.
 """
+# Derivation previews arrived with BN-170.
+#
+# What remains here is presentation: mapping the core's rule *positions* onto
+# the stored document's rule *ids*, and pairing a parent snapshot with its
+# solution. Those ids belong to the document rather than to the rules (a rule
+# object knows its type, not which line of a saved definition it came from), so
+# the mapping is the server's job and stays the server's job.
 import pandas as pd
 
 from ..asset.base import Asset
@@ -143,7 +144,7 @@ def build_preview(document: IndexDocument,
         DataNotFoundError: If a derivation names a source that is not stored.
         InvalidRuleError: If a derivation's parent published no snapshot on or
             before *as_of*.
-        CalculationError: If a derivation's solve is infeasible — the solver's
+        CalculationError: If a derivation's solve is infeasible. The solver's
             own message names the binding conflict.
     """
     if document.derivation is not None:

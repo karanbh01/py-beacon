@@ -1,23 +1,30 @@
 # src/beacon/backtest/pricing.py
 """
-PricingMixin — what a price is, to the engine: a date, a session, a currency.
+PricingMixin: what a price is, to the backtest engine: a date, a session, a
+currency.
 
-Split out of `engine.py` (BN-183), which had grown past the size this project
-keeps a module to once the exact-date read became a resolved one. The grouping
-is not arbitrary: everything here answers one question — *what is this name
-worth, in the book's currency, on this day* — and the engine above it decides
-what to do with the answer.
+Everything here answers one question (*what is this name worth, in the book's
+currency, on this day*), and the engine above it decides what to do with the
+answer. Two conversions sit between a stored bar and a usable price:
 
-Two conversions sit between a stored bar and a usable price, and both used to
-be missing:
-
-* **Currency.** Prices are stored as the company is quoted; a portfolio has
-  one currency (BN-128).
-* **Date.** A requested date is not always a session. Resolving it is BN-179's
-  rule applied to the engine — backfill within the data, refuse beyond it —
-  and BN-180's required calendar is what lets a closed market be told apart
-  from a hole in the data, which are the same absence with opposite meanings.
+* **Currency.** Prices are stored in the currency the company is quoted in,
+  while a portfolio has one currency, so each price is converted with the FX
+  rate on or before the day. A missing rate raises `CalculationError`.
+* **Date.** A requested date is not always a session. Within the data's
+  coverage it resolves back to the last session on or before it; beyond the
+  coverage it raises `CalculationError`. The trading calendar tells a closed
+  market (the previous close is carried silently) apart from a hole in the
+  data (the previous close is carried and recorded as a `PriceGap`).
 """
+# Split out of `engine.py` (BN-183), which had grown past the size this project
+# keeps a module to once the exact-date read became a resolved one.
+#
+# Both conversions used to be missing. Currency: prices are stored as the
+# company is quoted, and a portfolio has one currency (BN-128). Date: resolving
+# it is BN-179's rule applied to the engine (backfill within the data, refuse
+# beyond it), and BN-180's required calendar is what lets a closed market be
+# told apart from a hole in the data, which are the same absence with opposite
+# meanings.
 import logging
 
 import pandas as pd
@@ -421,11 +428,10 @@ class PricingMixin:
             details=(f"no {currency.upper()}/{self.currency.upper()} rate on "
                      f"or before {date:%Y-%m-%d}, so {asset_id} cannot be "
                      f"valued in the book's currency. Valuing it unconverted "
-                     f"— the old answer — carries a {currency.upper()} holding "
-                     f"as though it were {self.currency.upper()}, so the NAV "
-                     f"is wrong by the whole exchange rate and nothing in the "
-                     f"result looks odd. Load the pair, or run the backtest "
-                     f"in {currency.upper()}."))
+                     f"would carry a {currency.upper()} holding as though it "
+                     f"were {self.currency.upper()}, making the NAV wrong by "
+                     f"the whole exchange rate. Load the pair, or run the "
+                     f"backtest in {currency.upper()}."))
 
     def _currency_of(self,
                      asset_id: str) -> str | None:

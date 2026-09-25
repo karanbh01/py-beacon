@@ -1,8 +1,5 @@
-# beacon.analysis
+# Analysis
 
-Performance and risk analytics for indices, ETFs, and portfolios: ETF
-tracking metrics (`beacon.analysis.etf`), performance attribution, and the
-scalar risk measures covered on the [Risk Model](../concepts/risk-model.md)
-concept page.
+Performance analytics: attribution, relative performance, concentration, liquidity, scalar risk measures and ETF tracking. See [Attribution](../concepts/attribution.md).
 
 ::: beacon.analysis

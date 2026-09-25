@@ -9,34 +9,36 @@ Building a universe by filtering, rather than by listing.
                              & (data.market.market_cap > 1e9),
                              fetcher)
 
-The same expressions that drive index rules (BN-142), so there is one way of
+These are the same expressions that drive index rules, so there is one way of
 naming a datapoint and it works everywhere.
 
 ## Frozen and live are different objects
 
-The distinction a user has to be told about rather than left to discover.
-
 A universe saved as **a list of identifiers** is a fact about a moment. It
 does not change when the data does, which is what you want for a published
-index whose membership was fixed at a review — and it cannot be refreshed,
+index whose membership was fixed at a review, and it cannot be refreshed,
 because nothing records how it was chosen.
 
 A universe saved as **an expression** is a question. Re-evaluating it next
 month gives a different answer, which is what you want for "every US name
-above a billion" — and it can never tell you what it contained last month,
+above a billion", and it can never tell you what it contained last month,
 because it does not store that.
 
 Neither is more correct. What would be wrong is a universe that looks like one
-and behaves like the other, so `resolve` takes a date and says plainly what it
-resolved at, and the server records `mode` on the document.
+and behaves like the other. So `build` records the date it resolved at
+(`as_of`) and a `mode` (`LIVE` or `FROZEN`) saying which of the two the result
+means, and `resolve_document` answers a stored document accordingly: a live one
+re-evaluates its filter, anything else returns the identifiers it stored.
 
 ## Resolution is point-in-time
 
 `where(expression, fetcher, date)` answers as of `date`, through the same
 resolver an index rule uses. A universe built "as of last March" contains what
-was knowable last March — including names that have since been delisted, and
-excluding ones that had not yet listed.
+was knowable last March, including names that have since been delisted, and
+excluding ones that had not yet listed. With no date, a filter resolves at the
+last date of the loaded data.
 """
+# Expressions as universe filters, shared with index rules, are BN-142.
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -65,7 +67,7 @@ def where(expression: Expression,
     Args:
         expression: The filter.
         fetcher: The data to resolve against.
-        date: When to stand. Defaults to the end of the loaded data — not to
+        date: When to stand. Defaults to the end of the loaded data, not to
             today, because a store loaded from a file has a last date and
             answering against a calendar the data does not reach would report
             every name as having no value.
@@ -94,7 +96,7 @@ class FilteredUniverse:
     """A universe and the question that produced it.
 
     Carries both the expression and the membership it resolved to, so a caller
-    can save either — and `mode` says which of the two the document means.
+    can save either, and `mode` says which of the two the document means.
     """
     expression: Expression
     identifiers: list[str]

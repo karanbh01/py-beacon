@@ -92,7 +92,7 @@ def constant_correlation_target(covariance: Matrix) -> Matrix:
 
     Each asset keeps its own estimated variance; every pair is assigned the
     average sample correlation. This retains the part of the sample estimate
-    that is measured comparatively well — the individual variances — while
+    that is measured comparatively well (the individual variances) while
     replacing the part that is not, the O(n²) pairwise correlations.
 
     Args:
@@ -157,7 +157,7 @@ def shrink_covariance(sample: Matrix,
 
     ``(1 - intensity) * sample + intensity * target``. Because this is a
     convex combination and both inputs are positive semi-definite, the result
-    is too — shrinkage cannot introduce a negative-variance direction.
+    is too: shrinkage cannot introduce a negative-variance direction.
 
     Args:
         sample: Sample covariance.
@@ -191,9 +191,10 @@ def correlation_from_covariance(covariance: Matrix) -> Matrix:
         covariance: Covariance matrix.
 
     Returns:
-        Matrix: Correlation matrix with an exact unit diagonal. A
-        zero-variance asset yields zero correlation with everything rather
-        than a division by zero — it has no variation to correlate.
+        Matrix: Correlation matrix with an exact unit diagonal, clipped to
+        [-1, 1]. An asset with zero (or negligibly small) variance yields zero
+        correlation with every other asset rather than a division by zero,
+        since it has no variation to correlate.
     """
     variances = np.diag(covariance)
     volatilities = np.sqrt(np.where(variances > 0.0, variances, 0.0))
@@ -252,7 +253,7 @@ def is_positive_semi_definite(matrix: Matrix,
     """Whether every eigenvalue is non-negative within tolerance.
 
     The tolerance is relative to the largest eigenvalue, so the answer does
-    not change when the matrix is rescaled — an annualised covariance and its
+    not change when the matrix is rescaled: an annualised covariance and its
     daily counterpart must agree.
 
     Args:
@@ -271,8 +272,8 @@ def is_positive_semi_definite(matrix: Matrix,
 def condition_number(matrix: Matrix) -> float:
     """Ratio of largest to smallest eigenvalue.
 
-    A large value means the matrix is near-singular, so its inverse — which
-    any optimiser will want — amplifies estimation error. Shrinkage exists
+    A large value means the matrix is near-singular, so its inverse (which
+    any optimiser will want) amplifies estimation error. Shrinkage exists
     largely to bring this down.
 
     Args:
@@ -301,7 +302,7 @@ def nearest_positive_semi_definite(matrix: Matrix,
     Note that clipping changes the diagonal: the variances of the repaired
     matrix differ from the original by the total clipped mass. That is the
     honest cost of the repair, and it is why this is a fallback rather than
-    something to apply routinely — shrinkage keeps the estimate PSD without
+    something to apply routinely: shrinkage keeps the estimate PSD without
     it.
 
     Args:
@@ -324,8 +325,8 @@ def annualise(covariance: Matrix,
               periods_per_year: int = PERIODS_PER_YEAR) -> Matrix:
     """Scale a per-period covariance to an annual one.
 
-    Covariance scales linearly with the horizon, so this is a multiplication —
-    volatilities, being square roots, scale with its square root.
+    Covariance scales linearly with the horizon, so this is a multiplication.
+    Volatilities, being square roots, scale with its square root.
 
     Args:
         covariance: Per-period covariance.

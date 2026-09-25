@@ -12,7 +12,7 @@ without this column looks like a risk view and is not one.
 
 For weights ``w`` and an annualised covariance ``S``, portfolio volatility is
 ``sigma = sqrt(w' S w)``. Differentiating gives each name's *marginal*
-contribution — how much volatility changes per unit of additional weight:
+contribution, meaning how much volatility changes per unit of additional weight:
 
     marginal = (S w) / sigma
 
@@ -31,9 +31,9 @@ behind.
 A constituent added last week has too little history to estimate against. Three
 ways to handle it, and only one of them is honest:
 
-* drop it and renormalise the rest — this claims the index holds more of the
+* drop it and renormalise the rest: this claims the index holds more of the
   covered names than it does, and silently restates the portfolio
-* fail the whole request — one new name blanks the column for 499 others
+* fail the whole request: one new name blanks the column for 499 others
 * compute over the covered names **at their actual weights**, and report what
   fraction of the index that was
 
@@ -86,14 +86,23 @@ class RiskContributions:
         return not self.uncovered
 
 
+# Why this exists: `OptimisationResult.weights` is a Series and an index
+# snapshot is a dict, and chaining one into the other is the obvious next thing
+# a caller does. Without this, passing a Series raises "the truth value of a
+# Series is ambiguous" from a falsiness check deep inside, an error that says
+# nothing about what was actually wrong.
 def as_weights(weights: Mapping[str, float] | pd.Series) -> dict[str, float]:
     """Normalise a weight vector to a plain mapping.
 
-    `OptimisationResult.weights` is a Series and an index snapshot is a dict,
-    and chaining one into the other is the obvious next thing a caller does.
-    Without this, passing a Series raises "the truth value of a Series is
-    ambiguous" from a falsiness check deep inside — an error that says nothing
-    about what was actually wrong.
+    Accepts a pandas Series (such as `OptimisationResult.weights`) or any
+    mapping (such as an index weight snapshot), so either can be passed to the
+    functions in this module.
+
+    Args:
+        weights: Identifier to weight.
+
+    Returns:
+        dict: The same weights with string keys and float values.
     """
     # `.items()` covers both: a Series yields (label, value) exactly as a
     # Mapping does, so no branch is needed — only the coercion, which is what
@@ -160,9 +169,9 @@ def risk_contributions(weights: Mapping[str, float] | pd.Series,
     """Decompose portfolio volatility across its holdings.
 
     Args:
-        weights: Holdings, identifier to weight. Need not sum to one — they
-            will not when part of the index is uncovered, and renormalising
-            would restate the portfolio.
+        weights: Holdings, identifier to weight, as a mapping or a Series.
+            Need not sum to one: they will not when part of the index is
+            uncovered, and renormalising would restate the portfolio.
         covariance: Annualised covariance, indexed and columned by identifier.
 
     Returns:
@@ -184,7 +193,7 @@ def active_weights(weights: Mapping[str, float] | pd.Series,
 
     A name held and not in the benchmark is an overweight; one in the benchmark
     and not held is an underweight of its full benchmark weight. Taking the
-    union rather than the intersection is what makes the second case visible —
+    union rather than the intersection is what makes the second case visible:
     an omitted constituent is usually the largest active position a portfolio
     has, and intersecting would silently drop it.
     """
@@ -207,7 +216,7 @@ def active_risk_contributions(weights: Mapping[str, float] | pd.Series,
 
     **Contributions here can be negative, and that is the point.** An active
     weight is signed, so an underweight in something correlated with what the
-    portfolio is overweight genuinely *reduces* tracking error — it hedges.
+    portfolio is overweight genuinely *reduces* tracking error: it hedges.
     Taking an absolute value would hide the position doing the most useful
     thing in the book.
 

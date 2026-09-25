@@ -5,24 +5,25 @@ Launcher for the Beacon API server.
     python -m beacon.server --port 0
 
 The desktop client spawns this process and needs to know where it landed. With
-``--port 0`` the OS picks a free port, so the socket is bound here — before
-uvicorn starts — and the resulting port is printed on stdout as
+``--port 0`` the OS picks a free port, so the socket is bound here, before
+uvicorn starts, and the resulting port is printed on stdout as
 ``BEACON_PORT=<n>`` and flushed. The client can read that line, then treat
 every later stdout line as ordinary logging.
 
 ## Where the data comes from
 
-The command above takes no data argument, which is exactly why it used to
-start data-less. A source is now resolved at startup, in order:
+The command above takes no data argument, so a source is resolved at startup,
+in order:
 
-1. ``--data <path>`` — an explicit store directory
+1. ``--data <path>``: an explicit store directory
 2. ``$BEACON_DATA_PATH``
-3. the app-data store, auto-loaded if one is there
-4. nothing, as before
+3. the active registered data store, adopting the app-data store as the
+   first one if nothing is registered yet
+4. nothing: the server starts with no data, and a store can be loaded later
 
 The branch that ran is logged on the first line after the port announcement,
 so "why is the client empty" is answered by reading the log rather than by
-guessing. See :func:`beacon.server.config.resolve_data_source`, and
+guessing. See `beacon.server.data_stores` for the full rules, and
 `beacon.data.store` for the format.
 
 ## Which origins may call it
@@ -33,6 +34,8 @@ allowed, so a dev build needs neither. The allowed set is logged at startup
 beside the data source, because a CORS failure otherwise shows up only in a
 browser console on the other side of the process boundary.
 """
+# Before the data resolution above existed, this command always started
+# data-less. Named data stores (BN-236) replaced "the app-data store" in step 3.
 import argparse
 import logging
 import socket
@@ -64,7 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser.
 
     Returns:
-        argparse.ArgumentParser: Parser for --host, --port and --token.
+        argparse.ArgumentParser: Parser for --host, --port, --token, --data,
+        --documents and --cors-origin.
     """
     parser = argparse.ArgumentParser(
         prog="python -m beacon.server",

@@ -4,23 +4,19 @@ Removing a constituent that stopped being one part-way through a period.
 
 An index reconstitutes on its rebalance dates, and between them it holds fixed
 units. That works until a constituent is acquired, fails, or is otherwise
-delisted — because from that day on there is no price, and the holding cannot
+delisted, because from that day on there is no price, and the holding cannot
 be valued at all.
 
-## What goes wrong without this
+## Why a deletion is needed
 
-`asset_unit_value` returns None when a price is missing and `holding_values`
-values that at 0.0, which is the right answer to "what is this worth today"
-and the wrong basis for an index level. A
-name that was 4% of the index simply stops contributing, so the level falls 4%
-on the day it delists and never recovers it. The index reports a loss that no
-holder experienced: in reality the position was sold, at a price, and the
-proceeds stayed in the fund.
+A holding with no price is valued at 0.0, which is the right answer to "what
+is this worth today" and the wrong basis for an index level. A name that was
+4% of the index would simply stop contributing, so the level would fall 4% on
+the day it delists and never recover it: a loss that no holder experienced,
+since in reality the position was sold, at a price, and the proceeds stayed in
+the fund.
 
-Nothing caught this before because no generated dataset had a delisting in it.
-Every name listed on day one and never left, so the branch was unreachable.
-
-## What a deletion actually is
+## What a deletion is
 
 The same divisor adjustment a rebalance uses. Value the book on the last day
 the leaver had a price, once including it and once without:
@@ -28,21 +24,29 @@ the leaver had a price, once including it and once without:
     divisor ← divisor × (aggregate without) / (aggregate with)
 
 The level is then identical across the change, which is the entire purpose of
-a divisor. Holdings of the survivors are untouched, so their weights renormalise
-upward in proportion — which is exactly what reinvesting the proceeds pro rata
-across the remainder would have done.
+a divisor. Holdings of the survivors are untouched, so their weights
+renormalise upward in proportion, which is exactly what reinvesting the
+proceeds pro rata across the remainder would have done.
+
+A holding is removed on the first calculation day after its last listed date
+that is not a rebalance (a rebalance re-resolves the universe instead). If
+every holding would be removed, the holdings are kept (and an error is logged)
+rather than emptying the index. If the book cannot be valued on the last day,
+the leavers are removed without a divisor adjustment and the level steps
+(logged as a warning).
 
 ## Why the reference data decides, not the price
 
 A missing price and a delisting are different things. A gap in a feed is a
-data-quality problem, and carrying the last level forward — which
-`level_from_units` already does — is the right response. A name whose
-reference record has *ended* is gone, and holding it forever is wrong.
-
-Reading `DATE_TO` rather than guessing from absent prices is what keeps those
-two apart, and it is why this consults the reference data at all rather than
-just noticing the price vanish.
+data-quality problem, and carrying the last level forward (which
+`level_from_units` does) is the right response. A name whose reference record
+has *ended* is gone, and holding it forever is wrong. Reading the reference
+data's `DATE_TO`, rather than guessing from absent prices, keeps those two
+apart.
 """
+# The missing-deletion bug went unnoticed for a long time because no
+# generated dataset had a delisting in it: every name listed on day one and
+# never left, so the branch was unreachable.
 import logging
 
 import pandas as pd
@@ -99,7 +103,7 @@ class DeletionMixin:
             divisor: The divisor in force.
             date: Today.
             schedule: Output of :meth:`delisting_schedule`.
-            valuation_date: The last date the leavers still had prices —
+            valuation_date: The last date the leavers still had prices,
                 normally the previous trading day. Both aggregates are taken
                 here, so the ratio is a like-for-like comparison rather than
                 one that mixes today's prices with yesterday's.

@@ -8,7 +8,7 @@ reportlab installed; this module is the only thing behind the `pdf` extra.
 ## Deterministic by construction
 
 Two renders of the same template produce byte-identical files. That is not
-free — a PDF normally carries a creation timestamp and a random document id, so
+free: a PDF normally carries a creation timestamp and a random document id, so
 the default behaviour is for every render to differ. reportlab's ``invariant``
 mode pins both, and it is switched on here rather than offered as an option:
 
@@ -27,12 +27,14 @@ not a thing anyone wants.
 
 ## One page
 
-The renderer lays blocks out top to bottom and refuses when they do not fit,
-naming the block that overflowed. Pagination is real work — headers repeating,
-tables splitting, blocks that must not break across a boundary — and guessing
-at it would produce documents that look almost right. Refusing is the honest
-foundation; BN-75 can build on it.
+The renderer produces a single page. It lays blocks out top to bottom and
+raises ReportingError when they do not fit, naming the block that overflowed.
+Pagination is real work (headers repeating, tables splitting, blocks that must
+not break across a boundary), and guessing at it would produce documents that
+look almost right.
 """
+# Refusing to overflow is the honest foundation; BN-75 (report templates and
+# the render job) can build on it.
 import logging
 import os
 from collections.abc import Callable

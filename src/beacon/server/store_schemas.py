@@ -1,9 +1,8 @@
 # src/beacon/server/store_schemas.py
-"""Request and response models for named data stores (BN-236).
-
-Kept apart from `schemas.py`, which is far past the size this project keeps a
-module to, and which these models do not need to live beside.
-"""
+"""Request and response models for named data stores."""
+# Added with BN-236. Kept apart from `schemas.py`, which is far past the size
+# this project keeps a module to, and which these models do not need to live
+# beside.
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator

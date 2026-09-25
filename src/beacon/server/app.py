@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {"model": ErrorEnvelope,
-          "description": "The request could not be read at all — a body that "
+          "description": "The request could not be read at all: a body that "
                          "is not decodable, or headers that contradict it."},
     401: {"model": ErrorEnvelope, "description": "Missing or invalid bearer token."},
     404: {"model": ErrorEnvelope, "description": "Requested data does not exist."},
@@ -101,10 +101,11 @@ def _describe_data_source(holder: ActiveData) -> DataSourceStatus:
 
 
 def build_router() -> APIRouter:
-    """Build the router carrying the routes that exist at the skeleton stage.
+    """Build the router carrying the engine's own routes.
 
     Returns:
-        APIRouter: Router with /health, guarded by the bearer dependency.
+        APIRouter: Router with /health and /changelog, guarded by the bearer
+        dependency.
     """
     router = APIRouter(dependencies=[Depends(verify_bearer_token)],
                        responses=ERROR_RESPONSES)
@@ -169,7 +170,7 @@ def create_app(config: ServerConfig) -> FastAPI:
 
     Returns:
         FastAPI: The configured application. Nothing is bound or started
-        here — see beacon.server.__main__ for the launcher.
+        here; see beacon.server.__main__ for the launcher.
     """
     # No default_response_class: the issue called for an orjson response class,
     # but FastAPI deprecated ORJSONResponse — it now serialises straight to

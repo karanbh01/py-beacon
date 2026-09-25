@@ -1,7 +1,8 @@
 # src/beacon/asset/view.py
 """
-AssetView — convenience wrapper combining an asset identifier with a DataFetcher
-for streamlined data retrieval.
+AssetView: a convenience wrapper that pairs an asset identifier with a
+DataFetcher, so one asset's prices, returns, reference data and corporate
+actions can be fetched without repeating the identifier.
 """
 
 import pandas as pd

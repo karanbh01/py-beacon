@@ -5,7 +5,7 @@ In-process job registry for long-running work.
 A backtest or an optimisation takes long enough that holding an HTTP
 connection open for it is the wrong shape: the client wants to submit, get an
 id back, and either poll or listen. Jobs run as asyncio tasks in the server
-process — there is no queue, no broker, and no persistence, which suits a
+process. There is no queue, no broker and no persistence, which suits a
 single local process owned by one desktop client. Restarting the server loses
 in-flight jobs, and that is the correct trade for this deployment.
 
@@ -95,7 +95,7 @@ class Job:
     def snapshot(self) -> dict[str, Any]:
         """The public view of this job.
 
-        The result is only carried once the job has succeeded — sending a
+        The result is only carried once the job has succeeded: sending a
         half-built result would invite a client to use it.
         """
         return {
@@ -124,16 +124,18 @@ class JobRegistry:
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self._results = result_store
 
+    # BN-178 moved the jobs listing onto `documents.read_collection`, which is
+    # why this collection is exposed at all.
     @property
     def results(self) -> DocumentStore | None:
         """Where completed results are persisted, or None when nowhere is.
 
         Read-only, and exposed for exactly one caller: `GET /jobs` reads this
         collection through `documents.read_collection` the way every other
-        listing reads its own (BN-178). The model half of "unreadable" has to
-        be applied where the model is known, and `JobStatus` is a wire model —
-        the registry is deliberately free of the wire layer, so the listing
-        cannot be assembled in here without dragging `schemas` down with it.
+        listing reads its own. The model half of "unreadable" has to be
+        applied where the model is known, and `JobStatus` is a wire model. The
+        registry is deliberately free of the wire layer, so the listing cannot
+        be assembled in here without dragging `schemas` down with it.
 
         What stays in here is the bookkeeping the registry owns and no route
         can express: retention, the cascade delete, and the latest-result
@@ -176,11 +178,12 @@ class JobRegistry:
             except asyncio.QueueFull:
                 logger.warning("Dropping event for a subscriber whose queue is full.")
 
+    # Added with switchable data stores (BN-236).
     def publish_data_loaded(self,
                             store_id: str,
                             name: str,
                             data_version: str) -> None:
-        """Announce that the engine now serves a different data store (BN-236).
+        """Announce that the engine now serves a different data store.
 
         A client holding anything derived from the data (lists of names,
         coverage, previews) should refetch it: every dataset may have changed
@@ -275,7 +278,7 @@ class JobRegistry:
 
         Read from the store rather than from memory. Every terminal job is
         persisted, so the store is the complete record, and it is the only one
-        of the two that survives a restart — which is the case this exists to
+        of the two that survives a restart, which is the case this exists to
         serve.
 
         Args:
@@ -302,13 +305,14 @@ class JobRegistry:
 
         return result
 
+    # The cascade delete arrived with BN-157.
     def forget(self,
                kind: str) -> int:
         """Drop every job and persisted result of one kind.
 
-        The cascade half of deleting the thing a kind is keyed to (BN-157):
-        an index's backtest results go with its definition, rather than
-        surviving under an id that no longer resolves.
+        The cascade half of deleting the thing a kind is keyed to: an index's
+        backtest results go with its definition, rather than surviving under
+        an id that does not resolve.
 
         Args:
             kind: The exact kind, e.g. ``"backtest:my-index"``. Exact rather
@@ -316,8 +320,8 @@ class JobRegistry:
                 ``backtest:core-hedged`` with it.
 
         Returns:
-            int: How many records went — in-memory jobs plus persisted
-            results — so the caller can log what the delete cost.
+            int: How many records went (in-memory jobs plus persisted
+            results), so the caller can log what the delete cost.
         """
         forgotten = 0
 
@@ -353,7 +357,7 @@ class JobRegistry:
         Reads the store, which holds every terminal job including the ones this
         process ran. The `/jobs` listing deliberately excludes those so a job
         does not appear twice, and filtering the same way here would hide every
-        model the running process had just estimated — which is most of them.
+        model the running process had just estimated, which is most of them.
 
         Args:
             prefix: Kind prefix including its separator, e.g. ``"risk:"``.
@@ -456,7 +460,7 @@ class JobRegistry:
         Raises:
             RuntimeError: If called off the event loop. FastAPI runs a *sync*
                 endpoint in a worker thread, where there is no loop to attach
-                a task to — so a submitting endpoint must be `async def`. The
+                a task to, so a submitting endpoint must be `async def`. The
                 bare failure is an opaque "no running event loop", hence the
                 explicit check.
         """

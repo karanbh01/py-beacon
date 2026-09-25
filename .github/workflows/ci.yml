@@ -218,6 +218,16 @@ jobs:
       - name: Build documentation
         run: mkdocs build --strict
 
+      # The built site is what pybeacon.dev publishes, reference pages
+      # included, so the house style is checked on it and not only on the
+      # sources: no em-dashes and no internal ticket numbers.
+      - name: Check the built site's style
+        run: |
+          if grep -rlP "\x{2014}|\bBN-[0-9]+" --include=*.html site; then
+            echo "The pages above carry an em-dash or a ticket number."
+            exit 1
+          fi
+
   build:
     name: build distributions
     runs-on: ubuntu-latest

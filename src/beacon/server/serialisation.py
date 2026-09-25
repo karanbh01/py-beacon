@@ -2,8 +2,8 @@
 """
 Wire formats shared by every router.
 
-pandas objects do not survive a plain JSON encoder intact — timestamps, NaN
-and numpy scalars all need handling — so frames and series are converted here
+pandas objects do not survive a plain JSON encoder intact (timestamps, NaN
+and numpy scalars all need handling), so frames and series are converted here
 into an explicit, stable shape rather than left to a default encoder.
 """
 from typing import Any

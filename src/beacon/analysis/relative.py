@@ -9,9 +9,10 @@ was never trying to replicate. That comparison needs a general pair of level
 series rather than a target `IndexResult`, which is what lives here.
 
 Alignment is the part that matters. Two series rarely cover exactly the same
-dates — a benchmark may start earlier, or trade on a holiday the portfolio does
-not — and silently comparing mismatched observations produces numbers that look
-fine and mean nothing.
+dates (a benchmark may start earlier, or trade on a holiday the portfolio does
+not), and silently comparing mismatched observations produces numbers that look
+fine and mean nothing. Every comparison here uses only the dates both series
+share.
 """
 import logging
 from dataclasses import dataclass
@@ -54,15 +55,16 @@ class RelativeMetrics:
         end: Last aligned date, ISO 8601.
         total_return: Portfolio return over the aligned window.
         benchmark_return: Benchmark return over the same window.
-        excess_return: Portfolio minus benchmark. Also the tracking
-            difference — one name for the arithmetic difference of two total
-            returns, kept under both because each is idiomatic in a different
-            context.
-        tracking_error: Annualised standard deviation of the per-period return
-            differences.
-        correlation: Correlation of the two return series.
-        beta: Sensitivity of portfolio returns to benchmark returns —
-            covariance over benchmark variance.
+        excess_return: Portfolio minus benchmark. Also known as the tracking
+            difference: both names mean the arithmetic difference of two total
+            returns, and each is idiomatic in a different context.
+        tracking_error: Annualised sample standard deviation of the
+            per-period return differences.
+        correlation: Correlation of the two return series. 0.0 when either
+            series barely varies (standard deviation at or below 1e-12).
+        beta: Sensitivity of portfolio returns to benchmark returns:
+            covariance over benchmark variance. 0.0 when the benchmark's
+            returns barely vary.
     """
     observations: int
     start: str
@@ -88,7 +90,7 @@ def align_on_common_window(portfolio: pd.Series,
 
     Raises:
         CalculationError: If either series is empty, or the two share fewer
-            than MINIMUM_ALIGNED_OBSERVATIONS dates. Comparing series that
+            than MINIMUM_ALIGNED_OBSERVATIONS (3) dates. Comparing series that
             barely overlap would return a number rather than an error, and
             nothing downstream would reveal that it rests on two data points.
     """
@@ -122,7 +124,7 @@ def relative_metrics(portfolio: pd.Series,
     """Compare a portfolio level series against a benchmark's.
 
     Args:
-        portfolio: Level series of the portfolio. Need not be rebased —
+        portfolio: Level series of the portfolio. Need not be rebased:
             returns are scale-invariant, so only the shape matters.
         benchmark: Level series of the benchmark.
         periods_per_year: Annualisation factor for the tracking error.

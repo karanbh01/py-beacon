@@ -1,6 +1,6 @@
 # src/beacon/optimise/result.py
 """
-OptimisationResult — the output of a solve.
+OptimisationResult: the output of a solve.
 
 Same shape as `IndexResult`, `BacktestResult` and `RiskModel`: a dataclass of
 pandas structures with accessors that answer the questions a caller actually
@@ -55,8 +55,8 @@ class SolverDiagnostics:
             caller seeing this is seeing a solve that worked.
         iterations: Major iterations taken.
         evaluations: Objective evaluations.
-        objective: Final objective value — a variance, so the tracking error is
-            its square root.
+        objective: Final objective value. It is a variance, so the tracking
+            error is its square root.
         status: The solver's numeric exit code.
         message: The solver's own description of how it exited.
     """
@@ -108,7 +108,7 @@ class OptimisationResult:
 
     @property
     def active_weights(self) -> pd.Series:
-        """Solution minus target — the active position.
+        """Solution minus target: the active position.
 
         Sums to zero whenever both sides are fully invested to the same total,
         which is the usual case and worth checking: a non-zero sum means the
@@ -127,7 +127,7 @@ class OptimisationResult:
         With a risk model this is annualised tracking error, the quantity a
         tracking mandate is measured on. Without one the objective's identity
         covariance makes it the Euclidean distance between the two weight
-        vectors — a sensible thing to minimise, but not a volatility, and not
+        vectors: a sensible thing to minimise, but not a volatility, and not
         comparable to a number produced with a risk model.
         """
         return float(np.sqrt(max(self.diagnostics.objective, 0.0)))

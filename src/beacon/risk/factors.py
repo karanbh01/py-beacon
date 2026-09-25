@@ -5,7 +5,7 @@ Factor risk models, and the decomposition of active risk they make possible.
 ## Why a factor model, and not just a covariance
 
 A sample covariance says how much risk a portfolio carries. It cannot say
-*why*, because it has no vocabulary for why — it is n² numbers with no
+*why*, because it has no vocabulary for why: it is n² numbers with no
 structure. A factor model imposes one:
 
     r = B f + ε
@@ -20,7 +20,7 @@ That structure produces a covariance too:
     Σ = B F Bᵀ + D
 
 with ``F`` the factor covariance and ``D`` the diagonal of specific variances.
-The two terms are the whole point — common risk and idiosyncratic risk, cleanly
+The two terms are the whole point: common risk and idiosyncratic risk, cleanly
 separated.
 
 ## The identity, and the condition it needs
@@ -39,7 +39,7 @@ two pieces will not add up.
 
 So the decomposition here reconciles to *this model's* tracking error, not to
 the one a sample-covariance model would give for the same portfolio. Comparing
-the two is informative — the gap is what the factors fail to explain — but they
+the two is informative (the gap is what the factors fail to explain), but they
 are two different numbers and the identity belongs to one of them.
 
 ## Fitting
@@ -275,8 +275,8 @@ def z_scores(exposures: pd.DataFrame,
              weights: dict[str, float] | None = None) -> pd.DataFrame:
     """Standardise raw factor values across the universe.
 
-    Raw factor values arrive in whatever units they were measured in — a market
-    cap in dollars, a book-to-price ratio, a twelve-month return — and cannot be
+    Raw factor values arrive in whatever units they were measured in (a market
+    cap in dollars, a book-to-price ratio, a twelve-month return) and cannot be
     compared or combined until they are on one scale. A z-score puts every
     factor in units of cross-sectional standard deviations, so an exposure of
     1.0 means the same thing whichever factor it belongs to.
@@ -290,7 +290,7 @@ def z_scores(exposures: pd.DataFrame,
 
     Returns:
         pd.DataFrame: Standardised exposures, same shape. A factor with no
-        cross-sectional spread comes back as zeros — it cannot distinguish
+        cross-sectional spread comes back as zeros: it cannot distinguish
         between assets, so it carries no information, and dividing by its
         spread would be dividing by noise.
 

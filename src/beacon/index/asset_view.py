@@ -1,7 +1,7 @@
 # src/beacon/index/asset_view.py
 """
-IndexAssetView — asset view extended with index-specific context
-such as weight history and contribution analysis.
+IndexAssetView: an asset view extended with index-specific context such as
+weight history and contribution analysis.
 """
 
 import pandas as pd

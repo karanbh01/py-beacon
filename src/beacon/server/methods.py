@@ -1,20 +1,19 @@
 # src/beacon/server/methods.py
-"""Answer 405 for a method a fixed path does not support (BN-131).
+"""Answer 405 for a method a fixed path does not support.
 
-`PUT /indices/validate` should be refused as the wrong method. It was not:
-the router tried `PUT /indices/{index_id}` next, found a full match with
-`index_id="validate"`, and answered whatever that handler answered -- a 422
-for the body, or the reserved-identifier refusal. Either way the client was
-told its request was malformed when the truth is that the verb does not exist
-there. The fuzz run found five of these, one per fixed path sitting beside a
-path parameter.
-
-The router cannot see this, because to it a parameter matching the literal
-text is a match. The published spec can: it lists every method each fixed
-path supports. So this reads the spec once and, for a fixed path, refuses any
-method the spec does not list for it. A fixed path with no parameterised
-sibling gets the same 405 it always did, so nothing else changes.
+A fixed path such as `/indices/validate` sits beside a parameterised one such
+as `/indices/{index_id}`. The router alone would match `PUT /indices/validate`
+against the parameterised path with `index_id="validate"`, and the client would
+be told its request was malformed when the truth is that the verb does not
+exist there. The published spec lists every method each fixed path supports,
+so this reads the spec once and, for a fixed path, refuses with 405 any method
+the spec does not list for it. A fixed path with no parameterised sibling gets
+the same 405 as always.
 """
+# BN-131: before this, `PUT /indices/validate` fell through to
+# `PUT /indices/{index_id}` and answered whatever that handler answered (a 422
+# for the body, or the reserved-identifier refusal). The fuzz run found five of
+# these, one per fixed path sitting beside a path parameter.
 from typing import Any
 
 from fastapi import FastAPI, status

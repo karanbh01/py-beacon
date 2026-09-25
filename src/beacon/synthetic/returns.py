@@ -17,17 +17,17 @@ For name *i* on day *t*:
     r[i,t] = mu[i] + b[i]·f_market[t] + g[i]·f_sector(i)[t]
                    + h[i]·f_region(i)[t] + e[i,t]
 
-Three independent sources, each a GJR-GARCH(1,1) process with standardised
-Student-t innovations:
+Four kinds of independent series, each a GJR-GARCH(1,1) process with
+standardised Student-t innovations:
 
-* **The market factor** — one series everything loads on. This is what makes
+* **The market factor**: one series everything loads on. This is what makes
   names co-move, and giving it its own GARCH is what makes them co-move
   *more in a crisis*, which is when correlation matters.
-* **Sector factors** — one per GICS sector, so two banks resemble each other
+* **Sector factors**: one per GICS sector, so two banks resemble each other
   more than a bank resembles a utility.
-* **Region factors** — one per listing venue, so two names listed in Tokyo
+* **Region factors**: one per listing venue, so two names listed in Tokyo
   move together for reasons that have nothing to do with their industry.
-* **Idiosyncratic noise** — per name.
+* **Idiosyncratic noise**: one per name.
 
 Loadings are set from a variance budget rather than drawn directly, so a name's
 total volatility is a target that is hit rather than an outcome to be
@@ -41,7 +41,7 @@ near 0.35, and the average across the universe lands near 0.39.
 
 The `lam` term makes a fall raise tomorrow's volatility more than a rise of the
 same size does. That asymmetry is the leverage effect, and it is what produces
-negative skew — without it, simulated returns are symmetric and a drawdown
+negative skew; without it, simulated returns are symmetric and a drawdown
 looks like an upswing turned upside down.
 
 Persistence is `alpha + lam/2 + beta`, drawn in 0.94-0.99: high enough that
@@ -53,7 +53,7 @@ process is stationary and the unconditional variance is defined.
 Given a seed, this module produces the same numbers on the same machine and
 the same numpy. It does *not* guarantee bit-identical output across operating
 systems: `standard_t` and the exponentials behind it run through the platform's
-libm, which is free to differ in the last bit. That is a deliberate limit —
+libm, which is free to differ in the last bit. That is a deliberate limit:
 avoiding transcendentals entirely would mean abandoning Student-t innovations
 and log-normal volume, which is most of what makes this data worth generating.
 Reproducibility is tested per-platform; the statistical acceptance checks are
@@ -158,7 +158,7 @@ def standardised_t(rng: np.random.Generator,
     volatility wrong by 40% at four degrees of freedom.
 
     The two-piece step stretches the downside and compresses the upside, then
-    the whole thing is re-standardised — the stretch changes both the mean and
+    the whole thing is re-standardised: the stretch changes both the mean and
     the variance, and leaving either uncorrected would show up as a spurious
     drift and a missed volatility target.
     """
@@ -186,7 +186,7 @@ def simulate_gjr(steps: int,
 
     The innovations are an argument rather than drawn here, and that is what
     makes block generation possible. Every series in the recursion is
-    independent of every other — the arithmetic is elementwise throughout — so
+    independent of every other (the arithmetic is elementwise throughout), so
     running it over a slice of the universe gives bit-identical results to
     running it over all of it, provided each series sees the same innovations.
 
@@ -237,10 +237,9 @@ def pin_realised_variance(series: np.ndarray,
     at persistence 0.98 with t(4.5) innovations has enormous dispersion in its
     sample variance: over five years one draw can realise nearly twice its
     unconditional level. For an idiosyncratic series that is a fact about one
-    name. For the market factor — which every name loads on — it rescales the
-    entire universe, and a generated dataset comes out with every volatility
-    at 43% and an average correlation of 0.73 instead of 29% and 0.40. That
-    happened on seed 7 and would have shipped as "the seed you get".
+    name. For the market factor, which every name loads on, it rescales the
+    entire universe: a generated dataset could come out with every volatility
+    at 43% and an average correlation of 0.73 instead of 29% and 0.40.
 
     Only the overall level is pinned. The clustering, the fat tails and the
     leverage asymmetry are properties of the *shape* of the path and survive a
@@ -325,9 +324,9 @@ def simulate(universe: pd.DataFrame,
         risk_free_rate: Annualised, the base of the CAPM expectation.
         equity_premium: Annualised excess return on a beta-one name.
         regimes: Dated crisis episodes to overlay. Empty for a stationary
-            market, which is what every panel produced before regimes existed.
+            market.
         block_size: How many names to simulate at a time. Affects peak memory
-            and nothing else — the panel is identical at any block size, and a
+            and nothing else: the panel is identical at any block size, and a
             test holds that.
 
     Returns:

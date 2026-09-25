@@ -8,8 +8,8 @@ own. That is also what keeps the signatures backend-agnostic: nothing here
 returns a matplotlib-specific wrapper, so an interactive backend can offer the
 same names later without the call sites changing.
 
-Sizes come from `style.FIGSIZE` per kind — a level chart is wide because time
-is the long axis, a weights chart tall because names stack — and only apply
+Sizes come from `style.FIGSIZE` per kind (a level chart is wide because time
+is the long axis, a weights chart tall because names stack) and only apply
 when this module creates the figure. A caller passing `ax=` has already decided.
 
 ## Where the numbers come from
@@ -17,7 +17,7 @@ when this module creates the figure. A caller passing `ax=` has already decided.
 Nowhere here. Every method reads a result object and draws it; the arithmetic
 belongs to the analysis layer and is tested there. The one exception is the
 reconciliation total annotated on the contributions chart, which the renderer
-recomputes from the bars it actually drew — because an annotation claiming a
+recomputes from the bars it actually drew, because an annotation claiming a
 total that does not match the bars beside it is worse than no annotation, and
 the only way to be sure is to add up what is on the page.
 """
@@ -253,8 +253,8 @@ class BacktestPlots(ChartMethods):
         """Growth of 100 with a drawdown panel beneath it.
 
         The two share an x axis and sit in one gridspec, because a drawdown is
-        only meaningful against the path that produced it — reading them side
-        by side means matching dates by eye.
+        only meaningful against the path that produced it, and reading them
+        side by side would mean matching dates by eye.
 
         Args:
             ax: Ignored for this chart, which owns a two-panel figure. Accepted
@@ -333,10 +333,10 @@ class AttributionPlots(ChartMethods):
                       ax: Axes | None = None) -> Axes:
         """Per-constituent contributions as diverging bars.
 
-        The drags are drawn as their own rows rather than folded into the
-        constituents, because they are comparisons against a counterfactual
-        rather than terms in the decomposition — adding them to the same total
-        would mix two different questions.
+        The drags are stated in the chart's note rather than drawn as bars,
+        because they are comparisons against a counterfactual rather than
+        terms in the decomposition: adding them to the same total would mix
+        two different questions.
 
         The annotated total is recomputed from the bars actually drawn. An
         annotation claiming a total that does not match what is beside it is

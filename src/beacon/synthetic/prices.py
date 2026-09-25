@@ -8,8 +8,8 @@ price path rather than bolted on beside it.
 
 A return series compounds into a *total-return* index. A stored `CLOSE` is
 neither that nor a clean geometric path: it drops on an ex-dividend date and it
-halves on a split, and every downstream calculation — trailing yield, the
-divisor adjustment, a split-adjusted chart — exists to undo one of those two
+halves on a split, and every downstream calculation (trailing yield, the
+divisor adjustment, a split-adjusted chart) exists to undo one of those two
 things. Generating prices that never do either would produce a dataset on which
 none of that code could be exercised, which is the opposite of the point.
 
@@ -32,7 +32,7 @@ recovers the return panel this module was handed. A test asserts it, because
 Open comes off the previous close through an overnight gap; high and low are
 pushed out from whichever of open and close is the extreme. Constructing them
 that way makes ``H >= max(O, C)`` and ``L <= min(O, C)`` true by arithmetic
-rather than by a repair pass afterwards — a clamp that fixes violations after
+rather than by a repair pass afterwards: a clamp that fixes violations after
 the fact is a clamp somebody eventually has to trust.
 
 Splits are applied to all four prices at once, so the intraday relationships
@@ -41,7 +41,7 @@ survive a split day intact.
 ## Volume
 
 Log-normal, scaled by market capitalisation so a mega-cap trades more than a
-small-cap, and pushed up on days when the move was large — the well-documented
+small-cap, and pushed up on days when the move was large: the well-documented
 volume/volatility relationship. Without the second part, ADV would be a
 constant with noise on it and a liquidity screen built on it would never bind.
 """
@@ -135,7 +135,7 @@ def dividend_dates(dates: pd.DatetimeIndex) -> pd.DatetimeIndex:
 def review_dates(dates: pd.DatetimeIndex) -> pd.DatetimeIndex:
     """The annual split-review dates: the first business day of each year.
 
-    The first year is skipped — a name cannot split before the panel starts,
+    The first year is skipped: a name cannot split before the panel starts,
     and reviewing on day one would split names purely for having been drawn an
     expensive opening price.
     """
@@ -208,9 +208,9 @@ def build(universe: pd.DataFrame,
 
     Names are processed in blocks. This is where the memory actually goes:
     thirteen full ``(days x names)`` panels are alive between the return input
-    and the long-form output -- the dividend drops, the multiplicative path,
+    and the long-form output (the dividend drops, the multiplicative path,
     the split factor, the pre-drop price, the dividend amounts, the close, the
-    share count, and five OHLCV frames. Blocking bounds all of them at the
+    share count, and five OHLCV frames). Blocking bounds all of them at the
     block, leaving the output frame as the floor.
 
     Nothing here couples one name to another: dividend dates come from the

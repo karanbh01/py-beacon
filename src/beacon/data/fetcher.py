@@ -1,5 +1,6 @@
 """
-DataFetcher — unified interface for querying market and reference data.
+`DataFetcher`: one query interface over market, reference, corporate-action
+and feature data.
 
 Accepts single identifiers or lists and passes through column names as-is.
 """
@@ -152,15 +153,37 @@ def _identifiers_in(frame: pd.DataFrame) -> set[str]:
 
 
 class DataFetcher:
-    """Unified query interface over MarketData and ReferenceData.
+    """One query interface over market, reference, corporate-action and
+    feature data.
 
     Args:
-        market_data: Time-series market data container.
-        reference_data: Reference data container.
+        market_data: Time-series market data container. FX pairs live in it
+            as their own identifiers, named ``"{FROM}{TO}"``, with the rate in
+            a ``RATE`` column.
+        reference_data: Reference data container, or None if there is none.
         corporate_actions: Action history. Absent means an empty history
-            rather than None, so callers never have to check before asking —
+            rather than None, so callers never have to check before asking:
             "this instrument paid nothing" and "we hold no action data" give
             the same answer to every question this class can be asked.
+        features: Feature table. Absent means an empty table, on the same
+            terms.
+        fx_policy: How an FX rate is read on a day the pair did not print
+            one. ``"CARRY_FORWARD"`` (the default) uses the last rate
+            published; ``"EXACT_DAY"`` answers only when the pair printed a
+            rate on that very day. It applies to every conversion made
+            through this fetcher.
+        max_price_staleness_days: How many calendar days a name may go
+            without trading before `stale_identifiers` reports it as not worth
+            holding. None (the default) keeps every name, whenever it last
+            traded.
+        free_float_backfill_days: How many calendar days a reported free
+            float carries forward over blank cells (default 90; 0 turns
+            carrying off). See `beacon.data.free_float`.
+
+    Raises:
+        ValueError: If `fx_policy` is not a known policy,
+            `max_price_staleness_days` is below 1, or
+            `free_float_backfill_days` is negative or not an integer.
     """
 
     def __init__(self,
@@ -271,13 +294,14 @@ class DataFetcher:
         """Currency pairs held in the market data.
 
         A pair is stored as an ordinary market identifier named
-        ``f"{from}{to}"`` (BN-128), so nothing in the frame separates it from
-        an instrument except what it carries: `RATE` is populated on a pair
-        and null on everything else. That is the discriminator, rather than a
-        name pattern -- an instrument legitimately called `EURUSD` would be
+        ``f"{from}{to}"``, so nothing in the frame separates it from an
+        instrument except what it carries: `RATE` is populated on a pair and
+        null on everything else. That is the discriminator, rather than a
+        name pattern: an instrument legitimately called `EURUSD` would be
         misfiled by a six-letter rule, and a store may hold pairs for
         currencies its reference data never mentions.
         """
+        # Pair storage as a market identifier is BN-128.
         if RATE_COLUMN not in self._market.columns:
             return []
 
@@ -328,7 +352,7 @@ class DataFetcher:
 
         A date the data has no bar for but which sits inside its coverage is a
         day the market was shut. The last session on or before it is the one
-        that was actually in force through the closure — reading it is not an
+        that was actually in force through the closure: reading it is not an
         approximation, it is what the day was. Past the last bar nothing is
         known, so that answers None rather than a stale print wearing a
         current date; the bound is the data's own coverage rather than a day
@@ -368,7 +392,7 @@ class DataFetcher:
 
         Returns:
             float | None: The value, or None when nothing is knowable. An
-            instrument with no coverage is an ordinary answer, not an error —
+            instrument with no coverage is an ordinary answer, not an error:
             most datasets cover most names most of the time and not all of
             them all of it.
         """
@@ -426,9 +450,10 @@ class DataFetcher:
         """The feature table. Empty rather than None when none was loaded.
 
         Exposed for persistence and for discovery, on the same terms as
-        `market`. Point-in-time reads go through `fetch_features` (BN-135),
-        not through this.
+        `market`. Point-in-time reads go through `fetch_feature` and
+        `fetch_features`, not through this.
         """
+        # The point-in-time accessors are BN-135.
         return self._features
 
     @property
@@ -437,8 +462,8 @@ class DataFetcher:
 
         Exposed for persistence (`beacon.data.store`): writing a fetcher to
         disk means reading back everything it holds, and the summarising
-        properties above cannot reconstruct a frame. Query through
-        ``fetch_market_data`` instead — this is the whole dataset, not an
+        properties cannot reconstruct a frame. Query through
+        ``fetch_market_data`` instead: this is the whole dataset, not an
         answer to a question.
         """
         return self._market
@@ -473,9 +498,7 @@ class DataFetcher:
         point-in-time lookups to find a few hundred delistings.
 
         A name is treated as still listed if *any* of its records is
-        open-ended, which is checked before taking the maximum -- `max` over a
-        column containing NaT would silently ignore the open record and retire
-        a name that never left.
+        open-ended, even when another record for it has an end date.
 
         Returns:
             dict: identifier -> last listed date. Names that never leave are
@@ -516,7 +539,8 @@ class DataFetcher:
         """Note that a dataset has just been refreshed.
 
         Args:
-            dataset: MARKET_DATASET or REFERENCE_DATASET.
+            dataset: One of `DATASETS`: ``"market"``, ``"reference"``,
+                ``"corporate_actions"``, ``"features"`` or ``"fx"``.
             when: The moment. None uses now, which is what a real sync wants;
                 tests pass an explicit time so an age can be asserted rather
                 than approximated.
@@ -536,8 +560,12 @@ class DataFetcher:
 
         Returns:
             datetime or None: The moment, or None when the dataset is not
-            loaded at all — which is a different statement from "loaded and
-            never refreshed" and should not be collapsed into it.
+            loaded at all, which is a different statement from "loaded and
+            never refreshed" and should not be collapsed into it. Loading
+            counts as a refresh.
+
+        Raises:
+            ValueError: If the dataset is not one of `DATASETS`.
         """
         if dataset not in DATASETS:
             raise ValueError(
@@ -575,8 +603,8 @@ class DataFetcher:
         """Fold freshly ingested rows into the market data.
 
         Newly fetched rows win where they overlap an existing identifier and
-        date. A re-sync of a window is a correction — a restated close, a
-        backfilled volume — so keeping the older value would make the sync
+        date. A re-sync of a window is a correction (a restated close, a
+        backfilled volume), so keeping the older value would make the sync
         pointless.
 
         The swap at the end is a single assignment, so a reader either sees the
@@ -589,9 +617,9 @@ class DataFetcher:
             frame: Long-form rows carrying ``IDENTIFIER`` and ``DATE``.
 
         Returns:
-            int: Rows added, counting only genuinely new identifier/date pairs
-            — a re-sync that restates existing rows returns 0, which is the
-            truthful answer to "how much did this add".
+            int: Rows added, counting only genuinely new identifier/date
+            pairs. A re-sync that restates existing rows returns 0, which is
+            the truthful answer to "how much did this add".
         """
         if frame.empty:
             return 0
@@ -620,11 +648,15 @@ class DataFetcher:
                              frame: pd.DataFrame) -> int:
         """Fold freshly ingested reference records in.
 
+        A record matching an existing identifier and ``DATE_FROM`` replaces
+        it.
+
         Args:
             frame: Rows carrying ``IDENTIFIER`` and ``DATE_FROM``.
 
         Returns:
-            int: Records added.
+            int: Records added, counting only genuinely new identifier and
+            ``DATE_FROM`` pairs.
         """
         if frame.empty:
             return 0
@@ -687,8 +719,9 @@ class DataFetcher:
                 *as_of* from the market data.
 
         Returns:
-            float or None: The yield, or None when no price is available — a
-            missing price is a reason to say nothing rather than to guess.
+            float or None: The yield, or None when no positive price is
+            available: a missing price is a reason to say nothing rather than
+            to guess.
         """
         if price is None:
             price = self._close_on_or_before(identifier, as_of)
@@ -738,16 +771,14 @@ class DataFetcher:
         """Read one session's rows for *identifiers* in a single slice.
 
         A hint, not a contract: every read this serves answers identically
-        without it, only slower. What it removes is the shape a methodology
-        walking a universe otherwise has — one frame slice per name per column,
-        each costing what the whole frame costs rather than what one row does,
-        which is why a preview's cost per name climbed with the size of its
-        universe (BN-190).
+        without it, only slower. Without it, a methodology walking a universe
+        makes one frame slice per name per column, each costing what the
+        whole frame costs rather than what one row does, so a preview's cost
+        per name climbs with the size of its universe.
 
-        It also ends the duplication that made the same names priced twice in
-        one rebalance. A selection rule prices every candidate; the weighting
-        scheme then prices the survivors, the same names on the same day. The
-        second warm is a subset of the first, so it keeps the panel rather than
+        A selection rule prices every candidate and the weighting scheme then
+        prices the survivors, the same names on the same day. The second warm
+        is a subset of the first, so it keeps the panel rather than
         rebuilding it, and the reads that follow are free.
 
         Nothing goes stale under it: the panel answers only for the identifiers
@@ -757,10 +788,11 @@ class DataFetcher:
 
         Args:
             identifiers: The instruments about to be read one at a time.
-            date: The session they will be read on. Resolve it first —
-                :meth:`resolve_session` — since a panel for a closed day holds
+            date: The session they will be read on. Resolve it first with
+                :meth:`resolve_session`, since a panel for a closed day holds
                 nothing and every read would fall back to the frame.
         """
+        # BN-190.
         session = pd.Timestamp(date)
         held = self._session_panel
 
@@ -805,9 +837,9 @@ class DataFetcher:
         """Return the free-float factor in force for *identifier* on *date*.
 
         That day's value when there is one. Otherwise the last value before
-        it, if no older than `free_float_backfill_days` (BN-219): free float
-        moves on corporate events and reviews, so a blank cell means nothing
-        was reported, not that the float changed. Never a later value.
+        it, if no older than `free_float_backfill_days`: free float moves on
+        corporate events and reviews, so a blank cell means nothing was
+        reported, not that the float changed. Never a later value.
 
         Returns ``None`` if the column is absent, or nothing was reported
         within the window. Callers refuse through
@@ -847,19 +879,20 @@ class DataFetcher:
                   column: str = "CLOSE") -> dict[str, float | None]:
         """:meth:`fetch_price` for many names on one day, in one read.
 
-        The batch face of the same answer (BN-218): warm the day's page once,
-        take the whole column from it, and convert NaN to None -- exactly what
-        `fetch_price` returns name by name. It exists because the daily
-        valuation asks the question 200 times a day, and every name paid for
-        a chain of four calls to reach a dict lookup.
+        The batch face of the same answer: warm the day's session once, take
+        the whole column from it, and convert NaN to None, exactly what
+        `fetch_price` returns name by name. The daily valuation asks this for
+        every holding every day.
 
-        A name the page does not answer for goes through `fetch_price` rather
-        than being assumed absent, so a panel that somehow missed it costs a
-        slower read instead of a wrong one.
+        A name the session panel does not answer for goes through
+        `fetch_price` rather than being assumed absent, so a panel that
+        somehow missed it costs a slower read instead of a wrong one.
 
         Returns:
             dict: identifier -> price, or None where there is none.
         """
+        # BN-218. Before it, every name paid for a chain of four calls to
+        # reach a dict lookup, 200 times a day.
         # Through `getattr`, like every other use of the hint: warming is an
         # optimisation a provider may lack, and a batch read must still answer
         # without it -- one name at a time, as `fetch_price` always did.
@@ -895,10 +928,12 @@ class DataFetcher:
 
         The scalar form of the single-day, single-name fetch a methodology
         makes for every name in a universe. It reads the same value
-        ``fetch_market_data(identifier, date, date)`` does — the same column of
-        the same row — and returns it rather than a one-row frame to slice,
-        which is what lets a warmed session serve it (BN-190).
+        ``fetch_market_data(identifier, date, date)`` does (the same column of
+        the same row) and returns it rather than a one-row frame to slice,
+        which is what lets a warmed session serve it. Returns None too when
+        the column is absent from the market data.
         """
+        # BN-190.
         return self._market_scalar(identifier, date, column)
 
     def _market_scalar(self,
@@ -939,12 +974,13 @@ class DataFetcher:
                        start_date: str | None = None,
                        end_date: str | None = None,
                        column: str = "RATE") -> pd.Series:
-        """Return the FX rate series converting *from_currency* into *to_currency*.
+        """Return the stored FX rate series converting *from_currency* into *to_currency*.
 
         The pair is looked up as a market-data identifier named
         ``f"{from_currency}{to_currency}"`` (upper-cased). The *column* field is
         used if present, otherwise the first data column. Returns an empty
-        Series if the pair is not found.
+        Series if that exact pair is not stored: this does not invert or cross
+        rates. :meth:`fx_rate_on` and :meth:`fx_rates_on` do.
         """
         pair = f"{from_currency}{to_currency}".upper()
         if pair not in self._market.identifiers:
@@ -1007,14 +1043,11 @@ class DataFetcher:
                    date: str | pd.Timestamp) -> float | None:
         """The rate converting *from_currency* into *to_currency* on *date*.
 
-        The single currency conversion in the library (BN-188). There were
-        three, and they disagreed: the index calculator carried a rate forward
-        and refused when the pair was unknown, the reference endpoint
-        substituted 1.0 and reported the local number under a dollar heading,
-        and the market-cap weighting did not convert at all — which is how a
-        yen name came to carry fifteen times the weight it should. One lookup
-        means the number displayed and the number weighted by are the same
-        quantity, which is the half of this that nothing was checking.
+        The single currency conversion in the library, so the number
+        displayed and the number weighted by are the same quantity. The pair
+        is found as stored, else as the inverse of the stored reverse pair,
+        else as a cross through USD (see `beacon.data.fx` and
+        :meth:`fx_route`).
 
         The series is fetched once per ordered pair and cached, because a run
         asks this on every foreign name on every day and each fetch slices the
@@ -1026,21 +1059,31 @@ class DataFetcher:
             date: The date the rate is wanted on.
 
         Returns:
-            float | None: The rate in force on *date*, carried forward over
-            gaps, or None when the pair is unknown **or when its history
-            begins after *date***. Callers treat None as "cannot convert"
-            rather than as a rate of one. Nothing here invents parity on a
-            caller's behalf: a rate of 1.0 is a claim about two currencies,
-            and the only one this makes is that a currency converts into
-            itself.
+            float | None: The rate in force on *date*, or None when the pair
+            is unknown **or when its history begins after *date***. Under the
+            default ``CARRY_FORWARD`` policy the last rate on or before *date*
+            is used; under ``EXACT_DAY`` only a rate printed on *date* itself,
+            else None. Callers treat None as "cannot convert" rather than as a
+            rate of one. Nothing here invents parity on a caller's behalf: a
+            rate of 1.0 is a claim about two currencies, and the only one this
+            makes is that a currency converts into itself.
 
-            Carried **forward** only. A date before the series starts used to
-            answer with the series' first rate — a rate dated after the day it
-            was applied to, which is look-ahead (BN-204). `resolve_session`
-            states the same rule for sessions and is where the wording comes
-            from: there is no earlier observation to be in force, so there is
-            no answer rather than a substitute for one.
+            Carried **forward** only, never backward: a rate dated after the
+            day it would be applied to is look-ahead. As with
+            `resolve_session`, there is no earlier observation to be in force,
+            so there is no answer rather than a substitute for one.
         """
+        # BN-188 made this the single conversion. There were three, and they
+        # disagreed: the index calculator carried a rate forward and refused
+        # when the pair was unknown, the reference endpoint substituted 1.0
+        # and reported the local number under a dollar heading, and the
+        # market-cap weighting did not convert at all, which is how a yen name
+        # came to carry fifteen times the weight it should. One lookup means
+        # the number displayed and the number weighted by are the same
+        # quantity, which is the half of this that nothing was checking.
+        #
+        # BN-204: a date before the series starts used to answer with the
+        # series' first rate, a rate dated after the day it was applied to.
         if from_currency.upper() == to_currency.upper():
             return 1.0
 
@@ -1077,21 +1120,12 @@ class DataFetcher:
         """One row per name: its most recent bar at or before *as_of*.
 
         The batch "what is the last thing we know about these names" read,
-        shared by the reference endpoint and the staleness gate rather than
-        written twice (BN-211).
+        shared by the reference endpoint and the staleness gate.
 
-        **Two stages, because the obvious version is thirty times slower.**
-        Measured over 500 names and ten years of daily bars: reading the
-        recent window costs 650 ms and reading the whole history costs 20.6
-        seconds. The fetch is not what differs -- identifier selection
-        dominates it either way -- it is that every per-name slice afterwards
-        then cuts a 1.37-million-row frame. So the recent window is read
-        first and answers almost every name, and only the stragglers are read
-        again without a lower bound.
-
-        Then the frame is reduced to one row per name **once**, with a grouped
-        tail, rather than sliced per name downstream. That is what makes even
-        an all-stale store cheap: 782 ms against 19.8 seconds.
+        Read in two stages: the last *recent_days* first, which answers
+        almost every name, then only the names it missed again without a
+        lower bound. The result is reduced to one row per name once, with a
+        grouped tail, rather than sliced per name downstream.
 
         Args:
             identifiers: Names to look up.
@@ -1104,6 +1138,13 @@ class DataFetcher:
             one row per identifier. Names with no bar at or before *as_of* are
             absent rather than present-and-empty.
         """
+        # BN-211. Two stages because the obvious version is thirty times
+        # slower. Measured over 500 names and ten years of daily bars: reading
+        # the recent window costs 650 ms and reading the whole history costs
+        # 20.6 seconds. The fetch is not what differs (identifier selection
+        # dominates it either way); it is that every per-name slice afterwards
+        # then cuts a 1.37-million-row frame. The single grouped tail is what
+        # makes even an all-stale store cheap: 782 ms against 19.8 seconds.
         end_str = pd.Timestamp(as_of).strftime("%Y-%m-%d")
         recent = (pd.Timestamp(as_of)
                   - pd.DateOffset(days=recent_days)).strftime("%Y-%m-%d")
@@ -1158,12 +1199,12 @@ class DataFetcher:
         """Which names have not traded recently enough to be worth holding.
 
         Empty when no threshold is set, which is the default: staleness is
-        something an installation opts into, and until it does this costs one
-        comparison and reads nothing (BN-211).
+        something an installation opts into with `max_price_staleness_days`,
+        and until it does this costs one comparison and reads nothing.
 
         A name with **no** price at all is not reported here. That is a
-        different condition with a different remedy -- the weighting already
-        refuses it by name -- and folding the two together would quietly
+        different condition with a different remedy (the weighting already
+        refuses it by name), and folding the two together would quietly
         excuse a missing instrument as a quiet one.
 
         Args:
@@ -1171,8 +1212,10 @@ class DataFetcher:
             as_of: The date staleness is measured from.
 
         Returns:
-            set: Identifiers whose last bar is older than the threshold.
+            set: Identifiers whose last bar is more than
+            `max_price_staleness_days` calendar days before *as_of*.
         """
+        # BN-211.
         if self.max_price_staleness_days is None:
             return set()
 
@@ -1189,15 +1232,12 @@ class DataFetcher:
         """:meth:`fx_rate_on` over many days at once, as a Series.
 
         The vectorised face of the same rule, for a caller that needs a rate
-        for every day of a run rather than one date (BN-207). Chained levels
-        want exactly that, and asking per day would be one search per day per
-        currency where a single reindex answers the lot.
-
-        It exists so that sharing the *rule* does not force one call shape on
-        every caller: the policy, the carry semantics and the meaning of "no
-        rate" are decided here once, and the two methods differ only in how
-        many answers they return. Two implementations of the lookup is how the
-        library came to have five of them.
+        for every day of a run rather than one date, such as chained levels.
+        Asking per day would be one search per day per currency where a
+        single reindex answers the lot. The policy, the carry semantics, the
+        routes and the meaning of "no rate" are the same as
+        :meth:`fx_rate_on`; the two methods differ only in how many answers
+        they return.
 
         Args:
             from_currency: The currency being converted out of.
@@ -1207,9 +1247,12 @@ class DataFetcher:
         Returns:
             pd.Series | None: One rate per day, indexed by *days*, or None when
             the pair is unknown entirely. Individual days the policy cannot
-            answer for are NaN — a day is missing, not the pair — which is the
-            distinction `_rate_series` in chaining already depended on.
+            answer for are NaN: a day is missing, not the pair.
         """
+        # BN-207. Two implementations of the lookup is how the library came to
+        # have five of them, so the rule lives here once. The NaN-for-a-day
+        # versus None-for-the-pair distinction is one `_rate_series` in
+        # chaining depends on.
         if from_currency.upper() == to_currency.upper():
             return pd.Series(1.0, index=days)
 
@@ -1265,8 +1308,8 @@ class DataFetcher:
 
         Args:
             identifier: The instrument.
-            date: The as-of date. None takes the currently-active record — the
-                one with no end date — falling back to the latest start date if
+            date: The as-of date. None takes the currently-active record (the
+                one with no end date), falling back to the latest start date if
                 every record has been closed off.
             scheme: Which column to read, e.g. ``"SECTOR"``, ``"INDUSTRY"``,
                 ``"COUNTRY"``. Free-form, because which columns a client loads

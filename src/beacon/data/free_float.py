@@ -1,28 +1,31 @@
 # src/beacon/data/free_float.py
 """The free float in force on a date, and the one refusal when there is none.
 
-BN-219. A float-adjusted index read the free float in three places, and they
-disagreed about a blank cell. The weighting and the market values refused,
-because weighting one name by its full market cap puts it on a different basis
-from the rest. The special-dividend path used the value if it was there and
-otherwise skipped the adjustment, so the dividend came off at full size. The
-same question had two opposite answers.
-
-Refusing on a blank cell was also stricter than the data warrants. Free float
+Every float-adjusted read (the weighting, the market values and the
+special-dividend divisor) resolves a missing value the same way. Free float
 moves on corporate events and index-provider reviews, not daily, so a value a
-few weeks old is still the right number. So the last known value carries
-forward, within a window:
+few weeks old is still the right number, and the last known value carries
+forward within a window:
 
-- **Global**, beside `fx_policy` and `max_price_staleness_days` on the
-  fetcher. It changes numbers, so it is one setting for the installation and
-  published on `/health`, rather than a default buried at each read.
+- **Global**, set as `free_float_backfill_days` on the `DataFetcher` beside
+  `fx_policy` and `max_price_staleness_days`. It changes numbers, so it is one
+  setting for the installation and published on `/health`, rather than a
+  default buried at each read.
 - **Default 90 days.** A quarterly review cycle fits inside it with room to
-  spare. 0 turns carrying off, which is how every read behaved before.
-- **Forward only.** A value printed after the date is never used. The lookup
-  goes through `as_of_position`, so BN-208's look-ahead guard covers it.
+  spare. 0 turns carrying off, so only a value dated that day is used.
+- **Forward only.** A value dated after the date is never used.
 - **Beyond the window, refuse.** Everywhere, including the dividend path. A
   float last seen a year ago is not the float.
 """
+# BN-219. A float-adjusted index read the free float in three places, and
+# they disagreed about a blank cell. The weighting and the market values
+# refused, because weighting one name by its full market cap puts it on a
+# different basis from the rest. The special-dividend path used the value if
+# it was there and otherwise skipped the adjustment, so the dividend came off
+# at full size. Refusing on a blank cell was also stricter than the data
+# warrants, hence the window. Before it, every read behaved as 0 does now.
+# The lookup goes through `as_of_position`, so BN-208's look-ahead guard
+# covers it.
 from typing import Any
 
 import pandas as pd
@@ -84,8 +87,8 @@ def require_free_float(provider: Any,
                        calculation_name: str) -> float:
     """The free float to scale *identifier*'s market cap by, or a refusal.
 
-    Every float-adjusted read goes through here -- the weighting, the market
-    values and the special-dividend divisor -- so the three give one answer
+    Every float-adjusted read goes through here (the weighting, the market
+    values and the special-dividend divisor), so the three give one answer
     to a missing value and say the same thing when they refuse.
 
     Takes the provider as an argument rather than living on the fetcher, so a

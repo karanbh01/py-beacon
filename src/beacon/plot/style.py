@@ -3,23 +3,23 @@
 The "beacon" matplotlib styles, generated from the design tokens.
 
 Not hand-written: every colour comes from `beacon.tokens`, which is a vendored
-copy of the file the desktop client generates its CSS from. That is the point —
+copy of the file the desktop client generates its CSS from. That is the point:
 a chart embedded in the application should be the same colours as the panel
 around it, and the only way to guarantee that is for both to read one source.
 A palette retyped here would be right on the day it was written.
 
 Two styles, `beacon` and `beacon-dark`, because the client has two modes and a
-chart has to follow. Registering both by name means
-`plt.style.use("beacon")` restyles any plot, including one this library never
-drew — which is the acceptance criterion, and also the honest test of whether
-the style is a style rather than a set of hard-coded arguments.
+chart has to follow. Both are registered with matplotlib by name, so once
+:func:`register` has run (every chart method, :func:`use` and
+`beacon.plot.compare` run it) `plt.style.use("beacon")` restyles any plot,
+including one this library never drew.
 
 ## What the grammar is
 
 * an **accent** line at 1.5pt for the primary series, **text-secondary** for a
   benchmark: the comparison should read as subordinate without being hidden
 * **divider** gridlines on the y axis only, and behind the data
-* **muted** axis labels and tick text, with the top and right spines removed —
+* **muted** axis labels and tick text, with the top and right spines removed:
   a chart is mostly data, and the frame is not the data
 
 ## The correlation colormap
@@ -75,6 +75,9 @@ FIGSIZE = {
 def palette(mode: str = LIGHT) -> dict[str, str]:
     """The colours a chart draws with, in one mode.
 
+    Args:
+        mode: LIGHT or DARK.
+
     Returns:
         dict: The token names this module uses, so a caller composing a custom
         chart can reach the same values rather than sampling them off a figure.
@@ -89,9 +92,14 @@ def style_dict(mode: str = LIGHT) -> dict[str, Any]:
     """The rcParams for one mode.
 
     Built as a mapping rather than written to an `.mplstyle` file so the values
-    stay derived from the tokens at import time. A generated file would be a
-    second copy to keep in step, which is the thing this module exists to
-    avoid.
+    stay derived from the tokens. A generated file would be a second copy to
+    keep in step, which is the thing this module exists to avoid.
+
+    Args:
+        mode: LIGHT or DARK.
+
+    Returns:
+        dict: matplotlib rcParams names to values.
     """
     ink = palette(mode)
 

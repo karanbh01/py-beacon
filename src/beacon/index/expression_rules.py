@@ -2,14 +2,16 @@
 """
 The rule an expression compiles into.
 
-    definition.add_rule(ExpressionRule.from_expression(
+    rule = ExpressionRule.from_expression(
         (data.market.market_cap > 1e9)
-        & (data.features.fundamentals.pe_ratio < 20)))
+        & (data.features.fundamentals.pe_ratio < 20))
 
-## One new rule type, not a replacement
+    IndexDefinition(..., eligibility_rules=[rule])
 
-`MarketCapRule`, `LiquidityRule`, `FeatureRule` and the rest keep working.
-This sits beside them and stores its tree in `params`, so a definition written
+## A rule type beside the others
+
+`ExpressionRule` sits beside `MarketCapRule`, `LiquidityRule`, `FeatureRule`
+and the rest, and stores its tree in `params`, so a definition written
 in Python and one built in the client are the **same document** and neither
 has to know which produced it:
 
@@ -21,24 +23,23 @@ which is most of what a rule is for.
 
 ## Evaluated at the rebalance date
 
-Every read goes through the point-in-time path (`expressions.resolve`). A new
-authoring surface is exactly the sort of front door look-ahead walks back in
-through: it is easy to write a resolver that reads the latest value because
-that is the simpler query, and the resulting backtest looks better and is
-wrong.
+Every read goes through the point-in-time path (`beacon.expressions.resolve`),
+so a value published after the rebalance date is invisible. Reading the latest
+value instead would make the backtest look better and be wrong.
 
 ## Missing coverage is a stated behaviour
 
 A name with no value for a field is **excluded** by default, matching
-`FeatureRule` (BN-136) so the two do not disagree about the same situation.
+`FeatureRule` so the two do not disagree about the same situation.
 
-The alternative — including it — means a screen for "revenue above a billion"
+The alternative (including it) means a screen for "revenue above a billion"
 silently admits every company the dataset has never heard of, which is the
 opposite of what the screen says. Excluding can be wrong too, so it is a
 parameter; the default is the one whose failure is visible, since an index
 that comes out too small prompts a question where one quietly full of
 uncovered names does not.
 """
+# Excluding missing coverage by default matches FeatureRule (BN-136).
 import logging
 from typing import Any, ClassVar
 
@@ -71,7 +72,20 @@ logger = logging.getLogger(__name__)
                                          "not the screen it claims to be."),
           })
 class ExpressionRule(EligibilityRuleBase):
-    """Select instruments that satisfy an expression."""
+    """Select instruments that satisfy an expression.
+
+    Args:
+        expression: The serialised expression tree (`Expression.to_dict()`
+            output). Use :meth:`from_expression` to pass a live expression.
+        on_missing: ``"exclude"`` (the default) or ``"include"``: what a
+            comparison answers for a name with no value for its field.
+        max_age_days: How old a feature value may be and still count. None
+            means no limit.
+
+    Raises:
+        InvalidRuleError: If *on_missing* is not recognised, or *expression*
+            is not a valid tree.
+    """
 
     # Which published schema each parameter's value conforms to (BN-175).
     #
@@ -114,12 +128,13 @@ class ExpressionRule(EligibilityRuleBase):
         """The market columns the expression reads, derived from its tree.
 
         An expression's needs are whatever it references, so they come from
-        `fields_in` rather than being written out -- and a derived field is
-        expanded into what it is computed from, because a screen on
-        `market_cap` needs CLOSE and SHARES_OUTSTANDING, not a column called
-        MARKET_CAP that no store has (BN-217). Reference and feature fields
-        read other tables and add nothing here.
+        the fields in the tree. A derived field is expanded into what it is
+        computed from: a screen on `market_cap` needs CLOSE and
+        SHARES_OUTSTANDING, not a column called MARKET_CAP that no store has.
+        Reference, action and feature fields read other tables and add
+        nothing here.
         """
+        # The up-front column check is BN-217 (`beacon.index.requirements`).
         return market_columns_for(fields_in(self._tree))
 
     @classmethod

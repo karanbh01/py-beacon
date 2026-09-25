@@ -12,9 +12,9 @@ class SessionPanel:
     the same day: what did it close at, how many shares are out, how much of it
     floats. Asked one name at a time, each answer is a slice of the whole market
     frame, so the cost of a single lookup grows with the *frame* rather than
-    with the question — which is what made a preview superlinear in its universe
-    size (BN-190). Asked once for the whole list it is one slice, and the
-    per-name reads that follow are dictionary lookups.
+    with the question, making a preview superlinear in its universe size.
+    Asked once for the whole list it is one slice, and the per-name reads that
+    follow are dictionary lookups.
 
     The values are held as plain dicts rather than as the frame they came from
     because the per-name read is the whole point: ``.at`` on a DataFrame is
@@ -22,13 +22,14 @@ class SessionPanel:
     three columns is the cost this exists to remove.
 
     A panel is a pure function of (market frame, identifiers, session), so it
-    can be held and reused for exactly as long as all three hold — and no
+    can be held and reused for exactly as long as all three hold, and no
     longer. It answers only for the identifiers it was built with and only for
     its own session; anything else must go back to the data. That is what keeps
     a reused panel from being a different question's answer: there is no key
     under which name A's row can be returned for name B, or Monday's for
     Tuesday's.
     """
+    # BN-190: the per-name slicing is what made a preview superlinear.
 
     def __init__(self,
                  session: pd.Timestamp,
@@ -58,9 +59,9 @@ class SessionPanel:
         """Build a panel from column dictionaries, with no frame in between.
 
         `MarketData.session_columns` produces exactly what a panel holds, so
-        the warm path no longer constructs a DataFrame only to take it apart
-        again (BN-213). Building one cost more than the lookup it enabled.
+        no DataFrame is constructed only to be taken apart again.
         """
+        # BN-213. Building the DataFrame cost more than the lookup it enabled.
         panel = cls(session, pd.DataFrame())
         panel._values = values
         panel._identifiers = identifiers
@@ -76,9 +77,8 @@ class SessionPanel:
         That frame is MultiIndexed by ``(IDENTIFIER, DATE)`` and has already
         been filtered to the one date, so the date level is dropped rather than
         filtered again. A repeated ``(identifier, date)`` keeps its first row,
-        which is what a single-name fetch followed by ``.iloc[0]`` already did
-        — a panel that disagreed with the read it replaces would be a quieter
-        bug than the slowness it fixes.
+        as a single-name fetch followed by ``.iloc[0]`` does, so the panel and
+        the read it replaces agree.
         """
         if frame.empty:
             return cls(session, pd.DataFrame())
@@ -101,9 +101,13 @@ class SessionPanel:
         Both halves, and nothing looser. A panel holds one session for the set
         of names it was built from; asked about another date or another name it
         says no, and the caller goes to the data. There is deliberately no
-        nearest-session or missing-name behaviour here — a panel that answered
+        nearest-session or missing-name behaviour here: a panel that answered
         beyond what it was built from would be a different question's answer
         wearing this one's key.
+
+        Args:
+            identifier: The instrument.
+            date: The date as a ``%Y-%m-%d`` string, compared with `stamp`.
         """
         return date == self.stamp and identifier in self._identifiers
 
@@ -112,11 +116,12 @@ class SessionPanel:
         """Every instrument's value in one column, identifier to value.
 
         The whole day in one call, for a caller valuing a book rather than a
-        name (BN-218). Values are as stored -- NaN included -- because
-        deciding what a missing value means is the caller's business, and the
-        one caller that reads this, `DataFetcher.prices_on`, says so. Empty
-        for a column the page does not hold, on the same terms as `value`.
+        name. Values are as stored, NaN included, because deciding what a
+        missing value means is the caller's business; `DataFetcher.prices_on`
+        turns NaN into None. Empty for a column the panel does not hold, on
+        the same terms as `value`.
         """
+        # BN-218.
         return self._values.get(name, {})
 
     def value(self,
@@ -125,7 +130,7 @@ class SessionPanel:
         """One instrument's value in *column*, or None where there is none.
 
         None for an absent column and for a null value alike, on the same terms
-        as :meth:`~beacon.data.fetcher.DataFetcher._market_scalar`: both mean
+        as :meth:`~beacon.data.fetcher.DataFetcher.fetch_price`: both mean
         "the data does not say", and a caller that has to tell them apart is
         asking a question about the store rather than about the instrument.
         """

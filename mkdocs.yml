@@ -1,9 +1,8 @@
-site_name: Beacon
+site_name: py-beacon
 site_description: >-
-  Beacon is a Python toolkit for end-to-end index, ETF, and Delta-1
-  derivatives development — from defining an index methodology, through
-  calculating its historical levels, to backtesting a tracking portfolio
-  and analysing the result.
+  py-beacon is a Python toolkit for index, ETF and Delta-1 derivatives
+  development: define an index methodology, calculate its history, backtest
+  a portfolio that tracks it, and analyse the result.
 repo_url: https://github.com/karanbh01/py-beacon
 repo_name: karanbh01/py-beacon
 
@@ -49,39 +48,57 @@ plugins:
           options:
             docstring_style: google
             docstring_section_style: table
-            show_source: true
+            show_source: false
             show_root_heading: true
             show_root_full_path: false
             merge_init_into_class: true
             separate_signature: true
             show_signature_annotations: true
             members_order: source
+            show_submodules: true
             filters: ["!^_"]
 
 nav:
   - Home: index.md
   - Concepts:
       - Overview: concepts/overview.md
+      - Data: concepts/data.md
       - Universe: concepts/universe.md
       - Methodology: concepts/methodology.md
+      - Expressions and screens: concepts/expressions.md
       - Backtest: concepts/backtest.md
+      - Funds and ETFs: concepts/funds.md
+      - Derivatives: concepts/derivatives.md
       - Optimiser: concepts/optimiser.md
-      - Risk Model: concepts/risk-model.md
+      - Risk model: concepts/risk-model.md
       - Attribution: concepts/attribution.md
+      - Charts: concepts/charts.md
+      - Reports: concepts/reports.md
   - Serving data: serving-data.md
+  - Server guide: server.md
   - Gallery: gallery.md
-  - Decisions:
-      - Design tokens: decisions/0001-design-token-source-of-truth.md
-      - Caching and data freshness: decisions/0002-caching-and-data-freshness.md
-      - PDF engine: decisions/0003-pdf-engine.md
-      - Chart image regression: decisions/0004-chart-image-regression.md
   - Reference:
-      - Index: reference/index.md
+      - reference/index.md
+      - Indices: reference/indices.md
+      - Universes: reference/universe.md
+      - Expressions: reference/expressions.md
       - Backtest: reference/backtest.md
       - Portfolio: reference/portfolio.md
-      - Fund: reference/fund.md
+      - Funds and ETFs: reference/fund.md
       - Derivatives: reference/derivatives.md
-      - Data: reference/data.md
-      - Asset: reference/asset.md
+      - Optimiser: reference/optimise.md
+      - Risk: reference/risk.md
       - Analysis: reference/analysis.md
+      - Data: reference/data.md
+      - Synthetic data: reference/synthetic.md
+      - Sample dataset: reference/testing.md
+      - Assets: reference/asset.md
+      - Charts: reference/plot.md
+      - Reports: reference/report.md
+      - Server: reference/server.md
       - Environment: reference/environment.md
+      - Data sources: reference/sources.md
+      - Catalogue: reference/catalogue.md
+      - Design tokens: reference/tokens.md
+      - Changelog: reference/changelog.md
+      - Exceptions: reference/exceptions.md

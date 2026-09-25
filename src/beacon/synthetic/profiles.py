@@ -3,21 +3,21 @@
 The reference fields a profile view expects: identifiers, classification
 depth, and corporate facts.
 
-The universe generator produces what the engine needs to *calculate* — sector,
+The universe generator produces what the engine needs to *calculate*: sector,
 currency, exchange, share count. A client showing an instrument's profile
 needs a good deal more, and every field it cannot fill renders as a dash. This
 generates the rest.
 
 ## Coherent with what is already generated
 
-The rule the features work established, applied again. A generated fact that
+The same rule the synthetic features follow. A generated fact that
 contradicts another generated fact is worse than an absent one, because the
 contradiction is invisible until somebody checks and by then it has been
 believed.
 
 So:
 
-* `trading_status` follows the listings model — a name delisted in 2021 is not
+* `trading_status` follows the listings model: a name delisted in 2021 is not
   "Active", and a screen on status has to agree with one on dates
 * `dividend_frequency` follows the dividend yield actually generated. A name
   that pays nothing is not "Quarterly"; saying so would make a
@@ -30,7 +30,7 @@ So:
 ## The identifiers are structurally valid
 
 `isin`, `cusip` and `sedol` carry their real check digits, and `figi` its real
-shape. Not for authenticity — nothing here is a real security — but because a
+shape. Not for authenticity (nothing here is a real security), but because a
 client that validates an identifier before using it would otherwise reject the
 whole store, and an ISIN is the field somebody is most likely to parse.
 

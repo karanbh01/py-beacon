@@ -2,21 +2,22 @@
 """
 Corporate-action history.
 
-`IndexCalculator` has always been able to adjust a divisor for an action it is
-*handed*. Nothing stored a series of them, so there was no way to ask what a
-constituent paid over the last year, and no way to serve
-`/data/corporate-actions/{ticker}`. This is that store, sitting beside
-`MarketData` and `ReferenceData` and loaded the same way.
+A store of every action per instrument, so a caller can ask what a
+constituent paid over the last year and the server can answer
+`/data/corporate-actions/{ticker}`. It sits beside `MarketData` and
+`ReferenceData` and is loaded the same way.
 
 One row is one action: an identifier, an ex-date, a type and a value. What the
 value *means* depends on the type, and conflating the two is the mistake this
 module is arranged to prevent:
 
-* **Cash actions** — ``DIVIDEND``, ``SPECIAL_DIVIDEND``, ``RETURN_OF_CAPITAL``
-  — carry an amount per share. They add up. Two dividends of 0.25 make 0.50.
-* **Ratio actions** — ``SPLIT``, ``REVERSE_SPLIT``, ``STOCK_DIVIDEND`` — carry
+* **Cash actions** (``DIVIDEND``, ``SPECIAL_DIVIDEND``, ``RETURN_OF_CAPITAL``)
+  carry an amount per share. They add up. Two dividends of 0.25 make 0.50.
+* **Ratio actions** (``SPLIT``, ``REVERSE_SPLIT``, ``STOCK_DIVIDEND``) carry
   a multiplier on the share count. They compound. Two 2-for-1 splits make a
   factor of 4, not 4-for-1 in any additive sense.
+* **Structural actions** (``RIGHTS_ISSUE``, ``SPIN_OFF``, ``MERGER``) carry
+  no directly aggregable value.
 
 So there is no single "total actions" helper. Summing a split ratio into a
 dividend total would produce a number with no meaning, and the only way to stop
@@ -26,10 +27,12 @@ that happening is to not offer the operation.
 
 Twelve *calendar* months back from the as-of date, not 365 days. The two differ
 across a leap day, and "twelve months" is what a yield is quoted on. The window
-is half-open — ``as_of - 1 year < ex_date <= as_of`` — so an action exactly one
+is half-open (``as_of - 1 year < ex_date <= as_of``), so an action exactly one
 year old has rolled out and one dated today is in. Without that, a dividend
 paid on the anniversary would be counted in two consecutive years' figures.
 """
+# Before this store, `IndexCalculator` could adjust a divisor for an action it
+# was *handed*, but nothing stored a series of them.
 import logging
 from typing import Literal
 
@@ -103,10 +106,10 @@ def kind_of(action_type: str) -> Kind:
         action_type: One of ACTION_TYPES.
 
     Returns:
-        The kind. An unrecognised type is STRUCTURAL — the answer that causes a
-        client to display no quantity, which is the safe direction to be wrong
-        in. Rendering an unknown action as cash would put a number on screen
-        that means something else entirely.
+        The kind. An unrecognised type is STRUCTURAL, with a warning: the
+        answer that causes a client to display no quantity, which is the safe
+        direction to be wrong in. Rendering an unknown action as cash would put
+        a number on screen that means something else entirely.
     """
     normalised = str(action_type).upper()
 
@@ -151,9 +154,14 @@ TRAILING_YEAR = pd.DateOffset(years=1)
 class CorporateActions:
     """A history of corporate actions, indexed by identifier and ex-date.
 
-    The source must carry ``IDENTIFIER``, ``EX_DATE``, ``TYPE`` and ``VALUE``.
-    Anything else — ``PAY_DATE``, ``CURRENCY``, ``DECLARED_DATE`` — is carried
-    through untouched.
+    The source must carry ``IDENTIFIER``, ``EX_DATE``, ``TYPE`` and ``VALUE``,
+    and every ``TYPE`` must be one of `ACTION_TYPES` (case-insensitive).
+    Anything else, such as ``PAY_DATE``, ``CURRENCY`` or ``DECLARED_DATE``, is
+    carried through; ``PAY_DATE`` is parsed as a date.
+
+    Raises:
+        CalculationError: If a required column is missing or a type is
+            unknown.
     """
 
     def __init__(self,
@@ -241,7 +249,7 @@ class CorporateActions:
 
         Returns:
             pd.DataFrame: Matching rows, or an empty frame with the right
-            columns when there are none — so a caller can read ``VALUE`` off
+            columns when there are none, so a caller can read ``VALUE`` off
             the result without checking first.
         """
         if identifier not in set(self.identifiers):
@@ -273,7 +281,7 @@ class CorporateActions:
             identifier: The instrument.
             as_of: End of the window, inclusive.
             types: Which cash actions to count. None counts ordinary dividends
-                only — the conventional basis for a trailing yield, since a
+                only, the conventional basis for a trailing yield, since a
                 special dividend is by definition not expected to repeat.
 
         Returns:
@@ -353,7 +361,7 @@ class CorporateActions:
                          end_date: str | pd.Timestamp | None = None) -> float:
         """Compounded share-count multiplier over a window.
 
-        Two 2-for-1 splits give 4.0, not 4 in any additive sense — which is why
+        Two 2-for-1 splits give 4.0, not 4 in any additive sense, which is why
         this is separate from the cash helpers rather than a mode of them.
 
         Args:

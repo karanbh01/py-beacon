@@ -1,6 +1,10 @@
 # src/beacon/analysis/risk.py
 """
-Module for calculating various risk metrics for financial instruments.
+Risk metrics for a price or return series: annualised volatility, Sharpe ratio
+and maximum drawdown.
+
+Each is available as a plain function and as a method of
+`RiskMetricsCalculator`.
 """
 
 import numpy as np
@@ -12,6 +16,10 @@ def calculate_volatility(price_series: pd.Series,
     """
     Calculates annualized volatility from a price series.
 
+    The sample standard deviation of the simple period returns, multiplied by
+    ``sqrt(window)``. Despite its name, *window* is the annualisation factor,
+    not a rolling window: the whole series is used.
+
     Args:
         price_series: A pandas Series of prices.
         window: The number of trading periods in a year (e.g., 252 for daily).
@@ -20,7 +28,9 @@ def calculate_volatility(price_series: pd.Series,
         The annualized volatility as a float.
 
     Raises:
-        ValueError: If price_series is empty or contains non-numeric data.
+        TypeError: If price_series is not a pandas Series.
+        ValueError: If price_series is empty or contains non-numeric data, or
+            window is not positive.
     """
     if not isinstance(price_series, pd.Series):
         raise TypeError("price_series must be a pandas Series.")
@@ -41,6 +51,13 @@ def calculate_sharpe_ratio(returns: pd.Series,
     """
     Calculates the annualized Sharpe Ratio.
 
+    The risk-free rate is divided evenly across periods
+    (``risk_free_rate / periods_per_year``) and subtracted from each return;
+    the ratio is the mean excess return over its sample standard deviation,
+    multiplied by ``sqrt(periods_per_year)``. When the excess returns do not
+    vary, the result is NaN if their mean is zero and positive or negative
+    infinity otherwise.
+
     Args:
         returns: A pandas Series of periodic returns.
         risk_free_rate: The annualized risk-free rate.
@@ -51,7 +68,10 @@ def calculate_sharpe_ratio(returns: pd.Series,
         The annualized Sharpe Ratio as a float.
 
     Raises:
-        ValueError: If inputs are invalid.
+        TypeError: If returns is not a pandas Series or risk_free_rate is not
+            a number.
+        ValueError: If returns is empty or non-numeric, or periods_per_year
+            is not positive.
     """
     if not isinstance(returns, pd.Series):
         raise TypeError("returns must be a pandas Series.")
@@ -78,13 +98,17 @@ def calculate_max_drawdown(price_series: pd.Series) -> float:
     """
     Calculates the maximum drawdown from a price series.
 
+    The largest fall from a running peak, as a fraction of that peak.
+
     Args:
         price_series: A pandas Series of prices.
 
     Returns:
-        The maximum drawdown as a float (e.g., 0.2 for a 20% drawdown).
+        The maximum drawdown as a non-positive float (e.g., -0.2 for a 20%
+        drawdown, 0.0 when the price never falls below a previous peak).
 
     Raises:
+        TypeError: If price_series is not a pandas Series.
         ValueError: If price_series is empty or contains non-numeric data.
     """
     if not isinstance(price_series, pd.Series):
@@ -102,8 +126,8 @@ def calculate_max_drawdown(price_series: pd.Series) -> float:
 
 class RiskMetricsCalculator:
     """
-    A class to calculate various risk metrics.
-    This class can be expanded to hold state or more complex configurations if needed.
+    Risk metrics as methods. Each method calls the module-level function of
+    the same name and returns its result unchanged.
     """
     def __init__(self) -> None:
         """Initializes the RiskMetricsCalculator."""
@@ -113,6 +137,8 @@ class RiskMetricsCalculator:
                              window: int = 252) -> float:
         """
         Calculates annualized volatility from a price series.
+
+        See :func:`calculate_volatility`.
 
         Args:
             price_series: A pandas Series of prices.
@@ -136,6 +162,8 @@ class RiskMetricsCalculator:
             periods_per_year: The number of return periods in a year (e.g., 252 for daily,
                               12 for monthly).
 
+        See :func:`calculate_sharpe_ratio`.
+
         Returns:
             The annualized Sharpe Ratio as a float.
         """
@@ -146,10 +174,13 @@ class RiskMetricsCalculator:
         """
         Calculates the maximum drawdown from a price series.
 
+        See :func:`calculate_max_drawdown`.
+
         Args:
             price_series: A pandas Series of prices.
 
         Returns:
-            The maximum drawdown as a float (e.g., 0.2 for a 20% drawdown).
+            The maximum drawdown as a non-positive float (e.g., -0.2 for a
+            20% drawdown).
         """
         return calculate_max_drawdown(price_series)

@@ -2,11 +2,7 @@
 """
 Liquidity measures computed from held market data.
 
-Average daily volume is the one figure a universe table shows for every name
-and the one nothing in Beacon computed. Without it a client wanting ADV
-alongside reference data has to pull a full price series per identifier and
-average it itself — five hundred requests to produce five hundred numbers the
-server already holds every input for.
+Average daily volume (ADV) is the figure a universe table shows for every name.
 
 ## The trailing window is calendar months, not a day count
 
@@ -14,16 +10,21 @@ server already holds every input for.
 ``as_of - 3 months < date <= as_of``. The two differ by several days across a
 quarter, and quoting a 63-trading-day average as "3M" makes two vendors
 disagree for no reason anybody can see. This matches the trailing-twelve-month
-convention `corporate_actions` already uses, including the half-open boundary:
-a day exactly three months old has rolled out.
+dividend convention in `beacon.data.corporate_actions`, including the
+half-open boundary: a day exactly three months old has rolled out.
 
-## Missing data is None, not zero
+## Missing data is NaN, not zero
 
-A name with no volume in the window gets NaN rather than 0.0. Zero is a claim —
-that it traded and nobody bought — and a liquidity screen reading it would
-exclude the name for the wrong reason. NaN says the question has no answer
-here, and serialises to `null`.
+A name whose volume is missing on every day in the window gets NaN rather
+than 0.0, and a name with no rows in the window is left out of the result.
+Zero is a claim (that it traded and nobody bought) and a liquidity screen
+reading it would exclude the name for the wrong reason. NaN says the question
+has no answer here, and serialises to `null`.
 """
+# ADV was the one universe-table figure nothing in Beacon computed. Without it
+# a client wanting ADV alongside reference data had to pull a full price
+# series per identifier and average it itself: five hundred requests to
+# produce five hundred numbers the server already holds every input for.
 import logging
 
 import pandas as pd
@@ -52,10 +53,11 @@ def average_daily_volume(market: pd.DataFrame,
         column: Volume column to average.
 
     Returns:
-        pd.Series: Indexed by identifier. Empty when the frame is empty or
-        carries no volume column — an absent column is a property of the
-        dataset, not a failure of the request, so it produces no answer rather
-        than an error.
+        pd.Series: Indexed by identifier. Empty when the frame is empty,
+        carries no volume column, or has no rows in the window (the last
+        case logs a warning). An absent column is a property of the dataset,
+        not a failure of the request, so it produces no answer rather than
+        an error.
     """
     if market.empty or column not in market.columns:
         return pd.Series(dtype="float64")

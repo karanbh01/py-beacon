@@ -3,7 +3,7 @@
 Exchange rates, generated as market data so the FX paths are actually exercised.
 
 `DataFetcher.fetch_fx_rates` looks a pair up as an ordinary market-data
-identifier named ``f"{from}{to}"`` — `EURUSD` converts euros into dollars.
+identifier named ``f"{from}{to}"``: `EURUSD` converts euros into dollars.
 Nothing special: a currency pair is a row set like any other, which is why the
 calculator and the corporate-action handler can convert without knowing where
 the rate came from.
@@ -28,7 +28,7 @@ Crises are not currency-neutral. Money moves into dollars when volatility
 spikes, so every pair here drifts *down* against USD in proportion to how far
 the regime has lifted correlations. It is the same intensity series the return
 process uses, so the currency move lines up with the equity drawdown rather
-than wandering off on its own — which is what makes a hedged-versus-unhedged
+than wandering off on its own, which is what makes a hedged-versus-unhedged
 comparison over a crisis show anything at all.
 """
 import logging

@@ -2,34 +2,33 @@
 """
 Whether a dataset has the columns a definition needs, asked once up front.
 
-BN-217. Every rule and weighting scheme declares the market columns it reads
-(`required_columns`), and this checks the union against the dataset **before a
-run does any work**.
+Every rule and weighting scheme declares the market columns it reads
+(`required_columns`), and `require_columns` checks the union, plus the price
+column the calculation values holdings with, against the dataset **before a
+run does any work**. A missing column is refused with a `CalculationError`
+that names each column, what needs it, and what the dataset has instead.
 
-The reason is the error a missing column produced without it. The run got as
-far as the first read that needed the column, then failed in terms of one
-company on one day:
+Without this check, a run would get as far as the first read that needed the
+column and then fail in terms of one company on one day (for example, "N0 has
+no positive SHARES_OUTSTANDING on 2024-01-02"), sending the reader to inspect
+that company's data when the dataset has no share-count column at all. A
+missing VOLUME column is worse: every name fails a liquidity screen, and the
+run fails as "index holds nothing on its base date" with no mention of volume.
+A column cannot appear or vanish halfway through a run, so asking once is
+enough.
 
-    N0 has no positive SHARES_OUTSTANDING on 2024-01-02, so its market cap
-    is unknown.
-
-That is true, and it sends a reader to inspect company N0's data on the second
-of January -- which is fine. The dataset has no share-count column at all. And
-for a liquidity screen it was worse: a missing VOLUME column made every name
-"not liquid enough", so the run failed as "index holds nothing on its base
-date" with no mention of volume anywhere, and the natural response was to
-loosen the threshold.
-
-Asked once, the question has a clear answer and the error can say what it is.
-A column cannot appear or vanish halfway through a run, so once is enough.
-
-**What this does not replace.** `DataFetcher._market_scalar` still checks for a
-column before reading the frame, because it serves callers that have no
-definition to validate against -- the reference endpoint, and anyone using the
-fetcher directly. Those questions arrive with nothing declared in advance, so
-the lookup answers "no value" for a column that is not there rather than
-raising.
+When the data provider cannot say which columns it has (it has no
+`market_columns` list), the check is skipped and the run fails, if it fails,
+at the first read.
 """
+# Added in BN-217, after the two misleading failures described above.
+#
+# What this does not replace: `DataFetcher._market_scalar` still checks for a
+# column before reading the frame, because it serves callers that have no
+# definition to validate against (the reference endpoint, and anyone using the
+# fetcher directly). Those questions arrive with nothing declared in advance,
+# so the lookup answers "no value" for a column that is not there rather than
+# raising.
 from collections.abc import Iterable
 
 from ..data.fetcher import DataFetcher
@@ -44,8 +43,8 @@ def required_by(definition: IndexDefinition,
     Args:
         definition: The index definition to check.
         price_column: The column the calculation values holdings with every
-            day -- a requirement of the calculation itself, separate from any
-            rule or scheme.
+            day. It is a requirement of the calculation itself, separate from
+            any rule or scheme.
 
     Returns:
         dict: column -> the parts of the definition that need it, in the order
@@ -110,9 +109,15 @@ def require_price_column(fetcher: DataFetcher,
                          who: str) -> None:
     """The one requirement a run with no definition still has: a price.
 
-    For the backtest engine, which may be driven by a raw weight schedule with
-    no definition behind it, and so has nothing to declare beyond the column it
-    marks positions at.
+    Used by the backtest engine, which may be driven by a raw weight schedule
+    with no definition behind it, and so has nothing to declare beyond the
+    column it marks positions at. Skipped when the provider cannot list its
+    columns.
+
+    Args:
+        fetcher: The data the run would use.
+        price_column: The column positions are priced from.
+        who: What needs the column, for the error message.
 
     Raises:
         CalculationError: If the dataset has no such column.

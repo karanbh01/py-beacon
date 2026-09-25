@@ -2,70 +2,90 @@
 """
 When an index rebalances, and which days it has a level on.
 
-`get_rebalance_dates()` used to answer one question one way: the first business
-day of every Nth month, where a business day is Monday to Friday. That makes
-Christmas Day a trading day and makes "third Friday of March, June, September
-and December" — the S&P and FTSE convention — inexpressible. There was a TODO
-saying so.
-
 ## Two things, kept apart
 
 A **calendar** says which days exist. A **day rule** says which of those days
 within a month is the one. Every schedule here is the product of the two, so
-"third Friday, on the New York calendar" needs no special case: the third
-Friday is found, and if it is not a session it rolls back to the one before.
+"third Friday, on the New York calendar" (the S&P and FTSE convention) needs no
+special case: the third Friday is found, and if it is not a session it rolls
+back to the one before.
+
+Frequencies are `MONTHLY`, `QUARTERLY`, `SEMI-ANNUAL` and `ANNUAL`; day rules
+are `FIRST_BUSINESS_DAY` (the default), `LAST_BUSINESS_DAY` and
+`THIRD_FRIDAY`. The cadence is anchored on the first scheduled date in the
+range, not on the calendar year: a quarterly index starting in February
+rebalances in February, May, August and November.
 
 ## Rolling back, not forward
 
 A rebalance landing on a holiday moves to the *previous* session. Forward would
 push it into the next month at a month end, which is the one case where the
-choice is visible — and the convention every index provider follows is back.
+choice is visible, and the convention every index provider follows is back.
 Good Friday is the case that makes this concrete: the third Friday of April
-2025 is the 18th, which is not a session on any US exchange.
+2025 is the 18th, which is not a session on any US exchange, so the rebalance
+falls on Thursday the 17th.
 
-## The calendar is required (BN-180)
+## The calendar is required
 
-It used to be optional, and the default was Monday to Friday. That default was
-chosen to keep every stored index producing exactly the dates it always had —
-which it did, and which was the wrong thing to preserve. A calendar-less index
-rebalancing on FIRST_BUSINESS_DAY schedules 1 January, 4 July and 25 December
-whenever they fall midweek, and over data that genuinely observes holidays
-there is no session on any of them. The schedule and the data held two
-different definitions of "a day the index trades", neither wrong alone.
+Every index schedules against a real exchange calendar, named by its MIC (for
+example `"XNYS"`), from the `exchange_calendars` package. An `IndexDefinition`
+always carries one, and stored documents without one are migrated to
+`DEFAULT_CALENDAR` (`XNYS`). A date this module schedules is therefore always a
+date the exchange has a session for.
 
-So an `IndexDefinition` now always carries a calendar, `IndexDocument` requires
-one on the wire, and stored documents without one are migrated to
-`DEFAULT_CALENDAR` by schema version 2. `sessions()` still takes `None` — see
-below — but nothing a user stores can reach it.
+`sessions`, `rebalance_dates` and `next_rebalance` take `calendar` as a
+required argument. Passing `None` asks for plain Monday-to-Friday business days
+(`pd.bdate_range`, holidays included), which a library caller may want, but
+must ask for in writing rather than get by omission.
 
-## Why `exchange_calendars`, and why it is now a core dependency
+## Calendar bounds
 
-A required calendar cannot sit behind an extra: the core would import and then
-refuse to schedule. So `exchange_calendars` moved into the core dependency set.
-The alternatives were checked rather than assumed, and all failed:
-
-* `pandas.tseries.holiday.USFederalHolidayCalendar` is wrong in **both**
-  directions. Measured over 2025: it calls Columbus Day (10-13) and Veterans
-  Day (11-11) closed when NYSE traded, and calls Good Friday (04-18) and
-  01-09 open when NYSE was shut. Good Friday is a recurring exchange closure
-  no federal calendar will ever hold, and 01-09 was a one-off day of mourning
-  no rule-based calendar can predict.
-* `pandas_market_calendars` depends on `exchange-calendars` (verified from its
-  wheel metadata). It is a wrapper, not an alternative.
-* `holidays` and `workalendar` are national-holiday packages: the same
-  structural mismatch as pandas, for the same reason.
-
-The cost is small and was measured: 1.3 MB on disk, and non-core dependencies
-of `pyluach`, `toolz` and `korean_lunar_calendar`, all small and pure-Python.
-
-## The `None` calendar survives as a primitive, not as a default
-
-`sessions(start, end, None)` is still `pd.bdate_range`, because plain
-business-day arithmetic is a real thing for a library caller to want. What it
-no longer is, is reachable by *omission*: `calendar` is a required argument of
-`sessions`, `rebalance_dates` and `next_rebalance`, so Monday-to-Friday is
-something a caller asks for in writing, never something they get by forgetting.
+A calendar covers a limited span. Its history is widened back to the requested
+start where the package allows, falling back to the earliest start it will
+build. The far end stops at the calendar's last published session. `sessions`
+clamps to those bounds; `calendar_coverage` reports how much of a window was
+covered, so an index calculation can refuse a window with no cover at all and
+report one with partial cover.
 """
+# History and design notes.
+#
+# `get_rebalance_dates()` used to answer one question one way: the first
+# business day of every Nth month, where a business day was Monday to Friday.
+# That made Christmas Day a trading day and made "third Friday of March, June,
+# September and December" inexpressible.
+#
+# The calendar became required in BN-180. It used to be optional, defaulting
+# to Monday to Friday, chosen to keep every stored index producing exactly the
+# dates it always had, which was the wrong thing to preserve: a calendar-less
+# index rebalancing on FIRST_BUSINESS_DAY scheduled 1 January, 4 July and 25
+# December whenever they fell midweek, and over data that observes holidays
+# there is no session on any of them. So an `IndexDefinition` now always
+# carries a calendar, `IndexDocument` requires one on the wire, and stored
+# documents without one are migrated to `DEFAULT_CALENDAR` by schema version 2.
+#
+# Why `exchange_calendars`, and why it is a core dependency: a required
+# calendar cannot sit behind an extra (the core would import and then refuse
+# to schedule). The alternatives were checked rather than assumed, and all
+# failed:
+#
+# * `pandas.tseries.holiday.USFederalHolidayCalendar` is wrong in both
+#   directions. Measured over 2025: it calls Columbus Day (10-13) and Veterans
+#   Day (11-11) closed when NYSE traded, and calls Good Friday (04-18) and
+#   01-09 open when NYSE was shut. Good Friday is a recurring exchange closure
+#   no federal calendar will ever hold, and 01-09 was a one-off day of mourning
+#   no rule-based calendar can predict.
+# * `pandas_market_calendars` depends on `exchange-calendars` (verified from
+#   its wheel metadata). It is a wrapper, not an alternative.
+# * `holidays` and `workalendar` are national-holiday packages: the same
+#   structural mismatch as pandas, for the same reason.
+#
+# The cost is small and was measured: 1.3 MB on disk, and non-core
+# dependencies of `pyluach`, `toolz` and `korean_lunar_calendar`, all small and
+# pure-Python.
+#
+# The `None` calendar survives as a primitive, not as a default: plain
+# business-day arithmetic is a real thing for a library caller to want, but it
+# is no longer reachable by omission.
 import logging
 from dataclasses import dataclass
 from functools import lru_cache
@@ -183,21 +203,22 @@ def _calendar_covering(calendar: str,
         return _built(calendar, floor.strftime("%Y-%m-%d"))
 
 
+# Added in BN-198. The twin-field shape (requested beside covered) follows
+# `as_of`/`resolved_date`: a resolution step moved a field, so the unmoved one
+# is published beside it.
 @dataclass(frozen=True)
 class CalendarCoverage:
-    """What a calendar could offer of the window it was asked for (BN-198).
+    """What a calendar could offer of the window it was asked for.
 
-    The twin-field shape, for the same reason as `as_of`/`resolved_date`:
-    a resolution step moved a field, so the unmoved one is published beside
-    it. A calendar narrowing a window is a resolution step like any other, and
-    a covered range alone cannot say what was asked for.
+    Publishes the requested window beside the covered one, because a covered
+    range alone cannot say what was asked for.
 
-    `is_partial` exists so a client never has to compare two dates to find
-    out — an edge a reader gets right for a while and then does not.
-    `trimmed_start` and `trimmed_end` say *which* end moved, because the two
-    have different causes and different remedies: the near end is a calendar
-    whose history does not reach (change the calendar or the base date), the
-    far end is one whose published sessions stop (wait, or ask for less).
+    `is_partial` says whether the cover was narrowed, so a client never has to
+    compare two dates to find out. `trimmed_start` and `trimmed_end` say
+    *which* end moved, because the two have different causes and different
+    remedies: the near end is a calendar whose history does not reach (change
+    the calendar or the base date), the far end is one whose published sessions
+    stop (wait, or ask for less).
 
     Attributes:
         calendar: The MIC asked for, or None for plain business days.
@@ -206,6 +227,12 @@ class CalendarCoverage:
         covered_start: First date the calendar can speak for, or None when it
             can speak for none of the window.
         covered_end: Last such date, or None in the same case.
+        calendar_start: The calendar's first session as resolved for this
+            request (its history is widened back on demand, so the same MIC
+            can answer differently depending on how far back it was asked to
+            reach). None when no calendar was named.
+        calendar_end: The calendar's last published session, or None when no
+            calendar was named.
     """
 
     calendar: str | None
@@ -270,10 +297,11 @@ def calendar_coverage(start: pd.Timestamp,
     """How much of a window a calendar can actually speak for.
 
     A pure query: it refuses nothing and logs nothing, so the caller decides
-    what a narrowing means. :func:`sessions` stays the primitive it was and
-    keeps answering with what it has — `is_session` depends on that, since a
-    date outside a calendar's bounds is a date it cannot call open — while an
-    index calculation asks this first and refuses on an empty answer.
+    what a narrowing means. :func:`sessions` answers with what it has (and
+    `is_session` depends on that, since a date outside a calendar's bounds is a
+    date it cannot call open), while an index calculation asks this first and
+    refuses on an empty answer. An inverted window (start after end) is
+    reported as covering nothing.
 
     Args:
         start: First date of the window, inclusive.
@@ -333,7 +361,7 @@ def earliest_available(calendar: str) -> pd.Timestamp:
     attribute: `get_calendar(code)` returns twenty years of history whatever
     the underlying data supports, and the true floor only shows up as the
     earliest `start` it will accept. Each calendar's floor differs and none is
-    the default bound — XTKS and XBOM reach back to 1997, XHKG to 1960, while
+    the default bound: XTKS and XBOM reach back to 1997, XHKG to 1960, while
     all three report a first session of 2006 until asked for more.
 
     Worth the handful of calendar builds because it is only ever called to
@@ -368,12 +396,20 @@ def describe_bounds(coverage: CalendarCoverage) -> str:
     Only the failing end is searched for. A window that opens before the
     calendar's history needs the true floor, and finding it costs a handful of
     calendar builds; a window that opens after the calendar's last published
-    session needs no search at all, because that bound is already known. The
-    old version quoted both ends always, which paid for the search on every
-    refusal and — for a calendar the package will build arbitrarily far back,
-    NYSE being one — reported the search's own lower bracket as though it were
-    a fact about the exchange.
+    session needs no search at all, because that bound is already known.
+
+    Args:
+        coverage: A coverage with a named calendar (not None).
+
+    Returns:
+        str: "XTKS (Tokyo Stock Exchange) has no sessions before ..." when
+        the window opens too early, otherwise "... has no published sessions
+        after ..." with the calendar's last session.
     """
+    # An earlier version quoted both ends always, which paid for the search on
+    # every refusal and, for a calendar the package will build arbitrarily far
+    # back (NYSE is one), reported the search's own lower bracket as though it
+    # were a fact about the exchange.
     calendar = coverage.calendar
     assert calendar is not None, "a coverage with no calendar cannot refuse"
 
@@ -398,14 +434,16 @@ def sessions(start: pd.Timestamp,
     Args:
         start: First date, inclusive.
         end: Last date, inclusive.
-        calendar: Exchange MIC, e.g. ``"XNYS"``. Required — passing None asks
-            for Monday to Friday, holidays included, which no stored index can
-            do since BN-180 and which a library caller must therefore state
-            rather than fall into.
+        calendar: Exchange MIC, e.g. ``"XNYS"``. Required: passing None asks
+            for Monday to Friday, holidays included, which no stored index
+            can do and which a library caller must therefore state rather
+            than fall into.
 
     Returns:
-        pd.DatetimeIndex: Sessions in ascending order.
+        pd.DatetimeIndex: Sessions in ascending order, clamped to the
+        calendar's bounds (empty when the range lies wholly outside them).
     """
+    # A calendar has been required on every stored index since BN-180.
     if calendar is None:
         return pd.bdate_range(start, end)
 
@@ -431,21 +469,21 @@ def sessions(start: pd.Timestamp,
         schedule.sessions_in_range(first, last)).as_unit(SESSION_UNIT)
 
 
+# The holiday-versus-missing-data distinction is BN-183; it became possible
+# once BN-180 made the calendar a required property of an index.
 def is_session(date: pd.Timestamp,
                calendar: str | None) -> bool:
     """Whether the market was open on *date*.
 
     The single-day face of :func:`sessions`, and the question that tells a
-    holiday apart from a hole in the data (BN-183): a day with no bar that the
-    calendar says was **closed** is a market that was shut, while a day with no
-    bar that the calendar says was **open** is data that is missing something.
-    Nothing could ask it before BN-180 made the calendar a required property of
-    an index.
+    holiday apart from a hole in the data: a day with no bar that the calendar
+    says was **closed** is a market that was shut, while a day with no bar that
+    the calendar says was **open** is data that is missing something.
 
     Args:
         date: The date asked about.
         calendar: Exchange MIC. None asks about Monday to Friday, holidays
-            included — the same explicit request :func:`sessions` accepts.
+            included (the same explicit request :func:`sessions` accepts).
 
     Returns:
         bool: True when *date* is a trading session on *calendar*. A date past
@@ -501,12 +539,14 @@ def calendar_region(calendar: str) -> tuple[str, str]:
 
     Derived from the calendar's own timezone rather than from a table, for the
     same reason the code list is: a mapping kept here would be one release
-    behind the package the schedule actually runs on. Checked across all 102
-    calendars this installation carries -- every one has a timezone, and every
-    one splits into a region: Europe 42, America 30, Asia 22, then Australia,
-    Atlantic, Africa, Pacific, and two on bare UTC, which report "UTC" as their
-    own region rather than being forced into a continent they do not have.
+    behind the package the schedule actually runs on. Every calendar has a
+    timezone and splits into a region (Europe, America, Asia, Australia,
+    Atlantic, Africa, Pacific); the few on bare UTC report "UTC" as their own
+    region rather than being forced into a continent they do not have.
     """
+    # Checked across all 102 calendars the installation carried at the time:
+    # Europe 42, America 30, Asia 22, then Australia, Atlantic, Africa,
+    # Pacific, and two on bare UTC.
     zone = _timezone_of(calendar)
 
     return zone.split("/", maxsplit=1)[0], zone
@@ -698,15 +738,17 @@ def effective_date(announced: pd.Timestamp,
 
     Args:
         announced: When the composition was published.
-        lag_sessions: Sessions to wait. Zero means same-day, which is what
-            every index did before BN-126.
+        lag_sessions: Sessions to wait. Zero means same-day.
         available: Sessions covering the announcement and the lag.
 
     Returns:
         The effective date. The announcement itself when the lag is zero, or
-        when the panel holds too few sessions after it — an index whose data
-        ends mid-lag should apply its last rebalance rather than drop it.
+        when the panel holds too few sessions after it (logged as a warning):
+        an index whose data ends mid-lag applies its last rebalance rather
+        than dropping it.
     """
+    # Announcement lags arrived in BN-126; before that every index was
+    # same-day.
     if lag_sessions <= 0:
         return announced
 

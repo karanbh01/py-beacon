@@ -76,14 +76,15 @@ def _store(request: Request) -> DocumentStore:
     return store
 
 
+# BN-174 made an invalid document not-found here, matching the listing.
 def load_index(request: Request,
                index_id: Identifier) -> IndexDocument:
     """Read an index definition, or answer not-found.
 
     Not-found covers a definition that is absent, one that is not valid JSON,
-    and one that no longer satisfies `IndexDocument` (BN-174) — the third being
-    what every stored document hits the day a required field is added to the
-    model. The listing skips exactly the same documents, so the two cannot
+    and one that does not satisfy `IndexDocument` (the third being what every
+    stored document hits the day a required field is added to the model). The
+    listing skips exactly the same documents, so the two cannot
     disagree about what exists.
 
     Args:
@@ -402,20 +403,22 @@ def build_indices_router() -> APIRouter:
                   index_id: Identifier) -> IndexDocument:
         return load_index(request, index_id)
 
+    # The results cascade is BN-157's; cascading to optimised children was
+    # the owner's call for BN-168.
     @router.delete("/{index_id}", response_model=IndexDeletion)
     def delete_index(request: Request,
                      index_id: Identifier) -> IndexDeletion:
         """Remove a stored index definition, its optimised children, and the
         backtest results of every one of them.
 
-        The first cascade is deliberate (BN-157): results are keyed
+        The first cascade is deliberate: results are keyed
         `backtest:{index_id}`, and orphaning them would leave records
-        addressable by an id that no longer resolves -- the overview route
-        404s on the definition load before it ever reaches them.
+        addressable by an id that no longer resolves (the overview route
+        404s on the definition load before it ever reaches them).
 
-        The second is the owner's call for BN-168: an optimised index
+        The second follows from how an optimised index is stored: it
         *references* its source rather than copying it, so a child left behind
-        would be a methodology with no methodology — it could never be
+        would be a methodology with no methodology, and could never be
         calculated again. Each child goes through the identical cascade, and
         the chain is followed recursively. The confirmation warning stays
         client-side: documents carry `source_index_id`, so the UI computes the
@@ -461,12 +464,13 @@ def build_indices_router() -> APIRouter:
         the source is the index in the URL, and the body has no way to assert
         a parentage the server did not create.
 
-        The derived document inherits the parent's identity — base date, base
+        The derived document inherits the parent's identity: base date, base
         value, currency, calendar, and the rebalancing cadence in particular,
         because the child solves exactly at the parent's published snapshots
         and a cadence of its own would have no parent weights at the extra
-        dates (design record, default 2).
+        dates.
         """
+        # The inherited cadence is default 2 in the optimiser design record.
         parent = load_index(request, index_id)
         taken = stored(_store(request), body.id, validated(IndexDocument))
 

@@ -14,16 +14,16 @@ instrument on one date. That indirection is the whole point: an index
 definition is a document, and a screen that cannot be written down cannot be
 saved, reloaded, or sent to a client.
 
-## It compiles into the existing rule envelope
+## It compiles into the rule envelope
 
-A rule in a stored pipeline is `{"id", "type", "params"}` and always has been.
-An expression does not sit beside that — it becomes the `params` of a rule
-type (`ExpressionRule`), so there is one representation of a pipeline rather
-than two that drift. `to_dict` and `from_dict` here are what make that
-possible, and the round-trip is exact rather than approximate: a definition
-saved and reloaded must screen identically, or a backtest is not reproducible.
+A rule in a stored pipeline is `{"id", "type", "params"}`. An expression does
+not sit beside that: it becomes the `params` of a rule type (`ExpressionRule`),
+so there is one representation of a pipeline rather than two that drift.
+`to_dict` and `from_dict` here make that possible, and the round trip is exact
+rather than approximate: a definition saved and reloaded screens identically,
+so a backtest is reproducible.
 
-## Two hazards, which are most of why this module is written carefully
+## Two hazards
 
 **`__eq__` does not return a bool.** That is what lets `sector == "Financials"`
 build a tree, and it breaks three things Python assumes:
@@ -33,23 +33,22 @@ build a tree, and it breaks three things Python assumes:
 * an object defining `__eq__` loses `__hash__` unless it declares one
 
 The first two are handled by `__bool__` raising rather than returning a value,
-which converts a silent wrong answer into an error that names the problem.
+which turns a silent wrong answer into an error that names the problem.
 
-The third is handled by declaring `__hash__` — but only partly, and the limit
-is worth stating rather than glossing. **CPython checks `is` before `==`** when
-looking up a set or dict entry, so reusing the *same* field object in a set or
-a `in [...]` test works and never reaches `__eq__`; two *distinct* objects
-naming the same datapoint hash alike, fall through to `__eq__`, get a tree back
-and raise. A `Field` is therefore a safe dict key only when the same instance
-is reused. `Field.key` is the plain tuple to use instead, and
-`distinct_fields_in` deduplicates with it rather than with a set of fields.
+The third is handled by declaring `__hash__`, but only partly. **CPython checks
+`is` before `==`** when looking up a set or dict entry, so reusing the *same*
+field object in a set or an `in [...]` test works and never reaches `__eq__`.
+Two *distinct* objects naming the same datapoint hash alike, fall through to
+`__eq__`, get a tree back and raise. A `Field` is therefore a safe dict key only
+when the same instance is reused. `Field.key` is the plain tuple to use
+instead, and `distinct_fields_in` deduplicates with it rather than with a set of
+fields.
 
 **`and` and `or` cannot be overloaded.** Python evaluates `a and b` by taking
 `bool(a)` and returning one operand or the other; there is no hook. So
-`(a == 1) and (b > 2)` would quietly discard half the expression. This is the
-most common pandas bug there is. The defence is `&` and `|` for composition
-plus a `__bool__` that raises and names the fix — the error is the only place
-a user finds out, so it says exactly what to type instead.
+`(a == 1) and (b > 2)` would quietly discard half the expression (the same trap
+as in pandas). Use `&` and `|` to compose. `__bool__` raises an error that says
+exactly what to type instead.
 """
 from typing import Any
 
@@ -95,8 +94,8 @@ class Expression:
         """Always raises.
 
         `and`, `or`, `not`, `if expr:` and `assert expr` all route through
-        here. None of them can work — an expression is not true or false until
-        it is resolved against an instrument and a date — and every one of them
+        here. None of them can work (an expression is not true or false until
+        it is resolved against an instrument and a date), and every one of them
         would otherwise fail silently, which is why this raises rather than
         returning a default.
         """
@@ -117,9 +116,9 @@ class Expression:
 class Field(Expression):
     """A named datapoint in a namespace.
 
-    `namespace` is the surface it came from — `reference`, `market`,
-    `features` — and `dataset` narrows a feature to one `TYPE`, so two vendors
-    may both ship a field called `revenue` without collision.
+    `namespace` is the surface it came from (`reference`, `market`,
+    `features`, `actions`), and `dataset` narrows a feature to one `TYPE`, so
+    two vendors may both ship a field called `revenue` without collision.
 
     A `Field` is an `Expression` so it composes, but on its own it says
     nothing: comparing it is what produces something screenable.

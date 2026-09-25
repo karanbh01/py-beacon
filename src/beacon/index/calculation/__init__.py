@@ -1,10 +1,10 @@
 # src/beacon/index/calculation/__init__.py
 """
-The __init__.py for the 'index.calculation' package.
+The index calculator.
 
-Re-exports IndexCalculator, which composes constituent-selection,
-weighting, market-value, and corporate-action logic, and the selection result
-objects that carry the record of how a universe narrowed.
+Re-exports `IndexCalculator`, which composes constituent selection, weighting,
+market values, corporate actions, deletions and total-return reinvestment, and
+the selection result objects that record how a universe narrowed.
 """
 from .calculator import IndexCalculator
 from .selection import (

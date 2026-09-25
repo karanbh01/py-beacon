@@ -1,7 +1,10 @@
 # src/beacon/index/methodology.py
 """
-Module defining base classes and examples for index methodology rules,
-such as eligibility criteria and weighting schemes.
+Index methodology: eligibility rules and weighting schemes.
+
+`EligibilityRuleBase` and `WeightingSchemeBase` are the interfaces a rule or
+scheme implements. `MarketCapRule` and `LiquidityRule` screen constituents;
+`MarketCapWeighted` and `EqualWeighted` weight them.
 """
 import logging
 from abc import ABC, abstractmethod
@@ -126,31 +129,38 @@ def _rate_into(calculation_name: str,
 
 
 class EligibilityRuleBase(ABC):
-    """
-    Abstract base class for an eligibility rule.
-    Eligibility rules determine if an asset can be part of an index.
+    """Abstract base class for an eligibility rule.
+
+    Eligibility rules determine whether an asset can be part of an index.
+    Subclasses implement `is_eligible`, and may override `required_columns`
+    and `prepare`.
+
+    Args:
+        rule_name: The rule's name, used in logs and error messages.
     """
     def __init__(self,
                  rule_name: str):
         self.rule_name = rule_name
 
     def required_columns(self) -> frozenset[str]:
-        """The market-data columns this rule reads, declared up front (BN-217).
+        """The market-data columns this rule reads, declared up front.
 
         Checked against the dataset before a run does any work, so a store
-        with no SHARES_OUTSTANDING column is refused on day zero as "this rule
-        needs SHARES_OUTSTANDING and the dataset has none" -- rather than on
-        the first rebalance as "N0 has no SHARES_OUTSTANDING on 2024-01-02",
-        which is true, and sends a reader to inspect one company whose data is
-        fine.
+        with no SHARES_OUTSTANDING column is refused at the start as "this
+        rule needs SHARES_OUTSTANDING and the dataset has none", rather than
+        at the first rebalance as "N0 has no SHARES_OUTSTANDING on
+        2024-01-02", which is true, and sends a reader to inspect one company
+        whose data is fine.
 
         Empty by default rather than abstract, so a rule written outside this
         package keeps working. It is then simply not checked up front, and
-        fails where it always did -- at the first read -- with the message it
-        always had. Every rule shipped here declares its own.
+        fails at the first read instead. Every rule shipped here declares its
+        own.
         """
+        # The up-front column check is BN-217 (`beacon.index.requirements`).
         return frozenset()
 
+    # The prepare hook is BN-190.
     def prepare(self,  # noqa: B027 — an optional hook, not part of the interface
                 candidates: list[Asset],
                 current_date: pd.Timestamp,
@@ -159,17 +169,16 @@ class EligibilityRuleBase(ABC):
         """Read in one go whatever this rule is about to read per name.
 
         Called once with the whole candidate set before `is_eligible` is asked
-        about any of them. It decides nothing and returns nothing: a rule that
-        did no preparation must give exactly the answers it gives now, because
-        this is a hint about *how* to read rather than about *what* is
-        eligible. Doing nothing is therefore the right default, and it is the
-        base implementation (BN-190).
+        about any of them. It decides nothing and returns nothing: a rule must
+        give exactly the same answers whether or not it prepared, because this
+        is a hint about *how* to read rather than about *what* is eligible.
+        Doing nothing is therefore the right default, and it is the base
+        implementation.
 
-        It exists because the per-name shape is what made a universe expensive.
-        `is_eligible` is a predicate over one asset, so a rule reading market
-        data reads it a name at a time, and each read slices a frame whose size
-        is the whole store — the cost of one lookup growing with the universe
-        around it rather than with the row it wants.
+        It exists because `is_eligible` is a predicate over one asset, so a
+        rule reading market data reads it a name at a time, and each read
+        slices a frame whose size is the whole store: the cost of one lookup
+        grows with the universe around it rather than with the row it wants.
 
         Args:
             candidates: Everything that reached this rung, in order. A rule
@@ -209,6 +218,14 @@ class EligibilityRuleBase(ABC):
 
 # --- Example Eligibility Rules ---
 
+# BN-182: reading the exact date instead of resolving back excluded *every*
+# name on a closed day, so the universe emptied, the weighting was handed
+# nothing, and an index of no constituents computed a coherent level of zero.
+#
+# BN-188: the published help text always said the bounds were in the index
+# currency, while the code compared a name's local number against them, so a
+# 5bn floor admitted a name whose yen cap read 5.2bn and excluded a genuinely
+# larger one quoted in a strong currency.
 @register(SELECTION, "Market capitalisation",
           fields={
               "min_market_cap": Display("Minimum market cap", order=1,
@@ -223,35 +240,37 @@ class EligibilityRuleBase(ABC):
 class MarketCapRule(EligibilityRuleBase):
     """Eligibility by market capitalisation, read from a resolved session.
 
-    **Dates resolve backwards into the data (BN-182).** A weekend, a holiday
-    or any date inside the data's coverage that carries no bar is read at the
-    last session on or before it, because that is the universe the index
-    actually held through the closure. Reading the exact date instead
-    excluded *every* name on a closed day: the universe emptied, the weighting
-    was handed nothing, and an index of no constituents computed a coherent
-    level of zero.
+    The cap is price times shares outstanding, both read on the same session.
+    A name with no price or no positive share count on that session is
+    excluded (and logged as a warning).
 
-    That is the same resolution :class:`MarketCapWeighted` performs, through
-    the same primitive and by design. Selection running on one calendar and
-    weighting on another is two methodologies under one heading.
+    **Dates resolve backwards into the data.** A weekend, a holiday or any
+    date inside the data's coverage that carries no bar is read at the last
+    session on or before it, because that is the universe the index actually
+    held through the closure. This is the same resolution
+    :class:`MarketCapWeighted` performs, through the same primitive, so
+    selection and weighting cannot resolve a closed day differently.
 
-    **The bounds are in the index's currency, and now the arithmetic is too
-    (BN-188).** The published help text has always said so while the code
-    compared a name's local number against the bound, so a 5bn floor admitted
-    a name whose yen cap read 5.2bn and excluded a genuinely larger one quoted
-    in a strong currency. The cap is converted at the session's rate before it
-    meets either bound; a missing pair refuses rather than falling back to the
-    local figure.
-
-    Outside an index there is no context and so no currency to convert into,
-    and the bounds are then read in the asset's own. That is the only honest
-    answer to "over five billion of what?" when nobody has said — and it is
-    not a fallback inside an index, where the calculator always supplies one.
+    **The bounds are in the index's currency.** The cap is converted at the
+    session's rate before it meets either bound; a missing FX pair refuses
+    rather than falling back to the local figure. Outside an index there is no
+    context and so no currency to convert into, and the bounds are then read
+    in the asset's own currency. Inside an index the calculator always
+    supplies one.
 
     **Past the last bar it refuses rather than excluding.** A rule that cannot
     evaluate has not found the asset ineligible, it has failed, and the two
-    must not share an answer — "not in the index" is a published fact about a
+    must not share an answer: "not in the index" is a published fact about a
     name, while "the data does not reach that date" is a fact about the store.
+
+    Args:
+        min_market_cap: Lowest cap admitted, in the index currency. None for
+            no floor.
+        max_market_cap: Highest cap admitted, in the index currency. None for
+            no ceiling.
+
+    Raises:
+        ValueError: If *min_market_cap* is greater than *max_market_cap*.
     """
     def __init__(self,
                  min_market_cap: float | None = None,
@@ -273,13 +292,13 @@ class MarketCapRule(EligibilityRuleBase):
                 current_date: pd.Timestamp,
                 market_data_provider: DataFetcher,
                 context: IndexContext | None = None) -> None:
-        """Read the whole candidate set's session in one slice (BN-190).
+        """Read the whole candidate set's session in one slice.
 
         Every name this rule is about to be asked about is read on the same
         session, for the same two columns. Warming that session turns the
-        per-name reads below into dictionary lookups, and — because the
-        weighting scheme then reads the survivors on the same session — makes
-        the second pricing of every surviving name free.
+        per-name reads into dictionary lookups and, because the weighting
+        scheme then reads the survivors on the same session, makes the second
+        pricing of every surviving name free.
 
         Raises:
             CalculationError: If *current_date* lies outside the data's
@@ -307,7 +326,7 @@ class MarketCapRule(EligibilityRuleBase):
                 lies outside the data's coverage, or if the cap cannot be
                 converted into the index currency, so the rule cannot be
                 evaluated at all. Nothing here turns a failure into an
-                exclusion — see the class docstring.
+                exclusion (see the class docstring).
         """
         equity = require_equity(asset, self.rule_name,
                                 "be assessed for market-cap eligibility")
@@ -372,8 +391,23 @@ class MarketCapRule(EligibilityRuleBase):
                                        help="Trading days the averages are taken over."),
           })
 class LiquidityRule(EligibilityRuleBase):
-    """
-    Eligibility rule based on trading liquidity (e.g., average daily volume or value).
+    """Eligibility by trading liquidity: average daily volume or value.
+
+    The averages are taken over the last *lookback_days* rows of market data
+    on or before the date asked about. A name with fewer than 80% of that many
+    rows, or with the needed column missing or empty, is excluded (and logged
+    as a warning). Values are in the currency the name trades in, not
+    converted.
+
+    Args:
+        min_avg_daily_volume: Lowest average shares traded per day. None for
+            no volume floor.
+        min_avg_daily_value: Lowest average close times volume per day. None
+            for no value floor.
+        lookback_days: Trading days the averages are taken over.
+
+    Raises:
+        ValueError: If *lookback_days* is not positive.
     """
     def __init__(self,
                  min_avg_daily_volume: int | None = None,
@@ -391,11 +425,11 @@ class LiquidityRule(EligibilityRuleBase):
         """Volume for either threshold, and the close too for a value one.
 
         Declared from the thresholds actually set, because they read different
-        things. And declared at all because of what a missing VOLUME column
-        used to do here: `is_eligible` treats it as "not liquid enough" and
-        excludes the name, so a store without the column excluded **every**
-        name, and the run failed as "index holds nothing on its base date"
-        with no mention of volume anywhere. A reader loosened the threshold.
+        things. The declaration matters here: `is_eligible` treats a missing
+        VOLUME column as "not liquid enough" and excludes the name, so without
+        the up-front check a store lacking the column would exclude **every**
+        name and the run would fail as "index holds nothing on its base date"
+        with no mention of volume.
         """
         needed: set[str] = set()
 
@@ -418,13 +452,14 @@ class LiquidityRule(EligibilityRuleBase):
         ending at *current_date*, so a closed day is already spanned by the
         days around it rather than being the single day everything hangs on.
 
-        Errors are not caught (BN-182). A rule that throws has not said the
-        asset is ineligible, and the two answers must not be spelled the same.
+        Errors are not caught. A rule that throws has not said the asset is
+        ineligible, and the two answers must not be spelled the same.
 
         Raises:
             CalculationError: If *asset* is not an equity, so there is no
-                ticker to read volume against (BN-185).
+                ticker to read volume against.
         """
+        # Errors propagate since BN-182; the equity requirement is BN-185.
         equity = require_equity(asset, self.rule_name,
                                 "be assessed for liquidity")
 
@@ -492,9 +527,14 @@ class LiquidityRule(EligibilityRuleBase):
 
 
 class WeightingSchemeBase(ABC):
-    """
-    Abstract base class for a weighting scheme.
-    Weighting schemes determine the proportion of each constituent in an index.
+    """Abstract base class for a weighting scheme.
+
+    Weighting schemes determine the proportion of each constituent in an
+    index. Subclasses implement `calculate_weights`, and may override
+    `required_columns`.
+
+    Args:
+        scheme_name: The scheme's name, used in logs and error messages.
     """
     def __init__(self,
                  scheme_name: str):
@@ -506,7 +546,7 @@ class WeightingSchemeBase(ABC):
         The same contract as :meth:`EligibilityRuleBase.required_columns`, and
         derived from the scheme's own inputs where they change what it reads:
         a scheme's parameters *are* the declaration, so nothing asks a store
-        for a column the configured scheme does not use (BN-217).
+        for a column the configured scheme does not use.
         """
         return frozenset()
 
@@ -537,6 +577,11 @@ class WeightingSchemeBase(ABC):
 
 # --- Example Weighting Schemes ---
 
+# BN-179 removed the equal-weight fallback. BN-188: this used to weight
+# ``price x shares`` in whatever money the name traded in, so a yen name
+# entered the sum as though a thousand billion yen were a thousand billion
+# dollars, a fifteen-fold error on its own weight and a wrong weight on every
+# other constituent with it.
 @register(WEIGHTING, "Market capitalisation weighted",
           fields={
               "use_free_float": Display("Free-float adjusted", order=1,
@@ -544,14 +589,19 @@ class WeightingSchemeBase(ABC):
                                              "rather than by full market cap."),
           })
 class MarketCapWeighted(WeightingSchemeBase):
-    """Market capitalization weighting, optionally free-float adjusted.
+    """Market capitalisation weighting, optionally free-float adjusted.
 
-    **Every path either weights by real market caps or refuses (BN-179).**
-    There is no equal-weight fallback: an index that comes out equal-weighted
-    because the caps could not be read is not a degraded market-cap index, it
-    is a different index published under the same heading, and nothing
-    downstream looks wrong enough for anyone to ask — the levels are right,
-    the weights sum, the backtest tracks.
+    Each constituent's weight is its cap (price times shares outstanding,
+    times the free-float factor when *use_free_float* is set) over the sum of
+    all caps. A name is priced at its last close on or before the rebalance
+    session, and its shares, free float and FX rate are read on that same day.
+
+    **Every path either weights by real market caps or refuses.** There is no
+    equal-weight fallback: an index that comes out equal-weighted because the
+    caps could not be read is not a degraded market-cap index, it is a
+    different index published under the same heading, and nothing downstream
+    looks wrong enough for anyone to ask (the levels are right, the weights
+    sum, the backtest tracks).
 
     **Dates resolve backwards into the data.** A request for a weekend, a
     holiday, or any date inside the data's coverage that carries no bar reads
@@ -561,14 +611,16 @@ class MarketCapWeighted(WeightingSchemeBase):
     stale print presented as the current one. The bound is the data's own
     coverage, not a day count, which cannot tell those two apart.
 
-    **Caps are compared in one currency (BN-188).** This weighted
-    ``price x shares`` in whatever money the name traded in, so a yen name
-    entered the sum as though a thousand billion yen were a thousand billion
-    dollars — a fifteen-fold error on its own weight, and a wrong weight on
-    every other constituent with it. A universe spanning currencies is
-    converted into the index's before the caps are summed, and a missing pair
-    refuses; see :meth:`_target_currency` for why a universe quoted in one
-    currency needs no conversion at all.
+    **Caps are compared in one currency.** A universe spanning currencies is
+    converted into the index currency before the caps are summed, and a
+    missing FX pair refuses. A universe quoted in a single currency needs no
+    conversion at all, since converting every cap by the same rate cannot move
+    a weight. Called outside an index (no context) over several currencies,
+    it refuses, since there is no currency to compare in.
+
+    Args:
+        use_free_float: Weight by the freely traded portion of each cap
+            rather than the full cap. Requires a FREE_FLOAT column.
     """
     def __init__(self,
                  use_free_float: bool = False):
@@ -758,8 +810,11 @@ class MarketCapWeighted(WeightingSchemeBase):
         Raises:
             CalculationError: If *current_date* lies outside the data's
                 coverage, if any constituent is unpriceable, unconvertible or
-                is not an equity, or if the caps sum to nothing. Nothing here
-                falls back to another methodology — see the class docstring.
+                is not an equity, has no positive shares outstanding or (when
+                free-float adjusted) no usable free-float factor, if the
+                universe spans currencies with no context to compare them in,
+                or if the caps sum to nothing. Nothing here falls back to
+                another methodology (see the class docstring).
         """
         if not constituents:
             return {}
@@ -799,8 +854,9 @@ class MarketCapWeighted(WeightingSchemeBase):
 
 @register(WEIGHTING, "Equal weighted")
 class EqualWeighted(WeightingSchemeBase):
-    """
-    Equal weighting scheme.
+    """Equal weighting: every constituent gets ``1 / n``.
+
+    Reads no market data. An empty constituent list gets empty weights.
     """
     def __init__(self) -> None:
         super().__init__(scheme_name="EqualWeighted")

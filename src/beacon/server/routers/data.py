@@ -2,18 +2,19 @@
 """
 Data router: prices and reference data.
 
-Two endpoints from BN-65 are deliberately absent.
+There is no `/data/fundamentals` endpoint: fundamentals will be served by a
+general *features* endpoint covering any per-instrument datapoint that is
+neither reference data nor a corporate action and that can drive a backtest or
+an index rule. That endpoint is not designed yet.
 
-`/data/fundamentals` is dropped rather than deferred: fundamentals will be
-served by a general *features* endpoint covering any per-instrument datapoint
-that is neither reference data nor a corporate action and that can drive a
-backtest or an index rule. That endpoint is not designed yet.
-
-`/data/corporate-actions` is served since BN-98 added a history to the data
-layer. It returns the raw actions plus the aggregates that need the whole
-series — a trailing dividend, its yield, and the compounded split ratio — so a
-client does not reimplement the trailing window and get its boundary wrong.
+`/data/corporate-actions` returns the raw actions plus the aggregates that need
+the whole series (a trailing dividend, its yield, and the compounded split
+ratio), so a client does not reimplement the trailing window and get its
+boundary wrong.
 """
+# BN-65 specified both endpoints. Fundamentals was dropped rather than
+# deferred; corporate actions became servable once BN-98 added an action
+# history to the data layer.
 from typing import Annotated
 
 import pandas as pd
@@ -134,8 +135,8 @@ FieldsQuery = Annotated[
 CurrencyQuery = Annotated[
     str | None,
     Query(description="ISO code the converted money fields (market_cap, "
-                      "free_float_market_cap) are converted into, e.g. EUR — "
-                      f"name the index's currency to compare caps against its "
+                      "free_float_market_cap) are converted into, e.g. EUR. "
+                      f"Name the index's currency to compare caps against its "
                       f"weights. {DEFAULT_CURRENCY} by default. The "
                       "unconverted figures come back in market_cap_local and "
                       "free_float_market_cap_local regardless.")]
@@ -175,7 +176,7 @@ def _identifier_index(request: Request,
 
     The cache key is the index's own version, which is a fingerprint of the
     fetcher's refresh timestamps. A sync changes those, the fingerprint stops
-    matching, and the next request rebuilds — so a client's suggestions refresh
+    matching, and the next request rebuilds, so a client's suggestions refresh
     with the freshness event it already listens for, and no new invalidation
     mechanism is needed.
     """
@@ -472,17 +473,20 @@ def build_data_router() -> APIRouter:
         """One instrument's reference record, stored and derived.
 
         `fields` and `currency` are honoured on the same terms as the batch
-        form: a parameter one of the two accepts and the other ignores is the
-        drift BN-149 closed here once already. Before it, `fields` was
-        accepted and ignored, so `market_cap` came back empty from here and
-        populated from `/data/reference` -- a parameter that looks supported
-        while doing nothing, which is the failure a client cannot diagnose.
+        form `/data/reference`, so a derived field such as `market_cap` comes
+        back the same from either.
 
-        Universe memberships are answered here and not there: they were not
-        answerable when this endpoint was written, because no universe could
-        be created through the API and none was seeded, so the answer was
-        always "none". BN-132 changed that.
+        Universe memberships are answered here and not by the batch form.
         """
+        # BN-149: before it, `fields` was accepted and ignored here, so
+        # `market_cap` came back empty from here and populated from
+        # `/data/reference` -- a parameter that looks supported while doing
+        # nothing, which is the failure a client cannot diagnose. A parameter
+        # one form accepts and the other ignores is that drift again.
+        #
+        # Memberships were not answerable when this endpoint was written (no
+        # universe could be created through the API and none was seeded, so
+        # the answer was always "none"). BN-132 changed that.
         fetcher = _data_fetcher(request)
         requested = parse_list(fields) if fields else None
 
@@ -665,14 +669,16 @@ def build_data_router() -> APIRouter:
         """One page of a stored dataset, optionally narrowed to some names.
 
         `identifiers` is the only filter, and it exists because one
-        instrument's *history* -- its feature rows, its actions -- was
-        otherwise reachable only by paging the whole table and filtering
-        client-side, which is 964k rows to find a few dozen (BN-150).
+        instrument's *history* (its feature rows, its actions) would otherwise
+        be reachable only by paging the whole table and filtering client-side,
+        which can be close to a million rows to find a few dozen.
 
         Still no sorting or predicate parameters. A client needing those wants
         a query language, and this is the wrong place to grow one -- the
         per-identifier endpoints and the expression API cover the rest.
         """
+        # The `identifiers` filter is BN-150's: without it, one instrument's
+        # history meant paging 964k rows to find a few dozen.
         frame = _table_frame(_data_fetcher(request), dataset)
         wanted = parse_identifiers(identifiers) if identifiers else None
 
