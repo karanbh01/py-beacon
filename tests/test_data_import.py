@@ -5,6 +5,7 @@ The layout (`beacon.data.layout`) is shared with Postgres stores, so these
 checks are the checks every source of a user's own data gets.
 """
 import io
+import time
 import zipfile
 
 import pandas as pd
@@ -97,6 +98,17 @@ class TestLoading:
 
 
 class TestTheTemplate:
+
+    @pytest.mark.parametrize("fmt", ["xlsx", "csv"])
+    def test_it_is_the_same_bytes_whenever_it_is_made(self,
+                                                      fmt):
+        """No write time inside it, so two downloads either side of a
+        second boundary (as CI hit) are identical. The wait is real: the
+        zip and the workbook each read the clock their own way."""
+        first = importing.template(fmt)
+        time.sleep(1.1)
+
+        assert importing.template(fmt) == first
 
     def test_the_excel_template_loads_as_it_is(self,
                                                tmp_path):

@@ -18,6 +18,7 @@ sheet, row and column, so the files can be fixed in one pass.
 zip of CSV files.
 """
 import io
+import re
 import zipfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -32,6 +33,12 @@ from .layout import DataImportError
 __all__ = ["DataImportError", "load_files", "read", "template"]
 
 EXCEL_SUFFIXES = (".xlsx", ".xlsm")
+
+# The date every template file carries, so a template is the same bytes
+# whenever it is made.
+FIXED_DATE_TIME = (2020, 1, 1, 0, 0, 0)
+FIXED_TIMESTAMP = "2020-01-01T00:00:00Z"
+TIMESTAMP = re.compile(rb"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 CSV_SUFFIX = ".csv"
 TEMPLATE_FORMATS = ("xlsx", "csv")
 
@@ -138,7 +145,31 @@ def template(fmt: str = "xlsx") -> bytes:
         raise ValueError(f"'{fmt}' is not a template format. Use one of "
                          f"{', '.join(TEMPLATE_FORMATS)}.")
 
-    return buffer.getvalue()
+    return _without_timestamps(buffer.getvalue())
+
+
+def _without_timestamps(archive: bytes) -> bytes:
+    """The same zip (an .xlsx is one) with every timestamp fixed.
+
+    Both formats would otherwise carry the moment they were written, in each
+    entry's date and in the workbook's created and modified properties, so
+    two downloads of the same template would differ.
+    """
+    fixed = io.BytesIO()
+
+    with (zipfile.ZipFile(io.BytesIO(archive)) as source,
+          zipfile.ZipFile(fixed, "w", zipfile.ZIP_DEFLATED) as target):
+        for entry in source.infolist():
+            content = source.read(entry.filename)
+
+            if entry.filename == "docProps/core.xml":
+                content = TIMESTAMP.sub(FIXED_TIMESTAMP.encode(), content)
+
+            target.writestr(zipfile.ZipInfo(entry.filename,
+                                            date_time=FIXED_DATE_TIME),
+                            content, compress_type=zipfile.ZIP_DEFLATED)
+
+    return fixed.getvalue()
 
 
 def _read_one(path: Path) -> dict[str, pd.DataFrame]:
