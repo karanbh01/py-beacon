@@ -289,18 +289,19 @@ class TestGetReturns:
     def test_returns_series(self):
         r = _make_result()
         returns = r.get_returns()
-        assert len(returns) == 4  # 5 NAV values -> 4 returns
-        expected_first = (10100 / 10000) - 1
-        assert returns.iloc[0] == pytest.approx(expected_first)
+        assert len(returns) == 5  # one per simulated day
+        assert returns.iloc[1] == pytest.approx((10100 / 10000) - 1)
 
-    def test_the_day_zero_row_is_not_a_return(self):
-        """The eve row records what the run started with; treating it as a
-        traded day would add a synthetic first return and move every
-        annualised metric."""
+    def test_the_first_return_runs_from_the_initial_capital(self):
+        """So the cost of the opening trades is in every metric. The eve row
+        itself is the starting point, not a return of its own."""
         r = _make_result()
+        returns = r.get_returns()
 
         assert len(r.portfolio.nav) == 6
-        assert len(r.get_returns()) == 4
+        assert returns.index[0] == r.trading_nav.index[0]
+        assert returns.iloc[0] == pytest.approx(
+            r.trading_nav.iloc[0] / r.portfolio.initial_capital - 1)
 
     def test_empty_nav(self):
         r = _make_result(nav_values=[])
@@ -665,3 +666,44 @@ class TestBacktestResultAssetIntegration:
         assert view.total_cost() == pytest.approx(2.0)
         assert not view.target_weight_series().empty
         assert not view.slippage_vs_target().empty
+
+
+class TestTheOpeningTradesCost:
+    """The cost of buying in on the first day is in the tracking figures."""
+
+    @staticmethod
+    def run(cost_bps: float):
+        from beacon.backtest import Backtest
+        from beacon.index.constructor import IndexDefinition
+        from beacon.index.methodology import MarketCapWeighted
+        from beacon.testing import dataset
+
+        definition = IndexDefinition(
+            index_id="SAMPLE", index_name="Sample", base_date="2023-01-03",
+            base_value=1000.0, currency="USD", eligibility_rules=[],
+            weighting_scheme=MarketCapWeighted(),
+            rebalancing_frequency="QUARTERLY", calendar="XNYS",
+            universe_identifiers=["AAA", "BBB", "CCC", "DDD", "EEE"])
+
+        return Backtest(initial_capital=1_000_000.0,
+                        transaction_cost_bps=cost_bps,
+                        data_provider=dataset.data_fetcher()).run(
+            definition, start="2023-01-03", end="2023-06-30")
+
+    def test_it_is_the_whole_return_against_the_whole_index_move(self):
+        result = self.run(50.0)
+        nav = result.trading_nav
+        levels = result.index.tracked.levels
+
+        expected = (nav.iloc[-1] / result.portfolio.initial_capital
+                    - levels.iloc[-1] / levels.iloc[0])
+
+        assert result.get_tracking_difference() == pytest.approx(expected)
+
+    def test_a_run_with_costs_trails_its_index(self):
+        assert self.run(50.0).get_tracking_difference() < 0.0
+
+    def test_at_zero_cost_the_first_day_adds_nothing(self):
+        result = self.run(0.0)
+
+        assert result.get_returns().iloc[0] == pytest.approx(0.0, abs=1e-12)

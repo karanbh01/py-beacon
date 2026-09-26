@@ -136,8 +136,8 @@ consistently the fund follows the index rather than how far it falls behind.
 `etf.get_tracking_performance(result)` returns both as a dict, taken from the
 result's `get_tracking_difference()` and `get_tracking_error()`. These compare
 the backtest's **gross** NAV with the index, so they include trading costs
-and partial fills but not the management fee. They also start from the NAV
-after the first day's purchase, so the opening trade's cost is left out (see
+and partial fills but not the management fee. They start from the initial
+capital, so the opening trade's cost is in them (see
 [Reading the result](backtest.md#reading-the-result)). A result that tracked
 no index gives `{"error": ...}` instead.
 

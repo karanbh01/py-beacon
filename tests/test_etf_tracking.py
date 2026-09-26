@@ -105,14 +105,18 @@ class TestGetTrackingPerformance:
         assert isinstance(perf["tracking_difference"], float)
 
     def test_matches_etf_analytics_implementation(self):
-        """New BacktestResult-based path must equal the old ETFAnalytics path."""
+        """The result's figures equal the ETFAnalytics functions on the same
+        returns."""
         nav, levels = _make_nav_and_levels()
         result = _make_backtest_result(nav, levels)
         perf = _make_etf().get_tracking_performance(result)
 
-        # Reproduce the previous implementation's inputs: aligned periodic returns.
-        etf_returns = nav.pct_change().dropna()
-        index_returns = levels.pct_change().dropna()
+        # The same inputs built independently: the fund's returns from its
+        # initial capital (100), the index's from its first level (a zero
+        # return on the first day).
+        etf_returns = nav.pct_change()
+        etf_returns.iloc[0] = nav.iloc[0] / 100.0 - 1
+        index_returns = levels.pct_change().fillna(0.0)
         aligned = pd.DataFrame({"etf": etf_returns, "idx": index_returns}).dropna()
 
         analytics = ETFAnalytics()

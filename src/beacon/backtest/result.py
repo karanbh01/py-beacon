@@ -29,9 +29,10 @@ somebody last idly compared against.
 ## Day zero and the trading NAV
 
 The portfolio's NAV opens with initial capital on the eve of the first
-trading day. Metrics, the fund's fee accrual and the current wire format all
-derive from :attr:`trading_nav`, the same series with that opening row
-dropped.
+trading day. :attr:`trading_nav` is the same series with that opening row
+dropped, and the fund's fee accrual and the wire format read it. The return
+metrics start from the initial capital instead: the first day's return runs
+from the capital to the first close, so the cost of buying in counts.
 """
 # BN-154 removed the old flat fields (`portfolio_nav`, `cash_history`,
 # `actual_weight_history`, the `portfolio_id` alias) in favour of books.
@@ -342,24 +343,40 @@ class BacktestResult:
         return relative_metrics(self.trading_nav, _levels_of(other))
 
     def get_returns(self) -> pd.Series:
-        """Derive a return series from portfolio NAV.
+        """The portfolio's daily returns.
+
+        The first runs from the initial capital to the first day's close, so
+        it carries the cost of the opening trades; each later one is from one
+        close to the next.
 
         Returns:
-            pd.Series: Percentage returns (first entry is dropped).
+            pd.Series: Returns by date, one per simulated day.
         """
         nav = self.trading_nav
 
         if nav.empty:
             return pd.Series(dtype=float)
 
-        return nav.pct_change().dropna()
+        returns = nav.pct_change()
+        initial = self.portfolio.initial_capital
+
+        # BN-246: the first return used to be dropped, so the cost of buying
+        # in on day one never reached any metric.
+        if initial > 0:
+            returns.iloc[0] = nav.iloc[0] / initial - 1.0
+
+            return returns
+
+        return returns.dropna()
 
     def get_tracking_error(self) -> float | None:
         """Calculate annualised tracking error against the tracked index.
 
         Tracking error is the standard deviation of the difference between
         daily portfolio returns and index returns on their common dates,
-        annualised by the square root of 252.
+        annualised by the square root of 252. The first day compares the
+        portfolio's return from its initial capital (the opening trades'
+        cost) with the index's return of zero from its starting level.
 
         Returns:
             float or None: Annualised tracking error, or None if the run
@@ -370,7 +387,7 @@ class BacktestResult:
             return None
 
         port_returns = self.get_returns()
-        index_returns = tracked.returns
+        index_returns = _from_start(tracked.levels)
 
         # Align on common dates
         aligned = pd.DataFrame({
@@ -387,9 +404,10 @@ class BacktestResult:
     def get_tracking_difference(self) -> float | None:
         """Calculate cumulative tracking difference against the tracked index.
 
-        Tracking difference is the difference between the cumulative
-        portfolio return and the cumulative index return over the
-        full backtest period.
+        Tracking difference is the portfolio's cumulative return, from its
+        initial capital, less the index's cumulative return, from its level on
+        the first day, over the whole run. The cost of the opening trades is
+        in it.
 
         Returns:
             float or None: Tracking difference, or None if the run tracked
@@ -400,7 +418,7 @@ class BacktestResult:
             return None
 
         port_returns = self.get_returns()
-        index_returns = tracked.returns
+        index_returns = _from_start(tracked.levels)
 
         if port_returns.empty or index_returns.empty:
             return None
@@ -443,8 +461,12 @@ class BacktestResult:
         # Sharpe ratio (assumes risk-free rate = 0)
         sharpe_ratio = float(annualised_return / volatility) if volatility > 0 else 0.0
 
-        # Max drawdown
+        # Max drawdown, from the initial capital, so a fall on the first day
+        # (the cost of buying in, say) counts.
         if not nav.empty:
+            if initial > 0:
+                nav = pd.concat([pd.Series([initial]), nav], ignore_index=True)
+
             cumulative_max = nav.cummax()
             drawdown = (nav - cumulative_max) / cumulative_max
             max_drawdown = float(drawdown.min())
@@ -479,6 +501,20 @@ class BacktestResult:
             f"index={self.index.tracked is not None}, "
             f"benchmark={self.benchmark is not None}, data_bound={bound})"
         )
+
+
+def _from_start(levels: pd.Series) -> pd.Series:
+    """Daily returns of a level series, the first day's being zero.
+
+    The index starts at its level on the first day, so its return that day is
+    nothing; the portfolio's first return, from its capital, lines up with it.
+    """
+    returns = levels.pct_change()
+
+    if not returns.empty:
+        returns.iloc[0] = 0.0
+
+    return returns.dropna()
 
 
 def _levels_of(other: Comparable) -> pd.Series:

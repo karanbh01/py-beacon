@@ -209,7 +209,7 @@ fields. Each comparator is a `Book` with the same surface: `levels`,
 | Attribute | What it holds |
 |---|---|
 | `result.portfolio` | The simulated `Portfolio`, frozen: `nav`, `cash`, `positions`, `weights`, `transactions`, `initial_capital` |
-| `result.trading_nav` | `portfolio.nav` without its opening row (initial capital on the eve of the first trading day). Every metric uses this. |
+| `result.trading_nav` | `portfolio.nav` without its opening row (initial capital on the eve of the first trading day): one row per simulated day. |
 | `result.index.target` | The calculated index being aimed at. Its `source` is the `IndexResult`. |
 | `result.index.optimised` | The optimised index's own calculation, on an optimised run; otherwise `None` |
 | `result.index.tracked` | The book the engine traded toward: `optimised` if present, else `target` |
@@ -233,12 +233,11 @@ over 252 periods. `get_tracking_error()` is the annualised standard deviation
 of daily NAV returns minus `index.tracked` returns; `get_tracking_difference()`
 is the cumulative NAV return minus the cumulative index return.
 
-The tracking metrics, volatility and maximum drawdown are computed from
-`trading_nav`, which starts at the end of the first day, after the opening
-purchase. The cost of that purchase is therefore not in them, and with costs
-on, the tracking difference can come out slightly positive. `total_return`
-and `annualised_return` are measured from the initial capital and do include
-it.
+Every metric starts from the initial capital. `get_returns()` has one return
+per simulated day, and the first runs from the capital to the first day's
+close, so the cost of the opening trades is in the tracking metrics,
+volatility and maximum drawdown, as it is in `total_return`. On that first day
+the index's return is zero, since it starts at its base level.
 
 `result.against(other)` compares the NAV with any other result, book,
 `IndexResult` or level series and returns excess return, tracking error, beta
