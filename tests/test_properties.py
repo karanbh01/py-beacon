@@ -695,10 +695,12 @@ class TestReturnLevelRoundTrip:
 
         result = BacktestResult(portfolio=portfolio)
 
+        # One return per day, the first from the initial capital, so the
+        # capital compounded by them reproduces every day's NAV.
         returns = result.get_returns()
-        recompounded = nav.iloc[0] * (1.0 + returns).cumprod()
+        recompounded = portfolio.initial_capital * (1.0 + returns).cumprod()
 
-        for original, rebuilt in zip(nav.iloc[1:], recompounded, strict=True):
+        for original, rebuilt in zip(nav, recompounded, strict=True):
             assert math.isclose(original, rebuilt, rel_tol=1e-9)
 
 

@@ -3,7 +3,8 @@
 Backtest job body and result assembly.
 
 Everything reported here derives from a single canonical series (the
-portfolio NAV, rebased to 100), so the payload is internally consistent by
+portfolio NAV from its initial capital, rebased to 100), so the payload is
+internally consistent by
 construction rather than by coincidence. A client that recomputes drawdown
 from the level series, or compounds the annual returns, must land back on the
 numbers the server sent; if those were computed independently they would drift
@@ -62,6 +63,15 @@ def _drawdown(level: pd.Series) -> pd.Series:
     return level / level.cummax() - 1.0
 
 
+def _nav_from_capital(result: BacktestResult) -> pd.Series:
+    """The NAV with its opening row: the initial capital on the eve of the
+    first day, then one value per simulated day. The metrics start from the
+    same point, so every series here agrees with them."""
+    nav = result.portfolio.nav
+
+    return nav if len(nav) > len(result.trading_nav) else result.trading_nav
+
+
 def annual_returns(level: pd.Series) -> dict[str, float]:
     """Calendar-year returns that compound exactly to the total.
 
@@ -69,6 +79,9 @@ def annual_returns(level: pd.Series) -> dict[str, float]:
     product of (1 + r) telescopes to ``last / first - 1``. Defining them any
     other way (from the first observation *within* each year, say) leaves a
     gap over each year boundary and the compounded total no longer matches.
+    The first observation is the starting point, not a year of its own: a
+    run that starts on 2 January begins from the capital held on the eve,
+    which may fall in the year before.
 
     Args:
         level: The level series, indexed by date.
@@ -79,7 +92,8 @@ def annual_returns(level: pd.Series) -> dict[str, float]:
     if level.empty:
         return {}
 
-    closes = level.groupby(level.index.year).last()
+    later = level.iloc[1:]
+    closes = later.groupby(later.index.year).last()
     returns: dict[str, float] = {}
     previous = level.iloc[0]
 
@@ -125,7 +139,7 @@ def assemble_result(result: BacktestResult,
         BacktestRunResult: Level, returns, drawdown, annual returns, the
         tracked index and metrics, all derived from the same NAV series.
     """
-    level = _rebase(result.trading_nav)
+    level = _rebase(_nav_from_capital(result))
     returns = level.pct_change().dropna()
 
     return BacktestRunResult(

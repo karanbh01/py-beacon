@@ -219,7 +219,8 @@ class TestResultConsistency:
 
     def test_annual_returns_cover_every_year_in_the_series(self,
                                                            result):
-        years = {label[:4] for label in result["level"]["index"]}
+        # The first point is the starting capital, not a year of its own.
+        years = {label[:4] for label in result["level"]["index"][1:]}
 
         assert set(result["annual_returns"]) == years
 
@@ -265,7 +266,10 @@ class TestSeriesShape:
 
     def test_index_is_iso_dates(self,
                                 result):
-        assert result["level"]["index"][0].startswith("2023-10")
+        """The first point is the initial capital on the eve of the first
+        trading day (a Friday here), then one per simulated day."""
+        assert result["level"]["index"][0].startswith("2023-09-29")
+        assert result["level"]["index"][1].startswith("2023-10-02")
 
     def test_tracking_metrics_are_present(self,
                                           result):
