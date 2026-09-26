@@ -27,7 +27,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 ### Changed
 
 - A backtest's return metrics start from its initial capital: `get_returns()` has one return per simulated day, the first from the capital to the first close. The tracking difference, tracking error, volatility and drawdown now include the cost of the opening trades, which they used to leave out, so a run with costs no longer shows a positive tracking difference for that reason.
-- A backtest result from the engine (`level`, `returns`, `drawdown`, `annual_returns`) starts from the initial capital too: `level` opens with a point at 100 on the eve of the first trading day, then one per simulated day, so every series agrees with the metrics.
+- In a backtest result from the engine, `returns`, `drawdown` and `annual_returns` start from the initial capital too, so they agree with the metrics. `returns` now has one value per day of `level`, the first from the capital to the first close. `level` is unchanged.
 - `POST /data/coverage/{dataset}/sync` is deprecated. It now refreshes the store being served from that store's own source, and no longer downloads from Yahoo Finance unless the store chose it. Its body is ignored, and its job is a `refresh:{store_id}` job. Use `POST /data/stores/{id}/refresh`.
 - A request that needs data when none is loaded now answers 409 `NO_DATA_LOADED`, saying what could not be done. It answered 500 `CONFIGURATION_ERROR` before.
 - `/health` says which store is being served and whether one is loading.

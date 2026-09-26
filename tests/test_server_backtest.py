@@ -182,12 +182,16 @@ class TestResultConsistency:
 
     def test_level_compounds_exactly_from_the_returns(self,
                                                       result):
+        """The first return runs from the initial capital to the first day,
+        so compounding starts from the capital, one step before `level`."""
         level = result["level"]["data"]
         returns = result["returns"]["data"]
 
-        rebuilt = [level[0]]
+        rebuilt = []
+        value = level[0] / (1 + returns[0])
         for period_return in returns:
-            rebuilt.append(rebuilt[-1] * (1 + period_return))
+            value *= 1 + period_return
+            rebuilt.append(value)
 
         assert len(rebuilt) == len(level)
         for expected, actual in zip(level, rebuilt, strict=True):
@@ -219,8 +223,7 @@ class TestResultConsistency:
 
     def test_annual_returns_cover_every_year_in_the_series(self,
                                                            result):
-        # The first point is the starting capital, not a year of its own.
-        years = {label[:4] for label in result["level"]["index"][1:]}
+        years = {label[:4] for label in result["level"]["index"]}
 
         assert set(result["annual_returns"]) == years
 
@@ -260,16 +263,15 @@ class TestSeriesShape:
                                              result):
         assert result["index_level"]["data"][0] == pytest.approx(100.0)
 
-    def test_returns_is_one_shorter_than_level(self,
-                                               result):
-        assert len(result["returns"]["data"]) == len(result["level"]["data"]) - 1
+    def test_there_is_a_return_for_every_day(self,
+                                             result):
+        """The first is from the initial capital to the first close."""
+        assert result["returns"]["index"] == result["level"]["index"]
+        assert result["drawdown"]["index"] == result["level"]["index"]
 
     def test_index_is_iso_dates(self,
                                 result):
-        """The first point is the initial capital on the eve of the first
-        trading day (a Friday here), then one per simulated day."""
-        assert result["level"]["index"][0].startswith("2023-09-29")
-        assert result["level"]["index"][1].startswith("2023-10-02")
+        assert result["level"]["index"][0].startswith("2023-10")
 
     def test_tracking_metrics_are_present(self,
                                           result):
@@ -292,6 +294,25 @@ class TestSeriesShape:
 
         assert (costly["metrics"]["total_return"]
                 < free["metrics"]["total_return"])
+
+    def test_with_costs_the_series_agree_with_the_metrics(self,
+                                                          module_client):
+        """The first day's return is the opening trades' cost, and the
+        returns, drawdown and annual returns all start from the capital, as
+        the metrics do."""
+        run = run_backtest(module_client, transaction_cost_bps=100.0)
+        returns = pd.Series(run["returns"]["data"])
+        metrics = run["metrics"]
+
+        compounded = math.prod(1 + value for value in run["annual_returns"].values())
+
+        assert run["returns"]["data"][0] < 0.0
+        assert math.isclose(float(returns.std() * math.sqrt(252)),
+                            metrics["volatility"], rel_tol=1e-9)
+        assert math.isclose(compounded - 1.0, metrics["total_return"],
+                            rel_tol=1e-9)
+        assert math.isclose(min(run["drawdown"]["data"]),
+                            metrics["max_drawdown"], rel_tol=1e-9)
 
 
 class TestProgressOverTheSocket:

@@ -3,8 +3,8 @@
 Backtest job body and result assembly.
 
 Everything reported here derives from a single canonical series (the
-portfolio NAV from its initial capital, rebased to 100), so the payload is
-internally consistent by
+portfolio NAV from its initial capital), so the payload is internally
+consistent by
 construction rather than by coincidence. A client that recomputes drawdown
 from the level series, or compounds the annual returns, must land back on the
 numbers the server sent; if those were computed independently they would drift
@@ -139,14 +139,20 @@ def assemble_result(result: BacktestResult,
         BacktestRunResult: Level, returns, drawdown, annual returns, the
         tracked index and metrics, all derived from the same NAV series.
     """
-    level = _rebase(_nav_from_capital(result))
-    returns = level.pct_change().dropna()
+    # `level` is the run's own days, rebased to 100 on the first: the views
+    # read its dates as the run's window. The other series start from the
+    # initial capital (BN-246), as the metrics do, so the first day's return
+    # carries the cost of the opening trades.
+    level = _rebase(result.trading_nav)
+    from_capital = _rebase(_nav_from_capital(result))
+    opening = len(from_capital) - len(level)
+    returns = from_capital.pct_change().dropna()
 
     return BacktestRunResult(
         level=SeriesPayload.from_series(level),
         returns=SeriesPayload.from_series(returns),
-        drawdown=SeriesPayload.from_series(_drawdown(level)),
-        annual_returns=annual_returns(level),
+        drawdown=SeriesPayload.from_series(_drawdown(from_capital).iloc[opening:]),
+        annual_returns=annual_returns(from_capital),
         index_level=SeriesPayload.from_series(_rebase(index_result.index_levels)),
         metrics=_metrics(result),
         benchmark=benchmark,
