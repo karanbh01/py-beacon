@@ -32,6 +32,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Fixed
 
+- `IndexFund.calculate_nav` keeps the fund's trading cost when it extends a run to a later date. It used to re-run at zero cost.
 - A split, reverse split or stock dividend no longer moves an index level or a backtest's NAV. On the ex-date the units or shares held change by the ratio, as the price does. Before, a split between rebalances cut the level and NAV by the split, including in synthetic data, which splits every year.
 - A constituent delisted the session before a rebalance no longer takes its weight out of the index level. It leaves first, as on any other day.
 - `SelectionResult.excluded_by` names the right step when prices go stale. With stale names dropped, it credited each exclusion to the step before it, and a stale name to the last rule.

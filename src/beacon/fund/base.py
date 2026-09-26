@@ -79,6 +79,11 @@ class IndexFund:
         self._index_result: IndexResult | None = None
         self._backtest_result: BacktestResult | None = None
 
+        # The settings of the last run, which a run extended to a later date
+        # keeps (BN-247): it used to re-run at zero cost from the base date.
+        self._start_date: str | None = None
+        self._transaction_cost_bps: float = 0.0
+
     # ------------------------------------------------------------------
     # Composed pipeline
     # ------------------------------------------------------------------
@@ -131,6 +136,9 @@ class IndexFund:
             f"'{self.target_index_definition.index_name}' from {start} to {end_date}."
         )
 
+        self._start_date = start_date
+        self._transaction_cost_bps = transaction_cost_bps
+
         backtest = Backtest(initial_capital=self.portfolio.cash_balance,
                             transaction_cost_bps=transaction_cost_bps,
                             price_column=self.index_agent.price_column,
@@ -156,10 +164,12 @@ class IndexFund:
 
         Thin wrapper that ensures the composed calculator + engine pipeline has
         been run through *current_date*: if the cached run does not reach that
-        date, the backtest is re-run from the index's base date. Nothing is
-        run for a date before the base date. All weight computation is delegated to
-        the :class:`IndexCalculator` and all trading to the
-        :class:`BacktestEngine`; this class performs no buy/sell logic itself.
+        date, the backtest is run again to it, with the start date and
+        transaction cost of the last run (or from the base date at no cost if
+        there has been none). Nothing is run for a date before the base date.
+        All weight computation is delegated to the :class:`IndexCalculator`
+        and all trading to the :class:`BacktestEngine`; this class performs no
+        buy/sell logic itself.
 
         Args:
             current_date: The date through which to simulate.
@@ -178,7 +188,9 @@ class IndexFund:
         if nav is not None and not nav.empty and nav.index[-1] >= through_date:
             return  # Cached result already covers the requested date.
 
-        self.run_backtest(end_date=through_date.strftime('%Y-%m-%d'))
+        self.run_backtest(start_date=self._start_date,
+                          end_date=through_date.strftime('%Y-%m-%d'),
+                          transaction_cost_bps=self._transaction_cost_bps)
 
     # ------------------------------------------------------------------
     # NAV

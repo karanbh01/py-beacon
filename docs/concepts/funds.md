@@ -66,7 +66,10 @@ The constructor arguments, and what the fund does with each:
 from the index's base date unless told otherwise, and requires `end_date`.
 The trading cost is separate from the management fee. The result is kept on
 the fund as `backtest_result`, and the index calculation it tracked as
-`index_result`.
+`index_result`. When `calculate_nav` or `rebalance_to_index` asks for a date
+the stored run does not reach, the fund runs again to that date with the
+start date and trading cost of its last run (from the base date at no cost if
+it has not run yet).
 
 The `Backtest` a fund builds uses the defaults for everything the fund does
 not pass: the book is kept in **USD** whatever the index's currency, there

@@ -250,6 +250,19 @@ class TestIndexFundNav:
         assert nav > 0
         assert index_fund.backtest_result is not None
 
+    def test_extending_a_run_keeps_its_trading_cost(self,
+                                                    index_fund):
+        """Asking for a NAV past the stored run re-runs to that date with the
+        same cost, rather than silently at zero."""
+        index_fund.run_backtest(end_date="2024-02-15", transaction_cost_bps=50.0)
+
+        index_fund.calculate_nav(pd.Timestamp(END_DATE))
+        extended = index_fund.backtest_result
+
+        assert extended.trading_nav.index[-1] > pd.Timestamp("2024-02-15")
+        assert all(trade.transaction_cost > 0
+                   for trade in extended.portfolio.transactions)
+
     def test_nav_before_base_date_returns_seed_capital(self,
                                                        index_fund):
         assert index_fund.calculate_nav(pd.Timestamp("2023-12-01")) == INITIAL_CAPITAL
