@@ -297,7 +297,7 @@ delists gets its end date, a dividend whose pay date arrives becomes paid, and
 next earnings dates move forward.
 
 The same store extended to the same date always gives the same data. A store
-generated before py-beacon 0.1.2 cannot be extended, because it lacks the
+generated before py-beacon 0.2.0 cannot be extended, because it lacks the
 generator settings saved beside the data; generate a new one.
 
 ## Reading the data

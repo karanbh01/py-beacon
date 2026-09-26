@@ -8,9 +8,12 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-26
+
 ### Added
 
 - Documentation at https://pybeacon.dev: a guide to each part of py-beacon (data, universes, methodology, expressions, backtests, funds, derivatives, the optimiser, risk, attribution, charts, reports and the server), and a complete Python reference. Every example in it runs.
+- The engine can start without any data and load a store later. Loading runs as a job with progress, and the event socket announces `data.loaded` when the new data is being served.
 - Named data stores. Register a data folder under a name you choose, see every store at `GET /data/stores`, and switch which one the engine serves. The engine remembers the active store and serves it again on the next start.
 - Generate synthetic data from the engine: `POST /data/synthetic` creates a new store with the size, dates and seed you choose (end date defaulting to today), and serves it when it is ready. It runs as a job with progress, and gives exactly the same data as `python -m beacon.synthetic` with the same settings.
 - `python -m beacon.synthetic --progress` prints a line at each stage, for a program running it.
@@ -20,7 +23,6 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - Refresh a store from its own source: `POST /data/stores/{id}/refresh` extends synthetic data to today, reads a folder or database again, and saves what changes. If the store is being served, the engine serves the refreshed data. Each store in `GET /data/stores` says what a refresh would do.
 - A folder store can choose to refresh from Yahoo Finance instead (`refresh_from`), which downloads new prices and saves them into the folder. It is never the default.
 - A data store can be a Postgres database. Give it tables or views named `market`, `reference`, and optionally `fx`, `corporate_actions` and `features`, with the import template's columns; views over your own tables work. The engine only reads, over a read-only connection, and checks every row as an import does. The password is never stored: name an environment variable that holds it. Needs the new `postgres` extra.
-- The engine can start without any data and load a store later. Loading runs as a job with progress, and the event socket announces `data.loaded` when the new data is being served.
 
 ### Changed
 
@@ -74,6 +76,7 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/karanbh01/py-beacon/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/karanbh01/py-beacon/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/karanbh01/py-beacon/releases/tag/v0.1.0

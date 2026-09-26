@@ -139,7 +139,7 @@ class TestWhatARefreshWouldDo:
 
         assert store["refresh"] is None
         assert response.status_code == 409
-        assert "before py-beacon 0.1.2" in response.json()["error"]["message"]
+        assert "before py-beacon 0.2.0" in response.json()["error"]["message"]
 
     def test_imported_files_have_nothing_to_refresh(self,
                                                     client,

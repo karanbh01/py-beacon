@@ -307,7 +307,7 @@ def refresh_plan(record: dict[str, Any]) -> tuple[RefreshAction | None, str]:
             return "extend", ""
 
         return None, (f"'{record['name']}' was generated before py-beacon "
-                      f"0.1.2 and cannot be extended. Generate new synthetic "
+                      f"0.2.0 and cannot be extended. Generate new synthetic "
                       f"data instead.")
 
     if record.get("refresh_from") == "yfinance":

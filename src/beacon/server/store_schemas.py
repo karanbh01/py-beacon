@@ -157,7 +157,7 @@ class DataStore(BaseModel):
                     "or 'download' from Yahoo Finance. Null when there is "
                     "nothing to refresh: imported files (import again "
                     "instead), synthetic data generated before py-beacon "
-                    "0.1.2, or a store that cannot be read.")
+                    "0.2.0, or a store that cannot be read.")
 
 
 class DataStoreCollection(TolerantCollection):
