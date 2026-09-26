@@ -27,6 +27,7 @@ import logging
 
 import pandas as pd
 
+from ..data.corporate_actions import ratios_between
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
 from .result import IndexResult, daily_weights_frame
@@ -87,9 +88,23 @@ def chain_levels(index_id: str,
     units: dict[str, float] = {}
     level = base_value
     divisor = 0.0
+    # Splits and stock dividends move the units held, as in the calculator
+    # (BN-244), so the level is unchanged when the stored close moves by the
+    # ratio.
+    ratios = _ratio_schedule(data_provider)
+    previous = days[0] - pd.Timedelta(days=1) if len(days) else None
 
     for day in days:
         values: dict[str, float] = {}
+
+        if units and previous is not None:
+            moved = ratios_between(ratios, previous, day)
+
+            if moved:
+                units = {asset: count * moved.get(asset, 1.0)
+                         for asset, count in units.items()}
+
+        previous = day
 
         if day in solved:
             if divisor <= 0.0:
@@ -134,6 +149,19 @@ def chain_levels(index_id: str,
                        constituent_snapshots=constituent_snapshots,
                        weight_snapshots=weight_snapshots,
                        daily_weights=daily_weights_frame(daily_records))
+
+
+def _ratio_schedule(data_provider: DataFetcher
+                    ) -> dict[pd.Timestamp, dict[str, float]]:
+    """Every split and stock dividend the data holds, by ex-date and name."""
+    actions = getattr(data_provider, "corporate_actions", None)
+
+    if actions is None or actions.is_empty:
+        return {}
+
+    schedule: dict[pd.Timestamp, dict[str, float]] = actions.ratio_schedule()
+
+    return schedule
 
 
 def _unit_value_panel(currency: str,

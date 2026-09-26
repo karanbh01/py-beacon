@@ -497,6 +497,41 @@ class Portfolio:
 
         self._record(as_of)
 
+    def apply_ratio(self,
+                    asset_id: str,
+                    ratio: float) -> None:
+        """Change a holding's share count for a split or stock dividend.
+
+        The quantity is multiplied by *ratio* and the per-share average cost
+        and price divided by it, so the holding's cost and value are unchanged.
+        Nothing is traded and no transaction is recorded. A name not held is
+        left alone.
+
+        Args:
+            asset_id: The holding.
+            ratio: The share-count multiplier: 2.0 for a 2-for-1 split, 0.5
+                for a 1-for-2 reverse split.
+
+        Raises:
+            ValueError: If *ratio* is not positive.
+            FrozenPortfolioError: If the books have been frozen.
+        """
+        self._refuse_if_frozen("apply_ratio")
+
+        if ratio <= 0:
+            raise ValueError(f"A share-count ratio must be positive, got {ratio}.")
+
+        holding = self.holdings.get(asset_id)
+
+        if holding is None:
+            return
+
+        holding.quantity *= ratio
+        holding.average_cost_price /= ratio
+
+        if holding.current_price is not None:
+            holding.current_price /= ratio
+
     def get_total_value(self) -> float:
         """
         Calculates the total current market value of the portfolio (holdings + cash).

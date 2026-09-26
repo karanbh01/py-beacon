@@ -151,6 +151,33 @@ def status_of(value: object) -> Status | None:
 TRAILING_YEAR = pd.DateOffset(years=1)
 
 
+def ratios_between(schedule: dict[pd.Timestamp, dict[str, float]],
+                   after: pd.Timestamp,
+                   through: pd.Timestamp) -> dict[str, float]:
+    """The share-count multipliers with an ex-date in (*after*, *through*].
+
+    For a loop that steps from one session to the next: an action whose
+    ex-date fell on a day the loop did not visit still applies on the next
+    day it does. Several on one name compound.
+
+    Args:
+        schedule: Output of `CorporateActions.ratio_schedule`.
+        after: The last day already processed (excluded).
+        through: Today (included).
+
+    Returns:
+        dict: identifier -> multiplier. Empty on a day nothing changed.
+    """
+    multipliers: dict[str, float] = {}
+
+    for ex_date, ratios in schedule.items():
+        if after < ex_date <= through:
+            for identifier, ratio in ratios.items():
+                multipliers[identifier] = multipliers.get(identifier, 1.0) * ratio
+
+    return multipliers
+
+
 class CorporateActions:
     """A history of corporate actions, indexed by identifier and ex-date.
 
@@ -389,6 +416,45 @@ class CorporateActions:
                 f"erase or invert a share count.")
 
         return float(ratios.prod())
+
+    def ratio_schedule(self) -> dict[pd.Timestamp, dict[str, float]]:
+        """Every share-count change, by ex-date and name.
+
+        What holds a fixed number of shares (an index's units, a backtest's
+        position) multiplies them by the ratio on the ex-date, when the stored
+        close falls by the same ratio. A cancelled action is left out, and
+        two on the same name and day compound.
+
+        Returns:
+            dict: ex-date -> {identifier: share-count multiplier}. Empty when
+            the history holds no splits, reverse splits or stock dividends.
+
+        Raises:
+            CalculationError: If a ratio is not positive. A zero or negative
+                multiplier would erase or invert a position.
+        """
+        frame = self._df
+        ratios = frame[frame["TYPE"].isin(RATIO_ACTIONS)]
+
+        if STATUS_COLUMN in ratios.columns:
+            ratios = ratios[ratios[STATUS_COLUMN].map(status_of) != CANCELLED]
+
+        schedule: dict[pd.Timestamp, dict[str, float]] = {}
+
+        for identifier, ex_date, value in zip(ratios["IDENTIFIER"],
+                                              ratios["EX_DATE"],
+                                              ratios["VALUE"], strict=True):
+            if value <= 0.0:
+                raise CalculationError(
+                    "CorporateActions",
+                    f"{identifier} has a non-positive split ratio ({value:g}) "
+                    f"on {pd.Timestamp(ex_date):%Y-%m-%d}, which would erase "
+                    f"or invert a share count.")
+
+            per_date = schedule.setdefault(pd.Timestamp(ex_date), {})
+            per_date[str(identifier)] = per_date.get(str(identifier), 1.0) * float(value)
+
+        return schedule
 
     def as_records(self,
                    identifier: str,

@@ -6,6 +6,7 @@ import logging
 
 import pandas as pd
 
+from ..data.corporate_actions import ratios_between
 from ..data.fetcher import DataFetcher
 from ..index.requirements import require_price_column
 from ..index.result import IndexResult
@@ -221,6 +222,21 @@ class BacktestEngine(PricingMixin):
         dates = getter()
 
         return dates if isinstance(dates, dict) else {}
+
+    def _ratio_schedule(self) -> dict[pd.Timestamp, dict[str, float]]:
+        """Every split and stock dividend in the data, by ex-date and name.
+
+        Empty for a data provider with no action history, including one
+        assembled by hand without a `corporate_actions` attribute.
+        """
+        actions = getattr(self.data_provider, "corporate_actions", None)
+
+        if actions is None or actions.is_empty:
+            return {}
+
+        schedule: dict[pd.Timestamp, dict[str, float]] = actions.ratio_schedule()
+
+        return schedule
 
     def _drop_stale(self,
                     weights: dict[str, float],
@@ -665,8 +681,18 @@ class BacktestEngine(PricingMixin):
         # disposal reads it to settle the holding. One mapping, two readers.
         delistings = self._delisting_dates()
         self._delistings = delistings
+        ratios = self._ratio_schedule()
+        previous = eve
 
         for idx, date in enumerate(trading_days):
+            # 0. Splits and stock dividends change the share count before the
+            # day is marked: the stored close has already moved by the ratio,
+            # and the position has to move with it or the NAV steps (BN-244).
+            for asset_id, ratio in ratios_between(ratios, previous, date).items():
+                portfolio.apply_ratio(asset_id, ratio)
+
+            previous = date
+
             # 1. Update prices for existing holdings
             self._update_portfolio_prices(portfolio, date)
 

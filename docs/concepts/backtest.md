@@ -65,17 +65,22 @@ stored optimised index is. See [Optimiser](optimiser.md).
 The engine walks the index calendar's sessions from `start` to `end`. Each
 day it:
 
-1. **Marks** every holding at that day's price, converted into the book's
+1. **Applies splits.** A split, reverse split or stock dividend with its
+   ex-date since the last session multiplies the shares held by its ratio,
+   and the per-share cost and price divide by it, so the holding's value is
+   unchanged. It is not a trade and costs nothing. A cancelled action is
+   ignored.
+2. **Marks** every holding at that day's price, converted into the book's
    currency.
-2. **Settles delistings.** A holding past its last listed date (reference
+3. **Settles delistings.** A holding past its last listed date (reference
    data's `DATE_TO`) is sold into cash at the last price the portfolio saw,
    with no transaction cost: an acquisition or a failure is not a trade
    crossed in a market. A delisted holding with no usable last price is
    written off. The cash waits for the next rebalance.
-3. **Rebalances**, if the day is a key in the index's weight snapshots. The
+4. **Rebalances**, if the day is a key in the index's weight snapshots. The
    snapshots are keyed by the date weights take effect, so an announcement lag
    needs nothing from the engine.
-4. **Records** the day: positions, weights, cash and NAV go into the
+5. **Records** the day: positions, weights, cash and NAV go into the
    portfolio's books.
 
 A rebalance first removes stale names from the target (see

@@ -442,10 +442,11 @@ Four things trigger that:
   `new_divisor = old_divisor * new_value / old_value`
   (`IndexCalculator.adjust_divisor_for_rebalance`).
 - **A delisting.** A holding whose reference record ends (`DATE_TO`) is
-  removed on the first session after that date that is not a rebalance, and
-  the divisor is rescaled by the book's value without it over its value with
-  it, both on the last day it had a price. The survivors' weights grow in
-  proportion. See [Universe](universe.md#delistings).
+  removed on the first session after that date, and the divisor is rescaled
+  by the book's value without it over its value with it, both on the last
+  day it had a price. The survivors' weights grow in proportion. On a
+  rebalance day this happens before the outgoing holdings are valued. See
+  [Universe](universe.md#delistings).
 - **A cash distribution**, for `TOTAL_RETURN` and `NET_TOTAL_RETURN` indices:
   `new_divisor = old_divisor * A / (A + D)`, where `A` is the holdings' value
   on the ex-date and `D` the cash received, net of withholding. On a
@@ -455,9 +456,14 @@ Four things trigger that:
   share times shares outstanding, times free float for a float-adjusted
   index, converted at the ex-date rate) rescales the divisor. `RIGHTS_ISSUE`,
   `SPIN_OFF`, `STOCK_DIVIDEND` and `MERGER` are recognised but not
-  implemented, and they raise `CalculationError`, as does an unknown type or
-  an action missing its ex-date, asset or value. An action on a name the
-  index does not hold leaves the divisor unchanged.
+  implemented by this method, and they raise `CalculationError`, as does an
+  unknown type or an action missing its ex-date, asset or value. An action on
+  a name the index does not hold leaves the divisor unchanged.
+
+Splits, reverse splits and stock dividends do not move the divisor. On the
+ex-date the stored close moves by the ratio, and the units the index holds are
+multiplied by the same ratio (the action's `VALUE`: 2.0 for a 2-for-1 split),
+so the level is unchanged. A cancelled action is ignored.
 
 !!! warning "`run()` does not call `handle_corporate_action()`"
     It is a public method you can call, but the calculation loop does not
@@ -465,19 +471,6 @@ Four things trigger that:
     adjust for special dividends during a run. The only use a run makes of
     the action history is total-return reinvestment, so a special dividend is
     never counted twice.
-
-!!! warning "A delisting just before a rebalance is not adjusted for"
-    A delisting is handled on a session that is not a rebalance. When the
-    first session after a name's `DATE_TO` is a rebalance date, the outgoing
-    holdings are valued with that name at zero (it has no price), so the
-    level falls by the name's weight instead of the divisor absorbing it.
-
-!!! warning "Splits are not adjusted between rebalances"
-    The index holds fixed units and values them at the unadjusted price
-    column. A split on a day that is not a rebalance halves (or quarters) the
-    price of a name the index still holds the same units of, and the level
-    falls by that holding's share of the loss. A rebalance recomputes the
-    units, so a split on a rebalance date has no effect.
 
 Two data gaps do not move the divisor:
 

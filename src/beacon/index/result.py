@@ -96,12 +96,10 @@ class IndexResult:
     The daily panel is *recorded* rather than re-derived because the index's
     daily state is path-dependent. It is not a forward-fill of the rebalance
     snapshot, and not even "amounts fixed between rebalances, repriced daily":
-    a delisted name is dropped mid-period and the divisor adjusted, and a
-    total-return index reinvests its cash, both on days that are not
-    rebalances. A path is written down as it happens.
-
-    Splits are not applied between rebalances: units stay as the last
-    rebalance set them, valued at the stored close.
+    a delisted name is dropped mid-period and the divisor adjusted, a split
+    multiplies the units held on its ex-date, and a total-return index
+    reinvests its cash, all on days that are not rebalances. A path is
+    written down as it happens.
 
     The rebalance snapshots are the record of what a rebalance *decided*. This
     panel is the record of what then *happened*.

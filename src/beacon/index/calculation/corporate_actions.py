@@ -11,6 +11,7 @@ import pandas as pd
 
 from ...asset.base import Asset
 from ...asset.equity import require_equity
+from ...data.corporate_actions import ratios_between
 from ...data.fetcher import DataFetcher
 from ...data.free_float import require_free_float
 from ...exceptions import CalculationError
@@ -19,7 +20,8 @@ from ..constructor import IndexDefinition
 logger = logging.getLogger(__name__)
 
 class CorporateActionsMixin:
-    """Corporate-action divisor adjustment logic, mixed into IndexCalculator."""
+    """Corporate-action logic, mixed into IndexCalculator: share-count changes
+    to the units held, and divisor adjustment for a special dividend."""
 
     # Corporate action types that are recognised but not yet implemented.
     _STUB_CA_TYPES = frozenset({"RIGHTS_ISSUE", "SPIN_OFF", "STOCK_DIVIDEND", "MERGER"})
@@ -28,6 +30,54 @@ class CorporateActionsMixin:
     data: DataFetcher
     definition: IndexDefinition
     adjust_divisor_for_rebalance: Callable[[float, float, float], float]
+
+    def ratio_schedule(self) -> dict[pd.Timestamp, dict[str, float]]:
+        """Every split and stock dividend in the data, by ex-date and name.
+
+        Returns:
+            dict: ex-date -> {identifier: share-count multiplier}. Empty when
+            the data holds no action history.
+        """
+        actions = self.data.corporate_actions
+
+        if actions.is_empty:
+            return {}
+
+        schedule = actions.ratio_schedule()
+
+        if schedule:
+            logger.info("Loaded share-count changes on %d ex-date(s).",
+                        len(schedule))
+
+        return schedule
+
+    @staticmethod
+    def apply_ratios(units: dict[Asset, float],
+                     schedule: dict[pd.Timestamp, dict[str, float]],
+                     after: pd.Timestamp,
+                     through: pd.Timestamp) -> dict[Asset, float]:
+        """The units held, after any split or stock dividend since *after*.
+
+        On the ex-date the stored close falls by the ratio, so the units rise
+        by it and the index's value, level and divisor are unchanged.
+
+        Args:
+            units: What the index holds. Not mutated.
+            schedule: Output of :meth:`ratio_schedule`.
+            after: The last day already calculated (excluded).
+            through: Today (included).
+
+        Returns:
+            dict: The units, scaled where a ratio applied. The same mapping
+            when none did.
+        """
+        moved = ratios_between(schedule, after, through)
+
+        if not moved:
+            return units
+
+        return {asset: count * moved.get(asset.asset_id, 1.0)
+                for asset, count in units.items()}
 
     def handle_corporate_action(self,
                                 action: dict[str, Any],

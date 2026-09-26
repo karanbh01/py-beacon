@@ -731,6 +731,8 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         # universe where nothing is ever delisted gets an empty mapping and
         # pays for one `if` per day.
         delistings = self.delisting_schedule()
+        # Splits and stock dividends, loaded once like the distributions.
+        ratios = self.ratio_schedule()
         previous_date = base_date
         withholding = withholding_for(self.definition.return_type,
                                       self.definition.withholding_tax_rate)
@@ -803,6 +805,8 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 if units and divisor > 0:
                     units, divisor, _ = self.apply_deletions(
                         units, divisor, date, delistings, previous_date)
+
+                units = self.apply_ratios(units, ratios, previous_date, date)
 
                 # Value the outgoing holdings at today's prices. This is the
                 # level the new composition has to start from, which is what
@@ -879,6 +883,11 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                     # its whole weight as a loss on the day it went.
                     units, divisor, deleted = self.apply_deletions(
                         units, divisor, date, delistings, previous_date)
+
+                    # After the deletions, which value the book at
+                    # yesterday's prices and so need yesterday's unit counts.
+                    units = self.apply_ratios(units, ratios, previous_date,
+                                              date)
 
                     if deleted:
                         constituents = [asset for asset in constituents
