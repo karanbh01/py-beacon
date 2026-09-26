@@ -154,3 +154,36 @@ class TestForgettingAGeneratedStore:
 
         assert response.status_code == 204
         assert not folder.exists()
+
+
+class TestTheChildRunsLikeTheEngine:
+    """The generator child keeps the engine's isolation, so an isolated
+    engine never loads the user's own site-packages through its child."""
+
+    @staticmethod
+    def flags(isolated=0, no_user_site=0, ignore_environment=0):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(isolated=isolated, no_user_site=no_user_site,
+                               ignore_environment=ignore_environment)
+
+    def test_an_isolated_engine_starts_an_isolated_child(self):
+        assert synthetic.interpreter(self.flags(isolated=1)) == [
+            sys.executable, "-I"]
+
+    def test_a_plain_engine_starts_a_plain_child(self):
+        assert synthetic.interpreter(self.flags()) == [sys.executable]
+
+    def test_the_narrower_flags_carry_over(self):
+        assert synthetic.interpreter(
+            self.flags(no_user_site=1, ignore_environment=1)) == [
+            sys.executable, "-s", "-E"]
+
+    def test_an_isolated_child_still_finds_the_generator(self):
+        """-I leaves the current folder off the path; the generator is
+        imported from the installed package, so it still runs."""
+        completed = subprocess.run(
+            [sys.executable, "-I", "-m", "beacon.synthetic", "--help"],
+            capture_output=True, text=True, timeout=120, check=False)
+
+        assert completed.returncode == 0, completed.stderr

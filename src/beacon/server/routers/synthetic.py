@@ -86,6 +86,27 @@ def _config(body: GenerateSyntheticRequest) -> SyntheticConfig:
     return config
 
 
+def interpreter(flags: Any = sys.flags) -> list[str]:
+    """This Python, with the isolation flags the engine itself runs under.
+
+    An engine started isolated (`-I`, as the Beacon app starts its bundled
+    one) ignores the user's own site-packages and PYTHON* variables. A child
+    started without the same flags would not, and could load a different
+    numpy or pandas from the user's site-packages than the engine uses.
+
+    Args:
+        flags: The interpreter's flags; `sys.flags` unless a test passes
+            others.
+    """
+    if flags.isolated:
+        return [sys.executable, "-I"]
+
+    mirrored = [flag for flag, on in (("-s", flags.no_user_site),
+                                      ("-E", flags.ignore_environment)) if on]
+
+    return [sys.executable, *mirrored]
+
+
 def command(config: SyntheticConfig,
             out: Path) -> list[str]:
     """The command line that generates *config* into *out*.
@@ -93,7 +114,7 @@ def command(config: SyntheticConfig,
     Every setting is passed explicitly, dates included, so the child
     generates exactly what was validated, even if it runs past midnight.
     """
-    arguments = [sys.executable, "-m", "beacon.synthetic", "--progress",
+    arguments = [*interpreter(), "-m", "beacon.synthetic", "--progress",
                  "--out", str(out),
                  "--assets", str(config.assets),
                  "--start", config.start,
@@ -196,7 +217,7 @@ async def _report(report: ProgressReporter,
 def extend_command(path: Path,
                    end: str | None) -> list[str]:
     """The command line that extends the synthetic store at *path*."""
-    arguments = [sys.executable, "-m", "beacon.synthetic", "--progress",
+    arguments = [*interpreter(), "-m", "beacon.synthetic", "--progress",
                  "--extend", str(path)]
 
     return [*arguments, "--end", end] if end is not None else arguments
