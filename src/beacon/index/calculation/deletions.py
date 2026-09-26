@@ -28,8 +28,8 @@ a divisor. Holdings of the survivors are untouched, so their weights
 renormalise upward in proportion, which is exactly what reinvesting the
 proceeds pro rata across the remainder would have done.
 
-A holding is removed on the first calculation day after its last listed date
-that is not a rebalance (a rebalance re-resolves the universe instead). If
+A holding is removed on the first calculation day after its last listed date,
+including a rebalance day, where it leaves before the outgoing book is valued. If
 every holding would be removed, the holdings are kept (and an error is logged)
 rather than emptying the index. If the book cannot be valued on the last day,
 the leavers are removed without a divisor adjustment and the level steps

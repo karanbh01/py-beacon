@@ -796,6 +796,14 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
 
             elif date in rebalance_dates:
                 # --- Rebalance date ---
+                # A holding that stopped being listed leaves first, exactly as
+                # on a regular day. It has no price today, so the outgoing
+                # book below would count it as zero, and the continuity
+                # adjustment would then keep that loss in the level (BN-245).
+                if units and divisor > 0:
+                    units, divisor, _ = self.apply_deletions(
+                        units, divisor, date, delistings, previous_date)
+
                 # Value the outgoing holdings at today's prices. This is the
                 # level the new composition has to start from, which is what
                 # the divisor adjustment preserves.

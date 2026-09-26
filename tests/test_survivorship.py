@@ -106,12 +106,13 @@ def build_fetcher(delist_on: str | None) -> DataFetcher:
                        ReferenceData.from_dataframe(reference))
 
 
-def level_series(fetcher: DataFetcher) -> pd.Series:
+def level_series(fetcher: DataFetcher,
+                 frequency: str = "QUARTERLY") -> pd.Series:
     definition = IndexDefinition(
         index_id="T", index_name="T", base_date=START, base_value=1000.0,
         currency="USD", eligibility_rules=[],
         weighting_scheme=EqualWeighted(),
-        rebalancing_frequency="QUARTERLY",
+        rebalancing_frequency=frequency,
         calendar="XNYS",
         universe_identifiers=["AAA", "BBB"])
 
@@ -145,6 +146,18 @@ class TestTheMechanism:
         intact = level_series(build_fetcher(delist_on=None))
 
         pd.testing.assert_series_equal(deleted, intact)
+
+    def test_a_delisting_the_session_before_a_rebalance(self):
+        """The rebalance on 1 March values the outgoing book, and BBB has no
+        price that day: it has to leave first, as on any other day, or its
+        whole weight is reported as a loss and kept by the continuity
+        adjustment."""
+        levels = level_series(build_fetcher(delist_on="2021-02-26"),
+                              frequency="MONTHLY")
+
+        assert np.allclose(levels.to_numpy(), 1000.0), (
+            f"level moved on a flat market: "
+            f"min {levels.min():.2f}, max {levels.max():.2f}")
 
     def test_the_divisor_absorbs_it(self):
         """The level is continuous *because* the divisor moved, not because
