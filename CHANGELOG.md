@@ -10,6 +10,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [0.2.0] - 2026-09-26
 
+Choose where the engine's data comes from: named stores, synthetic data you can extend to today, CSV and Excel import, and read-only Postgres. Also documentation at pybeacon.dev, and fixes to index levels and backtests around splits and delistings.
+
 ### Added
 
 - Documentation at https://pybeacon.dev: a guide to each part of py-beacon (data, universes, methodology, expressions, backtests, funds, derivatives, the optimiser, risk, attribution, charts, reports and the server), and a complete Python reference. Every example in it runs.
