@@ -1,3 +1,8 @@
+---
+title: Attribution
+description: "Splitting an index's return across its constituents, with the cap and cost drags."
+---
+
 # Attribution
 
 Where did the return come from, and where did the risk come from. Two

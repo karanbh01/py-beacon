@@ -1,6 +1,11 @@
+---
+title: Serving data
+description: "Starting the local engine, where its data comes from, and generating, importing and refreshing stores."
+---
+
 # Serving data
 
-py-beacon includes a local engine: an HTTP server that the Beacon desktop app,
+py-beacon includes a local engine: an HTTP server that Beacon desktop,
 or any other client, starts on the same machine. The engine holds the data and
 runs the calculations (index levels, backtests, attribution, risk), and the
 client asks for results over HTTP.
@@ -302,7 +307,7 @@ generator settings saved beside the data; generate a new one.
 
 ## Reading the data
 
-The endpoint-by-endpoint reference is at [pybeacon.dev/api](https://pybeacon.dev/api/).
+The endpoint-by-endpoint reference is in the [Server API reference](/api/index.md).
 A few things are worth knowing before you use it.
 
 ### Market caps come in pairs

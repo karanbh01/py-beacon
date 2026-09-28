@@ -1,3 +1,8 @@
+---
+title: Data
+description: "The data model, the three data settings, currencies, and every way to get data in."
+---
+
 # Data
 
 Every calculation in py-beacon reads its data through one object, a

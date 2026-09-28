@@ -1,3 +1,8 @@
+---
+title: py-beacon
+description: "A Python library for defining, calculating and backtesting indices, with ETF and Delta-1 derivatives analytics."
+---
+
 # py-beacon
 
 py-beacon is a Python library for building indices, ETFs and Delta-1
@@ -161,7 +166,7 @@ these results. [Concepts](concepts/overview.md) walks through each part.
 | `beacon.analysis` | Attribution, concentration, drift, liquidity, risk metrics and ETF tracking analytics | [Attribution](concepts/attribution.md) |
 | `beacon.plot` | Charts through a `.plot` accessor on result objects | [Charts](concepts/charts.md), [Gallery](gallery.md) |
 | `beacon.report` | Paginated reports, rendered to PDF | [Reports](concepts/reports.md) |
-| `beacon.server` | The local API server the Beacon app talks to | [Server guide](server.md) |
+| `beacon.server` | The local API server Beacon desktop talks to | [Server guide](server.md) |
 
 The [Reference](reference/index.md) documents every public class and
 function. The [example notebooks](https://github.com/karanbh01/py-beacon/tree/main/examples)

@@ -1,3 +1,8 @@
+---
+title: Derivatives
+description: "Index and ETF futures, total return swaps, rate curves and the pricing functions behind them."
+---
+
 # Derivatives
 
 `beacon.derivatives` prices Delta-1 instruments on indices, ETFs and equities:

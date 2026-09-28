@@ -1,3 +1,7 @@
+# For previewing docs/ locally (`mkdocs serve`) and for the CI build that
+# checks it. pybeacon.dev is built by the beacon-site repository, which reads
+# the `nav` below and the mkdocstrings options, and brings its own theme. See
+# CONTENT.md in beacon-site for what it relies on here.
 site_name: py-beacon
 site_description: >-
   py-beacon is a Python toolkit for index, ETF and Delta-1 derivatives
@@ -8,28 +12,16 @@ repo_name: karanbh01/py-beacon
 
 theme:
   name: material
-  palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
   features:
-    - navigation.sections
-    - navigation.top
+    # As on the site: an index.md listed first in a group is its page.
     - navigation.indexes
-    - content.code.copy
-    - search.suggest
-    - search.highlight
+
+# Links from the site root reach other sections of pybeacon.dev (the Server
+# API, say), which a local build cannot see. They are reported, not fatal;
+# the site build checks them.
+validation:
+  links:
+    absolute_links: info
 
 markdown_extensions:
   - admonition

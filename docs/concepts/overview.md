@@ -1,3 +1,8 @@
+---
+title: Overview
+description: "How py-beacon fits together: data, methodology, calculation and backtest, and what is built on them."
+---
+
 # Concepts overview
 
 py-beacon keeps three questions apart: what an index is (its methodology),
@@ -34,7 +39,7 @@ blanks. [Data](data.md) covers the data model and these settings.
 
 Rules and universes name the data they read with
 [expressions](expressions.md), such as `data.market.market_cap > 1e9`, so a
-screen written in Python and one built in the Beacon app are the same thing.
+screen written in Python and one built in Beacon desktop are the same thing.
 
 ## Methodology
 

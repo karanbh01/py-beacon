@@ -214,8 +214,8 @@ class TestGalleryScript:
         text = page.read_text(encoding="utf-8")
 
         for name in names:
-            assert f"gallery/{name}.png" in text
-            assert f"gallery/{name}-dark.png" in text
+            assert f"gallery/{name}.light.png" in text
+            assert f"gallery/{name}.dark.png" in text
 
     def test_the_gallery_covers_every_chart_the_accessors_offer(self):
         """A chart added without a gallery entry would go undocumented, and

@@ -1,9 +1,14 @@
+---
+title: Charts
+description: "Drawing each chart from a result, comparing results, and the light and dark styles."
+---
+
 # Charts
 
 Results draw themselves. Each result object has a `.plot` accessor whose
 methods draw one chart with matplotlib and return the `Axes` they drew on.
 [`beacon.plot.compare`](#comparing-results) puts several results on one
-chart, and two styles, light and dark, match the py-beacon application.
+chart, and two styles, light and dark, match Beacon desktop.
 
 Charts need the `plot` extra (matplotlib):
 
@@ -204,7 +209,7 @@ Labels default to each result's index id or portfolio id. `compare` raises
 
 `beacon.plot.use("light")` or `beacon.plot.use("dark")` applies a style to
 every chart drawn afterwards. The colours come from the same design tokens as
-the py-beacon application, so a chart matches the screen it sits on.
+Beacon desktop, so a chart matches the screen it sits on.
 
 ```python
 beacon.plot.use("dark")

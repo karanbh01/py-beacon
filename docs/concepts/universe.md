@@ -1,3 +1,8 @@
+---
+title: Universe
+description: "Which instruments an index can choose from on each date, and how listings and delistings are handled."
+---
+
 # Universe
 
 The universe is the pool of identifiers an index may draw constituents from.

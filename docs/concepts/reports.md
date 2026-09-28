@@ -1,3 +1,8 @@
+---
+title: Reports
+description: "PDF reports built from blocks, and Excel output."
+---
+
 # Reports
 
 py-beacon writes two kinds of report:

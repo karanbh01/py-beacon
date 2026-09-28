@@ -1,3 +1,8 @@
+---
+title: Backtest
+description: "Simulating a portfolio that trades to an index, and reading what it did."
+---
+
 # Backtest
 
 A backtest simulates a real portfolio that trades to an index's target

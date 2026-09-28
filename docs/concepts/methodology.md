@@ -1,3 +1,8 @@
+---
+title: Methodology
+description: "Selection, weighting, capping, scheduling, return types and the divisor: the rules an index follows."
+---
+
 # Methodology
 
 An index methodology is an `IndexDefinition`: the rules that decide which
@@ -115,7 +120,7 @@ all of them. A name with no value is excluded unless `on_missing="include"`.
 
 **`ExpressionRule`** screens on an [expression](expressions.md), resolved
 point in time, and stores the expression as a serialisable tree, so a rule
-written in Python and one built in the app are the same document. A malformed
+written in Python and one built in Beacon desktop are the same document. A malformed
 tree is refused when the rule is built (`InvalidRuleError`). Missing values
 and stale features work as they do for `FeatureRule`. The derived field
 `data.market.market_cap` is always in USD, whatever the index currency, while

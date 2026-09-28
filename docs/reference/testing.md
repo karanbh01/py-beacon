@@ -1,3 +1,8 @@
+---
+title: Sample dataset
+description: "A small, fixed dataset for tests, examples and documentation."
+---
+
 # Sample dataset
 
 A small, fixed dataset for tests, examples and documentation. Its values never change.

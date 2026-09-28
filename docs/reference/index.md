@@ -1,3 +1,8 @@
+---
+title: Python reference
+description: "Every public module of py-beacon, generated from its docstrings."
+---
+
 # Python reference
 
 Every public module, generated from its docstrings. Each page covers a package and everything in it.

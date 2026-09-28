@@ -1,3 +1,8 @@
+---
+title: Risk model
+description: "Covariance estimation and shrinkage, factor risk models and risk contributions."
+---
+
 # Risk model
 
 `beacon.analysis.risk` answers questions about **one** series: this

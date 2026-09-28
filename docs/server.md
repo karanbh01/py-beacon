@@ -1,9 +1,14 @@
+---
+title: Server guide
+description: "Using the engine's HTTP API: authentication, jobs, live events and error codes."
+---
+
 # The engine's HTTP API
 
 The local engine (`python -m beacon.server`) answers HTTP on a loopback port.
 This page explains how the API works as a whole: authentication, the endpoint
 groups, jobs, live events and errors. The fields of each endpoint are in the
-[API reference](https://pybeacon.dev/api/), generated from the engine's
+[API reference](/api/index.md), generated from the engine's
 OpenAPI document. Starting the engine and choosing its data are covered in
 [Serving data](serving-data.md).
 

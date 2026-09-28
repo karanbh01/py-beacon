@@ -77,3 +77,35 @@ class TestTheReferenceIsComplete:
         pages = [f"reference/{page.name}" for page in REFERENCE.glob("*.md")]
 
         assert [page for page in pages if page not in nav] == []
+
+
+class TestTheSiteContract:
+    """What beacon-site's CONTENT.md asks of docs/."""
+
+    @staticmethod
+    def pages():
+        return [page for page in sorted(DOCS.rglob("*.md"))
+                if page.name != "gallery.md"]
+
+    def test_every_page_has_a_title_and_a_description(self):
+        missing = []
+
+        for page in self.pages():
+            text = page.read_text(encoding="utf-8")
+            head = text.split("\n---\n", 1)[0] if text.startswith("---\n") else ""
+            fields = dict(line.split(":", 1) for line in head.splitlines()[1:]
+                          if ":" in line)
+
+            if not fields.get("title", "").strip() or not fields.get(
+                    "description", "").strip():
+                missing.append(str(page.relative_to(DOCS)))
+
+        assert not missing, "\n".join(missing)
+
+    def test_other_sections_are_linked_from_the_site_root(self):
+        """So the site build can check them: /api/index.md, not a URL."""
+        found = [f"{page.relative_to(DOCS)}"
+                 for page in self.pages()
+                 if "](https://pybeacon.dev" in page.read_text(encoding="utf-8")]
+
+        assert not found, "\n".join(found)

@@ -1,3 +1,8 @@
+---
+title: Funds and ETFs
+description: "Index funds and ETFs: seed capital, the management fee, the market price and tracking."
+---
+
 # Funds and ETFs
 
 `beacon.fund` models a fund that tracks an index. `IndexFund` runs a

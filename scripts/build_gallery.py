@@ -155,7 +155,9 @@ def render_all(directory: Path) -> list[str]:
 
     for mode in (LIGHT, DARK):
         use(mode)
-        suffix = "" if mode == LIGHT else "-dark"
+        # name.light.png and name.dark.png: pybeacon.dev shows the one that
+        # matches the reader's mode (beacon-site's CONTENT.md).
+        suffix = ".light" if mode == LIGHT else ".dark"
 
         for name, call in calls.items():
             call()
@@ -171,20 +173,24 @@ def write_page(directory: Path,
                names: list[str]) -> Path:
     """Write the gallery's markdown page.
 
-    Both modes are shown side by side rather than one behind a toggle: the
-    point of having two styles is that a reader can see whether the dark one
-    actually works, and a toggle hides exactly that comparison.
+    Each chart is linked in both modes. pybeacon.dev shows the one matching
+    the reader's light or dark setting; a local preview shows both.
     """
     lines = [
+        "---",
+        "title: Gallery",
+        'description: "Every chart py-beacon draws, in the light and dark '
+        'styles."',
+        "---",
+        "",
         "# Chart gallery",
         "",
         "Every chart py-beacon draws, rendered from the sample dataset",
-        "(`beacon.testing.dataset`) in the light and dark styles. The images",
-        "are generated when the docs are built, so they show what the current",
-        "code draws.",
-        "",
-        "Each chart appears twice, light then dark, so the two styles can be",
-        "compared. [Charts](concepts/charts.md) explains how to draw them.",
+        "(`beacon.testing.dataset`). The images are generated when the docs",
+        "are built, so they show what the current code draws. Each is drawn",
+        "in the light and the dark style, and the one shown follows your",
+        "light or dark setting. [Charts](concepts/charts.md) explains how to",
+        "draw them.",
         "",
     ]
 
@@ -195,9 +201,9 @@ def write_page(directory: Path,
             "",
             CAPTIONS[name],
             "",
-            f"![{title}, light](gallery/{name}.png)",
+            f"![{title}](gallery/{name}.light.png)",
             "",
-            f"![{title}, dark](gallery/{name}-dark.png)",
+            f"![{title}](gallery/{name}.dark.png)",
             "",
         ]
 

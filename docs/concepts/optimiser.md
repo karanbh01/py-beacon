@@ -1,3 +1,8 @@
+---
+title: Optimiser
+description: "Constrained portfolio optimisation, the efficient frontier and optimised indices."
+---
+
 # Optimiser
 
 `EqualWeighted` and `MarketCapWeighted` are closed-form rules. The optimiser
