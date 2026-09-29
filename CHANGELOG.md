@@ -14,6 +14,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `IndexResult.price_gaps` and `beacon.index.PriceGap`: the days a held name had no bar and was valued at its last close. `PriceGap` is still importable from `beacon.backtest`.
 - The asset view reports `currency`, which its returns, beta and tracking error are measured in (the index's), and `price_currency`, which its price series is in (the name's own).
 - A feature import's response says whether the rows were `saved` into the served store, and gives the new `data_version`.
+- `BacktestResult.get_annual_returns()`: calendar-year returns that compound to the whole run's return.
 - A risk model request takes an optional `currency`, and a risk model and an optimisation run report the currency they were measured in.
 
 ### Removed
@@ -35,6 +36,9 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - The engine checks for a token before it loads any data, so a missing token is reported at once rather than after a large store has loaded.
 - `http://127.0.0.1` and `http://[::1]` on any port are allowed origins, as `http://localhost` already was.
 - A wrong or missing token on the event socket closes it with code 1008 and a reason, as intended, instead of refusing the handshake with an HTTP 403 a browser cannot read.
+- `BacktestPlots.annual_returns` measures each year from the previous year's close, and the first from the initial capital. It measured each year from its own first close, so every year after the first lost its first day's return.
+- A chart drawn before `beacon.plot.use()` gets the light colours on matplotlib's white background, not the dark mode's.
+- `OptimisationPlots.frontier` starts the capital market line at the rate the frontier was traced at, unless another is passed, so the line is tangent.
 - Generating or extending synthetic data from an isolated engine (`python -I`, as the Beacon app runs it) keeps the child process isolated too, so it cannot load packages from the user's own site-packages.
 
 ## [0.2.0] - 2026-09-26

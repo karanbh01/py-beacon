@@ -69,12 +69,20 @@ def _mode_of(ax: Axes) -> str:
     reliable than tracking global state, because a caller may have applied a
     style to this figure alone.
     """
-    from matplotlib.colors import to_hex
+    from matplotlib.colors import to_rgb
 
     figure = ax.get_figure()
-    background = to_hex(figure.get_facecolor()) if figure is not None else ""
 
-    return LIGHT if background.lower() == colour("canvas", LIGHT) else DARK
+    if figure is None:
+        return LIGHT
+
+    # Dark only when the background is. Matching the light canvas exactly
+    # read matplotlib's own white, before `beacon.plot.use()`, as dark
+    # (BN-259).
+    red, green, blue = to_rgb(figure.get_facecolor())
+    luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+    return DARK if luminance < 0.5 else LIGHT
 
 
 def _ink(ax: Axes,
@@ -309,12 +317,11 @@ class BacktestPlots(ChartMethods):
         """
         ax = _axes(ax, "annual_returns")
 
-        levels = _series(self._result.trading_nav)
-        yearly = levels.resample("YE").last()
-        opening = levels.resample("YE").first()
-        returns = (yearly / opening - 1.0).dropna()
+        # BN-259: each year ran from its own first close, so every year after
+        # the first lost its first day's return.
+        returns = self._result.get_annual_returns()
 
-        labels = [str(stamp.year) for stamp in returns.index]
+        labels = [str(year) for year in returns.index]
         values = returns.to_numpy(dtype=float)
 
         ax.bar(labels, values, color=_signed_colours(ax, values), width=0.62)
@@ -322,8 +329,8 @@ class BacktestPlots(ChartMethods):
         ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
 
         return _finish(ax, "Annual returns", "Return",
-                       "Calendar years; a partial first or last year is "
-                       "measured over the days present.")
+                       "Calendar years, each from the previous year's close "
+                       "and the first from the initial capital.")
 
 
 class AttributionPlots(ChartMethods):
@@ -422,19 +429,26 @@ class OptimisationPlots(ChartMethods):
 
     def frontier(self,
                  frontier: Any,
-                 risk_free_rate: float = 0.0,
+                 risk_free_rate: float | None = None,
                  ax: Axes | None = None) -> Axes:
         """The efficient frontier, with the named points and the capital line.
 
         Args:
             frontier: An `EfficientFrontier` over the same universe.
-            risk_free_rate: Where the capital market line starts.
+            risk_free_rate: Where the capital market line starts. None uses
+                the rate the frontier was traced at, which is the one its
+                tangency portfolio is tangent from.
             ax: Axes to draw on.
 
         Returns:
             Axes: What was drawn on.
         """
         ax = _axes(ax, "frontier")
+
+        # BN-259: defaulted to 0.0, so a frontier traced at another rate got a
+        # line that was not tangent to it.
+        if risk_free_rate is None:
+            risk_free_rate = float(getattr(frontier, "risk_free_rate", 0.0))
 
         volatilities = [point.volatility for point in frontier.points]
         returns = [point.expected_return or 0.0 for point in frontier.points]

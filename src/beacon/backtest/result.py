@@ -341,6 +341,25 @@ class BacktestResult:
 
         return returns.dropna()
 
+    def get_annual_returns(self) -> pd.Series:
+        """The portfolio's calendar-year returns.
+
+        Each year runs from the previous year's last close, and the first from
+        the initial capital, so the years compound to the whole run's return.
+        A partial first or last year covers only its days.
+
+        Returns:
+            pd.Series: Return by calendar year, indexed by the year as an int.
+        """
+        returns = self.get_returns()
+
+        if returns.empty:
+            return pd.Series(dtype=float)
+
+        yearly = (1.0 + returns).groupby(returns.index.year).prod() - 1.0
+
+        return yearly.astype(float)
+
     def get_tracking_error(self) -> float | None:
         """Calculate annualised tracking error against the tracked index.
 

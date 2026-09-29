@@ -28,10 +28,10 @@ Pictures of every chart, in both styles, are in the [Gallery](../gallery.md).
 | `IndexResult` | `level(benchmark=None, ax=None, label="Index")` | The index level rebased to 100, with an optional benchmark series |
 | `IndexResult` | `weights(date=None, ax=None)` | Constituent weights at a rebalance (the latest by default), with the weight cap marked |
 | `BacktestResult` | `performance(ax=None)` | Growth of 100 with a linked drawdown panel beneath |
-| `BacktestResult` | `annual_returns(ax=None)` | Calendar-year returns as green and red bars |
+| `BacktestResult` | `annual_returns(ax=None)` | Calendar-year returns as green and red bars, each year from the previous year's close and the first from the initial capital (the same figures as `get_annual_returns()`) |
 | `AttributionResult` | `contributions(ax=None)` | Each constituent's contribution to return, with the cap and cost drags in the footnote |
 | `OptimisationResult` | `exposures(ax=None)` | Active weights (optimal minus target), with tracking error and turnover |
-| `OptimisationResult` | `frontier(frontier, risk_free_rate=0.0, ax=None)` | An efficient frontier, its minimum-variance and tangency points and the capital market line |
+| `OptimisationResult` | `frontier(frontier, risk_free_rate=None, ax=None)` | An efficient frontier, its minimum-variance and tangency points and the capital market line |
 | `RiskModel` | `correlation(ax=None)` | The correlation matrix as a heatmap |
 
 Typing `result.plot` at a prompt lists the methods, and
@@ -177,8 +177,9 @@ A few details worth knowing:
   The cap and cost drags appear in the footnote, not as bars, because they
   are not terms in the decomposition.
 - **`frontier`** takes an `EfficientFrontier` built over the same universe.
-  Pass the same `risk_free_rate` used to build it, since that is where the
-  capital market line starts.
+  The capital market line starts at the rate the frontier was traced at, so
+  it is tangent at the tangency portfolio. Pass `risk_free_rate` only to draw
+  it from another rate.
 - **`correlation`** shades from 0.2 to 1.0 on the `beacon_corr` colour map.
   Correlations below 0.2 all get the lowest colour. The map is the same in
   both styles.
@@ -220,11 +221,11 @@ plt.close("all")
 beacon.plot.use("light")
 ```
 
-Call `use()` before drawing. The chart methods choose some colours (the
-series accent, green and red for signs, the cap marker) by reading the
-figure's background: the light style's background gets the light colours
-and any other background gets the dark ones. Drawing without a beacon style
-applied therefore puts the dark colours on matplotlib's white default.
+Call `use()` before drawing to get the beacon look. The chart methods
+choose some colours (the series accent, green and red for signs, the cap
+marker) by reading the figure's background: a dark background gets the dark
+colours and a light one the light colours, so a chart drawn on matplotlib's
+white default still gets colours meant for a light page.
 
 Once any chart method, `use()` or `compare()` has run, the styles are
 registered with matplotlib as `beacon` and `beacon-dark`, and the colour map

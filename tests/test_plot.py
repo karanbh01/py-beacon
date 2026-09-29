@@ -16,6 +16,7 @@ import pytest
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from beacon.analysis import attribute, drifted_weights
 from beacon.backtest.engine import BacktestEngine
@@ -366,6 +367,36 @@ class TestCoreCharts:
 
         assert len(ax.patches) == 2  # 2023 and 2024
 
+    def test_annual_returns_run_from_the_previous_close(self):
+        """BN-259: each year used to start from its own first close, so every
+        year after the first lost its first day's return. Here the NAV moves
+        2% on the new year's first day, which the old chart left out."""
+        from beacon.backtest.result import BacktestResult
+        from beacon.portfolio.base import Portfolio
+
+        days = pd.to_datetime(["2024-12-30", "2024-12-31", "2025-01-01",
+                               "2025-01-02"])
+        portfolio = Portfolio(portfolio_id="years", initial_cash=10_000.0,
+                              inception=pd.Timestamp("2024-12-27"))
+
+        for day, nav in zip(days, [10_100.0, 10_200.0, 10_404.0, 10_500.0],
+                            strict=True):
+            portfolio._history.record(day, {}, nav)
+
+        ax = BacktestResult(portfolio=portfolio).plot.annual_returns()
+        heights = [patch.get_height() for patch in ax.patches]
+
+        assert heights == pytest.approx([10_200.0 / 10_000.0 - 1.0,
+                                         10_500.0 / 10_200.0 - 1.0])
+
+    def test_annual_returns_compound_to_the_whole_run(self,
+                                                      backtest):
+        yearly = backtest.get_annual_returns()
+        whole = (backtest.trading_nav.iloc[-1]
+                 / backtest.portfolio.initial_capital - 1.0)
+
+        assert (1.0 + yearly).prod() - 1.0 == pytest.approx(whole)
+
 
 class TestAttributionChart:
     """BN-79."""
@@ -567,6 +598,17 @@ class TestOptimiserCharts:
                     if entry.get_linestyle() == "--")
 
         assert line.get_ydata()[0] == pytest.approx(RISK_FREE)
+
+    def test_the_line_starts_at_the_frontiers_own_rate_by_default(self,
+                                                                   optimisation,
+                                                                   frontier):
+        """BN-259: it started at 0% unless the rate was passed again."""
+        ax = optimisation.plot.frontier(frontier)
+        line = next(entry for entry in ax.get_lines()
+                    if entry.get_linestyle() == "--")
+
+        assert line.get_ydata()[0] == pytest.approx(frontier.risk_free_rate)
+        assert frontier.risk_free_rate == RISK_FREE
 
     def test_the_tangency_sharpe_is_annotated(self,
                                               optimisation,
@@ -818,6 +860,33 @@ class TestDegenerateSeries:
             pass
 
         assert _label_of(Nameless(), 0) == "Series 1"
+
+
+class TestBeforeAStyleIsApplied:
+    """BN-259: a chart drawn on matplotlib's own white background used the
+    dark mode's colours, because anything but the light canvas read as dark."""
+
+    def test_a_white_figure_gets_light_colours(self):
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import to_hex
+
+        from beacon.plot.accessors import _ink
+
+        with plt.style.context("default"):
+            _, ax = plt.subplots()
+
+        assert _ink(ax, "accent") == colour("accent", LIGHT)
+        assert to_hex(ax.get_figure().get_facecolor()) == "#ffffff"
+
+    def test_the_dark_style_still_reads_as_dark(self):
+        import matplotlib.pyplot as plt
+
+        from beacon.plot.accessors import _ink
+
+        with plt.style.context(style.BEACON_DARK):
+            _, ax = plt.subplots()
+
+        assert _ink(ax, "accent") == colour("accent", DARK)
 
 
 class TestRegistrationIsSelfSufficient:
