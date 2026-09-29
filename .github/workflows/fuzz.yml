@@ -33,7 +33,7 @@ jobs:
       - name: Install project and schemathesis
         run: |
           uv pip install --system -e ".[dev]"
-          uv pip install --system "schemathesis>=4,<5"
+          uv pip install --system "schemathesis>=4.28,<5"
 
       # A real store, so endpoints that need data have some. The canonical
       # frozen fixture rather than the generator: five names is plenty to
@@ -66,15 +66,15 @@ jobs:
       # tune and no race to lose on a slow runner.
       #
       # schemathesis.toml at the repository root, read from the working
-      # directory, leaves out the operations that start heavy work and says
-      # where a rule spans fields or depends on the data (BN-250).
+      # directory, chooses the checks, leaves out the operations that start
+      # heavy work and says where a rule spans fields or depends on the data
+      # (BN-250). Checks are chosen there, not with --checks here, because the
+      # command line overrides the file's per-operation settings.
       - name: Fuzz every endpoint
         run: |
           schemathesis run http://127.0.0.1:8765/openapi.json \
             --url http://127.0.0.1:8765 \
             --header "Authorization: Bearer fuzz-token" \
-            --checks all \
-            --exclude-checks ignored_auth \
             --max-examples 40 \
             --wait-for-schema 30 \
             --report junit \

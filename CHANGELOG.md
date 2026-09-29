@@ -46,6 +46,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - The sample dataset in `beacon.testing.dataset` stores its GBPUSD rate in `RATE`, so `fx_pairs` and the coverage view list it. A pair stored without `RATE` still converts but now logs a warning that it is not listed.
 - The API schema states more of what it accepts: `since` on `/changelog` is a dotted version, and `/beacon/compare` needs at least two `ids`. These are now refused as `VALIDATION_ERROR` by the schema check. The boolean fields of a synthetic-data or import request no longer accept `0`, `1` or strings.
 - A report template with an unknown page setting answers 422 instead of 500, and so does a futures or swap price whose inputs overflow.
+- A plain `OPTIONS` request answers 405 with an `Allow` header listing every method its path supports. It listed only one route's methods on a path with several, such as `/data/features`. CORS preflights are unchanged.
 - The nightly API fuzz run passes again: it leaves out operations that start heavy work, and skips the check that a schema-valid request is accepted only where a rule spans fields or depends on the data.
 - Generating or extending synthetic data from an isolated engine (`python -I`, as the Beacon app runs it) keeps the child process isolated too, so it cannot load packages from the user's own site-packages.
 

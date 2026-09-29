@@ -7,6 +7,13 @@
 # efficiently the fuzzer can build input, not about the API, so it is off.
 suppress-health-check = ["filter_too_much"]
 
+# Every check runs except `ignored_auth`: authentication has its own contract
+# tests, and this run is there to exercise handlers. Set here rather than with
+# --checks on the command line, which would override the per-operation
+# settings below.
+[checks]
+ignored_auth.enabled = false
+
 # Operations that start real work are left out. Synthetic generation writes
 # about 2.5 GB at its default size, which is what took a nightly runner down,
 # and a refresh downloads prices or extends a store. What they accept is
@@ -32,14 +39,15 @@ enabled = false
 # Rules that tie one field to another: a folder store needs a path and a
 # database a connection; an index carries a rule pipeline or a derivation; a
 # swap ends after it starts; an adjusted price series needs CLOSE; a report
-# block's fields depend on its kind.
+# block's fields depend on its kind; a curve's keys are tenors in years.
 [[operations]]
-include-name-regex = '^(POST /data/stores|POST /indices|POST /indices/preview|POST /indices/validate|PUT /indices/\{index_id\}|POST /derivatives/trs/price|GET /data/prices/\{identifier\}|PUT /reports/templates/\{template_id\})$'
+include-name-regex = '^(POST /data/stores|POST /indices|POST /indices/preview|POST /indices/validate|PUT /indices/\{index_id\}|POST /derivatives/trs/price|POST /derivatives/futures/price|GET /data/prices/\{identifier\}|PUT /reports/templates/\{template_id\})$'
 checks.positive_data_acceptance.enabled = false
 
-# Rules that depend on the loaded data or the machine: identifiers and
-# columns must exist in the data, import paths must exist on disk, a
-# universe must name members, and a constraint must be a known type.
+# Rules that depend on the loaded data or the machine, or are checked where
+# they are read: identifiers and columns must exist in the data, dates must
+# be real dates, import paths must exist on disk, a universe must name
+# members, and a constraint must be a known type.
 [[operations]]
-include-name-regex = '^(GET /data/reference|GET /data/reference/\{identifier\}|POST /data/features|POST /data/import|POST /universes|PUT /universes/\{universe_id\}|PUT /optimise/constraint-sets/\{set_id\})$'
+include-name-regex = '^(GET /data/corporate-actions/\{identifier\}|GET /data/reference|GET /data/reference/\{identifier\}|POST /data/features|POST /data/import|POST /universes|PUT /universes/\{universe_id\}|PUT /optimise/constraint-sets/\{set_id\})$'
 checks.positive_data_acceptance.enabled = false

@@ -78,8 +78,9 @@ EndQuery = Annotated[str | None,
                      Query(description="Inclusive end date, YYYY-MM-DD.")]
 # Each id non-empty in the spec as well as in the store's check, so a client
 # reading the document knows `?ids=` names nothing (BN-131). "Two or more"
-# stays a runtime check: `min_length=2` would be true but would turn a
-# coded DATA_NOT_FOUND saying how many were given into a bare validation error.
+# was a runtime check until BN-250 moved it into the spec with `min_length=2`:
+# the fuzz run reported the runtime refusal as the API rejecting valid input,
+# and both answers are a 422 saying what is wrong.
 IdsQuery = Annotated[list[Annotated[str, StringConstraints(min_length=1)]],
                      Query(min_length=2,
                            description="Index ids to compare, two or more.")]

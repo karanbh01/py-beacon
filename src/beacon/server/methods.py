@@ -9,11 +9,17 @@ exist there. The published spec lists every method each fixed path supports,
 so this reads the spec once and, for a fixed path, refuses with 405 any method
 the spec does not list for it. A fixed path with no parameterised sibling gets
 the same 405 as always.
+
+A plain OPTIONS request, one that is not a CORS preflight, gets the same 405 on
+every path in the spec, parameterised ones included, with `Allow` listing every
+method the path supports. The router alone listed only the methods of the
+first route it matched.
 """
 # BN-131: before this, `PUT /indices/validate` fell through to
 # `PUT /indices/{index_id}` and answered whatever that handler answered (a 422
 # for the body, or the reserved-identifier refusal). The fuzz run found five of
 # these, one per fixed path sitting beside a path parameter.
+import re
 from typing import Any
 
 from fastapi import FastAPI, status
@@ -22,9 +28,9 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .errors import HTTP_STATUS_CODES, _envelope
 
-# OPTIONS is the CORS preflight and belongs to the CORS middleware; HEAD is
-# answered wherever GET is. Neither appears in the spec.
-_IMPLICIT = frozenset({"OPTIONS"})
+# A CORS preflight is OPTIONS with these headers, and belongs to the CORS
+# middleware. HEAD is answered wherever GET is. Neither appears in the spec.
+_PREFLIGHT_HEADERS = (b"origin", b"access-control-request-method")
 
 
 class LiteralPathMethods:
@@ -36,6 +42,7 @@ class LiteralPathMethods:
         self.app = app
         self.api = api
         self._allowed: dict[str, frozenset[str]] | None = None
+        self._templates: list[tuple[re.Pattern[str], frozenset[str]]] | None = None
 
     def allowed(self) -> dict[str, frozenset[str]]:
         """Methods per fixed path, read from the spec on first use.
@@ -53,15 +60,39 @@ class LiteralPathMethods:
 
         return self._allowed
 
+    def templated(self,
+                  path: str) -> frozenset[str] | None:
+        """Methods of the parameterised spec path *path* matches, if any."""
+        if self._templates is None:
+            paths: dict[str, Any] = self.api.openapi().get("paths", {})
+            self._templates = [
+                (re.compile("^" + re.sub(r"\\{[^/]+?\\}", "[^/]+",
+                                         re.escape(template)) + "$"),
+                 _with_head(frozenset(method.upper() for method in operations)))
+                for template, operations in paths.items()
+                if "{" in template
+            ]
+
+        for pattern, methods in self._templates:
+            if pattern.match(path):
+                return methods
+
+        return None
+
     async def __call__(self,
                        scope: Scope,
                        receive: Receive,
                        send: Send) -> None:
-        if scope["type"] != "http" or scope["method"] in _IMPLICIT:
+        if scope["type"] != "http" or _is_preflight(scope):
             await self.app(scope, receive, send)
             return
 
         methods = self.allowed().get(scope["path"])
+
+        # BN-250: a plain OPTIONS on a parameterised path was answered by the
+        # router, whose Allow named only the first matching route's methods.
+        if methods is None and scope["method"] == "OPTIONS":
+            methods = self.templated(scope["path"])
 
         if methods is None or scope["method"] in methods:
             await self.app(scope, receive, send)
@@ -76,6 +107,16 @@ class LiteralPathMethods:
             headers={"Allow": allow})
 
         await response(scope, receive, send)
+
+
+def _is_preflight(scope: Scope) -> bool:
+    """Whether a request is a CORS preflight, which the CORS layer answers."""
+    if scope["method"] != "OPTIONS":
+        return False
+
+    names = {name for name, _ in scope.get("headers", [])}
+
+    return all(header in names for header in _PREFLIGHT_HEADERS)
 
 
 def _with_head(methods: frozenset[str]) -> frozenset[str]:

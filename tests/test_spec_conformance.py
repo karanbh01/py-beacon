@@ -456,6 +456,31 @@ class TestAMissingMethodIsA405:
         assert response.json()["error"]["code"] == "METHOD_NOT_ALLOWED"
         assert response.headers["allow"] == "POST"
 
+    def test_a_plain_options_lists_every_method_of_its_path(self,
+                                                            client):
+        """BN-250, found by the fuzz run: the router's own 405 named only the
+        methods of the first route it matched, so `OPTIONS /data/features`
+        said GET where the path also takes POST."""
+        fixed = client.options("/data/features", headers=HEADERS)
+        templated = client.options("/indices/some-index", headers=HEADERS)
+
+        assert fixed.status_code == 405
+        assert fixed.headers["allow"] == "GET, HEAD, POST"
+        assert templated.status_code == 405
+        assert set(templated.headers["allow"].split(", ")) == {
+            "DELETE", "GET", "HEAD", "PUT"}
+
+    def test_a_cors_preflight_is_still_the_cors_layers(self,
+                                                       client):
+        response = client.options(
+            "/data/features",
+            headers={"Origin": "http://localhost:5173",
+                     "Access-Control-Request-Method": "POST"})
+
+        assert response.status_code == 200
+        assert (response.headers["access-control-allow-origin"]
+                == "http://localhost:5173")
+
     def test_a_documented_verb_is_untouched(self,
                                             client):
         """Guards the test above: refusing everything would pass it."""
