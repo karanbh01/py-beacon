@@ -35,7 +35,8 @@ class TotalReturnSwap(DerivativeBase):
     - ``last_reset_date``: start of the current accrual period
       (defaults to the swap start date)
 
-    The underlying type is always ``INDEX``, and financing accrues ACT/360.
+    The underlying is an index by default; pass *underlying_type* for an ETF
+    or an equity basket. Financing accrues ACT/360.
     """
 
     #: Payment frequencies recognised for the financing leg.
@@ -55,7 +56,8 @@ class TotalReturnSwap(DerivativeBase):
                  spread_bps: float,
                  reference_rate: str,
                  payment_frequency: str,
-                 reset_type: str = "UNFUNDED"):
+                 reset_type: str = "UNFUNDED",
+                 underlying_type: str = "INDEX"):
         """Initialise a total return swap.
 
         Args:
@@ -71,6 +73,8 @@ class TotalReturnSwap(DerivativeBase):
             payment_frequency: One of ``MONTHLY``, ``QUARTERLY``,
                 ``SEMI-ANNUAL``, ``ANNUAL`` (case-insensitive).
             reset_type: ``UNFUNDED`` (default) or ``FUNDED``.
+            underlying_type: What *underlying_id* refers to: ``INDEX`` (the
+                default), ``ETF`` or ``EQUITY``.
 
         Raises:
             ValueError: On empty dates, ``end_date`` not after ``start_date``,
@@ -100,7 +104,7 @@ class TotalReturnSwap(DerivativeBase):
         super().__init__(
             derivative_id=derivative_id,
             underlying_id=underlying_id,
-            underlying_type="INDEX",
+            underlying_type=underlying_type,
             currency=currency,
             expiry_date=end_date,
             notional=notional,

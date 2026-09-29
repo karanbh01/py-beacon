@@ -5,6 +5,8 @@ Excel reports from portfolio data: a holdings report and a performance report.
 Writing a report needs the ``excel`` extra (openpyxl).
 """
 import logging
+import os
+from pathlib import Path
 
 import pandas as pd
 
@@ -27,7 +29,7 @@ class ReportGenerator:
     """
     def generate_holdings_report_excel(self,
                                        portfolio: Portfolio,
-                                       report_path: str,
+                                       report_path: str | os.PathLike[str],
                                        valuation_date: pd.Timestamp) -> None:
         """
         Generates an Excel report summarizing the current portfolio holdings.
@@ -37,16 +39,16 @@ class ReportGenerator:
         to carry current prices (and therefore current market values/weights).
 
         The workbook has a ``HoldingsSummary`` sheet (the output of
-        ``portfolio.get_holdings_summary()``, including a cash row) and, when
-        the portfolio has transactions, a ``TransactionHistory`` sheet. If
-        *report_path* does not end in ``.xlsx`` the extension is appended.
+        ``portfolio.get_holdings_summary()``, including a cash row, with a
+        leading ``valuation_date`` column) and, when the portfolio has
+        transactions, a ``TransactionHistory`` sheet. If *report_path* does not
+        end in ``.xlsx`` the extension is appended.
 
         Args:
             portfolio: The Portfolio object to report on.
-            report_path: The file path (including .xlsx extension) where the Excel
-                         report will be saved.
-            valuation_date: The date the holdings are reported as of; used for
-                            logging and report labelling only.
+            report_path: Where to save the workbook, as a string or a path.
+            valuation_date: The date the holdings are reported as of, written
+                into every row of the holdings sheet.
 
         Raises:
             MissingDependencyError: If openpyxl is not installed.
@@ -57,9 +59,8 @@ class ReportGenerator:
 
         if portfolio is None:
             raise ValueError("Portfolio object must be provided.")
-        if not report_path.endswith(".xlsx"):
-            logger.warning(f"Report path '{report_path}' does not end with .xlsx. Appending it.")
-            report_path += ".xlsx"
+
+        report_path = _xlsx(report_path)
 
         logger.info(
             f"Generating holdings report for portfolio '{portfolio.portfolio_id}' as of "
@@ -67,6 +68,9 @@ class ReportGenerator:
 
         try:
             holdings_summary_df = portfolio.get_holdings_summary()
+            # BN-260: the date reached only the log before.
+            holdings_summary_df.insert(0, "valuation_date",
+                                       pd.Timestamp(valuation_date).date())
 
             if holdings_summary_df.empty:
                 logger.warning(
@@ -105,7 +109,7 @@ class ReportGenerator:
     def generate_performance_report_excel(self,
                                           # Output from BacktestEngine or analysis
                                           performance_data: pd.DataFrame,
-                                          report_path: str,
+                                          report_path: str | os.PathLike[str],
                                           report_title: str | None = "Performance Report") -> None:
         """
         Generates an Excel report from a DataFrame of performance data.
@@ -118,7 +122,7 @@ class ReportGenerator:
         Args:
             performance_data: A pandas DataFrame containing performance metrics over time.
                               Expected to have a DatetimeIndex.
-            report_path: The file path (including .xlsx extension) for the report.
+            report_path: Where to save the workbook, as a string or a path.
             report_title: Used as the sheet name, with spaces replaced by
                 underscores and truncated to 30 characters. None names the
                 sheet ``PerformanceData``.
@@ -132,9 +136,8 @@ class ReportGenerator:
 
         if not isinstance(performance_data, pd.DataFrame) or performance_data.empty:
             raise ValueError("performance_data must be a non-empty pandas DataFrame.")
-        if not report_path.endswith(".xlsx"):
-            logger.warning(f"Report path '{report_path}' does not end with .xlsx. Appending it.")
-            report_path += ".xlsx"
+
+        report_path = _xlsx(report_path)
 
         # Excel sheet name limits
         sheet_name = report_title.replace(" ", "_")[:30] if report_title else "PerformanceData"
@@ -148,3 +151,16 @@ class ReportGenerator:
         except Exception as e:
             logger.error(f"Failed to generate or save performance report to {report_path}: {e}")
             raise ReportingError(f"Error generating performance report: {e}") from e
+
+
+def _xlsx(report_path: str | os.PathLike[str]) -> Path:
+    """*report_path* as a path ending in .xlsx, appending it when missing."""
+    # BN-260: a pathlib.Path raised AttributeError on `endswith`.
+    path = Path(report_path)
+
+    if path.suffix.lower() != ".xlsx":
+        logger.warning("Report path '%s' does not end with .xlsx. Appending it.",
+                       path)
+        path = path.with_name(path.name + ".xlsx")
+
+    return path

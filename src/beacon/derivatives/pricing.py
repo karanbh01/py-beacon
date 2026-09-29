@@ -19,8 +19,10 @@ __all__ = [
     "trs_breakeven_spread",
 ]
 
-# Seconds in an average year (365.25 days), used for date-difference year fractions.
-_SECONDS_PER_YEAR = 365.25 * 24 * 3600
+# Seconds in a 365-day year, the ACT/365 convention `time_to_expiry` uses too.
+# 365.25 until BN-260, which made a roll return disagree with every other
+# year fraction in the package.
+_SECONDS_PER_YEAR = 365 * 24 * 3600
 
 
 def cost_of_carry_fair_value(spot: float,
@@ -134,8 +136,8 @@ def futures_roll_return(front_price: float,
                         back_expiry: pd.Timestamp) -> float:
     """Annualised simple roll return from rolling a front contract to a back one.
 
-    ``roll = (front / back - 1) / dt`` where ``dt`` is the year fraction between
-    the two expiries. Positive in backwardation (front above back), negative in
+    ``roll = (front / back - 1) / dt`` where ``dt`` is the ACT/365 year fraction
+    between the two expiries. Positive in backwardation (front above back), negative in
     contango.
 
     Args:

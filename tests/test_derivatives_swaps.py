@@ -54,6 +54,17 @@ class TestConstruction:
         assert t.reset_type == "UNFUNDED"
         assert t.payment_frequency == "QUARTERLY"
 
+    def test_the_underlying_is_an_index_by_default(self):
+        assert _make().underlying_type == "INDEX"
+
+    def test_an_equity_basket_is_recorded_as_such(self):
+        """BN-260: it was always INDEX, whatever the swap referenced."""
+        assert _make(underlying_type="equity").underlying_type == "EQUITY"
+
+    def test_an_unknown_underlying_type_is_refused(self):
+        with pytest.raises(ValueError, match="underlying_type"):
+            _make(underlying_type="BOND")
+
     def test_reset_type_uppercased(self):
         assert _make(reset_type="funded").reset_type == "FUNDED"
 

@@ -193,10 +193,9 @@ print(pd.ExcelFile("holdings.xlsx").sheet_names)   # HoldingsSummary, Transactio
 **`generate_holdings_report_excel(portfolio, report_path, valuation_date)`**
 writes a `HoldingsSummary` sheet from `portfolio.get_holdings_summary()`,
 including a cash row, and a `TransactionHistory` sheet when the portfolio has
-transactions. It reports the portfolio as it stands, so call
+transactions. The holdings sheet's first column, `valuation_date`, holds
+`valuation_date` on every row. It reports the portfolio as it stands, so call
 `update_prices(...)` first for current market values and weights.
-`valuation_date` is used only in log messages; it is not written to the
-workbook.
 
 **`generate_performance_report_excel(performance_data, report_path, report_title="Performance Report")`**
 writes a non-empty DataFrame, index included, to one sheet. The sheet is
@@ -206,8 +205,8 @@ characters, or `PerformanceData` when the title is `None`. It raises
 backtest's NAV works well here: `result.trading_nav.to_frame("nav")` (see
 [Backtest](backtest.md)).
 
-Pass `report_path` as a string: both methods call `str.endswith` on it, so a
-`pathlib.Path` fails.
+`report_path` can be a string or a `pathlib.Path`. If it does not end in
+`.xlsx`, both methods add the extension.
 
 The full API is in the [Reports reference](../reference/report.md) and the
 [Portfolio reference](../reference/portfolio.md).

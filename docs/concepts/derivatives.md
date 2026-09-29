@@ -19,7 +19,7 @@ These hold across the whole package, so they are stated once here.
 | Rates and yields | Continuously compounded, as annual decimals (`0.05` is 5%) |
 | Time to expiry | ACT/365: calendar time to expiry divided by 365 days |
 | TRS financing | ACT/360: whole calendar days accrued divided by 360 |
-| Roll return | Year fraction between two expiries uses 365.25-day years |
+| Roll return | ACT/365: calendar time between the two expiries divided by 365 days |
 | Futures prices | Index points; multiply by the contract multiplier for currency |
 
 Past expiry, time to expiry is clamped to zero, so an index future's fair
@@ -124,7 +124,8 @@ exchange for a financing leg.
 - **`FUNDED`**: the principal is paid up front, so only the spread accrues.
 
 Financing accrues ACT/360 on the notional since the last reset. The
-underlying type is always `INDEX`, and the payment frequency must be
+underlying is an index unless you pass `underlying_type` (`INDEX`, `ETF` or
+`EQUITY`, the last for an equity basket), and the payment frequency must be
 `MONTHLY`, `QUARTERLY`, `SEMI-ANNUAL` or `ANNUAL`.
 
 ```python

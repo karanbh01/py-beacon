@@ -144,11 +144,20 @@ class TestFuturesRollReturn:
     def test_backwardation_positive_hand_calc(self):
         front_exp = pd.Timestamp("2024-03-15")
         back_exp = pd.Timestamp("2024-06-15")  # 92 days
-        dt = (back_exp - front_exp).total_seconds() / (365.25 * 24 * 3600)
+        # ACT/365, as time_to_expiry uses (365.25 until BN-260).
+        dt = (back_exp - front_exp).total_seconds() / (365 * 24 * 3600)
         expected = (105.0 / 100.0 - 1.0) / dt
         roll = futures_roll_return(105.0, 100.0, front_exp, back_exp)
         assert roll == pytest.approx(expected)
         assert roll > 0  # backwardation
+
+    def test_a_365_day_gap_is_one_year(self):
+        """BN-260: the same ACT/365 year as time_to_expiry."""
+        front_exp = pd.Timestamp("2023-06-15")
+        back_exp = front_exp + pd.Timedelta(days=365)
+
+        assert futures_roll_return(110.0, 100.0, front_exp,
+                                   back_exp) == pytest.approx(0.10)
 
     def test_contango_negative(self):
         front_exp = pd.Timestamp("2024-03-15")

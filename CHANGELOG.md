@@ -15,6 +15,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - The asset view reports `currency`, which its returns, beta and tracking error are measured in (the index's), and `price_currency`, which its price series is in (the name's own).
 - A feature import's response says whether the rows were `saved` into the served store, and gives the new `data_version`.
 - `BacktestResult.get_annual_returns()`: calendar-year returns that compound to the whole run's return.
+- `TotalReturnSwap` takes `underlying_type` (`INDEX`, the default, `ETF` or `EQUITY`). It was always `INDEX`.
 - A risk model request takes an optional `currency`, and a risk model and an optimisation run report the currency they were measured in.
 
 ### Removed
@@ -39,6 +40,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `BacktestPlots.annual_returns` measures each year from the previous year's close, and the first from the initial capital. It measured each year from its own first close, so every year after the first lost its first day's return.
 - A chart drawn before `beacon.plot.use()` gets the light colours on matplotlib's white background, not the dark mode's.
 - `OptimisationPlots.frontier` starts the capital market line at the rate the frontier was traced at, unless another is passed, so the line is tangent.
+- The Excel reports accept a `pathlib.Path` as well as a string, and the holdings report writes `valuation_date` into its sheet instead of only logging it.
+- `futures_roll_return` uses 365-day years, like every other year fraction in the derivatives. It used 365.25, so its rates came out smaller than the rest by a factor of 365/365.25.
 - Generating or extending synthetic data from an isolated engine (`python -I`, as the Beacon app runs it) keeps the child process isolated too, so it cannot load packages from the user's own site-packages.
 
 ## [0.2.0] - 2026-09-26
