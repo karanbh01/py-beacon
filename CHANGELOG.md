@@ -13,6 +13,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `DataFetcher.fetch_prices` reads prices for several instruments at once, converted into one currency day by day under the dataset's FX policy.
 - `IndexResult.price_gaps` and `beacon.index.PriceGap`: the days a held name had no bar and was valued at its last close. `PriceGap` is still importable from `beacon.backtest`.
 - The asset view reports `currency`, which its returns, beta and tracking error are measured in (the index's), and `price_currency`, which its price series is in (the name's own).
+- A feature import's response says whether the rows were `saved` into the served store, and gives the new `data_version`.
 - A risk model request takes an optional `currency`, and a risk model and an optimisation run report the currency they were measured in.
 
 ### Fixed
@@ -20,6 +21,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - Money is compared in one currency wherever names are compared or added up. `LiquidityRule`'s traded-value floor, the engine's risk models, optimisation runs, the weights pane (drift, risk contributions, active risk), attribution and the asset view all read each name's prices in its own currency, so a multi-currency index mixed yen with dollars and left exchange-rate returns and risk out. They now convert into the index's currency.
 - An index values a held name with no bar on a session at its last close, as the backtest engine does, and lists the day in `IndexResult.price_gaps`. It used to value the name at zero, so the level dipped by the name's weight for the day and recovered when the bar returned.
 - An expression's `market_cap` inside an index is in the index's currency, as `MarketCapRule`'s bounds are. Outside an index it stays in USD.
+- `POST /data/features` now saves the rows into the served store when it is a folder, so they survive a restart, and changes `data_version` and sends a `data.freshness` event for `features`. Before, a client caching on `data_version` missed the change and a restart lost the rows.
+- The engine always keeps the saved results its views read: the latest backtest of each index, every optimisation run and the latest estimate of each risk model. The limit of 50 saved jobs now applies only to the rest, so a run of loads, refreshes or renders no longer makes those views answer 404.
 - Generating or extending synthetic data from an isolated engine (`python -I`, as the Beacon app runs it) keeps the child process isolated too, so it cannot load packages from the user's own site-packages.
 
 ## [0.2.0] - 2026-09-26

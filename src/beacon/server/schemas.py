@@ -1070,6 +1070,19 @@ class FeatureImportResult(BaseModel):
     accepted: int
     types: list[str] = Field(description="Datasets the import touched.")
     identifiers: int
+    saved: bool = Field(
+        default=False,
+        description="Whether the rows were written into the served data "
+                    "store, so they survive a restart and a reload. True for "
+                    "a folder store. False for a Postgres store, which is "
+                    "read-only, and for data not registered as a store: there "
+                    "the rows are served until the engine stops or other data "
+                    "is loaded.")
+    data_version: str | None = Field(
+        default=None,
+        description="The engine's `data_version` after the import. It changes "
+                    "on every import, and a `data.freshness` event for the "
+                    "`features` dataset carries the same value.")
 
 
 class UniverseMembership(BaseModel):

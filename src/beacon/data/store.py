@@ -355,6 +355,32 @@ def save(fetcher: DataFetcher,
     return path
 
 
+def save_features(features: FeatureData,
+                  path: Path) -> None:
+    """Write a store's feature table, leaving its other datasets as they are.
+
+    Args:
+        features: The whole feature table, not just new rows: the file is
+            replaced.
+        path: The store directory. It must already hold a manifest.
+
+    Raises:
+        ConfigurationError: If *path* is not a Beacon data store.
+    """
+    manifest_path = path / MANIFEST_NAME
+    read_manifest(path)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    _write_frame(flatten_index(features.data), path / FEATURES_FILE)
+
+    datasets = list(payload.get("datasets", []))
+    if "features" not in datasets:
+        payload["datasets"] = [*datasets, "features"]
+        manifest_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8")
+
+
 def load(path: Path,
          fx_policy: str = DEFAULT_FX_POLICY,
          max_price_staleness_days: int | None = None,

@@ -48,6 +48,14 @@ SUBSCRIBER_QUEUE_SIZE = 100
 # DocumentStore is the right storage, and no compact format is warranted.
 MAX_STORED_RESULTS = 50
 
+# Kinds whose newest successful result a read endpoint serves: a backtest's
+# for the /beacon views, a risk model's and an optimisation run's for theirs.
+# That result is never pruned, however many other jobs finish after it; the
+# limit above applies to the rest. Until BN-256 the limit counted every kind
+# together, so a run of loads, refreshes and renders pushed a risk model out
+# and its endpoint answered 404.
+SERVED_KINDS = ("backtest:", "optimise:", "risk:")
+
 # Fields of a job snapshot that survive a restart. Anything else in the stored
 # document is bookkeeping and is not part of the API's job shape.
 PERSISTED_FIELDS = ("job_id", "kind", "status", "progress", "message",
@@ -57,6 +65,28 @@ PERSISTED_FIELDS = ("job_id", "kind", "status", "progress", "message",
 # returns whatever should become the job's result.
 ProgressReporter = Callable[[float, str], Awaitable[None]]
 JobBody = Callable[[ProgressReporter], Awaitable[Any]]
+
+
+def _in_use(held: list[tuple[str, Stored[dict[str, Any]]]]) -> set[str]:
+    """Ids of the results read endpoints serve: the newest successful result
+    of every kind under :data:`SERVED_KINDS`."""
+    newest: dict[str, tuple[str, str]] = {}
+
+    for document_id, entry in held:
+        document = entry.document
+
+        if document is None or document.get("status") != SUCCEEDED:
+            continue
+
+        kind = str(document.get("kind", ""))
+        if not kind.startswith(SERVED_KINDS) or document.get("result") is None:
+            continue
+
+        stamp = _completed_at(entry)
+        if kind not in newest or stamp > newest[kind][0]:
+            newest[kind] = (stamp, document_id)
+
+    return {document_id for _, document_id in newest.values()}
 
 
 def _completed_at(held: Stored[dict[str, Any]]) -> str:
@@ -405,7 +435,13 @@ class JobRegistry:
             logger.error(f"Could not persist result for job {job.id}: {exc}")
 
     def _prune(self) -> None:
-        """Keep only the most recent MAX_STORED_RESULTS results.
+        """Keep the results in use, and the most recent MAX_STORED_RESULTS
+        of the rest.
+
+        In use means served by a read endpoint: the newest successful result
+        of each kind under :data:`SERVED_KINDS`. Those are never pruned here;
+        they go when what they belong to is deleted (:meth:`forget`) or when a
+        newer result of the same kind replaces them.
 
         The one caller here that must SEE a result it cannot read (BN-178),
         rather than skip it. Retention is a bound on files, not on readable
@@ -427,14 +463,16 @@ class JobRegistry:
 
         held = [(document_id, stored(self._results, document_id, raw))
                 for document_id in self._results.list_ids()]
+        in_use = _in_use(held)
+        history = [entry for entry in held if entry[0] not in in_use]
 
-        excess = len(held) - MAX_STORED_RESULTS
+        excess = len(history) - MAX_STORED_RESULTS
         if excess <= 0:
             return
 
         # Oldest first by completion time. Ids are UUIDs, so name order says
         # nothing about age.
-        oldest = sorted(held, key=lambda entry: _completed_at(entry[1]))
+        oldest = sorted(history, key=lambda entry: _completed_at(entry[1]))
 
         for document_id, _ in oldest[:excess]:
             self._results.delete(document_id)

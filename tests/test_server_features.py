@@ -172,6 +172,8 @@ class TestImport:
 
         assert created.status_code == 201
         assert created.json()["accepted"] == 1
+        # Data given on the command line is not a store the engine manages.
+        assert created.json()["saved"] is False
 
         read = client.get("/data/features/BBB", headers=HEADERS,
                           params={"date": "2024-07-01", "fields": "score"})

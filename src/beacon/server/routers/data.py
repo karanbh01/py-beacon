@@ -15,6 +15,7 @@ boundary wrong.
 # BN-65 specified both endpoints. Fundamentals was dropped rather than
 # deferred; corporate actions became servable once BN-98 added an action
 # history to the data layer.
+from pathlib import Path
 from typing import Annotated
 
 import pandas as pd
@@ -28,15 +29,17 @@ from ...data.identifiers import (
     IdentifierIndex,
     fingerprint,
 )
-from ...data.store import flatten_index
+from ...data.store import flatten_index, save_features
 from ...exceptions import (
     DataNotFoundError,
 )
 from ...expressions.catalogue import describe_fields
 from ...expressions.namespaces import NAMESPACES
-from ..active_data import current_data, require_data
+from ..active_data import ActiveData, active_data, current_data, require_data
+from ..data_stores import StoreRegistry
 from ..documents import read_collection, validated
 from ..errors import FindingsError
+from ..jobs import JobRegistry
 from ..reference import (
     DEFAULT_CURRENCY,
     MAX_BATCH,
@@ -72,7 +75,7 @@ from ..serialisation import dataframe_to_payload
 
 require("fastapi", "The Beacon API server")
 
-from fastapi import APIRouter, Query, Request, Response, status  # noqa: E402
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status  # noqa: E402
 from pydantic import StringConstraints  # noqa: E402
 
 # Resolutions this router can honestly serve. The stored data is the native
@@ -145,6 +148,28 @@ CurrencyQuery = Annotated[
 def _data_fetcher(request: Request) -> DataFetcher:
     """The loaded data, or 409 NO_DATA_LOADED (see `active_data`)."""
     return require_data(request, "this data cannot be read")
+
+
+def _save_features(request: Request,
+                   holder: ActiveData,
+                   fetcher: DataFetcher) -> bool:
+    """Write the served feature table back into its store, when it can be.
+
+    Only a registered folder store is written. A Postgres store is read-only,
+    and data given on the command line is not a store the engine manages.
+    """
+    if holder.store_id is None:
+        return False
+
+    registry: StoreRegistry = request.app.state.data_stores
+    record = registry.get(holder.store_id)
+
+    if record is None or record.get("kind") != "folder":
+        return False
+
+    save_features(fetcher.features, Path(record["path"]))
+
+    return True
 
 
 def _resample(frame: pd.DataFrame,
@@ -620,6 +645,15 @@ def build_data_router() -> APIRouter:
     def import_features(request: Request,
                         body: FeatureImport) -> FeatureImportResult:
         fetcher = _data_fetcher(request)
+        holder = active_data(request)
+
+        # A load replaces the fetcher when it finishes, which would silently
+        # drop rows merged into the one it replaces.
+        if holder.loading:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A data store is loading. Import the features once it "
+                       "has finished.")
 
         if not body.rows:
             raise _feature_findings([Finding(
@@ -654,10 +688,23 @@ def build_data_router() -> APIRouter:
 
         fetcher.replace_features(fetcher.features.merged_with(frame))
 
+        # Imported rows used to live only in memory and changed the data
+        # without a new data_version or an event (BN-256).
+        saved = _save_features(request, holder, fetcher)
+        version = holder.data_changed()
+
+        jobs: JobRegistry = request.app.state.jobs
+        jobs.publish_data_freshness("features",
+                                    {"store": holder.store_id,
+                                     "rows_added": len(body.rows),
+                                     "data_version": version})
+
         return FeatureImportResult(
             accepted=len(body.rows),
             types=sorted({row.type for row in body.rows}),
-            identifiers=len({row.identifier for row in body.rows}))
+            identifiers=len({row.identifier for row in body.rows}),
+            saved=saved,
+            data_version=version)
 
 
     @router.get("/tables/{dataset}", response_model=TablePage)

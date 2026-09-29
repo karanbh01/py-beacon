@@ -233,6 +233,57 @@ class TestRetention:
 
         assert len(store.list_ids()) == 5
 
+    @pytest.mark.asyncio
+    async def test_a_served_result_outlives_the_history(self,
+                                                        store):
+        """BN-256: a risk model estimated first, then more loads than the
+        limit, is still what its endpoint reads."""
+        registry = JobRegistry(result_store=store)
+
+        registry.submit("risk:core", produce)
+        await registry.drain()
+
+        for _ in range(MAX_STORED_RESULTS + 5):
+            registry.submit("load:store", produce)
+        await registry.drain()
+
+        assert registry.latest_result("risk:core") == {"value": "done"}
+        assert len(store.list_ids()) == MAX_STORED_RESULTS + 1
+
+    @pytest.mark.asyncio
+    async def test_only_the_newest_result_of_a_kind_is_protected(self,
+                                                                 store):
+        """A backtest run twice keeps the second; the first is history."""
+        registry = JobRegistry(result_store=store)
+        first = registry.submit("backtest:core", produce)
+        await registry.drain()
+        second = registry.submit("backtest:core",
+                                 lambda report: produce(report, "second"))
+        await registry.drain()
+
+        for _ in range(MAX_STORED_RESULTS):
+            registry.submit("render:chart", produce)
+            await registry.drain()
+
+        remaining = set(store.list_ids())
+
+        assert second.id in remaining
+        assert first.id not in remaining
+        assert registry.latest_result("backtest:core") == {"value": "second"}
+
+    @pytest.mark.asyncio
+    async def test_a_failed_job_is_not_protected(self,
+                                                 store):
+        registry = JobRegistry(result_store=store)
+        failed = registry.submit("risk:core", explode)
+        await registry.drain()
+
+        for _ in range(MAX_STORED_RESULTS):
+            registry.submit("load:store", produce)
+            await registry.drain()
+
+        assert failed.id not in set(store.list_ids())
+
 
 def wreck(store: DocumentStore,
           document_id: str) -> None:

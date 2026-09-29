@@ -86,7 +86,7 @@ A client needs three things from startup (the full sequence is in
 | --- | --- |
 | `/health` | Whether the engine is up, what data it serves, and the modelling settings in force (`fx_policy`, `max_price_staleness_days`, `free_float_backfill_days`). |
 | `/changelog` | The engine's release notes. See [Release notes](#release-notes). |
-| `/data/identifiers`, `/data/prices`, `/data/reference`, `/data/corporate-actions`, `/data/features`, `/data/fields`, `/data/tables` | Reading the loaded data: search names, price history, reference fields (including derived ones such as market caps), corporate actions, features, the field catalogue, and raw pages of each dataset. `POST /data/features` adds feature rows to the served data. |
+| `/data/identifiers`, `/data/prices`, `/data/reference`, `/data/corporate-actions`, `/data/features`, `/data/fields`, `/data/tables` | Reading the loaded data: search names, price history, reference fields (including derived ones such as market caps), corporate actions, features, the field catalogue, and raw pages of each dataset. `POST /data/features` adds feature rows to the served data and saves them into its store when that is a folder; a Postgres store is read-only, so there they last until other data is loaded or the engine stops. |
 | `/data/coverage` | What each dataset holds, how old it is, and when it goes stale. |
 | `/data/stores` | Registered data stores: list, register, rename, forget, activate, refresh. |
 | `/data/synthetic` | Generate synthetic data into a new store, as a job. |
@@ -146,16 +146,21 @@ that has just finished is not an error. A job from before a restart cannot be
 cancelled and answers 404.
 
 Finished jobs are saved under `--documents`, so `GET /jobs/{job_id}` still
-answers after the engine restarts. The engine keeps the 50 most recently
-finished jobs of all kinds and deletes older ones. A job still running when
-the engine stops is lost.
+answers after the engine restarts. A job still running when the engine
+stops is lost.
 
-Some endpoints read their answers from saved job results, and so are subject
-to the same limit of 50: an index's overview, weights, attribution, asset and
-compare views (from its latest backtest), `/optimise/runs/{run_id}/...`, and
-`/risk-models`. An optimisation run also needs a saved backtest of its index.
-`/beacon/{index_id}/record` and `/beacon/backtests` read a record kept per
-index, which the limit does not touch.
+Some endpoints read their answers from saved job results: an index's
+overview, weights, attribution, asset and compare views (from its latest
+backtest), `/optimise/runs/{run_id}/...`, and `/risk-models`. An optimisation
+run also needs a saved backtest of its index. The result each of these reads
+is always kept: the latest successful backtest of each index, every
+successful optimisation run, and the latest estimate of each risk model. A
+backtest's result goes when its index is deleted or a newer backtest
+replaces it.
+
+Of the other finished jobs, the engine keeps the 50 most recent and deletes
+older ones. `/beacon/{index_id}/record` and `/beacon/backtests` read a record
+kept per index, which the limit does not touch.
 
 ## Events
 
@@ -170,7 +175,7 @@ Each message has a `type`:
 | --- | --- | --- |
 | `job` | A job starts, reports progress, or finishes | The job's state, as in the table above. |
 | `data.loaded` | The engine starts serving a store: after activation, generation, import, or a refresh of the store being served | `store` (`id` and `name`) and the new `data_version`. |
-| `data.freshness` | The store being served was refreshed | `dataset` (`market`) and `detail`, holding `store`, `rows_added` (rows downloaded, or null) and the new `data_version`. |
+| `data.freshness` | The store being served was refreshed, or features were imported | `dataset` (`market` for a refresh, `features` for an import) and `detail`, holding `store` (null for data not registered as a store), `rows_added` (rows downloaded or imported, or null) and the new `data_version`. |
 
 A client that falls behind loses the oldest undelivered messages rather than
 slowing the engine: each client's queue holds 100. Progress frames are
@@ -181,7 +186,8 @@ the current state.
 
 `data_version` is an opaque token that changes whenever the data being
 served changes: at startup, on every store load (the same store loaded again
-included), and when a refresh changes the store being served. A new value is
+included), when a refresh changes the store being served, and on every
+feature import. A new value is
 never one used before, even across restarts.
 
 Compare it only for equality. `/health` reports the current value, and the

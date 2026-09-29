@@ -431,3 +431,70 @@ class TestTheRegistryStaysReadable:
 
         assert job["status"] == "succeeded", job
         assert served(client)["identifiers"] == len(dataset.data_fetcher().identifiers)
+
+
+SCORE = {"rows": [{"identifier": "AAA", "date": "2024-01-03",
+                   "type": "derived", "field": "score", "value": 7.0}]}
+
+
+class TestImportingFeaturesIntoTheServedStore:
+    """BN-256: an import changes the data, so it says so, and it is kept."""
+
+    def test_the_rows_are_saved_into_a_folder_store(self,
+                                                    client,
+                                                    tmp_path):
+        folder = write_store(tmp_path / "a", ["AAA"])
+        register(client, "Mine", folder)
+        activate(client, "mine")
+
+        response = client.post("/data/features", headers=HEADERS, json=SCORE)
+
+        assert response.json()["saved"] is True
+        stored = data_store.load(folder).features.data
+        assert stored["VALUE"].tolist() == [7.0]
+        assert "features" in data_store.read_manifest(folder).datasets
+
+    def test_they_survive_loading_the_store_again(self,
+                                                  client,
+                                                  tmp_path):
+        register(client, "Mine", write_store(tmp_path / "a", ["AAA"]))
+        activate(client, "mine")
+        client.post("/data/features", headers=HEADERS, json=SCORE)
+
+        activate(client, "mine")
+        read = client.get("/data/features/AAA", headers=HEADERS,
+                          params={"date": "2024-01-05", "fields": "score"})
+
+        assert read.json()["features"][0]["value"] == 7.0
+
+    def test_the_data_version_changes_and_is_announced(self,
+                                                       client,
+                                                       tmp_path,
+                                                       monkeypatch):
+        announced = []
+        monkeypatch.setattr(
+            client.app.state.jobs, "publish_data_freshness",
+            lambda dataset, detail=None: announced.append((dataset, detail)))
+        register(client, "Mine", write_store(tmp_path / "a", ["AAA"]))
+        activate(client, "mine")
+        before = served(client)["data_version"]
+
+        result = client.post("/data/features", headers=HEADERS,
+                             json=SCORE).json()
+
+        after = served(client)["data_version"]
+        assert after != before
+        assert result["data_version"] == after
+        assert announced == [("features", {"store": "mine", "rows_added": 1,
+                                           "data_version": after})]
+
+    def test_an_import_while_a_store_loads_is_refused(self,
+                                                      client,
+                                                      tmp_path):
+        register(client, "Mine", write_store(tmp_path / "a", ["AAA"]))
+        activate(client, "mine")
+        client.app.state.active_data.loading = True
+
+        response = client.post("/data/features", headers=HEADERS, json=SCORE)
+
+        assert response.status_code == 409
