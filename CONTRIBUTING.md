@@ -119,7 +119,10 @@ A release goes to GitHub and to PyPI. The workflow is
    creates a draft GitHub release with both files, the `openapi.json` of that exact
    build, and the changelog section.
 5. Review the draft and publish it. Publishing uploads the draft's own files
-   to PyPI and deploys the documentation.
+   to PyPI, then asks Cloudflare to rebuild pybeacon.dev through the deploy
+   hook in the `CLOUDFLARE_DEPLOY_HOOK` secret. If the secret is missing or
+   the request fails, the job warns and the release still counts as done;
+   rebuild the site by hand from the beacon-site repository.
 
 A version on PyPI can never be uploaded again, even after deleting it. If a
 release is wrong, fix it and release the next patch version.

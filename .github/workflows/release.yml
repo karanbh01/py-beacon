@@ -238,3 +238,24 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      # pybeacon.dev builds its library docs from the latest release tag, so
+      # a new release asks Cloudflare to rebuild it. The hook URL is the
+      # CLOUDFLARE_DEPLOY_HOOK secret; anyone holding it can trigger a build,
+      # so it never appears here or in a log. A missing secret or a failed
+      # request warns and nothing more: the release has already shipped, and
+      # a docs rebuild must never mark it failed.
+      - name: Rebuild pybeacon.dev
+        env:
+          DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "::warning::CLOUDFLARE_DEPLOY_HOOK is not set; rebuild pybeacon.dev by hand."
+            exit 0
+          fi
+
+          if curl -fsS -X POST "$DEPLOY_HOOK" > /dev/null; then
+            echo "Asked Cloudflare to rebuild pybeacon.dev."
+          else
+            echo "::warning::The pybeacon.dev deploy hook failed; rebuild it by hand."
+          fi
