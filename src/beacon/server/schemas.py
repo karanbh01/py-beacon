@@ -3358,6 +3358,17 @@ class AssetView(BaseModel):
     observations: int
     price: SeriesPayload = Field(
         description="The name's close, in its own currency.")
+    currency: str | None = Field(
+        default=None,
+        description="The currency `total_return`, `excess_return`, "
+                    "`tracking_error`, `correlation` and `beta` are measured "
+                    "in: the index's.")
+    price_currency: str | None = Field(
+        default=None,
+        description="The currency `price` is in: the name's own, from its "
+                    "latest reference record. Null when no currency is on "
+                    "record for it, in which case its prices are taken to be "
+                    "in the index's currency.")
 
 
 class CompareEntry(BaseModel):

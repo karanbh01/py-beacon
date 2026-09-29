@@ -41,6 +41,7 @@ import pandas as pd
 from ..analysis.attribution import attribute, cap_drag, cost_drag, drifted_weights
 from ..analysis.relative import relative_metrics
 from ..data.fetcher import DataFetcher
+from ..data.prices import currencies_of
 from ..exceptions import DataNotFoundError
 from .runs import snapshots_from, weight_map
 from .schemas import (
@@ -288,7 +289,9 @@ def build_asset_view(index_id: str,
         correlation=metrics.correlation,
         beta=metrics.beta,
         observations=metrics.observations,
-        price=SeriesPayload.from_series(frame["CLOSE"]))
+        price=SeriesPayload.from_series(frame["CLOSE"]),
+        currency=currency.upper() if currency else None,
+        price_currency=currencies_of(fetcher, [identifier], "")[identifier] or None)
 
 
 def build_compare(runs: dict[str, dict[str, Any]]) -> CompareView:

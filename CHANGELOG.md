@@ -12,6 +12,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 - `DataFetcher.fetch_prices` reads prices for several instruments at once, converted into one currency day by day under the dataset's FX policy.
 - `IndexResult.price_gaps` and `beacon.index.PriceGap`: the days a held name had no bar and was valued at its last close. `PriceGap` is still importable from `beacon.backtest`.
+- The asset view reports `currency`, which its returns, beta and tracking error are measured in (the index's), and `price_currency`, which its price series is in (the name's own).
 - A risk model request takes an optional `currency`, and a risk model and an optimisation run report the currency they were measured in.
 
 ### Fixed
