@@ -17,18 +17,17 @@ from beacon.expressions import data
 
 Always import `data` from `beacon.expressions`. `from beacon import data`
 gives you `beacon.data`, the data package, which is a different thing: asking
-it for `market`, `reference` or `actions` raises an `AttributeError` that
-points back to the right import.
+it for `market` or `reference` raises an `AttributeError` that points back
+to the right import.
 
 ## Fields
 
-`data` has four namespaces, and each attribute inside one is a field:
+`data` has three namespaces, and each attribute inside one is a field:
 
 | Namespace | Fields | Read from |
 | --- | --- | --- |
 | `data.market` | `open`, `high`, `low`, `close`, `volume`, `shares_outstanding`, `free_float`, and the derived `adv_3m`, `market_cap`, `free_float_market_cap` | Market data |
 | `data.reference` | `name`, `sector`, `sub_industry`, `region`, `exchange`, `currency`, `country_listing`, `country_domicile` | Reference data |
-| `data.actions` | `type`, `kind`, `value`, `ex_date`, `pay_date`, `status` | Corporate actions |
 | `data.features.<type>` | Whatever the loaded features carry, such as `data.features.fundamentals.revenue` | Features, by `TYPE` |
 
 The fields listed are declared, so they autocomplete in Jupyter, IPython and
@@ -48,12 +47,18 @@ The derived market fields are computed when they are read, not stored:
   size: into the index currency when the expression is part of an index (an
   `ExpressionRule`), and into USD otherwise (a filtered universe, a backtest
   screen). It is missing when the price, the share count or the rate is.
-- `free_float_market_cap` is `market_cap` times `FREE_FLOAT`.
+- `free_float_market_cap` is `market_cap` times the free float in force (see
+  below).
 - `adv_3m` is the mean daily `VOLUME` over the trailing three calendar months.
 
 A misspelt namespace fails at once: `data.refrence` raises
-`UnknownDatasetError`. A misspelt field inside a namespace does not, because
-the namespace is open; [validation](#validation) catches it.
+`UnknownDatasetError`. A misspelt field inside a namespace fails when the
+expression meets the data, because the namespace is open; see
+[validation](#validation).
+
+Corporate actions are not expression fields. They are events rather than
+values a name has on a date, so `data.actions` raises `UnknownDatasetError`;
+read them from the fetcher's `corporate_actions`.
 
 Autocompletion in an editor such as VS Code or PyCharm reads declarations
 rather than live objects, so it cannot see feature datasets. To complete them
@@ -127,7 +132,9 @@ in time: it uses only what was known on that date.
 
 - **Market fields** take the last value on or before the date, looking back
   at most 10 days, so a date the name did not trade still sees its latest
-  price.
+  price. `free_float` is the exception: it is carried forward as far as the
+  data's `free_float_backfill_days` (90 by default), as every other free
+  float read is.
 - **Reference fields** use the reference row in force on the date, so a name
   that changed sector in June was in its old sector in March.
 - **Feature fields** use the latest value dated on or before the date. A
@@ -141,11 +148,6 @@ an expression has an `on_missing` setting that decides what a comparison on a
 missing value answers, and it excludes the name by default. That way a screen
 for "revenue above a billion" does not admit every name the dataset has never
 heard of.
-
-!!! warning "Corporate-action fields"
-    `data.actions` fields pass validation and appear in the field catalogue,
-    but a screen cannot read them yet: every name is missing a value, so the
-    comparison answers whatever `on_missing` says.
 
 Here the sample dataset gets a small feature table. A P/E published on
 20 February is invisible to a screen on 1 February:
@@ -273,17 +275,20 @@ See [Backtest](backtest.md) for the engine and its other modifiers.
 
 ## Validation
 
-Nothing checks an expression before it runs: `universe.where`,
-`ExpressionRule` and `ExpressionScreen` resolve whatever they are given, and a
-misspelt field is simply missing for every name, so the screen selects nothing
-(or everything, with `on_missing` set to include). Check an expression against
-the data first with `beacon.expressions.validation`:
+Every use of an expression checks it against the data before it runs:
+`universe.where` and `ExpressionScreen` when they are called, and an index's
+`ExpressionRule` before the index calculates or previews anything. A field the
+data does not have raises `ExpressionError`, naming each such field with the
+suggestions below, rather than leaving the screen to select nothing. To check
+an expression yourself, use `beacon.expressions.validation`:
 
 - `validate(expression, fetcher)` returns every problem as a list of
   `Finding`s, each with the field's `path`, a stable `code` and a `message`.
   An empty list means the expression is valid.
 - `errors_in(expression, fetcher)` returns only the findings that block, and
   `is_valid(expression, fetcher)` is true when there are none.
+- `require_valid(expression, fetcher, used_by)` raises `ExpressionError` when
+  there are any, which is what the uses above call.
 
 The codes are `UNKNOWN_FIELD` (the namespace or feature dataset has no such
 field), `UNKNOWN_FEATURE_TYPE` (no such feature dataset, or no features loaded
@@ -305,8 +310,9 @@ print(is_valid(cheap, fetcher))   # True
 
 The loaded data decides what exists, not the declared field list: a reference
 column you loaded yourself is valid, and a declared column your data lacks is
-not. The derived market fields are always valid, since they are computed, and
-action fields are checked against the declared list.
+not. The derived market fields are always valid, since they are computed. A
+tree that names a corporate action field, such as one saved by an earlier
+version, gets `UNKNOWN_NAMESPACE`.
 
 ## The field catalogue
 
@@ -315,8 +321,7 @@ expression can name in the loaded data, for building a field picker. Each
 entry gives the field's `path`, `namespace`, `name`, feature `dataset`, and
 whether it is `derived`. It lists the market and reference columns actually
 loaded (leaving out keys such as `IDENTIFIER` and `DATE_FROM`), the derived
-market fields, the declared action fields, and every loaded feature field by
-dataset. The engine serves the same list at `GET /data/fields`.
+market fields, and every loaded feature field by dataset. The engine serves the same list at `GET /data/fields`.
 
 ```python
 from beacon.expressions.catalogue import describe_fields

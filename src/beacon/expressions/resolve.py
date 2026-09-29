@@ -73,6 +73,9 @@ ADV_3M = "adv_3m"
 MARKET_CAP = "market_cap"
 FREE_FLOAT_MARKET_CAP = "free_float_market_cap"
 
+# A stored market field, but read through the fetcher's free float backfill.
+FREE_FLOAT_FIELD = "free_float"
+
 # Derived money amounts are reported in one currency, matching the reference
 # endpoint, so a cap comparison is not a currency comparison.
 BASE_CURRENCY = "USD"
@@ -228,7 +231,23 @@ def _market_value(field: Field,
                     float_adjusted=field.name == FREE_FLOAT_MARKET_CAP,
                     currency=currency)
 
+    if field.name == FREE_FLOAT_FIELD:
+        return _free_float(identifier, date, fetcher)
+
     return _column(identifier, date, fetcher, column_for(field))
+
+
+def _free_float(identifier: str,
+                date: pd.Timestamp,
+                fetcher: DataFetcher) -> float | None:
+    """The free float in force on the date, as every other read finds it.
+
+    Through the fetcher's `free_float_backfill_days`, so an expression and
+    the market-cap weighting agree about which names have a float.
+    """
+    # BN-254: read through the 10-day market window until then.
+    return fetcher.fetch_free_float_factor(identifier,
+                                           date.strftime("%Y-%m-%d"))
 
 
 def _column(identifier: str,
@@ -287,7 +306,7 @@ def _cap(identifier: str,
     if not float_adjusted:
         return cap
 
-    free_float = _column(identifier, date, fetcher, FREE_FLOAT)
+    free_float = _free_float(identifier, date, fetcher)
 
     return None if free_float is None else cap * float(free_float)
 

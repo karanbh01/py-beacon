@@ -13,6 +13,7 @@ import pytest
 
 from beacon.data.features import FeatureData
 from beacon.data.fetcher import DataFetcher
+from beacon.exceptions import ExpressionError
 from beacon.expressions import data
 from beacon.expressions.stubs import build_parser, generate
 from beacon.expressions.validation import (
@@ -20,6 +21,7 @@ from beacon.expressions.validation import (
     UNKNOWN_FIELD,
     errors_in,
     is_valid,
+    require_valid,
     validate,
 )
 from beacon.testing import dataset
@@ -343,7 +345,7 @@ class TestTheFieldCatalogue:
                                       client):
         paths = {entry["namespace"] for entry in self.body(client)["fields"]}
 
-        assert paths == {"market", "reference", "actions", "features"}
+        assert paths == {"market", "reference", "features"}
 
     def test_a_feature_field_carries_its_dataset(self,
                                                  client):
@@ -390,3 +392,55 @@ class TestTheFieldCatalogue:
     def test_it_is_in_the_spec(self,
                                client):
         assert "/data/fields" in client.get("/openapi.json").json()["paths"]
+
+
+class TestEveryUseValidates:
+    """BN-254: nothing called validation, so a typo selected nothing."""
+
+    TYPO = data.reference.sectr == "Financials"
+
+    def test_universe_where_refuses_an_unknown_field(self,
+                                                     fetcher):
+        from beacon.universe import where
+
+        with pytest.raises(ExpressionError, match="Did you mean 'sector'"):
+            where(self.TYPO, fetcher)
+
+    def test_an_expression_screen_refuses_it(self,
+                                             fetcher):
+        from beacon.backtest.rules import ExpressionScreen
+
+        with pytest.raises(ExpressionError, match="ExpressionScreen"):
+            ExpressionScreen(self.TYPO, fetcher)
+
+    def test_an_index_refuses_it_before_running(self,
+                                                fetcher):
+        from beacon.index import ExpressionRule, IndexCalculator, IndexDefinition
+        from beacon.index.methodology import EqualWeighted
+
+        definition = IndexDefinition(
+            index_id="typo", index_name="Typo", base_date="2024-01-02",
+            base_value=100.0, currency="USD",
+            eligibility_rules=[ExpressionRule.from_expression(self.TYPO)],
+            weighting_scheme=EqualWeighted(), rebalancing_frequency="MONTHLY",
+            calendar="XNYS", universe_identifiers=["AAA", "BBB"])
+
+        with pytest.raises(ExpressionError, match=r"reference.sectr"):
+            IndexCalculator(definition, fetcher).run(end_date="2024-02-01")
+
+    def test_a_valid_expression_passes(self,
+                                       fetcher):
+        require_valid(data.reference.sector == "Financials", fetcher, "test")
+
+    def test_a_stored_action_field_is_refused(self,
+                                              fetcher):
+        """A tree saved before the actions namespace went still names one."""
+        from beacon.expressions.core import from_dict
+
+        stored = from_dict({"node": "comparison",
+                            "field": {"node": "field", "namespace": "actions",
+                                      "name": "value"},
+                            "comparison": "gt", "value": 0})
+
+        assert [finding.code for finding in errors_in(stored, fetcher)] == [
+            "UNKNOWN_NAMESPACE"]

@@ -33,6 +33,8 @@ from collections.abc import Iterable
 
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
+from ..expressions.core import Expression
+from ..expressions.validation import require_valid
 from .constructor import IndexDefinition
 
 
@@ -83,10 +85,18 @@ def require_columns(definition: IndexDefinition,
         price_column: The calculation's daily valuation column.
 
     Raises:
+        ExpressionError: If an expression rule names a field the data does not
+            have.
         CalculationError: If any column the definition reads is absent from the
             dataset's market data, naming each one, what needs it, and what the
             dataset has instead.
     """
+    for rule in definition.eligibility_rules:
+        tree = getattr(rule, "tree", None)
+
+        if isinstance(tree, Expression):
+            require_valid(tree, fetcher, rule.rule_name)
+
     available = _available_columns(fetcher)
 
     if available is None:

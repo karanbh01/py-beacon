@@ -14,8 +14,8 @@ Where `data.market.close` and `data.features.fundamentals.revenue` come from.
 `beacon.data` is already the data *package*, and importing any of its
 submodules rebinds that name on the parent, so an expression root living there
 would be whichever won the import race. `beacon.data.market`,
-`beacon.data.reference` and `beacon.data.actions` raise an error pointing to
-`beacon.expressions`, since those are where the mistake is plausible.
+and `beacon.data.reference` raise an error pointing to `beacon.expressions`,
+since those are where the mistake is plausible.
 
 `data` is a **description, not a dataset**. It is a module-level symbol bound
 to nothing, because an expression is written before there is anything to
@@ -27,7 +27,7 @@ mean different things in two processes.
 
 The split is what makes autocomplete possible without a generation step.
 
-**Market, reference and action columns are declared.** They are a documented
+**Market and reference columns are declared.** They are a documented
 contract (`beacon.data`), so they are listed here and complete everywhere (in
 Jupyter, in an IDE, in `dir()`), and they cannot drift, because this list *is*
 the contract rather than a copy of it.
@@ -98,8 +98,6 @@ REFERENCE_COLUMNS = (
     "country_listing", "country_domicile",
 )
 
-# Declared corporate-action fields.
-ACTION_COLUMNS = ("type", "kind", "value", "ex_date", "pay_date", "status")
 
 
 class Namespace:
@@ -219,13 +217,19 @@ class Data:
     def __init__(self) -> None:
         self.market = Namespace(MARKET, MARKET_COLUMNS, DERIVED_COLUMNS)
         self.reference = Namespace(REFERENCE, REFERENCE_COLUMNS)
-        self.actions = Namespace(ACTIONS, ACTION_COLUMNS)
         self.features = Features()
 
     def __getattr__(self,
                     name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(name)
+
+        # BN-254: `data.actions` was offered and no read could answer it.
+        if name == ACTIONS:
+            raise UnknownDatasetError(
+                "corporate action fields cannot be used in an expression. "
+                "Read corporate actions from the fetcher's "
+                "`corporate_actions` instead.")
 
         raise UnknownDatasetError(
             f"there is no '{name}' dataset. Expected one of "
@@ -238,7 +242,7 @@ class Data:
         return "<beacon.data>"
 
 
-NAMESPACES = (MARKET, REFERENCE, ACTIONS, FEATURES)
+NAMESPACES = (MARKET, REFERENCE, FEATURES)
 
 # The module-level root. One instance, bound to no dataset.
 data = Data()

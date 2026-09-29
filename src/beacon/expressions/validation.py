@@ -18,6 +18,8 @@ client can branch on the kind of problem.
 
 An expression with no findings is valid. `errors_in` is the same list filtered
 to what actually blocks, and `is_valid` is true when that list is empty.
+`require_valid` raises on those errors, and is what every use of an
+expression calls before it runs.
 
 ## "Did you mean"
 
@@ -32,10 +34,10 @@ carry reference columns nobody declared, so an undeclared name is checked
 against what is actually loaded before it is called wrong. And a stub kept
 from an older store autocompletes a field the data no longer has, which is
 safe because validation runs against the data and produces a finding rather
-than a wrong selection. Two exceptions: derived market fields (`adv_3m`,
-`market_cap`, `free_float_market_cap`) are always accepted because they are
-computed per request, and action fields are checked against the declared list
-because `kind` and `status` are computed rather than stored.
+than a wrong selection. Derived market fields (`adv_3m`, `market_cap`,
+`free_float_market_cap`) are always accepted because they are computed per
+request. Corporate action fields are always refused: no expression can read
+them.
 """
 # Universe member validation, which this mirrors, is BN-132.
 import difflib
@@ -44,9 +46,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..data.fetcher import DataFetcher
+from ..exceptions import ExpressionError
 from .core import Expression, Field, fields_in
 from .namespaces import (
-    ACTION_COLUMNS,
     ACTIONS,
     DERIVED_COLUMNS,
     FEATURES,
@@ -123,6 +125,42 @@ def is_valid(expression: Expression,
     return not errors_in(expression, fetcher)
 
 
+def require_valid(expression: Expression,
+                  fetcher: DataFetcher,
+                  used_by: str) -> None:
+    """Refuse an expression that cannot run against this data.
+
+    Called wherever an expression meets the data (`universe.where`, an
+    index's `ExpressionRule`, `ExpressionScreen`), so a misspelt field is an
+    error rather than a screen that quietly selects nothing.
+
+    Skipped when the provider cannot list its market columns: there is
+    nothing to check against, and the expression then runs as before.
+
+    Args:
+        expression: The tree to check.
+        fetcher: The data it will run on.
+        used_by: What is about to run it, for the message.
+
+    Raises:
+        ExpressionError: Naming every field that does not resolve, with the
+            suggestions `validate` makes.
+    """
+    # BN-254: nothing called validation before, so a typo selected nothing.
+    if not isinstance(getattr(fetcher, "market_columns", None), (list, tuple)):
+        return
+
+    errors = errors_in(expression, fetcher)
+
+    if not errors:
+        return
+
+    listed = " ".join(f"{finding.path}: {finding.message}" for finding in errors)
+
+    raise ExpressionError(f"{used_by} cannot run this expression against the "
+                          f"loaded data. {listed}")
+
+
 def _check(field: Field,
            fetcher: DataFetcher) -> list[Finding]:
     """One field."""
@@ -135,8 +173,12 @@ def _check(field: Field,
     if field.namespace == REFERENCE:
         return _check_column(field, _reference_names(fetcher))
 
+    # BN-254: action fields were accepted here and in the catalogue, and no
+    # read could answer them, so every name was missing a value.
     if field.namespace == ACTIONS:
-        return _check_column(field, _action_names(fetcher))
+        return [Finding(field.path, UNKNOWN_NAMESPACE,
+                        "corporate action fields cannot be used in an "
+                        "expression.")]
 
     return [Finding(field.path, UNKNOWN_NAMESPACE,
                     f"'{field.namespace}' is not a dataset.")]
@@ -220,14 +262,3 @@ def _market_names(fetcher: DataFetcher) -> list[str]:
 def _reference_names(fetcher: DataFetcher) -> list[str]:
     """Loaded reference columns. Empty when no reference data is loaded."""
     return list(fetcher.reference_columns or [])
-
-
-def _action_names(fetcher: DataFetcher) -> list[str]:
-    """The action fields a client can screen on.
-
-    Taken from the declaration rather than the frame: `kind` and `status` are
-    computed on the way out (BN-119) and are not columns in the stored table,
-    so reading the frame would reject the two fields the client documentation
-    tells people to branch on.
-    """
-    return [name.upper() for name in ACTION_COLUMNS]

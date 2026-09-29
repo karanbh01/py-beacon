@@ -20,8 +20,6 @@ from typing import Any
 
 from ..data.fetcher import DataFetcher
 from .namespaces import (
-    ACTION_COLUMNS,
-    ACTIONS,
     DERIVED_COLUMNS,
     FEATURES,
     MARKET,
@@ -48,7 +46,6 @@ def describe_fields(fetcher: DataFetcher) -> list[dict[str, Any]]:
 
     entries.extend(_market(fetcher))
     entries.extend(_reference(fetcher))
-    entries.extend(_actions())
     entries.extend(_features(fetcher))
 
     return entries
@@ -78,10 +75,6 @@ def _reference(fetcher: DataFetcher) -> list[dict[str, Any]]:
     return [_entry(REFERENCE, column.lower())
             for column in (fetcher.reference_columns or [])
             if column not in NOT_SCREENABLE]
-
-
-def _actions() -> list[dict[str, Any]]:
-    return [_entry(ACTIONS, name) for name in ACTION_COLUMNS]
 
 
 def _features(fetcher: DataFetcher) -> list[dict[str, Any]]:

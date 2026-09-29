@@ -15,7 +15,7 @@ from beacon.data.base import MarketData, ReferenceData
 from beacon.data.corporate_actions import CorporateActions
 from beacon.data.features import FeatureData
 from beacon.data.fetcher import DataFetcher
-from beacon.exceptions import InvalidRuleError
+from beacon.exceptions import InvalidRuleError, UnknownDatasetError
 from beacon.expressions import data
 from beacon.expressions.resolve import value_of
 from beacon.index import ExpressionRule, MarketCapRule
@@ -302,12 +302,37 @@ class TestResolution:
 
         assert adv is not None and adv > 0
 
-    def test_an_action_field_has_no_scalar_value(self,
-                                                 fetcher):
+    def test_there_are_no_action_fields(self):
         """Corporate actions are events, not attributes: an instrument has a
         history of them rather than one value on a date, so there is nothing
-        for a scalar comparison to read."""
-        assert value_of(data.actions.value, "AAA", REBALANCE, fetcher) is None
+        for a scalar comparison to read. BN-254 stopped offering them."""
+        with pytest.raises(UnknownDatasetError, match="corporate_actions"):
+            data.actions.value  # noqa: B018
+
+    def test_free_float_uses_the_datas_backfill(self):
+        """BN-254: a float reported 30 days back still counts, as it does for
+        every other read, rather than only 10."""
+        days = pd.bdate_range("2024-05-01", "2024-06-03")
+        market = pd.DataFrame([
+            {"IDENTIFIER": "AAA", "DATE": day, "CLOSE": 10.0,
+             "SHARES_OUTSTANDING": 1e6,
+             "FREE_FLOAT": 0.8 if day == days[0] else None}
+            for day in days])
+        reference = ReferenceData.from_dataframe(pd.DataFrame([
+            {"IDENTIFIER": "AAA", "DATE_FROM": "2020-01-01", "NAME": "A",
+             "CURRENCY": "USD", "EXCHANGE": "XNYS"}]))
+        fetcher = DataFetcher(MarketData.from_dataframe(market), reference)
+
+        assert value_of(data.market.free_float, "AAA", days[-1],
+                        fetcher) == 0.8
+        assert value_of(data.market.free_float_market_cap, "AAA", days[-1],
+                        fetcher) == pytest.approx(10.0 * 1e6 * 0.8)
+
+        strict = DataFetcher(MarketData.from_dataframe(market), reference,
+                             free_float_backfill_days=10)
+
+        assert value_of(data.market.free_float, "AAA", days[-1],
+                        strict) is None
 
 
 class TestCurrencyConversion:

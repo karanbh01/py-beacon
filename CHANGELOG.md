@@ -16,6 +16,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - A feature import's response says whether the rows were `saved` into the served store, and gives the new `data_version`.
 - A risk model request takes an optional `currency`, and a risk model and an optimisation run report the currency they were measured in.
 
+### Removed
+
+- `data.actions` in expressions. No expression could read its fields, so every name was missing a value; it now raises `UnknownDatasetError`, and the field catalogue and `GET /data/fields` no longer list an `actions` namespace. Read corporate actions from the fetcher's `corporate_actions`.
+
 ### Fixed
 
 - Money is compared in one currency wherever names are compared or added up. `LiquidityRule`'s traded-value floor, the engine's risk models, optimisation runs, the weights pane (drift, risk contributions, active risk), attribution and the asset view all read each name's prices in its own currency, so a multi-currency index mixed yen with dollars and left exchange-rate returns and risk out. They now convert into the index's currency.
@@ -23,6 +27,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - An expression's `market_cap` inside an index is in the index's currency, as `MarketCapRule`'s bounds are. Outside an index it stays in USD.
 - `POST /data/features` now saves the rows into the served store when it is a folder, so they survive a restart, and changes `data_version` and sends a `data.freshness` event for `features`. Before, a client caching on `data_version` missed the change and a restart lost the rows.
 - The engine always keeps the saved results its views read: the latest backtest of each index, every optimisation run and the latest estimate of each risk model. The limit of 50 saved jobs now applies only to the rest, so a run of loads, refreshes or renders no longer makes those views answer 404.
+- An expression with a field the data does not have is refused with `ExpressionError` by `universe.where`, `ExpressionScreen` and an index's `ExpressionRule`, naming the field and suggesting close matches. Before, it selected nothing.
+- `data.market.free_float` and `free_float_market_cap` in an expression carry the free float forward as far as the data's `free_float_backfill_days`, as every other read does, rather than 10 days.
 - Generating or extending synthetic data from an isolated engine (`python -I`, as the Beacon app runs it) keeps the child process isolated too, so it cannot load packages from the user's own site-packages.
 
 ## [0.2.0] - 2026-09-26

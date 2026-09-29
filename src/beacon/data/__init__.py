@@ -25,7 +25,7 @@ __all__ = [
 # anybody who guessed the other import at the right one. Without it the error
 # is "module 'beacon.data' has no attribute 'market'", which is true and tells
 # nobody what to do about it.
-_EXPRESSION_ROOTS = ("market", "reference", "actions")
+_EXPRESSION_ROOTS = ("market", "reference")
 
 
 def __getattr__(name: str) -> Any:

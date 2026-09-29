@@ -40,7 +40,6 @@ from pathlib import Path
 from ..data import store
 from ..data.fetcher import DataFetcher
 from .namespaces import (
-    ACTION_COLUMNS,
     DERIVED_COLUMNS,
     MARKET_COLUMNS,
     REFERENCE_COLUMNS,
@@ -97,8 +96,6 @@ def generate(fetcher: DataFetcher) -> str:
                         "Market columns, stored and derived."))
     lines.append(_block("_ReferenceFields", list(REFERENCE_COLUMNS),
                         "Reference dimensions."))
-    lines.append(_block("_ActionFields", list(ACTION_COLUMNS),
-                        "Corporate action fields."))
     lines.append(_root_block())
 
     skipped = sum(1 for dataset in datasets
@@ -148,7 +145,6 @@ def _root_block() -> str:
             '    """The `beacon.data` root."""\n'
             "    market: _MarketFields\n"
             "    reference: _ReferenceFields\n"
-            "    actions: _ActionFields\n"
             "    features: _Features\n"
             "\n"
             "data: _Data\n")

@@ -14,6 +14,7 @@ import pandas as pd
 from ..data.fetcher import DataFetcher
 from ..expressions.core import Expression
 from ..expressions.resolve import resolve
+from ..expressions.validation import require_valid
 from ..portfolio.base import Portfolio, TradeInstruction
 
 logger = logging.getLogger(__name__)
@@ -147,12 +148,18 @@ class ExpressionScreen(BacktestModifier):
         fetcher: Data to resolve against.
         on_missing: Whether a name with no value passes. Excluded by default,
             matching the index rules.
+
+    Raises:
+        ExpressionError: If the expression names a field the data does not
+            have.
     """
 
     def __init__(self,
                  expression: "Expression",
                  fetcher: "DataFetcher",
                  on_missing: bool = False):
+        require_valid(expression, fetcher, "ExpressionScreen")
+
         self.expression = expression
         self.fetcher = fetcher
         self.on_missing = on_missing

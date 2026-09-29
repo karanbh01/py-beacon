@@ -48,6 +48,7 @@ import pandas as pd
 from .data.fetcher import DataFetcher
 from .expressions.core import Expression, from_dict
 from .expressions.resolve import resolve
+from .expressions.validation import require_valid
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,13 @@ def where(expression: Expression,
     Returns:
         list[str]: Matching identifiers, in the order the candidates were
         given, so two runs over the same data produce the same list.
+
+    Raises:
+        ExpressionError: If the expression names a field the data does not
+            have.
     """
+    require_valid(expression, fetcher, "universe.where")
+
     as_of = _standing_date(fetcher, date)
     candidates = identifiers if identifiers is not None else _all_names(fetcher)
 
