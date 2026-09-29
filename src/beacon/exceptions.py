@@ -68,6 +68,16 @@ class DataSourceError(BeaconError):
 # Until BN-131 a rejected document id reached the client as a 500: the
 # path-traversal guard worked, said so clearly, and was returned as an
 # internal error. This class exists so the API answers 422 instead.
+class InvalidArgumentError(BeaconError, ValueError):
+    """Raised when a request asks for something that cannot be answered as
+    put: an unknown option, a combination that does not work, or too many
+    items at once.
+
+    Distinct from `DataNotFoundError`, which means the request was fine and
+    the data has nothing for it. The API answers 422 with `INVALID_ARGUMENT`.
+    """
+
+
 class InvalidIdentifierError(BeaconError, ValueError):
     """Raised when a caller supplies an identifier that cannot be used.
 

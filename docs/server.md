@@ -40,8 +40,9 @@ missing or wrong token answers 401 with the code `UNAUTHORIZED` and a
 
 The event socket cannot carry a header, because browsers cannot set one on a
 WebSocket handshake, so it takes the token as a query parameter:
-`/ws?token=<token>`. A wrong or missing token is refused at the handshake,
-which answers 403.
+`/ws?token=<token>`. With a wrong or missing token the socket opens and is
+closed at once with code 1008 and the reason `Invalid bearer token.`, which a
+browser can read, unlike a refused handshake.
 
 ```python
 from pathlib import Path
@@ -254,7 +255,7 @@ contents depend on the code.
 | 400 | `BAD_REQUEST` | The request could not be read at all. |
 | 401 | `UNAUTHORIZED` | The bearer token is missing or wrong. |
 | 404 | `NOT_FOUND` | No such route. |
-| 404 | `DATA_NOT_FOUND` | The thing asked for does not exist: an index, a job, an instrument's data, a store. Some requests the engine cannot answer, such as an unknown price interval, also answer this. |
+| 404 | `DATA_NOT_FOUND` | The thing asked for does not exist: an index, a job, an instrument's data, a store. |
 | 405 | `METHOD_NOT_ALLOWED` | The path exists but not with this method. See [Wrong methods](#wrong-methods). |
 | 409 | `NO_DATA_LOADED` | The request needs data and none is loaded. Load a store, then retry. |
 | 409 | `CONFLICT` | The engine's state refuses the request: an id already taken, a store already loading or refreshing, forgetting the store being served, a store with nothing to refresh, editing the read-only `GLOBAL` universe, a report template with no blocks. |
@@ -262,7 +263,7 @@ contents depend on the code.
 | 422 | `INVALID_RULE` | A definition or document was refused. When there are several problems, `detail.findings` lists each one with `path`, `rule_id`, `severity`, `code` and `message`. |
 | 422 | `INVALID_IDENTIFIER` | An id that cannot be used, for example one containing `/`, or a name reserved for an endpoint. |
 | 422 | `INVALID_EXPRESSION` | A malformed expression. |
-| 422 | `INVALID_ARGUMENT` | An argument the library refused, such as an end date before the start. |
+| 422 | `INVALID_ARGUMENT` | A request that cannot be answered as put, such as an end date before the start, an unknown price interval, an adjusted series without `CLOSE`, more than 1,000 identifiers at once, or a comparison of fewer than two indices. |
 | 422 | `FROZEN_PORTFOLIO` | An attempt to change a finished backtest's books. |
 | 500 | `CALCULATION_ERROR` | A calculation refused deliberately; the message says what to change. |
 | 500 | `UNEXPECTED_CALCULATION_FAILURE` | Something failed that should not have. `detail.original_type` names the exception, so a crash can be told from a refusal. |
@@ -348,7 +349,7 @@ print(notes["version"], [entry["version"] for entry in notes["entries"]])
 ## CORS
 
 A browser page can call the engine only from an allowed origin. The defaults
-are `beacon://app` and `app://`, and `http://localhost` on any port is always
-allowed. `--cors-origin` (repeatable) or `BEACON_CORS_ORIGINS`
+are `beacon://app` and `app://`, and `http://localhost`, `http://127.0.0.1`
+and `http://[::1]` on any port are always allowed. `--cors-origin` (repeatable) or `BEACON_CORS_ORIGINS`
 (comma-separated) replace the defaults. Requests from a desktop app's main
 process are not browser requests, so CORS does not apply to them.

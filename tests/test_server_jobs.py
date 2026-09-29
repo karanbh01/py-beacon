@@ -285,6 +285,16 @@ class TestWebSocket:
 
         assert excinfo.value.code == POLICY_VIOLATION
 
+    def test_a_wrong_token_is_closed_after_the_handshake(self,
+                                                         client):
+        """BN-257: closed with 1008 once accepted, and its reason, rather than
+        refused at the handshake with an HTTP 403 a browser cannot read."""
+        with client.websocket_connect("/ws?token=wrong") as socket:
+            message = socket.receive()
+
+        assert message == {"type": "websocket.close", "code": POLICY_VIOLATION,
+                           "reason": "Invalid bearer token."}
+
     def test_streams_job_progress_to_completion(self,
                                                 client):
         registry = client.app.state.jobs

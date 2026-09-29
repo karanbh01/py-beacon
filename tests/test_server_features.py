@@ -135,7 +135,8 @@ class TestTheBatchForm:
                               params={"identifiers": ",".join(
                                   f"N{n}" for n in range(2000))})
 
-        assert response.status_code == 404
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
 
 
 class TestTheCatalogue:

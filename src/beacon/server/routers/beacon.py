@@ -23,7 +23,7 @@ from typing import Annotated, Any
 
 from ..._optional import require
 from ...data.fetcher import DataFetcher
-from ...exceptions import DataNotFoundError
+from ...exceptions import DataNotFoundError, InvalidArgumentError
 from ..active_data import require_data
 from ..backtests import build_backtest_job
 from ..documents import load_document, read_collection, validated
@@ -185,9 +185,9 @@ def build_beacon_router() -> APIRouter:
     def compare(request: Request,
                 ids: IdsQuery) -> CompareView:
         if len(ids) < 2:
-            raise DataNotFoundError(
-                "at least two indices to compare",
-                source=f"{len(ids)} id(s) were given")
+            raise InvalidArgumentError(
+                f"A comparison needs at least two indices, and {len(ids)} "
+                f"was given.")
 
         # Every definition is resolved first, so an unknown id fails as a 404
         # naming that id rather than as a comparison that quietly covers fewer

@@ -140,12 +140,23 @@ class TestPrices:
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "DATA_NOT_FOUND"
 
-    def test_unsupported_interval_is_404_envelope(self,
+    def test_unsupported_interval_is_422_envelope(self,
                                                   client):
+        """Bad input, not missing data (BN-257)."""
         response = client.get("/data/prices/AAA?interval=hourly", headers=auth())
 
-        assert response.status_code == 404
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
         assert "hourly" in response.json()["error"]["message"]
+
+    def test_adjusted_without_close_is_422(self,
+                                           client):
+        response = client.get("/data/prices/AAA",
+                              params={"adjusted": "true", "columns": "VOLUME"},
+                              headers=auth())
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
 
     def test_requires_authentication(self,
                                      client):

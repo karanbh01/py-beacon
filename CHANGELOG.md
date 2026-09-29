@@ -31,6 +31,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `data.market.free_float` and `free_float_market_cap` in an expression carry the free float forward as far as the data's `free_float_backfill_days`, as every other read does, rather than 10 days.
 - Attribution for a capped index no longer fails when its window starts after the index's first rebalance. The cap drag is measured over the same periods as the contributions.
 - A cancelled dividend is no longer reinvested by a total-return index, counted in the trailing dividend and yield, or applied to adjusted closes; a cancelled split is no longer applied to adjusted closes either.
+- Requests that cannot be answered as put answer 422 `INVALID_ARGUMENT` instead of 404 `DATA_NOT_FOUND`: an unknown price interval, an adjusted series without `CLOSE`, an empty or oversized feature batch, and a comparison of fewer than two indices.
+- The engine checks for a token before it loads any data, so a missing token is reported at once rather than after a large store has loaded.
+- `http://127.0.0.1` and `http://[::1]` on any port are allowed origins, as `http://localhost` already was.
+- A wrong or missing token on the event socket closes it with code 1008 and a reason, as intended, instead of refusing the handshake with an HTTP 403 a browser cannot read.
 - Generating or extending synthetic data from an isolated engine (`python -I`, as the Beacon app runs it) keeps the child process isolated too, so it cannot load packages from the user's own site-packages.
 
 ## [0.2.0] - 2026-09-26

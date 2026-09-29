@@ -432,7 +432,8 @@ class TestCompare:
         response = client.get("/beacon/compare", params={"ids": [INDEX_ID]},
                               headers=auth())
 
-        assert response.status_code == 404
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
 
     def test_an_unknown_id_is_a_404(self,
                                     client):

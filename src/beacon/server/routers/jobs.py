@@ -33,8 +33,10 @@ require("fastapi", "The Beacon API server")
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect  # noqa: E402
 
 # Closure code for a socket that failed authentication. 1008 is the WebSocket
-# policy-violation code; there is no status-code channel before the handshake
-# completes, so this is how a rejection is signalled.
+# policy-violation code. The socket is accepted and then closed with it: a
+# socket closed before it is accepted is refused with HTTP 403 at the
+# handshake, which a browser cannot read (it reports only 1006), so a client
+# could not tell a bad token from an engine that is not running (BN-257).
 POLICY_VIOLATION = 1008
 
 
@@ -161,11 +163,12 @@ def build_events_router() -> APIRouter:
     @router.websocket("/ws")
     async def events(websocket: WebSocket,
                      token: str | None = None) -> None:
+        await websocket.accept()
+
         if not _authorise_socket(websocket, token):
             await websocket.close(code=POLICY_VIOLATION, reason="Invalid bearer token.")
             return
 
-        await websocket.accept()
         registry: JobRegistry = websocket.app.state.jobs
         queue = registry.subscribe()
 

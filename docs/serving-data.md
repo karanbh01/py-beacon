@@ -49,10 +49,10 @@ python -m beacon.server --port 0 --token <secret>
 | --- | --- | --- |
 | `--host` | `127.0.0.1` | The interface to bind. Keep it on loopback: the engine has no TLS and trusts its bearer token alone. |
 | `--port` | `0` | The port to bind. `0` lets the operating system pick a free one, which the engine then announces. |
-| `--token` | `$BEACON_API_TOKEN` | The bearer token every request must carry. Required: with neither the option nor the variable, the engine exits. |
+| `--token` | `$BEACON_API_TOKEN` | The bearer token every request must carry. Required: with neither the option nor the variable, the engine exits before it loads any data. |
 | `--data` | none | A data-store folder to serve, instead of the registered stores. |
 | `--documents` | the app-data folder | Where the engine keeps what it saves (see below). |
-| `--cors-origin` | `beacon://app`, `app://` | An exact origin allowed to call the engine from a browser. Repeatable, and replaces the defaults. `http://localhost` on any port is always allowed. |
+| `--cors-origin` | `beacon://app`, `app://` | An exact origin allowed to call the engine from a browser. Repeatable, and replaces the defaults. `http://localhost`, `http://127.0.0.1` and `http://[::1]` on any port are always allowed. |
 
 | Environment variable | Used when |
 | --- | --- |
@@ -104,7 +104,7 @@ nothing is written into the real app-data folder.
 
     ```
     INFO:__main__:Data source: the data store 'Synthetic data' (C:\...\market-store).
-    INFO:__main__:Allowed origins: beacon://app, app:// (plus localhost on any port).
+    INFO:__main__:Allowed origins: beacon://app, app:// (plus loopback on any port).
     ```
 
     Everything after the port line, on stdout or stderr, is ordinary logging.

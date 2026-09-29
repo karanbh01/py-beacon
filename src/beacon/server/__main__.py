@@ -50,6 +50,7 @@ from .config import (
     TOKEN_ENV_VAR,
     ServerConfig,
     resolve_cors_origins,
+    resolve_token,
 )
 from .data_stores import resolve_startup
 
@@ -165,12 +166,16 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
+        # The token first: loading a large store only to refuse to start for
+        # want of a token wasted the load (BN-257).
+        token = resolve_token(args.token)
+
         # Before the port is announced, as it always was: a client that has
         # read BEACON_PORT may call at once, and must find the data loaded.
         startup = resolve_startup(args.data, args.documents)
         origin = startup.origin
         config = ServerConfig.from_environment(
-            token=args.token,
+            token=token,
             host=args.host,
             port=args.port,
             data_fetcher=startup.fetcher,
@@ -189,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
     # line whose length it cannot predict.
     logging.basicConfig(level=logging.INFO)
     logger.info("Data source: %s.", origin)
-    logger.info("Allowed origins: %s (plus localhost on any port).",
+    logger.info("Allowed origins: %s (plus loopback on any port).",
                 ", ".join(config.cors_origins))
 
     app = create_app(config)

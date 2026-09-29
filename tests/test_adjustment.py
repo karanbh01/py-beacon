@@ -257,7 +257,8 @@ class TestThroughTheApi:
         response = client.get("/data/prices/CMPC", headers=HEADERS,
                               params={"adjusted": "true", "columns": "VOLUME"})
 
-        assert response.status_code == 404
+        # 422 since BN-257: the request is at fault, not missing data.
+        assert response.status_code == 422
 
     def test_it_is_in_the_spec(self,
                                client):

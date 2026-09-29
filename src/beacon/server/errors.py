@@ -19,6 +19,7 @@ from ..exceptions import (
     DataSourceError,
     ExpressionError,
     FrozenPortfolioError,
+    InvalidArgumentError,
     InvalidIdentifierError,
     InvalidRuleError,
     MissingDependencyError,
@@ -79,6 +80,11 @@ EXCEPTION_MAPPING: tuple[tuple[type[BeaconError], int, str], ...] = (
     (InvalidIdentifierError, status.HTTP_422_UNPROCESSABLE_CONTENT,
      "INVALID_IDENTIFIER"),
     (InvalidRuleError, status.HTTP_422_UNPROCESSABLE_CONTENT, "INVALID_RULE"),
+    # A request that cannot be answered as put. It used to be a
+    # DataNotFoundError and answer 404, as though the data were missing
+    # (BN-257).
+    (InvalidArgumentError, status.HTTP_422_UNPROCESSABLE_CONTENT,
+     "INVALID_ARGUMENT"),
     # Writing to a finished backtest's books is the caller's mistake, not the
     # server's fault: the record is closed and the request asked to change it.
     (FrozenPortfolioError, status.HTTP_422_UNPROCESSABLE_CONTENT,

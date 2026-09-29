@@ -20,6 +20,21 @@ logger = logging.getLogger(__name__)
 # Environment variable consulted when no token is passed on the command line.
 TOKEN_ENV_VAR = "BEACON_API_TOKEN"
 
+
+def resolve_token(token: str | None = None) -> str:
+    """The bearer token: *token* if given, else ``BEACON_API_TOKEN``.
+
+    Raises:
+        ValueError: If neither supplies one.
+    """
+    resolved = token or os.environ.get(TOKEN_ENV_VAR, "")
+
+    if not resolved:
+        raise ValueError(
+            f"No auth token supplied. Pass --token or set {TOKEN_ENV_VAR}.")
+
+    return resolved
+
 # The desktop client is served from a custom scheme; the dev build runs on an
 # arbitrary localhost port, hence the regex rather than a fixed list.
 #
@@ -32,7 +47,7 @@ TOKEN_ENV_VAR = "BEACON_API_TOKEN"
 PACKAGED_APP_ORIGIN = "beacon://app"
 LEGACY_APP_ORIGIN = "app://"
 DEFAULT_CORS_ORIGINS = (PACKAGED_APP_ORIGIN, LEGACY_APP_ORIGIN)
-LOCALHOST_ORIGIN_PATTERN = r"^http://localhost(:\d+)?$"
+LOCALHOST_ORIGIN_PATTERN = r"^http://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
 
 # Comma-separated origins, consulted when none are passed on the command line.
 CORS_ORIGINS_ENV_VAR = "BEACON_CORS_ORIGINS"
@@ -116,12 +131,7 @@ class ServerConfig:
         Raises:
             ValueError: If no token is available from either source.
         """
-        resolved = token or os.environ.get(TOKEN_ENV_VAR, "")
-        if not resolved:
-            raise ValueError(
-                f"No auth token supplied. Pass --token or set {TOKEN_ENV_VAR}.")
-
-        return cls(auth_token=resolved,
+        return cls(auth_token=resolve_token(token),
                    host=host,
                    port=port,
                    data_fetcher=data_fetcher,

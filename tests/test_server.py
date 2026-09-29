@@ -325,6 +325,16 @@ class TestLauncher:
         assert main([]) == 2
         assert "No auth token supplied" in capsys.readouterr().err
 
+    def test_a_missing_token_is_refused_before_any_data_loads(self,
+                                                              monkeypatch):
+        """BN-257: the data used to load first, which could take minutes."""
+        monkeypatch.delenv(TOKEN_ENV_VAR, raising=False)
+        loaded = MagicMock()
+        monkeypatch.setattr("beacon.server.__main__.resolve_startup", loaded)
+
+        assert main([]) == 2
+        loaded.assert_not_called()
+
 
 class TestErrorEnvelope:
     """Every non-2xx response carries {error: {code, message, detail}}."""

@@ -92,6 +92,22 @@ class TestPackagedAppOrigin:
         assert response.headers["access-control-allow-origin"] == (
             "http://localhost:5173")
 
+    @pytest.mark.parametrize("origin", ["http://127.0.0.1:5173",
+                                        "http://[::1]:5173"])
+    def test_a_loopback_address_is_allowed_like_localhost(self,
+                                                          client,
+                                                          origin):
+        """BN-257: `localhost` was allowed and its addresses were not."""
+        response = preflight(client, origin)
+
+        assert response.headers["access-control-allow-origin"] == origin
+
+    def test_a_lookalike_host_is_not_echoed(self,
+                                            client):
+        response = preflight(client, "http://127.0.0.1.example.com")
+
+        assert "access-control-allow-origin" not in response.headers
+
     def test_an_unrelated_origin_is_not_echoed(self, client):
         """Otherwise the middleware is permitting everything and none of the
         assertions above mean anything."""

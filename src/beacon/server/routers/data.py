@@ -32,6 +32,7 @@ from ...data.identifiers import (
 from ...data.store import flatten_index, save_features
 from ...exceptions import (
     DataNotFoundError,
+    InvalidArgumentError,
 )
 from ...expressions.catalogue import describe_fields
 from ...expressions.namespaces import NAMESPACES
@@ -440,9 +441,9 @@ def build_data_router() -> APIRouter:
                columns: ColumnsQuery = None,
                adjusted: AdjustedQuery = False) -> PricesResponse:
         if interval not in SUPPORTED_INTERVALS:
-            raise DataNotFoundError(
-                f"interval '{interval}'",
-                source=f"supported intervals are {', '.join(SUPPORTED_INTERVALS)}")
+            raise InvalidArgumentError(
+                f"Interval '{interval}' is not supported. Supported intervals "
+                f"are {', '.join(SUPPORTED_INTERVALS)}.")
 
         fetcher = _data_fetcher(request)
         wanted = parse_list(columns) if columns else None
@@ -452,10 +453,9 @@ def build_data_router() -> APIRouter:
         # Refused rather than quietly returning neither, which would look like
         # the instrument has no adjusted history.
         if adjusted and wanted is not None and "CLOSE" not in wanted:
-            raise DataNotFoundError(
-                "an adjusted series without CLOSE",
-                source="ADJ_CLOSE is derived from CLOSE, so the column has to "
-                       "be among those requested")
+            raise InvalidArgumentError(
+                "An adjusted series needs CLOSE among the columns requested, "
+                "because ADJ_CLOSE is derived from it.")
 
         frame = fetcher.fetch_market_data(identifier, start, end, columns)
 
@@ -604,12 +604,12 @@ def build_data_router() -> APIRouter:
         names = parse_list(identifiers)
 
         if not names:
-            raise DataNotFoundError("identifiers", source="none were named")
+            raise InvalidArgumentError("Name at least one identifier.")
 
         if len(names) > MAX_BATCH:
-            raise DataNotFoundError(
-                f"{len(names)} identifiers",
-                source=f"at most {MAX_BATCH} may be named in one request")
+            raise InvalidArgumentError(
+                f"{len(names)} identifiers were named, and at most "
+                f"{MAX_BATCH} may be named in one request.")
 
         wanted = parse_list(fields) or None
         standing = _standing_date(fetcher, date)
