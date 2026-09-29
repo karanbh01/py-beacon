@@ -2,6 +2,7 @@
 """
 IndexDefinition: the static rules of an index.
 """
+import difflib
 import logging
 
 import pandas as pd
@@ -12,6 +13,9 @@ from .schedule import (
     DAY_RULES,
     DEFAULT_CALENDAR,
     DEFAULT_DAY_RULE,
+    FREQUENCIES,
+    is_known_calendar,
+    known_calendars,
     next_rebalance,
     rebalance_dates,
 )
@@ -109,6 +113,10 @@ class IndexDefinition:
             raise ValueError(
                 "calendar cannot be empty; every index schedules against a "
                 f"trading calendar (e.g. '{DEFAULT_CALENDAR}').")
+        # BN-229: an unknown calendar or frequency used to be accepted and
+        # fail only when rebalance dates were first computed.
+        if not is_known_calendar(calendar):
+            raise ValueError(_unknown_calendar(calendar))
         if rebalance_day_rule not in DAY_RULES:
             raise ValueError(
                 f"Unsupported day rule: '{rebalance_day_rule}'. "
@@ -133,6 +141,10 @@ class IndexDefinition:
             raise ValueError("weighting_scheme must be provided.")
         if not rebalancing_frequency:
             raise ValueError("rebalancing_frequency cannot be empty.")
+        if rebalancing_frequency.upper() not in FREQUENCIES:
+            raise ValueError(
+                f"Unsupported rebalancing frequency: '{rebalancing_frequency}'. "
+                f"Supported: {', '.join(FREQUENCIES)}.")
 
         if not eligibility_rules:
             logger.warning(f"Index '{index_name}' defined with no eligibility rules.")
@@ -223,3 +235,15 @@ class IndexDefinition:
                 f"currency='{self.currency}', "
                 f"rebalancing_frequency='{self.rebalancing_frequency}', "
                 f"universe_size={universe_size})")
+
+
+def _unknown_calendar(calendar: str) -> str:
+    """The refusal for a calendar code exchange_calendars does not know."""
+    known = known_calendars()
+    close = difflib.get_close_matches(calendar.upper(), known, n=3, cutoff=0.6)
+    hint = (f"Did you mean {' or '.join(repr(name) for name in close)}? "
+            if close else "")
+
+    return (f"Unknown calendar: '{calendar}'. {hint}Use an exchange MIC such "
+            f"as '{DEFAULT_CALENDAR}'; beacon.index.schedule.known_calendars() "
+            f"lists all {len(known)}.")

@@ -188,6 +188,16 @@ class TestTheCalendarIsRequired:
         with pytest.raises(ValueError, match="calendar cannot be empty"):
             definition(calendar="")
 
+    def test_an_unknown_calendar_is_refused_when_defined(self):
+        """BN-229: it used to surface only when dates were first computed,
+        as InvalidCalendarName, far from the mistake."""
+        with pytest.raises(ValueError, match=r"Unknown calendar: 'XNYSS'. "
+                                             "Did you mean 'XNYS'"):
+            definition(calendar="XNYSS")
+
+    def test_a_calendar_alias_is_accepted(self):
+        assert definition(calendar="NYSE").calendar == "NYSE"
+
     def test_the_default_calendar_is_the_migration_s_target_only(self):
         """`DEFAULT_CALENDAR` survives the removal of the constructor default,
         because the migration still needs a value to write. What it no longer

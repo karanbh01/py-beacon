@@ -203,12 +203,20 @@ class TestGetRebalanceDates:
         dates = idx.get_rebalance_dates("2024-01-01", "2026-12-31")
         assert dates == sorted(dates)
 
-    def test_unsupported_frequency_raises(self,
-                                          default_kwargs):
+    def test_unsupported_frequency_is_refused_when_defined(self,
+                                                           default_kwargs):
+        """BN-229: refused at construction, not at the first rebalance."""
         default_kwargs["rebalancing_frequency"] = "WEEKLY"
-        idx = IndexDefinition(**default_kwargs)
-        with pytest.raises(ValueError, match="Unsupported rebalancing frequency"):
-            idx.get_rebalance_dates("2025-01-01", "2025-12-31")
+
+        with pytest.raises(ValueError, match=r"Unsupported rebalancing frequency: "
+                                              r"'WEEKLY'. Supported: MONTHLY"):
+            IndexDefinition(**default_kwargs)
+
+    def test_frequency_is_case_insensitive(self,
+                                           default_kwargs):
+        default_kwargs["rebalancing_frequency"] = "quarterly"
+
+        assert IndexDefinition(**default_kwargs).rebalancing_frequency == "QUARTERLY"
 
     def test_same_start_end_date_on_a_session(self,
                                               default_kwargs):
