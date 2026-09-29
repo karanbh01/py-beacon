@@ -44,7 +44,7 @@ jobs:
           pytest tests/test_plot_images.py -q --no-cov             --mpl-generate-path=tests/baseline
 
       - name: Upload baselines
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chart-baselines
           path: tests/baseline/
