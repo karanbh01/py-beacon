@@ -122,6 +122,24 @@ class TestFxCoverage:
         assert coverage_of(client)["fx"]["cache_size_bytes"] is None
 
     def test_a_store_without_pairs_says_so(self):
+        import pandas as pd
+
+        from beacon.data.base import MarketData
+        from beacon.data.fetcher import DataFetcher
+
+        market = pd.DataFrame({"IDENTIFIER": "AAA", "CLOSE": 10.0,
+                               "DATE": pd.bdate_range("2024-01-02", periods=3)})
+        client = TestClient(create_app(ServerConfig(
+            auth_token=TOKEN,
+            data_fetcher=DataFetcher(MarketData.from_dataframe(market)),
+            storage_root=Path(tempfile.mkdtemp()))))
+        entry = coverage_of(client)["fx"]
+
+        assert entry["configured"] is False
+        assert entry["identifiers"] == 0
+
+    def test_the_canonical_dataset_lists_its_pair(self):
+        """BN-226: its GBPUSD had no RATE, so coverage showed no pairs."""
         from beacon.testing import dataset
 
         client = TestClient(create_app(ServerConfig(
@@ -129,8 +147,8 @@ class TestFxCoverage:
             storage_root=Path(tempfile.mkdtemp()))))
         entry = coverage_of(client)["fx"]
 
-        assert entry["configured"] is False
-        assert entry["identifiers"] == 0
+        assert entry["configured"] is True
+        assert entry["identifiers"] == 1
 
 
 class TestAPairChartsLikeAnythingElse:

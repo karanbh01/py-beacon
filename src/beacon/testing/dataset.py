@@ -215,8 +215,8 @@ def market_frame() -> pd.DataFrame:
     One row per identifier per date, carrying OHLC, volume, shares outstanding
     and free float: enough for market-cap weighting and for a price_column
     override to have something else to point at. The `GBPUSD` pair is
-    included as its own identifier, with its rate in every price column and
-    no shares outstanding or free float.
+    included as its own identifier, with its rate in `RATE` and in every
+    price column, and no shares outstanding or free float.
     """
     frames = [_constituent_rows(constituent) for constituent in CONSTITUENTS]
     frames.append(_fx_rows())
@@ -258,6 +258,9 @@ def _fx_rows() -> pd.DataFrame:
         "VOLUME": 0,
         "SHARES_OUTSTANDING": np.nan,
         "FREE_FLOAT": np.nan,
+        # BN-226: RATE is what marks an identifier as a pair. Without it the
+        # pair converted but `fx_pairs` did not list it.
+        "RATE": series.to_numpy(),
     })
 
 

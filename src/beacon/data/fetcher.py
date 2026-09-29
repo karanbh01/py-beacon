@@ -270,6 +270,8 @@ class DataFetcher:
         self._fx_series: dict[tuple[str, str], pd.Series] = {}
         # How each cached pair was found: direct, inverse, or a cross (BN-235).
         self._fx_routes: dict[tuple[str, str], str | None] = {}
+        # Pairs already warned about being stored without RATE (BN-226).
+        self._unlisted_pairs: set[str] = set()
         # Each name's observed free floats, blanks dropped, read once when a
         # blank day first needs carrying over (BN-219). Cleared with the FX
         # series on a merge, for the same reason.
@@ -998,10 +1000,12 @@ class DataFetcher:
         """Return the stored FX rate series converting *from_currency* into *to_currency*.
 
         The pair is looked up as a market-data identifier named
-        ``f"{from_currency}{to_currency}"`` (upper-cased). The *column* field is
-        used if present, otherwise the first data column. Returns an empty
-        Series if that exact pair is not stored: this does not invert or cross
-        rates. :meth:`fx_rate_on` and :meth:`fx_rates_on` do.
+        ``f"{from_currency}{to_currency}"`` (upper-cased), and its *column*
+        read. A pair should carry `RATE`, which is also what :attr:`fx_pairs`
+        lists pairs by. One stored without it is read from its first data
+        column, with a warning, and is not listed. Returns an empty Series if
+        that exact pair is not stored: this does not invert or cross rates.
+        :meth:`fx_rate_on` and :meth:`fx_rates_on` do.
         """
         pair = f"{from_currency}{to_currency}".upper()
         if pair not in self._market.identifiers:
@@ -1009,8 +1013,20 @@ class DataFetcher:
         df = self._market.get(pair, start_date, end_date)
         if df.empty:
             return pd.Series(dtype=float)
-        rate_col = column if column in df.columns else df.columns[0]
-        return df[rate_col]
+
+        if column in df.columns and df[column].notna().any():
+            return df[column]
+
+        # BN-226: kept for stores written without RATE, but said, because
+        # such a pair converts and `fx_pairs` does not list it.
+        fallback = next(name for name in df.columns if name != column)
+        if pair not in self._unlisted_pairs:
+            self._unlisted_pairs.add(pair)
+            logger.warning("%s has no %s values, so it is read from %s and "
+                           "is not listed among the currency pairs. Store its "
+                           "rate in %s.", pair, column, fallback, column)
+
+        return df[fallback]
 
     def fx_route(self,
                  from_currency: str,

@@ -286,7 +286,9 @@ An FX pair is stored in the market data as an identifier of its own, named
 pound buys 1.27 dollars. The `RATE` column is what marks a pair:
 `fx_pairs` lists the identifiers that have a `RATE` value, and
 `instrument_identifiers` lists everything else. A pair may also carry its rate
-in `CLOSE`, so that it can be charted like any other identifier.
+in `CLOSE`, so that it can be charted like any other identifier. A pair with no
+`RATE` values is still read for conversions, from its first data column, but
+is not listed as a pair and logs a warning; give it a `RATE`.
 
 `fx_rate_on` finds a rate in this order:
 

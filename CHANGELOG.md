@@ -43,6 +43,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - The Excel reports accept a `pathlib.Path` as well as a string, and the holdings report writes `valuation_date` into its sheet instead of only logging it.
 - `futures_roll_return` uses 365-day years, like every other year fraction in the derivatives. It used 365.25, so its rates came out smaller than the rest by a factor of 365/365.25.
 - `IndexDefinition` refuses an unknown calendar or rebalancing frequency when it is built, naming the valid values and suggesting close calendar codes. Before, the mistake surfaced only when rebalance dates were first computed.
+- The sample dataset in `beacon.testing.dataset` stores its GBPUSD rate in `RATE`, so `fx_pairs` and the coverage view list it. A pair stored without `RATE` still converts but now logs a warning that it is not listed.
 - Generating or extending synthetic data from an isolated engine (`python -I`, as the Beacon app runs it) keeps the child process isolated too, so it cannot load packages from the user's own site-packages.
 
 ## [0.2.0] - 2026-09-26
