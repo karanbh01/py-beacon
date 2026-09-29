@@ -271,6 +271,28 @@ class TestRetention:
         assert first.id not in remaining
         assert registry.latest_result("backtest:core") == {"value": "second"}
 
+    def test_completion_stamps_increase_on_a_coarse_clock(self,
+                                                         monkeypatch):
+        """BN-256: on Windows two jobs finishing together shared a stamp, and
+        which was newer came down to storage order."""
+        from datetime import UTC, datetime
+
+        import beacon.server.jobs as jobs
+
+        frozen = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
+
+        class Clock:
+            @staticmethod
+            def now(tz=None):
+                return frozen
+
+        monkeypatch.setattr(jobs, "datetime", Clock)
+        registry = JobRegistry()
+        stamps = [registry._completion_stamp() for _ in range(5)]
+
+        assert stamps == sorted(stamps)
+        assert len(set(stamps)) == 5
+
     @pytest.mark.asyncio
     async def test_a_failed_job_is_not_protected(self,
                                                  store):

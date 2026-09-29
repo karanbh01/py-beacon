@@ -18,7 +18,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .documents import Stored, raw, read_collection, stored
@@ -153,6 +153,7 @@ class JobRegistry:
         self._jobs: dict[str, Job] = {}
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
         self._results = result_store
+        self._last_completed: datetime | None = None
 
     # BN-178 moved the jobs listing onto `documents.read_collection`, which is
     # why this collection is exposed at all.
@@ -427,12 +428,30 @@ class JobRegistry:
         try:
             self._results.write(job.id,
                                 {**job.snapshot(),
-                                 "completed_at": datetime.now(UTC).isoformat()})
+                                 "completed_at": self._completion_stamp()})
             self._prune()
         except Exception as exc:
             # Persistence is a convenience, not part of the job's contract. A
             # full disk must not turn a successful backtest into a failed one.
             logger.error(f"Could not persist result for job {job.id}: {exc}")
+
+    def _completion_stamp(self) -> str:
+        """When a job finished, always later than the last one this process
+        stamped.
+
+        Retention and "the newest result of a kind" both order by this. On a
+        clock that ticks every 15 ms or so (Windows) two jobs finishing
+        together got the same stamp, and which one counted as newer came down
+        to storage order (BN-256).
+        """
+        now = datetime.now(UTC)
+
+        if self._last_completed is not None and now <= self._last_completed:
+            now = self._last_completed + timedelta(microseconds=1)
+
+        self._last_completed = now
+
+        return now.isoformat(timespec="microseconds")
 
     def _prune(self) -> None:
         """Keep the results in use, and the most recent MAX_STORED_RESULTS
