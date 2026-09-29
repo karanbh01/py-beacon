@@ -274,6 +274,11 @@ class ChangelogEntryView(BaseModel):
     sections: list[ChangelogSectionView] = Field(
         description="What changed, grouped by kind of change. Empty for an "
                     "Unreleased entry with nothing in it yet.")
+    summary: str | None = Field(
+        default=None,
+        description="The release's one-paragraph summary, as markdown: the "
+                    "prose between its heading and its first section. Null "
+                    "when it has none.")
 
 
 class ChangelogResponse(BaseModel):

@@ -17,7 +17,7 @@ the emphasis and code spans in them survive to whatever renders them.
 # BN-222. `CHANGELOG.md` at the repository root is the one file anybody
 # edits; the wheel's copy comes from `force-include` in pyproject.toml.
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib import resources
 from pathlib import Path
 
@@ -43,21 +43,25 @@ class ChangelogSection:
 class ChangelogEntry:
     """One release: its version, its date, and what changed in it.
 
-    `date` is None for the Unreleased entry, which has none.
+    `date` is None for the Unreleased entry, which has none. `summary` is the
+    prose between the release heading and its first section, its lines
+    joined with spaces, or None when there is none.
     """
     version: str
     date: str | None
     sections: list[ChangelogSection] = field(default_factory=list)
+    summary: str | None = None
 
 
 def parse(text: str) -> list[ChangelogEntry]:
     """Read a Keep a Changelog document into entries, newest first.
 
-    Prose between a release heading and its first section (a note that
-    nothing has been released yet, say) is not an item and is skipped. A
-    list item that wraps onto indented lines is joined back into one string.
+    Prose between a release heading and its first section is the entry's
+    summary, not an item. A list item that wraps onto indented lines is
+    joined back into one string.
     """
     entries: list[ChangelogEntry] = []
+    prose: list[list[str]] = []
     section: ChangelogSection | None = None
 
     for line in text.splitlines():
@@ -66,6 +70,7 @@ def parse(text: str) -> list[ChangelogEntry]:
         if release is not None:
             entries.append(ChangelogEntry(version=release["version"],
                                           date=release["date"]))
+            prose.append([])
             section = None
             continue
 
@@ -79,9 +84,15 @@ def parse(text: str) -> list[ChangelogEntry]:
             entries[-1].sections.append(section)
             continue
 
+        # BN-274: the summary used to be skipped.
+        if section is None and line.strip():
+            prose[-1].append(line.strip())
+            continue
+
         section = _add_line(section, line)
 
-    return entries
+    return [replace(entry, summary=" ".join(lines) or None)
+            for entry, lines in zip(entries, prose, strict=True)]
 
 
 def _add_line(section: ChangelogSection | None,

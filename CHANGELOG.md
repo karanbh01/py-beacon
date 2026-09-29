@@ -16,6 +16,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - A feature import's response says whether the rows were `saved` into the served store, and gives the new `data_version`.
 - `BacktestResult.get_annual_returns()`: calendar-year returns that compound to the whole run's return.
 - `TotalReturnSwap` takes `underlying_type` (`INDEX`, the default, `ETF` or `EQUITY`). It was always `INDEX`.
+- Each release from `GET /changelog` carries its `summary`, the prose between its heading and its first section.
 - A risk model request takes an optional `currency`, and a risk model and an optimisation run report the currency they were measured in.
 
 ### Removed

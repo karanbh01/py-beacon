@@ -33,7 +33,8 @@ Intro prose, which belongs to no release.
 
 ## [0.9.0] - 2026-12-01
 
-Prose under a release but before a section is skipped.
+Prose under a release but before a section is its summary,
+across lines.
 
 ### Changed
 
@@ -67,6 +68,14 @@ class TestParsing:
 
         assert parsed[0].sections == []
         assert parsed[2].sections[0].items == ["Something else."]
+
+    def test_prose_before_the_first_section_is_the_summary(self):
+        """BN-274: it was skipped, and the app shows it for each release."""
+        parsed = parse(SAMPLE)
+
+        assert parsed[2].summary == ("Prose under a release but before a "
+                                     "section is its summary, across lines.")
+        assert parsed[1].summary is None
 
 
 class TestWhatsNew:
@@ -152,6 +161,15 @@ class TestTheEndpoint:
 
         assert since["schema"]["type"] == "string"
         assert "pattern" in since["schema"]
+
+    def test_each_release_carries_its_summary(self,
+                                              client):
+        body = client.get("/changelog",
+                          headers={"Authorization": "Bearer t"}).json()
+        first = next(entry for entry in body["entries"]
+                     if entry["version"] == "0.1.0")
+
+        assert first["summary"] == "The first release."
 
     def test_an_empty_release_is_left_out(self,
                                           client):
