@@ -33,7 +33,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `data.market.free_float` and `free_float_market_cap` in an expression carry the free float forward as far as the data's `free_float_backfill_days`, as every other read does, rather than 10 days.
 - Attribution for a capped index no longer fails when its window starts after the index's first rebalance. The cap drag is measured over the same periods as the contributions.
 - A cancelled dividend is no longer reinvested by a total-return index, counted in the trailing dividend and yield, or applied to adjusted closes; a cancelled split is no longer applied to adjusted closes either.
-- Requests that cannot be answered as put answer 422 `INVALID_ARGUMENT` instead of 404 `DATA_NOT_FOUND`: an unknown price interval, an adjusted series without `CLOSE`, an empty or oversized feature batch, and a comparison of fewer than two indices.
+- Requests that cannot be answered as put answer 422 `INVALID_ARGUMENT` instead of 404 `DATA_NOT_FOUND`: an unknown price interval, an adjusted series without `CLOSE`, and an empty or oversized feature batch.
 - The engine checks for a token before it loads any data, so a missing token is reported at once rather than after a large store has loaded.
 - `http://127.0.0.1` and `http://[::1]` on any port are allowed origins, as `http://localhost` already was.
 - A wrong or missing token on the event socket closes it with code 1008 and a reason, as intended, instead of refusing the handshake with an HTTP 403 a browser cannot read.
@@ -44,6 +44,9 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `futures_roll_return` uses 365-day years, like every other year fraction in the derivatives. It used 365.25, so its rates came out smaller than the rest by a factor of 365/365.25.
 - `IndexDefinition` refuses an unknown calendar or rebalancing frequency when it is built, naming the valid values and suggesting close calendar codes. Before, the mistake surfaced only when rebalance dates were first computed.
 - The sample dataset in `beacon.testing.dataset` stores its GBPUSD rate in `RATE`, so `fx_pairs` and the coverage view list it. A pair stored without `RATE` still converts but now logs a warning that it is not listed.
+- The API schema states more of what it accepts: `since` on `/changelog` is a dotted version, and `/beacon/compare` needs at least two `ids`. These are now refused as `VALIDATION_ERROR` by the schema check. The boolean fields of a synthetic-data or import request no longer accept `0`, `1` or strings.
+- A report template with an unknown page setting answers 422 instead of 500, and so does a futures or swap price whose inputs overflow.
+- The nightly API fuzz run passes again: it leaves out operations that start heavy work, and skips the check that a schema-valid request is accepted only where a rule spans fields or depends on the data.
 - Generating or extending synthetic data from an isolated engine (`python -I`, as the Beacon app runs it) keeps the child process isolated too, so it cannot load packages from the user's own site-packages.
 
 ## [0.2.0] - 2026-09-26

@@ -432,8 +432,9 @@ class TestCompare:
         response = client.get("/beacon/compare", params={"ids": [INDEX_ID]},
                               headers=auth())
 
+        # The schema's minimum of two ids refuses it (BN-250).
         assert response.status_code == 422
-        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
     def test_an_unknown_id_is_a_404(self,
                                     client):

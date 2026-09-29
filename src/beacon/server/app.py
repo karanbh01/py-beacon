@@ -112,17 +112,23 @@ def build_router() -> APIRouter:
 
     @router.get("/changelog", response_model=ChangelogResponse)
     def changelog(since: Annotated[
-            str | None,
+            str,
             Query(description="A version the client has already shown, "
                               "e.g. '0.1.0'. Only releases after it are "
-                              "returned.")] = None) -> ChangelogResponse:
+                              "returned. Omit it for every release.",
+                  # Declared, so the schema says what the parser accepts.
+                  # A plain string with an empty default rather than an
+                  # optional one, because an optional query parameter is
+                  # published as "string or null" and a query string cannot
+                  # carry a null: the fuzzer sent the text "null" (BN-250).
+                  pattern=r"^([0-9]+(\.[0-9]+)*)?$")] = "") -> ChangelogResponse:
         # Served by the engine rather than bundled with the app, so the notes
         # are for the engine actually running (BN-222).
         # An entry with nothing under it -- the Unreleased heading between
         # releases -- is left out, so the app never shows an empty release.
         entries = [entry for entry in changelog_entries() if entry.sections]
 
-        if since is not None:
+        if since:
             entries = newer_than(entries, since)
 
         return ChangelogResponse(

@@ -64,6 +64,10 @@ jobs:
 
       # `--wait-for-schema` does the readiness wait, so there is no sleep to
       # tune and no race to lose on a slow runner.
+      #
+      # schemathesis.toml at the repository root, read from the working
+      # directory, leaves out the operations that start heavy work and says
+      # where a rule spans fields or depends on the data (BN-250).
       - name: Fuzz every endpoint
         run: |
           schemathesis run http://127.0.0.1:8765/openapi.json \

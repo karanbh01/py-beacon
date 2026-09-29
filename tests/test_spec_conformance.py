@@ -611,3 +611,25 @@ class TestValidationErrorsSerialise:
                                     "blocks": [{"kind": None}]})
 
         json.dumps(response.json())
+
+
+class TestBooleansAreStrict:
+    """BN-250, found by the fuzz run: `{"activate": 0}` was read as False."""
+
+    @pytest.mark.parametrize("value", [0, 1, "yes"])
+    def test_a_synthetic_request_refuses_a_non_boolean(self,
+                                                       client,
+                                                       value):
+        response = client.post("/data/synthetic", headers=HEADERS,
+                               json={"activate": value})
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_an_import_request_refuses_a_non_boolean(self,
+                                                     client):
+        response = client.post("/data/import", headers=HEADERS,
+                               json={"paths": ["x.csv"], "activate": 1})
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"

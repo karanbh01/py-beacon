@@ -11,10 +11,12 @@ the claim.
 The term-structure and roll reads resolve a spot price from the data source.
 They still write nothing.
 """
-from typing import Annotated
+from collections.abc import Callable
+from typing import Annotated, TypeVar
 
 from ..._optional import require
 from ...data.fetcher import DataFetcher
+from ...exceptions import InvalidArgumentError
 from ..active_data import require_data
 from ..derivatives import (
     build_roll,
@@ -47,6 +49,23 @@ YieldQuery = Annotated[
     float, Query(description="Continuous dividend yield.")]
 ExpiryQuery = Annotated[str, Query(description="Contract expiry, YYYY-MM-DD.")]
 
+Priced = TypeVar("Priced")
+
+
+def _within_range(price: Callable[[], Priced]) -> Priced:
+    """Run a pricing, refusing inputs whose result cannot be represented.
+
+    A rate, yield or time to expiry far outside any real value makes
+    ``exp(rate * time)`` overflow. That is a mistake in the request, not a
+    fault in the engine (BN-250, found by the fuzz run, which answered 500).
+    """
+    try:
+        return price()
+    except OverflowError as error:
+        raise InvalidArgumentError(
+            "These inputs give a value too large to represent. Check the "
+            "rates, the dividend yield and the time to expiry.") from error
+
 
 def _data_fetcher(request: Request) -> DataFetcher:
     """The loaded data, or 409 NO_DATA_LOADED (see `active_data`)."""
@@ -67,11 +86,11 @@ def build_derivatives_router() -> APIRouter:
         # No Request parameter: this endpoint has nothing to read from the
         # application at all, which is the clearest possible statement that it
         # is stateless.
-        return price_futures(body)
+        return _within_range(lambda: price_futures(body))
 
     @router.post("/trs/price", response_model=TrsPriceResponse)
     def trs_price(body: TrsPriceRequest) -> TrsPriceResponse:
-        return price_trs(body)
+        return _within_range(lambda: price_trs(body))
 
     @router.get("/{index_id}/term-structure", response_model=TermStructureResponse)
     def term_structure(request: Request,

@@ -213,11 +213,13 @@ class GenerateSyntheticRequest(BaseModel):
         default=None,
         description="Exchange code whose trading days the data has prices "
                     "on. Default XNYS.")
+    # Strict, so 0 or "yes" is refused rather than read as a boolean
+    # (BN-250).
     features: bool = Field(
-        default=True,
+        default=True, strict=True,
         description="Include fundamental ratios and alternative data.")
     activate: bool = Field(
-        default=True,
+        default=True, strict=True,
         description="Serve the new store as soon as it is written.")
 
 
@@ -231,7 +233,7 @@ class ImportRequest(BaseModel):
                     "files named after their sheet (market.csv, "
                     "reference.csv, ...), or one Excel workbook with those "
                     "sheets. `GET /data/import/template` has the layout.")
-    activate: bool = Field(default=True,
+    activate: bool = Field(default=True, strict=True,
                            description="Load the new store as soon as it is "
                                        "saved.")
 

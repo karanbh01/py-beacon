@@ -23,7 +23,7 @@ from typing import Annotated, Any
 
 from ..._optional import require
 from ...data.fetcher import DataFetcher
-from ...exceptions import DataNotFoundError, InvalidArgumentError
+from ...exceptions import DataNotFoundError
 from ..active_data import require_data
 from ..backtests import build_backtest_job
 from ..documents import load_document, read_collection, validated
@@ -81,7 +81,8 @@ EndQuery = Annotated[str | None,
 # stays a runtime check: `min_length=2` would be true but would turn a
 # coded DATA_NOT_FOUND saying how many were given into a bare validation error.
 IdsQuery = Annotated[list[Annotated[str, StringConstraints(min_length=1)]],
-                     Query(description="Index ids to compare, two or more.")]
+                     Query(min_length=2,
+                           description="Index ids to compare, two or more.")]
 
 
 def _latest_run(request: Request,
@@ -184,11 +185,8 @@ def build_beacon_router() -> APIRouter:
     @router.get("/compare", response_model=CompareView)
     def compare(request: Request,
                 ids: IdsQuery) -> CompareView:
-        if len(ids) < 2:
-            raise InvalidArgumentError(
-                f"A comparison needs at least two indices, and {len(ids)} "
-                f"was given.")
-
+        # Fewer than two ids is refused by IdsQuery's declared minimum
+        # (BN-250), so the schema says it and the fuzzer respects it.
         # Every definition is resolved first, so an unknown id fails as a 404
         # naming that id rather than as a comparison that quietly covers fewer
         # indices than were asked for.

@@ -17,7 +17,7 @@ from typing import Any
 
 from ..._optional import require
 from ...exceptions import DataNotFoundError, InvalidRuleError, ReportingError
-from ...report.blocks import ReportTemplate, block_from_dict
+from ...report.blocks import PageSetup, ReportTemplate, block_from_dict
 from ..documents import load_document, read_collection
 from ..jobs import JobRegistry
 from ..reports import (
@@ -161,6 +161,7 @@ def build_reports_router() -> APIRouter:
         # block is refused at save rather than at render — by which point the
         # person who wrote it has moved on.
         _refuse_unbuildable(payload["blocks"])
+        _refuse_unusable_page(payload["page"])
         template = ReportTemplate.from_dict(payload)
         _store(request).write(template_id, template.to_dict())
 
@@ -221,6 +222,18 @@ def _as_document(entry: dict[str, Any]) -> dict[str, Any]:
     """A stored template with only the fields the wire model carries."""
     return {key: value for key, value in entry.items()
             if key in {"template_id", "name", "page", "blocks"}}
+
+
+def _refuse_unusable_page(page: dict[str, Any]) -> None:
+    """Refuse a page setup that cannot be built, as a mistake (422).
+
+    Found by the fuzz run (BN-250): an unknown key in `page` reached
+    `PageSetup` and raised TypeError, a 500.
+    """
+    try:
+        PageSetup.from_dict(page)
+    except (TypeError, ValueError, ReportingError) as error:
+        raise InvalidRuleError("page", str(error)) from error
 
 
 def _refuse_unbuildable(blocks: list[dict[str, Any]]) -> None:

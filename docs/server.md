@@ -263,7 +263,7 @@ contents depend on the code.
 | 422 | `INVALID_RULE` | A definition or document was refused. When there are several problems, `detail.findings` lists each one with `path`, `rule_id`, `severity`, `code` and `message`. |
 | 422 | `INVALID_IDENTIFIER` | An id that cannot be used, for example one containing `/`, or a name reserved for an endpoint. |
 | 422 | `INVALID_EXPRESSION` | A malformed expression. |
-| 422 | `INVALID_ARGUMENT` | A request that cannot be answered as put, such as an end date before the start, an unknown price interval, an adjusted series without `CLOSE`, more than 1,000 identifiers at once, or a comparison of fewer than two indices. |
+| 422 | `INVALID_ARGUMENT` | A request that cannot be answered as put, such as an end date before the start, an unknown price interval, an adjusted series without `CLOSE`, or more than 1,000 identifiers at once. |
 | 422 | `FROZEN_PORTFOLIO` | An attempt to change a finished backtest's books. |
 | 500 | `CALCULATION_ERROR` | A calculation refused deliberately; the message says what to change. |
 | 500 | `UNEXPECTED_CALCULATION_FAILURE` | Something failed that should not have. `detail.original_type` names the exception, so a crash can be told from a refusal. |

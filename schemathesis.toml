@@ -1,0 +1,45 @@
+# Configuration for the nightly API fuzz run (.github/workflows/fuzz.yml).
+# schemathesis reads this file from the working directory.
+
+# A date field carries both a pattern and `format: date`, and a request with
+# several of them (a swap's start, end and valuation dates) makes the fuzzer
+# discard most of what it generates. This health check is about how
+# efficiently the fuzzer can build input, not about the API, so it is off.
+suppress-health-check = ["filter_too_much"]
+
+# Operations that start real work are left out. Synthetic generation writes
+# about 2.5 GB at its default size, which is what took a nightly runner down,
+# and a refresh downloads prices or extends a store. What they accept is
+# covered by their own tests.
+[[operations]]
+include-path = "/data/synthetic"
+enabled = false
+
+[[operations]]
+include-path-regex = "^/data/stores/[^/]+/refresh$"
+enabled = false
+
+[[operations]]
+include-path-regex = "^/data/coverage/[^/]+/sync$"
+enabled = false
+
+# Operations with rules the OpenAPI schema cannot state. Each is enforced by
+# the API with a 422 and a message, and each has tests; the fuzzer, which only
+# knows the schema, builds requests that break them and reports the 422 as
+# the API refusing valid input. Only that one check is switched off here:
+# every other check, server errors included, still runs on these operations.
+
+# Rules that tie one field to another: a folder store needs a path and a
+# database a connection; an index carries a rule pipeline or a derivation; a
+# swap ends after it starts; an adjusted price series needs CLOSE; a report
+# block's fields depend on its kind.
+[[operations]]
+include-name-regex = '^(POST /data/stores|POST /indices|POST /indices/preview|POST /indices/validate|PUT /indices/\{index_id\}|POST /derivatives/trs/price|GET /data/prices/\{identifier\}|PUT /reports/templates/\{template_id\})$'
+checks.positive_data_acceptance.enabled = false
+
+# Rules that depend on the loaded data or the machine: identifiers and
+# columns must exist in the data, import paths must exist on disk, a
+# universe must name members, and a constraint must be a known type.
+[[operations]]
+include-name-regex = '^(GET /data/reference|GET /data/reference/\{identifier\}|POST /data/features|POST /data/import|POST /universes|PUT /universes/\{universe_id\}|PUT /optimise/constraint-sets/\{set_id\})$'
+checks.positive_data_acceptance.enabled = false

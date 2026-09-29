@@ -141,6 +141,17 @@ class TestFuturesFairValue:
 
         assert response.status_code == 404
 
+    def test_an_overflowing_price_is_refused_not_a_fault(self,
+                                                         client):
+        """BN-250, found by the fuzz run: exp(r * T) overflowed and the engine
+        answered 500."""
+        response = client.post("/derivatives/futures/price",
+                               json=futures_body(time_to_expiry=3.5e72),
+                               headers=auth())
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
+
 
 class TestCurve:
 

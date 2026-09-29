@@ -95,7 +95,21 @@ class PageSetup:
     @classmethod
     def from_dict(cls,
                   data: dict[str, Any]) -> "PageSetup":
-        """Rebuild from stored form."""
+        """Rebuild from stored form.
+
+        Raises:
+            ReportingError: If *data* names a setting a page does not have,
+                or a value `PageSetup` refuses.
+        """
+        # BN-250: `cls(**data)` raised TypeError on an unknown key, which the
+        # API reported as a fault (500) rather than a mistake in the request.
+        unknown = sorted(set(data) - {"size", "orientation", "margin"})
+
+        if unknown:
+            raise ReportingError(
+                f"unknown page setting(s): {', '.join(map(repr, unknown))}. "
+                f"A page has size, orientation and margin.")
+
         return cls(**data)
 
 

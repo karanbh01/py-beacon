@@ -147,6 +147,19 @@ class TestTemplateCrud:
         assert response.status_code == 422
         assert "hologram" in str(response.json())
 
+    def test_an_unknown_page_setting_is_refused_not_a_fault(self,
+                                                            client):
+        """BN-250, found by the fuzz run: it reached PageSetup as a keyword
+        argument and raised TypeError, a 500."""
+        broken = template_document("broken-page")
+        broken["page"] = {"size": "A4", "colour": "red"}
+
+        response = client.put("/reports/templates/broken-page", json=broken,
+                              headers=auth())
+
+        assert response.status_code == 422
+        assert "colour" in response.json()["error"]["message"]
+
     def test_templates_appear_in_the_listing(self,
                                              client):
         client.put("/reports/templates/listed", json=template_document("listed"),

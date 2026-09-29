@@ -136,8 +136,22 @@ class TestTheEndpoint:
         response = client.get("/changelog", params={"since": "latest"},
                               headers={"Authorization": "Bearer t"})
 
+        # Refused by the parameter's declared pattern since BN-250, so the
+        # code is the schema's, VALIDATION_ERROR.
         assert response.status_code == 422
-        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_the_pattern_is_in_the_spec(self,
+                                        client):
+        """So a client or a fuzzer knows what a version looks like."""
+        spec = client.get("/openapi.json",
+                          headers={"Authorization": "Bearer t"}).json()
+        since = next(parameter for parameter
+                     in spec["paths"]["/changelog"]["get"]["parameters"]
+                     if parameter["name"] == "since")
+
+        assert since["schema"]["type"] == "string"
+        assert "pattern" in since["schema"]
 
     def test_an_empty_release_is_left_out(self,
                                           client):
