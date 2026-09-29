@@ -200,9 +200,8 @@ for step in selection.steps:
 A universe can mix currencies. Each resolved asset carries the currency from
 its reference record, and everything the index adds up is converted into the
 index currency first: holding values, market caps for `MarketCapRule` and
-`MarketCapWeighted`, special dividends and reinvested distributions.
-`LiquidityRule` is the exception: its volume and traded-value averages stay
-in each name's own currency.
+`MarketCapWeighted`, `LiquidityRule`'s traded value, an expression's
+`market_cap`, special dividends and reinvested distributions.
 
 Rates come from the data fetcher's FX pairs, stored as market-data
 identifiers named `"{FROM}{TO}"` (for example `GBPUSD`). A pair can also be

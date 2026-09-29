@@ -87,7 +87,8 @@ def build_weights(index_id: str,
                   fetcher: DataFetcher,
                   with_risk: bool = False,
                   benchmark: dict[str, float] | None = None,
-                  benchmark_id: str | None = None) -> WeightsView:
+                  benchmark_id: str | None = None,
+                  currency: str | None = None) -> WeightsView:
     """Composition at a date, with per-constituent rows, drift and cap flags.
 
     Args:
@@ -100,18 +101,21 @@ def build_weights(index_id: str,
             the pane's whole cost.
         benchmark: Weights to measure tracking error against, if any.
         benchmark_id: What to call it in the response.
+        currency: The index's currency. Prices are converted into it before
+            weights drift or risk is estimated, so a name quoted elsewhere
+            carries its exchange-rate moves.
 
     Returns:
         WeightsView: The pane's whole payload.
     """
     snapshot = snapshot_at(snapshots_from(run), as_of)
-    held = _held_weights(snapshot, as_of, fetcher)
+    held = _held_weights(snapshot, as_of, fetcher, currency)
 
-    contributions, window = (_risk_of(snapshot, run, fetcher)
+    contributions, window = (_risk_of(snapshot, run, fetcher, currency)
                              if with_risk else (None, (None, None)))
 
     active, active_by_name = _active_risk_of(snapshot, run, fetcher, benchmark,
-                                             benchmark_id, window)
+                                             benchmark_id, window, currency)
 
     return WeightsView(
         index_id=index_id,
@@ -132,7 +136,8 @@ def build_weights(index_id: str,
 
 def _held_weights(snapshot: RebalanceSnapshot,
                   as_of: str | None,
-                  fetcher: DataFetcher) -> dict[str, float] | None:
+                  fetcher: DataFetcher,
+                  currency: str | None = None) -> dict[str, float] | None:
     """What the targets have drifted to by *as_of*.
 
     None when there is nothing to measure — *as_of* is the rebalance date
@@ -142,7 +147,8 @@ def _held_weights(snapshot: RebalanceSnapshot,
     if as_of is None or pd.Timestamp(as_of) <= pd.Timestamp(snapshot.date):
         return None
 
-    prices = prices_for(fetcher, sorted(snapshot.weights), snapshot.date, as_of)
+    prices = prices_for(fetcher, sorted(snapshot.weights), snapshot.date, as_of,
+                        currency)
     if prices.empty:
         return None
 
@@ -189,11 +195,12 @@ def _estimation_window(run: dict[str, Any]) -> tuple[str | None, str | None]:
 
 def _risk_of(snapshot: RebalanceSnapshot,
              run: dict[str, Any],
-             fetcher: DataFetcher
+             fetcher: DataFetcher,
+             currency: str | None = None
              ) -> tuple[RiskContributions | None, tuple[str | None, str | None]]:
     """Decompose the index's volatility across the rebalance's holdings."""
     window = _estimation_window(run)
-    prices = prices_for(fetcher, sorted(snapshot.weights), *window)
+    prices = prices_for(fetcher, sorted(snapshot.weights), *window, currency)
 
     if prices.empty:
         logger.warning("No prices over %s to %s, so no risk decomposition.",
@@ -233,7 +240,8 @@ def _active_risk_of(snapshot: RebalanceSnapshot,
                     fetcher: DataFetcher,
                     benchmark: dict[str, float] | None,
                     benchmark_id: str | None,
-                    window: tuple[str | None, str | None]
+                    window: tuple[str | None, str | None],
+                    currency: str | None = None
                     ) -> tuple[ActiveRiskPayload | None, dict[str, float]]:
     """Decompose tracking error against a benchmark's weights."""
     if not benchmark or benchmark_id is None:
@@ -245,7 +253,7 @@ def _active_risk_of(snapshot: RebalanceSnapshot,
     # still an active position, and a covariance covering only what is held
     # could not price it.
     universe = sorted(set(snapshot.weights) | set(benchmark))
-    prices = prices_for(fetcher, universe, *span)
+    prices = prices_for(fetcher, universe, *span, currency)
 
     if prices.empty:
         logger.warning("No prices for the benchmark comparison over %s to %s.",
@@ -357,18 +365,16 @@ def _shares_for(fetcher: DataFetcher,
 
 
 def prices_for(fetcher: DataFetcher,
-                identifiers: list[str],
-                start: str | None,
-                end: str | None) -> pd.DataFrame:
-    """Close prices for a set of names over a window, names on the columns."""
-    series: dict[str, pd.Series] = {}
+               identifiers: list[str],
+               start: str | None,
+               end: str | None,
+               currency: str | None = None) -> pd.DataFrame:
+    """Close prices for a set of names over a window, names on the columns,
+    converted into *currency* (None leaves each in its own).
 
-    for identifier in identifiers:
-        frame = fetcher.fetch_market_data(identifier, start, end)
-        if not frame.empty and "CLOSE" in frame.columns:
-            series[identifier] = frame["CLOSE"]
-
-    if not series:
-        return pd.DataFrame()
-
-    return pd.DataFrame(series).sort_index()
+    Raises:
+        CalculationError: If a name's currency has no rate into *currency*.
+    """
+    # BN-253: every name used to stay in its own currency here, so drift and
+    # risk over a multi-currency index left the exchange rates out.
+    return fetcher.fetch_prices(identifiers, start, end, currency=currency)

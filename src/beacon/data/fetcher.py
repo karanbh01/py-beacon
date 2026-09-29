@@ -21,6 +21,7 @@ from .free_float import (
     carried_forward,
     validated_window,
 )
+from .prices import prices_in
 from .session import SessionPanel
 
 logger = logging.getLogger(__name__)
@@ -967,6 +968,26 @@ class DataFetcher:
             return None
         val = df[column].iloc[0]
         return float(val) if pd.notna(val) else None
+
+    def fetch_prices(self,
+                     identifiers: list[str],
+                     start_date: str | None = None,
+                     end_date: str | None = None,
+                     currency: str | None = None,
+                     column: str = "CLOSE") -> pd.DataFrame:
+        """Prices by date and instrument, converted into *currency*.
+
+        The read to use whenever prices of several instruments are compared
+        or added up: each is converted from its own currency day by day under
+        this fetcher's FX policy. With ``currency=None`` nothing is converted.
+        See `beacon.data.prices`.
+
+        Raises:
+            CalculationError: If an instrument's currency has no rate into
+                *currency*.
+        """
+        return prices_in(self, identifiers, start_date, end_date, currency,
+                         column)
 
     def fetch_fx_rates(self,
                        from_currency: str,

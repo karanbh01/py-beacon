@@ -396,14 +396,18 @@ class LiquidityRule(EligibilityRuleBase):
     The averages are taken over the last *lookback_days* rows of market data
     on or before the date asked about. A name with fewer than 80% of that many
     rows, or with the needed column missing or empty, is excluded (and logged
-    as a warning). Values are in the currency the name trades in, not
-    converted.
+    as a warning).
+
+    Traded value is converted into the index's currency day by day before it
+    is averaged, so names quoted in different currencies are compared in the
+    same money. Without an index context (a rule used on its own) it stays in
+    the currency each name trades in.
 
     Args:
         min_avg_daily_volume: Lowest average shares traded per day. None for
             no volume floor.
-        min_avg_daily_value: Lowest average close times volume per day. None
-            for no value floor.
+        min_avg_daily_value: Lowest average close times volume per day, in
+            the index's currency. None for no value floor.
         lookback_days: Trading days the averages are taken over.
 
     Raises:
@@ -510,7 +514,17 @@ class LiquidityRule(EligibilityRuleBase):
                     f"LiquidityRule: Price or Volume data missing for ADTV "
                     f"calculation for {equity.ticker}.")
                 return False
-            avg_daily_value = (price_df[_PRICE_COLUMN] * price_df[_VOLUME_COLUMN]).mean()
+            traded = price_df[_PRICE_COLUMN] * price_df[_VOLUME_COLUMN]
+
+            # BN-253: into the index's money before it meets a bound stated in
+            # that money, as MarketCapRule does. It compared each name's own
+            # currency with the bound, so yen met a dollar threshold.
+            if context is not None:
+                traded = traded * self._rates(equity, context.currency,
+                                              traded.index, current_date,
+                                              market_data_provider)
+
+            avg_daily_value = traded.mean()
             if avg_daily_value < self.min_avg_daily_value:
                 logger.debug(
                     f"LiquidityRule: {equity.ticker} (ADTV: {avg_daily_value:.2f}) below "
@@ -520,6 +534,32 @@ class LiquidityRule(EligibilityRuleBase):
         logger.debug(f"LiquidityRule: {equity.ticker} is eligible.")
 
         return True
+
+    def _rates(self,
+               equity: Equity,
+               to_currency: str,
+               days: pd.Index,
+               current_date: pd.Timestamp,
+               market_data_provider: DataFetcher) -> pd.Series:
+        """The rate converting *equity*'s currency into *to_currency* each day.
+
+        Raises:
+            CalculationError: If the pair has no rate at all, naming it.
+        """
+        rates = market_data_provider.fx_rates_on(equity.currency, to_currency,
+                                                 pd.DatetimeIndex(days))
+
+        if rates is not None:
+            return rates
+
+        raise CalculationError(
+            calculation_name=self.rule_name,
+            details=(f"no {equity.currency.upper()}/{to_currency.upper()} "
+                     f"rate up to {current_date:%Y-%m-%d}, so {equity.ticker}'s "
+                     f"traded value cannot be expressed in "
+                     f"{to_currency.upper()} to compare with the floor. Load "
+                     f"the pair, or drop the name from the universe."))
+
 
 # Other example stubs:
 # class FreeFloatRule(EligibilityRuleBase): ...

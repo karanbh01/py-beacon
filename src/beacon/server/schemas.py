@@ -2049,6 +2049,12 @@ class RiskModelRequest(BaseModel):
         description="Clip negative eigenvalues if the result is not PSD. Off by "
                     "default because shrinkage should make it unnecessary and "
                     "clipping silently shifts the variances.")
+    currency: str | None = Field(
+        default=None, pattern=r"^[A-Za-z]{3}$",
+        description="The currency returns are measured in: every name's prices "
+                    "are converted into it first, so exchange-rate moves are "
+                    "part of the risk. Null uses the index's currency when "
+                    "`index_id` is given, otherwise USD.")
 
 
 class RiskDiagnosticsPayload(BaseModel):
@@ -2081,6 +2087,11 @@ class RiskModelView(BaseModel):
     """Response of `GET /risk-models/{model_id}`."""
     model_id: str
     asset_ids: list[str]
+    currency: str | None = Field(
+        default=None,
+        description="The currency the returns were measured in. Null on a "
+                    "model estimated before this was recorded, whose returns "
+                    "were in each name's own currency.")
     start: str | None = Field(
         default=None,
         description="The request's own `start`, echoed back unchanged: the "
@@ -2330,6 +2341,12 @@ class OptimisationRunResult(BaseModel):
     run_id: str
     index_id: str
     constraint_set_id: str
+    currency: str | None = Field(
+        default=None,
+        description="The index's currency, which every name's prices were "
+                    "converted into before the risk model was estimated. Null "
+                    "on a run saved before this was recorded, whose prices "
+                    "were in each name's own currency.")
     start: str = Field(
         description="First date the constituent price frame actually carries, "
                     "YYYY-MM-DD: the window the risk model behind this solve "
@@ -3329,14 +3346,18 @@ class AssetView(BaseModel):
                     "time. Carried alongside `weight_history`, which stays the "
                     "applied series.")
     rebalances_held: int
-    total_return: float
+    total_return: float = Field(
+        description="The name's return over the run, in the index's currency.")
     index_return: float
-    excess_return: float
+    excess_return: float = Field(
+        description="`total_return` less `index_return`, both in the index's "
+                    "currency.")
     tracking_error: float
     correlation: float
     beta: float
     observations: int
-    price: SeriesPayload
+    price: SeriesPayload = Field(
+        description="The name's close, in its own currency.")
 
 
 class CompareEntry(BaseModel):

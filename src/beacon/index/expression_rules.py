@@ -52,7 +52,7 @@ from ..data.fetcher import DataFetcher
 from ..exceptions import ExpressionError, InvalidRuleError
 from ..expressions.core import Expression, fields_in, from_dict
 from ..expressions.namespaces import market_columns_for
-from ..expressions.resolve import resolve
+from ..expressions.resolve import BASE_CURRENCY, resolve
 from .context import IndexContext
 from .feature_rules import EXCLUDE, INCLUDE, ON_MISSING
 from .methodology import EligibilityRuleBase
@@ -163,12 +163,16 @@ class ExpressionRule(EligibilityRuleBase):
         """Whether the asset passes, as of `current_date`.
 
         The date is the rebalance date and is passed straight through to the
-        point-in-time reads. A value published after it is invisible.
+        point-in-time reads. A value published after it is invisible. Money
+        fields are compared in the index's currency, as `MarketCapRule`'s
+        bounds are; used outside an index, in USD.
         """
         return resolve(self._tree, asset.asset_id, current_date,
                        market_data_provider,
                        on_missing=self.on_missing == INCLUDE,
-                       max_age_days=self.max_age_days)
+                       max_age_days=self.max_age_days,
+                       currency=(context.currency if context is not None
+                                 else BASE_CURRENCY))
 
     def __repr__(self) -> str:
         return f"ExpressionRule({self._tree!r})"

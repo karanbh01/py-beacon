@@ -47,6 +47,7 @@ from ..schemas import (
     ExposuresView,
     FrontierView,
     Identifier,
+    IndexDocument,
     OptimisationJobStatus,
     OptimisationRunRequest,
     SavedConstraintSet,
@@ -190,6 +191,11 @@ def build_optimise_router() -> APIRouter:
                 f"a completed backtest for index '{body.index_id}'",
                 source="run POST /beacon/{index_id}/backtest first")
 
+        index_store: DocumentStore = request.app.state.index_store
+        document = load_document(index_store, body.index_id,
+                                 validated(IndexDocument),
+                                 f"index '{body.index_id}'")
+
         run_id = str(uuid.uuid4())
         job = registry.submit(
             f"optimise:{run_id}",
@@ -199,7 +205,8 @@ def build_optimise_router() -> APIRouter:
                                    build_constraints(constraint_set),
                                    target_weights_from(backtest, body.as_of),
                                    label_map(constraint_set),
-                                   _data_fetcher(request)))
+                                   _data_fetcher(request),
+                                   document.currency.upper()))
 
         return OptimisationJobStatus(**job.snapshot())
 

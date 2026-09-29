@@ -85,24 +85,27 @@ FRONTIER_POINTS = 15
 def constituent_prices(fetcher: DataFetcher,
                        identifiers: list[str],
                        start: str | None = None,
-                       end: str | None = None) -> pd.DataFrame:
-    """Close prices for a set of names, names on the columns.
+                       end: str | None = None,
+                       currency: str | None = None) -> pd.DataFrame:
+    """Close prices for a set of names in *currency*, names on the columns.
+
+    Converted into the index's currency, so the risk model behind a solve
+    carries exchange-rate risk, and a size factor compares caps in one money.
+    None leaves each name in its own currency (a run saved before runs
+    recorded their currency).
 
     Raises:
         DataNotFoundError: If none of them can be priced.
+        CalculationError: If a name's currency has no rate into *currency*.
     """
-    series: dict[str, pd.Series] = {}
+    # BN-253: read in each name's own currency until then.
+    prices = fetcher.fetch_prices(identifiers, start, end, currency=currency)
 
-    for identifier in identifiers:
-        frame = fetcher.fetch_market_data(identifier, start, end)
-        if not frame.empty and "CLOSE" in frame.columns:
-            series[identifier] = frame["CLOSE"]
-
-    if not series:
+    if prices.empty:
         raise DataNotFoundError("prices for any of these identifiers",
                                 source="MarketData")
 
-    return pd.DataFrame(series).sort_index()
+    return prices
 
 
 def expected_returns_from(prices: pd.DataFrame) -> dict[str, float]:
@@ -184,7 +187,8 @@ def build_optimisation_job(run_id: str,
                            constraints: list[Any],
                            target_weights: dict[str, float],
                            label_for: dict[str, str],
-                           fetcher: DataFetcher
+                           fetcher: DataFetcher,
+                           currency: str
                            ) -> Callable[[ProgressReporter],
                                          Awaitable[dict[str, Any]]]:
     """Build the coroutine that runs an optimisation.
@@ -195,7 +199,8 @@ def build_optimisation_job(run_id: str,
     async def run(report: ProgressReporter) -> dict[str, Any]:
         await report(0.1, "Loading constituent prices.")
         identifiers = sorted(target_weights)
-        prices = constituent_prices(fetcher, identifiers, request.start, request.end)
+        prices = constituent_prices(fetcher, identifiers, request.start,
+                                    request.end, currency)
 
         await report(0.35, "Estimating the risk model.")
         returns = prices.pct_change().dropna(how="all")
@@ -207,7 +212,8 @@ def build_optimisation_job(run_id: str,
         await report(0.85, "Assembling the result.")
         payload = assemble_optimisation(run_id, request, constraint_set,
                                         result, target_weights, label_for,
-                                        prices, risk_model, fetcher)
+                                        prices, risk_model, fetcher,
+                                        currency)
 
         await report(1.0, "Complete.")
 
@@ -224,7 +230,8 @@ def assemble_optimisation(run_id: str,
                           label_for: dict[str, str],
                           prices: pd.DataFrame,
                           risk_model: Any,
-                          fetcher: DataFetcher) -> OptimisationRunResult:
+                          fetcher: DataFetcher,
+                          currency: str | None = None) -> OptimisationRunResult:
     """Build the wire payload from a completed solve.
 
     Carries the prices' own summary rather than the frames themselves: the
@@ -245,6 +252,7 @@ def assemble_optimisation(run_id: str,
         run_id=run_id,
         index_id=request.index_id,
         constraint_set_id=constraint_set.id,
+        currency=currency,
         start=str(prices.index[0].date()),
         end=str(prices.index[-1].date()),
         weights=rows,
@@ -272,7 +280,8 @@ def build_frontier(run: dict[str, Any],
                    risk_free_rate: float) -> FrontierView:
     """Trace the frontier over the run's universe and window."""
     identifiers = [row["asset_id"] for row in run["weights"]]
-    prices = constituent_prices(fetcher, identifiers, run["start"], run["end"])
+    prices = constituent_prices(fetcher, identifiers, run["start"], run["end"],
+                                run.get("currency"))
 
     returns = prices.pct_change().dropna(how="all")
     risk_model = estimate_risk_model(returns, intensity=SHRINKAGE)
@@ -307,7 +316,8 @@ def build_exposures(run: dict[str, Any],
                     fetcher: DataFetcher) -> ExposuresView:
     """Factor exposures of the active position, and its risk decomposition."""
     identifiers = [row["asset_id"] for row in run["weights"]]
-    prices = constituent_prices(fetcher, identifiers, run["start"], run["end"])
+    prices = constituent_prices(fetcher, identifiers, run["start"], run["end"],
+                                run.get("currency"))
 
     as_of = pd.Timestamp(run["end"])
     exposures = factor_exposures(prices, fetcher, as_of)

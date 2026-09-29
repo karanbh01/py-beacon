@@ -55,26 +55,26 @@ WIRE_DECIMALS = 8
 def constituent_returns(fetcher: DataFetcher,
                         identifiers: list[str],
                         start: str | None,
-                        end: str | None) -> pd.DataFrame:
-    """Daily returns for a set of names, names on the columns.
+                        end: str | None,
+                        currency: str) -> pd.DataFrame:
+    """Daily returns for a set of names in *currency*, names on the columns.
+
+    Prices are converted into *currency* before the returns are taken, so a
+    name quoted elsewhere carries its exchange-rate moves as part of its risk.
 
     Raises:
         DataNotFoundError: If fewer than two names can be priced. A covariance
             over one asset is a variance, and the endpoint promises a matrix.
+        CalculationError: If a name's currency has no rate into *currency*.
     """
-    series: dict[str, pd.Series] = {}
+    # BN-253: prices were read in each name's own currency, so a covariance
+    # over a multi-currency universe left the exchange-rate risk out.
+    prices = fetcher.fetch_prices(identifiers, start, end, currency=currency)
 
-    for identifier in identifiers:
-        frame = fetcher.fetch_market_data(identifier, start, end)
-        if not frame.empty and "CLOSE" in frame.columns:
-            series[identifier] = frame["CLOSE"]
-
-    if len(series) < 2:
+    if len(prices.columns) < 2:
         raise DataNotFoundError(
             f"prices for at least two of {identifiers}",
-            source=f"only {len(series)} could be priced")
-
-    prices = pd.DataFrame(series).sort_index()
+            source=f"only {len(prices.columns)} could be priced")
 
     return prices.pct_change().dropna(how="all")
 
@@ -82,7 +82,8 @@ def constituent_returns(fetcher: DataFetcher,
 def build_estimation_job(model_id: str,
                          request: RiskModelRequest,
                          identifiers: list[str],
-                         fetcher: DataFetcher
+                         fetcher: DataFetcher,
+                         currency: str
                          ) -> Callable[[ProgressReporter], Awaitable[dict[str, Any]]]:
     """Build the coroutine that estimates a risk model.
 
@@ -92,7 +93,7 @@ def build_estimation_job(model_id: str,
     async def run(report: ProgressReporter) -> dict[str, Any]:
         await report(0.1, f"Loading prices for {len(identifiers)} identifier(s).")
         returns = constituent_returns(fetcher, identifiers,
-                                      request.start, request.end)
+                                      request.start, request.end, currency)
 
         await report(0.6, "Estimating the covariance.")
         model = estimate_risk_model(returns,
@@ -101,7 +102,7 @@ def build_estimation_job(model_id: str,
                                     repair=request.repair)
 
         await report(0.9, "Assembling the result.")
-        payload = assemble_risk_model(model_id, request, model)
+        payload = assemble_risk_model(model_id, request, model, currency)
 
         await report(1.0, "Complete.")
 
@@ -112,13 +113,15 @@ def build_estimation_job(model_id: str,
 
 def assemble_risk_model(model_id: str,
                         request: RiskModelRequest,
-                        model: Any) -> RiskModelView:
+                        model: Any,
+                        currency: str | None = None) -> RiskModelView:
     """Build the wire payload from an estimated model."""
     diagnostics = model.diagnostics
 
     return RiskModelView(
         model_id=model_id,
         asset_ids=model.asset_ids,
+        currency=currency,
         start=request.start,
         end=request.end,
         correlation=_matrix(model.correlation),

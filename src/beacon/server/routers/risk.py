@@ -17,16 +17,20 @@ from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import DataNotFoundError
 from ..active_data import require_data
+from ..documents import load_document, validated
 from ..jobs import JobRegistry
+from ..reference import DEFAULT_CURRENCY
 from ..risk import build_estimation_job
 from ..schemas import (
     Identifier,
+    IndexDocument,
     RiskModelCollection,
     RiskModelJobStatus,
     RiskModelRequest,
     RiskModelSummary,
     RiskModelView,
 )
+from ..store import DocumentStore
 
 require("fastapi", "The Beacon API server")
 
@@ -39,6 +43,24 @@ KIND = "risk"
 def _data_fetcher(request: Request) -> DataFetcher:
     """The loaded data, or 409 NO_DATA_LOADED (see `active_data`)."""
     return require_data(request, "a risk model cannot be estimated")
+
+
+def _currency(request: Request,
+              body: RiskModelRequest) -> str:
+    """The currency returns are measured in: the request's, else the index's,
+    else USD."""
+    if body.currency is not None:
+        return body.currency.upper()
+
+    if body.index_id is not None:
+        store: DocumentStore = request.app.state.index_store
+        document = load_document(store, body.index_id,
+                                 validated(IndexDocument),
+                                 f"index '{body.index_id}'")
+
+        return document.currency.upper()
+
+    return DEFAULT_CURRENCY
 
 
 def _universe(request: Request,
@@ -133,11 +155,13 @@ def build_risk_router() -> APIRouter:
         settings = body if body is not None else RiskModelRequest()
         identifiers = _universe(request, settings)
         fetcher = _data_fetcher(request)
+        currency = _currency(request, settings)
 
         registry: JobRegistry = request.app.state.jobs
         job = registry.submit(
             f"{KIND}:{model_id}",
-            build_estimation_job(model_id, settings, identifiers, fetcher))
+            build_estimation_job(model_id, settings, identifiers, fetcher,
+                                 currency))
 
         return RiskModelJobStatus(**job.snapshot())
 

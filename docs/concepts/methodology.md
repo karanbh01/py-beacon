@@ -108,8 +108,9 @@ bounds, so the bounds are always in the index currency. Either bound may be
 
 **`LiquidityRule`** averages over the last `lookback_days` rows on or before
 the date. A name with fewer than 80% of that many rows, or with the column it
-needs empty, is excluded, with a warning. Its values are in the currency the
-name trades in and are not converted.
+needs empty, is excluded, with a warning. Volume is a share count. Traded
+value is converted into the index currency day by day before it is averaged,
+so the floor means the same money for every name.
 
 **`FeatureRule`** reads a feature such as `pe_ratio` from the data's feature
 table, point in time: only a value published on or before the date counts,
@@ -123,8 +124,8 @@ point in time, and stores the expression as a serialisable tree, so a rule
 written in Python and one built in Beacon desktop are the same document. A malformed
 tree is refused when the rule is built (`InvalidRuleError`). Missing values
 and stale features work as they do for `FeatureRule`. The derived field
-`data.market.market_cap` is always in USD, whatever the index currency, while
-`MarketCapRule` compares in the index currency.
+`data.market.market_cap` is in the index currency, as `MarketCapRule`'s
+bounds are, so the same number means the same size in both.
 
 `FeatureRule` and `ExpressionRule` need data with features, so they are
 shown under [Return types](#return-types) on a synthetic dataset. Here is the
@@ -160,7 +161,7 @@ stale-price rung, when present, has position `-1` and the name `StalePrice`.
 **Excluded is not the same as failed.** A rule that cannot evaluate raises,
 and the error reaches the caller instead of being recorded as an exclusion.
 `MarketCapRule` raises for a date outside the data's coverage and for a
-missing FX pair. `MarketCapRule` and `LiquidityRule` raise `CalculationError`
+missing FX pair, as does `LiquidityRule` with a traded-value floor. `MarketCapRule` and `LiquidityRule` raise `CalculationError`
 for an asset that is not an `Equity`. (The calculator builds every universe
 member as an `Equity`, so this only matters when you pass assets of your
 own.)

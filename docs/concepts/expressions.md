@@ -43,9 +43,11 @@ distinct.
 
 The derived market fields are computed when they are read, not stored:
 
-- `market_cap` is `CLOSE` times `SHARES_OUTSTANDING`, converted into USD at
-  the name's `CURRENCY` rate, so names quoted in different currencies compare
-  on size. It is missing when the price, the share count or the rate is.
+- `market_cap` is `CLOSE` times `SHARES_OUTSTANDING`, converted at the
+  name's `CURRENCY` rate so names quoted in different currencies compare on
+  size: into the index currency when the expression is part of an index (an
+  `ExpressionRule`), and into USD otherwise (a filtered universe, a backtest
+  screen). It is missing when the price, the share count or the rate is.
 - `free_float_market_cap` is `market_cap` times `FREE_FLOAT`.
 - `adv_3m` is the mean daily `VOLUME` over the trailing three calendar months.
 

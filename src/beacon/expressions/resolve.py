@@ -101,7 +101,8 @@ def resolve(expression: Expression,
             date: pd.Timestamp,
             fetcher: DataFetcher,
             on_missing: bool = False,
-            max_age_days: int | None = MAX_AGE_DAYS) -> bool:
+            max_age_days: int | None = MAX_AGE_DAYS,
+            currency: str = BASE_CURRENCY) -> bool:
     """Whether an instrument passes an expression on a date.
 
     Args:
@@ -111,24 +112,27 @@ def resolve(expression: Expression,
         fetcher: The data.
         on_missing: What a comparison answers when the field has no value.
         max_age_days: How stale a feature may be and still count.
+        currency: The currency money fields (`market_cap`,
+            `free_float_market_cap`) are compared in. An index passes its
+            own; USD otherwise.
 
     Returns:
         bool: The answer for this instrument on this date.
     """
     if isinstance(expression, _Group):
         answers = (resolve(operand, identifier, date, fetcher, on_missing,
-                           max_age_days)
+                           max_age_days, currency)
                    for operand in expression.operands)
 
         return all(answers) if expression.node == ALL else any(answers)
 
     if isinstance(expression, Not):
         return not resolve(expression.operand, identifier, date, fetcher,
-                           on_missing, max_age_days)
+                           on_missing, max_age_days, currency)
 
     if isinstance(expression, Comparison):
         return _compare(expression, identifier, date, fetcher, on_missing,
-                        max_age_days)
+                        max_age_days, currency)
 
     # A bare `Field` is not a question. Reaching here means an expression was
     # built but never compared, which is a mistake worth surfacing rather than
@@ -146,10 +150,11 @@ def _compare(comparison: Comparison,
              date: pd.Timestamp,
              fetcher: DataFetcher,
              on_missing: bool,
-             max_age_days: int | None) -> bool:
+             max_age_days: int | None,
+             currency: str = BASE_CURRENCY) -> bool:
     """One comparison."""
     value = value_of(comparison.field, identifier, date, fetcher,
-                     max_age_days)
+                     max_age_days, currency)
 
     if value is None:
         logger.debug("%s has no %s knowable on %s; treated as %s.",
@@ -165,8 +170,11 @@ def value_of(field: Field,
              identifier: str,
              date: pd.Timestamp,
              fetcher: DataFetcher,
-             max_age_days: int | None = MAX_AGE_DAYS) -> Any:
+             max_age_days: int | None = MAX_AGE_DAYS,
+             currency: str = BASE_CURRENCY) -> Any:
     """One field's value for one instrument, as of a date.
+
+    Money fields are in *currency*.
 
     Returns:
         The value, or None when the instrument has none knowable by `date`.
@@ -179,7 +187,7 @@ def value_of(field: Field,
         return _reference_value(field, identifier, date, fetcher)
 
     if field.namespace == MARKET:
-        return _market_value(field, identifier, date, fetcher)
+        return _market_value(field, identifier, date, fetcher, currency)
 
     return None
 
@@ -209,14 +217,16 @@ def _reference_value(field: Field,
 def _market_value(field: Field,
                   identifier: str,
                   date: pd.Timestamp,
-                  fetcher: DataFetcher) -> Any:
+                  fetcher: DataFetcher,
+                  currency: str = BASE_CURRENCY) -> Any:
     """A market column or a derived quantity, as of the date."""
     if field.name == ADV_3M:
         return _adv(identifier, date, fetcher)
 
     if field.name in (MARKET_CAP, FREE_FLOAT_MARKET_CAP):
         return _cap(identifier, date, fetcher,
-                    float_adjusted=field.name == FREE_FLOAT_MARKET_CAP)
+                    float_adjusted=field.name == FREE_FLOAT_MARKET_CAP,
+                    currency=currency)
 
     return _column(identifier, date, fetcher, column_for(field))
 
@@ -244,14 +254,17 @@ def _column(identifier: str,
 def _cap(identifier: str,
          date: pd.Timestamp,
          fetcher: DataFetcher,
-         float_adjusted: bool) -> float | None:
-    """Price x shares outstanding, in USD, optionally float-adjusted.
+         float_adjusted: bool,
+         currency: str = BASE_CURRENCY) -> float | None:
+    """Price x shares outstanding in *currency*, optionally float-adjusted.
 
     Computed rather than read: a market cap is not stored anywhere, and both
     of its inputs move.
 
-    **Converted into USD**, matching the `market_cap` the reference endpoint
-    serves (BN-133). Since BN-128 the members of one universe are quoted in
+    **Converted into *currency***: the index's, when the expression is part
+    of one (so `market_cap > 1e9` means the same as `MarketCapRule`'s bound),
+    and USD otherwise, matching the reference endpoint's default (BN-133,
+    BN-253). Since BN-128 the members of one universe are quoted in
     seven currencies, so comparing raw local values would rank a yen cap above
     a dollar one on magnitude alone -- and a screen like `market_cap > 1e9`
     would then select on currency as much as on size. The two surfaces have to
@@ -260,7 +273,7 @@ def _cap(identifier: str,
     """
     price = _column(identifier, date, fetcher, CLOSE)
     shares = _column(identifier, date, fetcher, SHARES)
-    rate = _rate(identifier, date, fetcher)
+    rate = _rate(identifier, date, fetcher, currency)
 
     # An unconvertible cap is a cap this screen cannot compute, which is the
     # answer `price is None` already gets (BN-206). It is emphatically not the
@@ -281,20 +294,18 @@ def _cap(identifier: str,
 
 def _rate(identifier: str,
           date: pd.Timestamp,
-          fetcher: DataFetcher) -> float | None:
-    """FX from an instrument's quote currency into USD, or None (BN-206).
-
-    None where the old answer was 1.0, in both of the two ways this can fail.
-    A cap quoted in yen and compared as though it were dollars is BN-188's
-    original bug -- a 156x overstatement for a JPY name, in a screen whose
-    whole purpose is ranking by size -- and it survived here because BN-188
-    swept `index/`, `data/` and `server/` and this module is in none of them.
-
-    The currency being unknown is the second way, and it used to answer 1.0
-    too: an instrument with no reference row was silently treated as already
-    quoted in USD. That is the same claim about two currencies, made with
-    even less to go on.
-    """
+          fetcher: DataFetcher,
+          currency: str = BASE_CURRENCY) -> float | None:
+    """FX from an instrument's quote currency into *currency*, or None."""
+    # BN-206: None where the old answer was 1.0, in both of the two ways
+    # this can fail. A cap quoted in yen and compared as though it were dollars
+    # is BN-188's original bug -- a 156x overstatement for a JPY name, in a
+    # screen whose whole purpose is ranking by size -- and it survived here
+    # because BN-188 swept `index/`, `data/` and `server/` and this module is in
+    # none of them. The currency being unknown is the second way, and it used to
+    # answer 1.0 too: an instrument with no reference row was silently treated
+    # as already quoted in USD. That is the same claim about two currencies,
+    # made with even less to go on.
     reference = fetcher.fetch_reference_data(identifier,
                                              date.strftime("%Y-%m-%d"))
 
@@ -306,7 +317,7 @@ def _rate(identifier: str,
     if pd.isna(value):
         return None
 
-    return fetcher.fx_rate_on(str(value).upper(), BASE_CURRENCY, date)
+    return fetcher.fx_rate_on(str(value).upper(), currency.upper(), date)
 
 
 def _adv(identifier: str,

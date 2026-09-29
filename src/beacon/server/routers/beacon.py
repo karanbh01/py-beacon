@@ -268,7 +268,7 @@ def build_beacon_router() -> APIRouter:
                 asof: AsOfQuery = None,
                 risk: RiskQuery = False,
                 benchmark: BenchmarkQuery = None) -> WeightsView:
-        _index_document(request, index_id)
+        document = _index_document(request, index_id)
 
         # The benchmark's weights come from its own latest run, taken at the
         # same date. Reading them from a run rather than re-deriving the index
@@ -286,30 +286,33 @@ def build_beacon_router() -> APIRouter:
                              _data_fetcher(request),
                              with_risk=risk,
                              benchmark=benchmark_weights,
-                             benchmark_id=benchmark if benchmark_weights else None)
+                             benchmark_id=benchmark if benchmark_weights else None,
+                             currency=document.currency)
 
     @router.get("/{index_id}/attribution", response_model=AttributionView)
     def attribution(request: Request,
                     index_id: Identifier,
                     start: StartQuery = None,
                     end: EndQuery = None) -> AttributionView:
-        _index_document(request, index_id)
+        document = _index_document(request, index_id)
 
         return build_attribution(index_id,
                                  _latest_run(request, index_id),
                                  _data_fetcher(request),
                                  start,
-                                 end)
+                                 end,
+                                 document.currency)
 
     @router.get("/{index_id}/assets/{identifier}", response_model=AssetView)
     def asset(request: Request,
               index_id: Identifier,
               identifier: str) -> AssetView:
-        _index_document(request, index_id)
+        document = _index_document(request, index_id)
 
         return build_asset_view(index_id,
                                 identifier,
                                 _latest_run(request, index_id),
-                                _data_fetcher(request))
+                                _data_fetcher(request),
+                                document.currency)
 
     return router

@@ -88,8 +88,14 @@ def build_attribution(index_id: str,
                       run: dict[str, Any],
                       fetcher: DataFetcher,
                       start: str | None,
-                      end: str | None) -> AttributionView:
-    """Per-constituent contributions over a window, with the two drags."""
+                      end: str | None,
+                      currency: str | None = None) -> AttributionView:
+    """Per-constituent contributions over a window, with the two drags.
+
+    Prices are converted into *currency*, the index's, so each contribution
+    includes its name's exchange-rate return and the contributions add up to
+    the index's return.
+    """
     snapshots = snapshots_from(run)
     capped = weight_map(snapshots)
     uncapped = weight_map(snapshots, uncapped=True)
@@ -99,7 +105,7 @@ def build_attribution(index_id: str,
     # the window still sets the weights inside it — fetching only the window
     # leaves those snapshots pointing at dates the price frame does not have.
     # The window is applied afterwards, by selecting periods.
-    prices = _constituent_prices(fetcher, snapshots, None, None)
+    prices = _constituent_prices(fetcher, snapshots, None, None, currency)
 
     weights = drifted_weights(capped, prices)
     asset_returns = prices.pct_change().reindex(weights.index)
@@ -209,12 +215,16 @@ def _cost_drag(run: dict[str, Any]) -> float | None:
 def _constituent_prices(fetcher: DataFetcher,
                         snapshots: list[RebalanceSnapshot],
                         start: str | None,
-                        end: str | None) -> pd.DataFrame:
-    """Prices for everything the index has ever held, over the window."""
+                        end: str | None,
+                        currency: str | None = None) -> pd.DataFrame:
+    """Prices for everything the index has ever held, over the window, in
+    *currency*."""
+    # BN-253: in each name's own currency until then, so attribution over a
+    # multi-currency index missed every exchange-rate return.
     identifiers = sorted({name for snapshot in snapshots
                           for name in snapshot.weights})
 
-    prices = prices_for(fetcher, identifiers, start, end)
+    prices = prices_for(fetcher, identifiers, start, end, currency)
     if prices.empty:
         raise DataNotFoundError("prices for any constituent of this index",
                                 source="MarketData")
@@ -225,8 +235,14 @@ def _constituent_prices(fetcher: DataFetcher,
 def build_asset_view(index_id: str,
                      identifier: str,
                      run: dict[str, Any],
-                     fetcher: DataFetcher) -> AssetView:
-    """One constituent: its weight history and how it fared against the index."""
+                     fetcher: DataFetcher,
+                     currency: str | None = None) -> AssetView:
+    """One constituent: its weight history and how it fared against the index.
+
+    The comparison with the index is made in *currency*, the index's; the
+    price series returned stays in the name's own currency, as a price chart
+    should.
+    """
     snapshots = snapshots_from(run)
 
     history = {snapshot.date: snapshot.weights[identifier]
@@ -253,7 +269,11 @@ def build_asset_view(index_id: str,
     index_level = pd.Series(level.data,
                             index=pd.to_datetime(level.index)).astype(float)
 
-    metrics = relative_metrics(frame["CLOSE"], index_level)
+    # Compared in the index's money: a name's return in its own currency
+    # against an index's in another is not a like-for-like excess (BN-253).
+    comparable = (fetcher.fetch_prices([identifier], currency=currency)
+                  .get(identifier, frame["CLOSE"]))
+    metrics = relative_metrics(comparable, index_level)
 
     return AssetView(
         index_id=index_id,

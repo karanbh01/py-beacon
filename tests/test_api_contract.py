@@ -72,7 +72,7 @@ SELF_EVIDENT_FIELDS = {"index_id", "name"}
 # case that made BN-181 worth filing: a NEW field shipping silent, where two
 # components can hold different meanings for it indefinitely and the divergence
 # surfaces only when behaviour changes underneath both.
-SILENT_FIELD_CEILING = 174
+SILENT_FIELD_CEILING = 172
 
 # The date- and time-shaped fields BN-181 described, written out rather than
 # derived so that losing one is a failure rather than a number that still adds
@@ -431,7 +431,7 @@ class TestReconciliationIdentities:
 
     def test_the_index_total_return_is_what_it_was(self,
                                                    client):
-        """Golden: the canonical dataset over this window returns 41.49%.
+        """Golden: the canonical dataset over this window returns 43.76%.
 
         Recorded rather than derived, so a change that preserves the
         reconciliation identity while moving the number still shows up.
@@ -442,11 +442,16 @@ class TestReconciliationIdentities:
         over the same span. The number moved because a level stopped being
         published on days the market was shut, which is the point of the
         change rather than a casualty of it.
+
+        41.49% until BN-253. The dataset holds one GBP name, whose prices
+        attribution read in pounds while the index converts them into
+        dollars, so the exchange-rate return was missing. 43.76% is the index
+        level's own return over the window, to the last digit.
         """
         payload = client.get(f"/beacon/{INDEX_ID}/attribution",
                              headers=auth()).json()
 
-        assert payload["total_return"] == pytest.approx(0.4149, abs=5e-4)
+        assert payload["total_return"] == pytest.approx(0.4376, abs=5e-4)
 
     def test_attribution_defaults_to_the_run_window(self,
                                                     client):
