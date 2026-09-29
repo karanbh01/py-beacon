@@ -480,10 +480,12 @@ so the level is unchanged. A cancelled action is ignored.
 
 Two data gaps do not move the divisor:
 
-- A holding with no price on a session is valued at zero for that session,
-  with a warning, so the level dips by its share and recovers when the price
-  returns. Only if every holding is unpriced is the previous level carried
-  forward.
+- A holding with no bar on a session is valued at its last close, and the
+  day is recorded in `result.price_gaps` as a
+  `PriceGap(date, asset_id, priced_from)`, with a warning. The backtest
+  engine does the same, so the two agree on those days. A holding that has
+  never had a bar is valued at zero, and if no holding can be valued the
+  previous level is carried forward.
 - If every holding would be delisted at once, the holdings are kept and an
   error is logged, rather than emptying the index. If the book cannot be
   valued on the leaver's last day, the leaver is removed without a divisor

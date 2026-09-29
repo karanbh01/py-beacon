@@ -9,7 +9,7 @@ import pandas as pd
 from ..data.corporate_actions import ratios_between
 from ..data.fetcher import DataFetcher
 from ..index.requirements import require_price_column
-from ..index.result import IndexResult
+from ..index.result import IndexResult, PriceGap
 from ..index.schedule import SESSION_UNIT, sessions
 from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 
@@ -22,7 +22,6 @@ from .result import (
     BacktestResult,
     Book,
     IndexBooks,
-    PriceGap,
     RebalancePricing,
     UnfilledOrder,
 )

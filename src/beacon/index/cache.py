@@ -43,7 +43,7 @@ from ..data import store
 from ..data.fetcher import DataFetcher
 from .capping import CapReport
 from .derived import AnyIndexDefinition, OptimisedIndexDefinition
-from .result import _DAILY_WEIGHT_DTYPES, IndexResult
+from .result import _DAILY_WEIGHT_DTYPES, IndexResult, PriceGap
 
 logger = logging.getLogger(__name__)
 
@@ -398,6 +398,10 @@ def _snapshots_payload(result: IndexResult) -> dict[str, Any]:
                                            "passes": report.passes,
                                            "uncapped_weights": dict(report.uncapped_weights)}
                         for date, report in result.cap_reports.items()},
+        "price_gaps": [{"date": gap.date.isoformat(),
+                        "asset_id": gap.asset_id,
+                        "priced_from": gap.priced_from.isoformat()}
+                       for gap in result.price_gaps],
     }
 
 
@@ -424,7 +428,11 @@ def _read_entry(entry: Path) -> IndexResult:
                      for date, report in snapshots["cap_reports"].items()},
         announcement_dates={pd.Timestamp(effective): pd.Timestamp(announced)
                             for effective, announced in snapshots["announcement_dates"].items()},
-        daily_weights=_read_panel(entry / DAILY_WEIGHTS_FILE))
+        daily_weights=_read_panel(entry / DAILY_WEIGHTS_FILE),
+        price_gaps=[PriceGap(date=pd.Timestamp(gap["date"]),
+                             asset_id=str(gap["asset_id"]),
+                             priced_from=pd.Timestamp(gap["priced_from"]))
+                    for gap in snapshots.get("price_gaps", [])])
 
 
 # -- the cache ---------------------------------------------------------------

@@ -13,11 +13,12 @@ and tracking against the target index. `BacktestModifier` subclasses such as
 `DriftThresholdModifier` can skip a rebalance or adjust its trades, and
 `BacktestAssetView` gives one asset's story through a backtest.
 """
+from ..index.result import PriceGap
 from ..portfolio.base import TradeInstruction
 from .asset_view import BacktestAssetView
 from .engine import BacktestEngine
 from .main import Backtest
-from .result import BacktestResult, PriceGap, RebalancePricing, UnfilledOrder
+from .result import BacktestResult, RebalancePricing, UnfilledOrder
 from .rules import BacktestModifier, DriftThresholdModifier
 
 __all__ = [

@@ -20,7 +20,7 @@ from .methodology import (
     MarketCapWeighted,
     WeightingSchemeBase,
 )
-from .result import IndexResult
+from .result import IndexResult, PriceGap
 
 __all__ = [
     "EligibilityRuleBase",
@@ -35,6 +35,7 @@ __all__ = [
     "MarketCapRule",
     "MarketCapWeighted",
     "OptimisedIndexDefinition",
+    "PriceGap",
     "WeightingSchemeBase",
     "calculate_derived_index",
 ]

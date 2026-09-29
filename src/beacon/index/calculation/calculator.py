@@ -16,7 +16,7 @@ from ..capping import CapReport, apply_cap
 from ..constructor import IndexDefinition
 from ..context import IndexContext
 from ..requirements import require_columns
-from ..result import IndexResult, daily_weights_frame
+from ..result import IndexResult, PriceGap, daily_weights_frame
 from ..schedule import calendar_coverage, describe_bounds, effective_date, sessions
 from .corporate_actions import CorporateActionsMixin
 from .deletions import DeletionMixin
@@ -109,6 +109,11 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         # currency to compare its caps in and added them as though every
         # currency's unit were the same size (BN-188).
         self.context: IndexContext = IndexContext(currency=self.definition.currency)
+
+        # The last close valued for each name, and the days a held name had
+        # none, both reset by each run (BN-251).
+        self._last_bars: dict[str, tuple[pd.Timestamp, float]] = {}
+        self._price_gaps: dict[tuple[str, pd.Timestamp], PriceGap] = {}
 
         logger.info(f"IndexCalculator initialized for index '{self.definition.index_name}'.")
 
@@ -698,6 +703,8 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         rebalance_dates.discard(base_date)
 
         # Accumulators
+        self._last_bars.clear()
+        self._price_gaps.clear()
         index_levels: dict[pd.Timestamp, float] = {}
         divisor_values: dict[pd.Timestamp, float] = {}
         constituent_snapshots: dict[pd.Timestamp, list[str]] = {}
@@ -946,6 +953,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             announcement_dates=announcements,
             daily_weights=daily_weights_frame(daily_records),
             calendar_coverage=coverage if coverage.is_partial else None,
+            price_gaps=self.recorded_gaps(),
         ).with_data(self.data)
 
     def require_columns(self) -> None:

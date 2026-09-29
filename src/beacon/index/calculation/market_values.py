@@ -13,10 +13,11 @@ from ...data.fetcher import DataFetcher
 from ...data.free_float import require_free_float
 from ...exceptions import CalculationError
 from ..constructor import IndexDefinition
+from .price_gaps import PriceGapsMixin
 
 logger = logging.getLogger(__name__)
 
-class MarketValuesMixin:
+class MarketValuesMixin(PriceGapsMixin):
     """Market-value and index-level calculation logic, mixed into IndexCalculator."""
 
     # Provided by the IndexCalculator that mixes this in.
@@ -430,11 +431,10 @@ class MarketValuesMixin:
             current_date: Valuation date.
 
         Returns:
-            dict: Value per holding in the index currency. A name with no
-            price today is worth 0.0 (with a warning) and still appears,
-            because it is still held: a feed gap is a data-quality problem,
-            and carrying the level forward (which :meth:`level_from_units`
-            does) is the right response to one.
+            dict: Value per holding in the index currency. A name with no bar
+            today is valued at its last close and the day is recorded as a
+            price gap on the result. A name that has never printed a bar is
+            worth 0.0, with a warning.
 
         Raises:
             CalculationError: If a holding is not an equity, or a priced
@@ -442,7 +442,7 @@ class MarketValuesMixin:
         """
         # Batched rather than one `asset_unit_value` per holding (BN-218). The
         # answer is the same, name for name -- refuse a non-equity, no price is
-        # 0.0 with the same warning, otherwise price x FX x units -- but the two
+        # carried, otherwise price x FX x units -- but the two
         # expensive parts are asked the size of question they are. Prices come
         # from the day's page in one read instead of a four-call chain per
         # name, and an FX rate is a fact about a currency on a day, so a book
@@ -465,12 +465,17 @@ class MarketValuesMixin:
                                                       self.price_column)
                         for ticker in tickers})
 
+        self.remember_bars(prices, current_date)
+
         rates: dict[str, float] = {}
         values: dict[Asset, float] = {}
 
         for asset, count in units.items():
             equity = equities[asset]
             price = prices.get(equity.ticker)
+
+            if price is None:
+                price = self.carried_price(equity.ticker, current_date)
 
             if price is None:
                 logger.warning(

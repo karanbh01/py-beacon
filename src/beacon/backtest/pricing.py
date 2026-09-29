@@ -31,9 +31,8 @@ import pandas as pd
 
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
-from ..index.result import IndexResult
+from ..index.result import IndexResult, PriceGap
 from ..index.schedule import is_session
-from .result import PriceGap
 
 logger = logging.getLogger(__name__)
 

@@ -47,7 +47,7 @@ import pandas as pd
 
 from ..analysis.relative import RelativeMetrics, relative_metrics
 from ..data.fetcher import DataFetcher
-from ..index.result import IndexResult
+from ..index.result import IndexResult, PriceGap
 from ..plot.base import PlotAccessor
 from ..portfolio.base import Portfolio
 from .asset_view import BacktestAssetView
@@ -78,36 +78,8 @@ class UnfilledOrder:
     shortfall_value: float
 
 
-# PriceGap and RebalancePricing are BN-183.
-@dataclass(frozen=True)
-class PriceGap:
-    """A day a name should have traded on and had no bar.
-
-    The engine prices from the last session on or before the date it is
-    marking. Two different things can put it there, and only one of them is a
-    fault: a day the index's **calendar says was closed** is a market that was
-    shut, and the previous session's price is what the position was genuinely
-    worth through it, so no gap is recorded, because nothing is missing. A day
-    the calendar says was **open** is data that is missing something, and the
-    price carried forward is a stale quote.
-
-    Carrying it forward is standard practice and beats refusing: a backtest
-    over five hundred names must not die because one of them had one bad day.
-    Doing it silently is not: the mark is not what that day's market said, so
-    it is published here rather than absorbed, the way `unfilled` publishes the
-    legs a rebalance could not fill.
-
-    Attributes:
-        date: The simulated day whose bar was missing.
-        asset_id: The name with no bar.
-        priced_from: The session the carried price actually came from, always
-            earlier than *date*.
-    """
-    date: pd.Timestamp
-    asset_id: str
-    priced_from: pd.Timestamp
-
-
+# RebalancePricing is BN-183. PriceGap, also BN-183, moved to the index
+# layer with BN-251, when the index started recording gaps too.
 @dataclass(frozen=True)
 class RebalancePricing:
     """What one rebalance priced from.

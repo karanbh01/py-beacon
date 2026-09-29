@@ -57,6 +57,32 @@ def empty_daily_weights() -> pd.DataFrame:
     return daily_weights_frame([])
 
 
+@dataclass(frozen=True)
+class PriceGap:
+    """A day a held name should have traded on and had no bar.
+
+    A day the index's calendar says was **closed** is a market that was shut:
+    the previous session's price is what the holding was genuinely worth
+    through it, so nothing is missing and nothing is recorded. A day the
+    calendar says was **open** with no bar is data that is missing something.
+    The holding is valued at its last close instead, and the day is recorded
+    here, because that mark is not what the day's market said.
+
+    Carrying the price forward beats the alternatives: valuing the holding at
+    zero drops the level by the name's weight for the day, and refusing would
+    stop a run over five hundred names because one had one bad day.
+
+    Attributes:
+        date: The day whose bar was missing.
+        asset_id: The name with no bar.
+        priced_from: The session the carried price came from, always earlier
+            than *date*.
+    """
+    date: pd.Timestamp
+    asset_id: str
+    priced_from: pd.Timestamp
+
+
 @dataclass
 class IndexResult:
     """Container holding the output of an index calculation run.
@@ -92,6 +118,9 @@ class IndexResult:
             calendar covered, or None when it covered all of it (the ordinary
             case). Its presence is the signal that the run's range was
             narrowed to what the calendar covers.
+        price_gaps: Every day a held name had no bar on an open session and
+            was valued at its last close instead, in date order. Empty when
+            the data had a bar for every holding on every day.
 
     The daily panel is *recorded* rather than re-derived because the index's
     daily state is path-dependent. It is not a forward-fill of the rebalance
@@ -127,6 +156,7 @@ class IndexResult:
     # A window the calendar can cover *none* of does not arrive here at all:
     # that refuses in `run()` rather than publishing an empty index.
     calendar_coverage: CalendarCoverage | None = None
+    price_gaps: list[PriceGap] = field(default_factory=list)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False, compare=False)
 
     def capped_assets_on_date(self,

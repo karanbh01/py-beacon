@@ -6,11 +6,13 @@ import pandas as pd
 import pytest
 
 from beacon.asset.equity import Equity
+from beacon.data.base import MarketData, ReferenceData
+from beacon.data.fetcher import DataFetcher
 from beacon.exceptions import CalculationError
 from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
-from beacon.index.result import IndexResult
+from beacon.index.result import IndexResult, PriceGap
 from beacon.index.schedule import sessions
 from conftest import wire_fetch_price
 
@@ -375,3 +377,85 @@ class TestACalendarThatCannotCoverTheRange:
         result = calculator.run(end_date="1998-12-31")
 
         assert result.index_levels.index.min() >= pd.Timestamp("1997-01-06")
+
+
+# ---------------------------------------------------------------------------
+# A missing bar between rebalances (BN-251)
+# ---------------------------------------------------------------------------
+GAP_SESSIONS = sessions(pd.Timestamp(BASE_DATE), pd.Timestamp(END_DATE), CALENDAR)
+# Mid-January: an ordinary day, well clear of the February rebalance.
+GAP_DAY = GAP_SESSIONS[10]
+
+
+def gap_fetcher(bbb_on_gap_day: str) -> DataFetcher:
+    """Two names on real sessions. On the gap day BBB either has no bar
+    ("missing") or a bar equal to the previous close ("repeated")."""
+    rows = []
+
+    for step, day in enumerate(GAP_SESSIONS):
+        rows.append({"IDENTIFIER": "AAA", "DATE": day,
+                     "CLOSE": 100.0 * 1.001 ** step, "SHARES_OUTSTANDING": 1e6})
+
+        bbb = 50.0 * 1.003 ** step
+
+        if day == GAP_DAY:
+            if bbb_on_gap_day == "missing":
+                continue
+            bbb = 50.0 * 1.003 ** (step - 1)
+
+        rows.append({"IDENTIFIER": "BBB", "DATE": day, "CLOSE": bbb,
+                     "SHARES_OUTSTANDING": 1e6})
+
+    reference = pd.DataFrame([
+        {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
+         "CURRENCY": "USD", "EXCHANGE": "XNYS"} for name in ("AAA", "BBB")])
+
+    return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                       ReferenceData.from_dataframe(reference))
+
+
+def gap_run(bbb_on_gap_day: str) -> IndexResult:
+    definition = IndexDefinition(index_id="GAP", index_name="Gap",
+                                 base_date=BASE_DATE, base_value=BASE_VALUE,
+                                 currency="USD", eligibility_rules=[],
+                                 weighting_scheme=EqualWeighted(),
+                                 rebalancing_frequency="MONTHLY",
+                                 calendar=CALENDAR,
+                                 universe_identifiers=["AAA", "BBB"])
+
+    return IndexCalculator(definition,
+                           gap_fetcher(bbb_on_gap_day)).run(end_date=END_DATE)
+
+
+class TestAMissingBarBetweenRebalances:
+    """A held name with no bar on an open session is valued at its last close,
+    as the backtest engine values it, rather than at zero."""
+
+    def test_the_level_is_what_a_repeated_close_would_give(self):
+        """Built independently: the same data with the missing bar filled by
+        the previous close. Every level agrees, so there is no dip on the day
+        and nothing to recover from after it."""
+        missing = gap_run("missing")
+        repeated = gap_run("repeated")
+
+        pd.testing.assert_series_equal(missing.index_levels,
+                                       repeated.index_levels)
+
+    def test_the_gap_is_recorded(self):
+        result = gap_run("missing")
+
+        assert result.price_gaps == [PriceGap(date=GAP_DAY, asset_id="BBB",
+                                              priced_from=GAP_SESSIONS[9])]
+
+    def test_a_full_set_of_bars_records_none(self):
+        assert gap_run("repeated").price_gaps == []
+
+    def test_the_gaps_survive_the_cache(self,
+                                        tmp_path):
+        from beacon.index.cache import IndexResultCache
+
+        result = gap_run("missing")
+        cache = IndexResultCache(tmp_path)
+        cache.put("a" * 64, result)
+
+        assert cache.get("a" * 64).price_gaps == result.price_gaps

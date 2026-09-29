@@ -274,10 +274,9 @@ Differences come from what the index does not model or models differently:
 - **Distributions.** A `TOTAL_RETURN` or `NET_TOTAL_RETURN` index reinvests
   dividends; the engine receives no distributions and earns only the price
   return. It falls behind by about the dividend yield.
-- **Price gaps.** On an open session with no bar the engine carries the name's
-  last price, while the index values that name at zero for the day. The two
-  differ by about the name's weight on that day and agree again once the bar
-  returns.
+- **Price gaps.** On an open session with no bar, both carry the name's last
+  close and record the day in their own `price_gaps`, so a gap does not
+  separate them.
 - **Delistings between rebalances.** The engine settles into cash and holds
   it until the next rebalance.
 - **Currency.** A book kept in a different currency from the index sees
