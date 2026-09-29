@@ -1,4 +1,4 @@
-# 6. Backtest implementation, AUM, and funds as vehicles
+# 6. Backtest implementation, AUM, vehicles and strategies
 
 Date: 2026-09-29
 
@@ -27,13 +27,24 @@ index by about the dividend yield.
 
 A backtest run has three independent parts:
 
-1. **What is held**: an index definition for a plain backtest, or a fund's
-   strategy.
+1. **Strategy**: what is held. An index definition (tracked in full), an
+   index with a replication method, or an active strategy. Always passed to
+   `run()`.
 2. **Implementation**: screens, capacity caps, costs, execution limits. It
    applies to every vehicle, since a plain backtest at 100 billion needs
    capacity limits too.
-3. **Vehicle**: who holds the portfolio and how money moves. None for a plain
-   backtest, or a `Fund`.
+3. **Vehicle**: how the money is held and how it moves. None for a plain
+   backtest, or a `Vehicle` built from a structure preset.
+
+```python
+backtest = Backtest(implementation=..., vehicle=etf, data_provider=data)
+
+backtest.run(my_index, start, end)                     # full physical
+backtest.run(IndexTracking(my_index, replication="optimised"), start, end)
+backtest.run(ActiveStrategy(...), start, end)
+```
+
+`run()` has one form with or without a vehicle.
 
 Keeping them apart is what allows a fair comparison: the same index and the
 same limits, only the vehicle changed (an index fund against an ETF on the
@@ -43,8 +54,8 @@ same flows, say).
 
 Each stage has its own hook, in this order:
 
-1. **Target weights**, from the index (which stays exactly as defined) or the
-   strategy.
+1. **Target weights**, from the strategy (an index stays exactly as
+   defined).
 2. **Screens**: which names may be held. Expression, market cap, liquidity,
    minimum price, listing age, exclusion lists, and the stale-price setting,
    which keeps the one definition index construction uses.
@@ -83,14 +94,27 @@ every fund type. A flat withholding rate first; rates by domicile later.
   participation limit is worked over several days.
 - **Outflows** sell pro rata, drawing on a cash buffer first where one is set.
 
-### Funds
+### Vehicles and funds
 
-A **`Fund`** has an identity (name, currency, share classes, fees), a
-**structure** and a **strategy**, and is passed to a backtest as its vehicle:
-`Backtest(vehicle=fund)`, or `fund.backtest(...)` as a shortcut. A fund carries
-its strategy, so its run takes no index; a plain backtest keeps
-`run(definition, ...)`. `IndexFund` and `ETF` are deprecated over a release as
-shortcuts that build a `Fund`.
+The **vehicle** and the **strategy** are separate. A `Vehicle` is how the money
+is held: a structure preset and its settings (fees, flows, pricing and
+dilution, creations, distributions, cash buffer). It says nothing about what
+is held. That keeps `run()` uniform, matches the app (the strategy chosen in
+one place, the vehicle in another), and allows the comparisons that matter:
+one ETF wrapper tracking two indices, or one index in an OEIC and in an ETF.
+
+A **`Fund`** is what a real fund product is: a name, currency, share classes
+and documents, with one vehicle and one strategy, as a prospectus has. It is a
+record for saved products, factsheets and reports, not what the engine runs:
+
+```python
+fund = Fund(name="Sample UCITS ETF", vehicle=etf,
+            strategy=IndexTracking(my_index))
+fund.backtest(start, end)   # Backtest(vehicle=fund.vehicle).run(fund.strategy, ...)
+```
+
+`IndexFund` and `ETF` are deprecated over a release as shortcuts that build a
+`Fund`.
 
 **Structures are presets, not classes.** What changes a simulation is
 behaviour, and global wrappers fall into six behavioural archetypes:
@@ -112,7 +136,7 @@ UCITS ETF, US mutual fund, US ETF.
 
 ### Strategies
 
-The strategy is the source of a fund's target weights:
+A strategy is the source of the target weights, whatever the vehicle:
 
 - **`IndexTracking(index, replication)`**: full physical, or optimised or
   sampled physical first; synthetic (a substitute basket swapped for the
@@ -126,11 +150,13 @@ The strategy is the source of a fund's target weights:
 
 ### In the app
 
-One Backtest window with a vehicle choice: Backtest, a structure preset, or an
-ETF. Choosing one reveals only that vehicle's settings; implementation settings
-apply to all; the results pane is shared, with the vehicle's own metrics added.
-The engine's backtest request gains optional `implementation`, `vehicle` and
-`strategy` objects, additively, and saved runs record them.
+One Backtest window: the strategy (an index, with its replication, or an
+active strategy) chosen in one place, and a vehicle choice (Backtest, a
+structure preset, or an ETF) in another. Choosing a vehicle reveals only its
+settings; implementation settings apply to all; the results pane is shared,
+with the vehicle's own metrics added. The engine's backtest request gains
+optional `strategy`, `implementation` and `vehicle` objects, additively, and
+saved runs record them.
 
 ## Phases
 
@@ -141,7 +167,7 @@ The engine's backtest request gains optional `implementation`, `vehicle` and
 | 3. Capacity caps | BN-265 (#278) |
 | 4. Market impact and execution limits (with #265) | BN-266 (#279) |
 | 5. AUM: units and flows | BN-267 (#280) |
-| 6. Fund, structure presets, vehicles | BN-268 (#281) |
+| 6. Vehicles and structure presets; Fund as a product record | BN-268 (#281) |
 | 7. Strategies: replication and active | BN-269 (#282) |
 | 8. Synthetic and futures replication; withholding tax by domicile | BN-270, BN-271 (#283, #284) |
 | 9. Engine API, then the app's vehicle picker | BN-272 (#285) |
@@ -157,3 +183,6 @@ The engine's backtest request gains optional `implementation`, `vehicle` and
   are breaking before 1.0 and raise the minor version.
 - Structures as data rather than classes means a new wrapper is a preset, not
   code, and the app can list them from the engine.
+- The engine only ever sees a strategy and a vehicle. A `Fund` bundles one of
+  each with an identity, so a saved product and a what-if run are the same
+  computation.
