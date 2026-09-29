@@ -589,3 +589,17 @@ class TestErrorPaths:
 
         assert _cost_drag({"total_costs": 0.0, "initial_capital": 1_000_000.0}) is None
         assert _cost_drag({"initial_capital": 1_000_000.0}) is None
+
+
+class TestALateAttributionWindow:
+    """BN-258: a capped index's window starting after its first rebalance."""
+
+    def test_the_cap_drag_is_computed(self,
+                                      client):
+        response = client.get(f"/beacon/{CAPPED_ID}/attribution",
+                              params={"start": "2023-06-01",
+                                      "end": "2023-12-31"},
+                              headers=auth())
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["cap_drag"] is not None

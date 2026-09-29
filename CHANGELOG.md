@@ -29,6 +29,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - The engine always keeps the saved results its views read: the latest backtest of each index, every optimisation run and the latest estimate of each risk model. The limit of 50 saved jobs now applies only to the rest, so a run of loads, refreshes or renders no longer makes those views answer 404.
 - An expression with a field the data does not have is refused with `ExpressionError` by `universe.where`, `ExpressionScreen` and an index's `ExpressionRule`, naming the field and suggesting close matches. Before, it selected nothing.
 - `data.market.free_float` and `free_float_market_cap` in an expression carry the free float forward as far as the data's `free_float_backfill_days`, as every other read does, rather than 10 days.
+- Attribution for a capped index no longer fails when its window starts after the index's first rebalance. The cap drag is measured over the same periods as the contributions.
 - Generating or extending synthetic data from an isolated engine (`python -I`, as the Beacon app runs it) keeps the child process isolated too, so it cannot load packages from the user's own site-packages.
 
 ## [0.2.0] - 2026-09-26

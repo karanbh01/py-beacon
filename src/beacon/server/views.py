@@ -126,7 +126,7 @@ def build_attribution(index_id: str,
     result = attribute(period_returns,
                        weights,
                        asset_returns,
-                       cap_drag=_cap_drag(capped, uncapped, prices.loc[window]),
+                       cap_drag=_cap_drag(capped, uncapped, prices, window),
                        cost_drag=_cost_drag(run))
 
     # `start` is resolved — the shift drops the window's first date, so it is
@@ -189,8 +189,9 @@ def _window_of(index: pd.Index,
 
 def _cap_drag(capped: dict[pd.Timestamp, dict[str, float]],
               uncapped: dict[pd.Timestamp, dict[str, float]],
-              prices: pd.DataFrame) -> float | None:
-    """What the cap cost, or None when nothing was capped.
+              prices: pd.DataFrame,
+              window: pd.Index) -> float | None:
+    """What the cap cost over *window*, or None when nothing was capped.
 
     Reporting 0.0 for an uncapped index would be a different claim — that
     capping happened and made no difference — so an index with no cap says
@@ -199,7 +200,7 @@ def _cap_drag(capped: dict[pd.Timestamp, dict[str, float]],
     if capped == uncapped:
         return None
 
-    return cap_drag(capped, uncapped, prices)
+    return cap_drag(capped, uncapped, prices, window)
 
 
 def _cost_drag(run: dict[str, Any]) -> float | None:

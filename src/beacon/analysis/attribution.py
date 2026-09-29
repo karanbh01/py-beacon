@@ -350,7 +350,8 @@ def cost_drag(total_costs: float,
 
 def cap_drag(capped_weights: dict[pd.Timestamp, dict[str, float]],
              uncapped_weights: dict[pd.Timestamp, dict[str, float]],
-             prices: pd.DataFrame) -> float:
+             prices: pd.DataFrame,
+             window: pd.Index | None = None) -> float:
     """What capping cost, or gained, over the window.
 
     The capped index's return minus the return of the same methodology left
@@ -365,27 +366,42 @@ def cap_drag(capped_weights: dict[pd.Timestamp, dict[str, float]],
     Args:
         capped_weights: Rebalance date -> capped weights.
         uncapped_weights: Rebalance date -> weights before capping.
-        prices: Constituent prices over the window.
+        prices: Constituent prices, from the first rebalance on. Weights
+            drift from the rebalance before each date, so the prices have to
+            reach back to it even when *window* starts later.
+        window: The dates to measure over, as for :func:`attribute`: the
+            return of each date after the first. None measures over every
+            date in *prices*.
 
     Returns:
         float: Capped total return minus uncapped total return.
     """
     asset_returns = prices.pct_change()
 
-    capped_return = _path_return(capped_weights, prices, asset_returns)
-    uncapped_return = _path_return(uncapped_weights, prices, asset_returns)
+    capped_return = _path_return(capped_weights, prices, asset_returns, window)
+    uncapped_return = _path_return(uncapped_weights, prices, asset_returns,
+                                   window)
 
     return capped_return - uncapped_return
 
 
 def _path_return(snapshots: dict[pd.Timestamp, dict[str, float]],
                  prices: pd.DataFrame,
-                 asset_returns: pd.DataFrame) -> float:
+                 asset_returns: pd.DataFrame,
+                 window: pd.Index | None = None) -> float:
     """Compounded return of an index following *snapshots*."""
+    # BN-258: drifted over all of *prices*, then cut to the window. Cutting
+    # the prices first left a rebalance before the window with no price to
+    # drift from, and the lookup raised KeyError.
     weights = drifted_weights(snapshots, prices)
+
+    if window is not None:
+        weights = weights.loc[weights.index.intersection(window)]
+
     assets = sorted(set(weights.columns) & set(asset_returns.columns))
 
-    periods = (weights[assets].shift(1) * asset_returns[assets]).sum(axis=1)
+    periods = (weights[assets].shift(1)
+               * asset_returns[assets].reindex(weights.index)).sum(axis=1)
     periods = periods.loc[weights[assets].shift(1).dropna(how="all").index]
 
     return float((1.0 + periods).prod() - 1.0)

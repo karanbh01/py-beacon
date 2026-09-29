@@ -307,6 +307,26 @@ class TestCapDrag:
 
         assert cap_drag(weights, weights, prices) == pytest.approx(0.0, abs=1e-12)
 
+    def test_a_window_after_the_rebalance_drifts_from_it(self):
+        """BN-258: the rebalance is before the window, so its price is too."""
+        prices = price_frame({"AAA": 2.0, "BBB": 0.5})
+        uncapped = {DATES[0]: {"AAA": 0.8, "BBB": 0.2}}
+        capped = {DATES[0]: {"AAA": 0.5, "BBB": 0.5}}
+        late = prices.index[len(prices) // 2:]
+
+        drag = cap_drag(capped, uncapped, prices, late)
+
+        assert drag < 0
+        assert drag != pytest.approx(cap_drag(capped, uncapped, prices))
+
+    def test_the_whole_range_as_a_window_changes_nothing(self):
+        prices = price_frame({"AAA": 2.0, "BBB": 0.5})
+        uncapped = {DATES[0]: {"AAA": 0.8, "BBB": 0.2}}
+        capped = {DATES[0]: {"AAA": 0.5, "BBB": 0.5}}
+
+        assert cap_drag(capped, uncapped, prices, prices.index) == pytest.approx(
+            cap_drag(capped, uncapped, prices), abs=1e-15)
+
 
 class TestEndToEndWithARealIndex:
     """Attribution of an index the calculator actually produced."""
