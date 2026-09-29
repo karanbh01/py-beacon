@@ -119,6 +119,26 @@ class TestNothingChangesWithoutDistributions:
         pd.testing.assert_series_equal(run(fetcher, PRICE),
                                        run(fetcher, TOTAL_RETURN))
 
+    def test_a_cancelled_dividend_changes_nothing(self):
+        """BN-261: a cancelled dividend was never paid, so a total-return
+        index has nothing to reinvest."""
+        fetcher = build_fetcher([
+            {"IDENTIFIER": "AAA", "EX_DATE": DATES[10], "TYPE": "DIVIDEND",
+             "VALUE": 2.0, "STATUS": "cancelled"}])
+
+        pd.testing.assert_series_equal(run(fetcher, PRICE),
+                                       run(fetcher, TOTAL_RETURN))
+
+    def test_a_cancelled_dividend_beside_a_paid_one_leaves_the_paid_one(self):
+        fetcher = build_fetcher([
+            {"IDENTIFIER": "AAA", "EX_DATE": DATES[10], "TYPE": "DIVIDEND",
+             "VALUE": 2.0, "STATUS": "paid"},
+            {"IDENTIFIER": "BBB", "EX_DATE": DATES[10], "TYPE": "DIVIDEND",
+             "VALUE": 1.0, "STATUS": "cancelled"}])
+
+        assert run(fetcher, TOTAL_RETURN).iloc[-1] == pytest.approx(1010.0,
+                                                                     abs=1e-6)
+
     def test_a_structural_action_changes_nothing(self):
         """A spin-off carries no directly aggregable value."""
         fetcher = build_fetcher([

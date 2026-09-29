@@ -60,7 +60,7 @@ import logging
 import pandas as pd
 
 from ...asset.base import Asset
-from ...data.corporate_actions import CASH, kind_of
+from ...data.corporate_actions import CASH, kind_of, without_cancelled
 from ...data.fetcher import DataFetcher
 from ...exceptions import CalculationError
 
@@ -108,13 +108,14 @@ class TotalReturnMixin:
 
         Returns:
             dict: ex-date -> {identifier: cash per share}. Empty when the data
-            source holds no action history.
+            source holds no action history. A cancelled distribution is left
+            out.
         """
         actions = self.data.corporate_actions
         if actions.is_empty:
             return {}
 
-        frame = actions.data.reset_index(drop=True)
+        frame = without_cancelled(actions.data.reset_index(drop=True))
         cash = frame[frame["TYPE"].map(lambda value: kind_of(value) == CASH)]
 
         if cash.empty:

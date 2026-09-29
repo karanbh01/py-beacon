@@ -47,7 +47,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from .corporate_actions import CASH_ACTIONS, RATIO_ACTIONS
+from .corporate_actions import CASH_ACTIONS, RATIO_ACTIONS, without_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ def _factors(closes: pd.Series,
     if actions is None or actions.empty:
         return factors
 
-    for _, action in actions.iterrows():
+    for _, action in without_cancelled(actions).iterrows():
         ex_date = pd.Timestamp(action["EX_DATE"])
         action_type = str(action["TYPE"])
 

@@ -123,6 +123,22 @@ def kind_of(action_type: str) -> Kind:
     return STRUCTURAL
 
 
+def without_cancelled(actions: pd.DataFrame) -> pd.DataFrame:
+    """*actions* less any whose status is cancelled.
+
+    A cancelled action never happened, so nothing that applies actions (a
+    split to units held, a dividend to a total return, either to an adjusted
+    close) or sums them (a trailing dividend) may count it. Rows with no
+    status, or a frame with no status column, are kept.
+    """
+    # BN-261: the ratio schedule already did this; the dividend readers and
+    # the adjusted closes did not.
+    if actions.empty or STATUS_COLUMN not in actions.columns:
+        return actions
+
+    return actions[actions[STATUS_COLUMN].map(status_of) != CANCELLED]
+
+
 def status_of(value: object) -> Status | None:
     """Normalise a stored status, or None if it is not one this vocabulary has.
 
@@ -372,7 +388,7 @@ class CorporateActions:
         end = pd.Timestamp(as_of)
         start = end - TRAILING_YEAR
 
-        subset = self.get(identifier, types=types)
+        subset = without_cancelled(self.get(identifier, types=types))
         if subset.empty:
             return subset
 
@@ -434,10 +450,7 @@ class CorporateActions:
                 multiplier would erase or invert a position.
         """
         frame = self._df
-        ratios = frame[frame["TYPE"].isin(RATIO_ACTIONS)]
-
-        if STATUS_COLUMN in ratios.columns:
-            ratios = ratios[ratios[STATUS_COLUMN].map(status_of) != CANCELLED]
+        ratios = without_cancelled(frame[frame["TYPE"].isin(RATIO_ACTIONS)])
 
         schedule: dict[pd.Timestamp, dict[str, float]] = {}
 

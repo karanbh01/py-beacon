@@ -85,6 +85,22 @@ class TestSplits:
         assert adjusted.tolist() == [100.0, 100.0]
 
 
+class TestCancelledActions:
+    """BN-261: a cancelled action never happened, so nothing is adjusted."""
+
+    def test_a_cancelled_split_leaves_the_closes_alone(self):
+        cancelled = action(3, "SPLIT", 2.0).assign(STATUS="cancelled")
+        raw = closes(100, 100, 100, 100, 100, 100)
+
+        assert adjust_closes(raw, cancelled).tolist() == [100.0] * 6
+
+    def test_a_cancelled_dividend_leaves_the_closes_alone(self):
+        cancelled = action(2, "DIVIDEND", 10.0).assign(STATUS="cancelled")
+        raw = closes(100, 100, 100, 100)
+
+        assert adjust_closes(raw, cancelled).tolist() == [100.0] * 4
+
+
 class TestDividends:
     """What makes this a total-return series rather than a price."""
 

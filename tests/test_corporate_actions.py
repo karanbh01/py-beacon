@@ -142,6 +142,17 @@ class TestTrailingCash:
         assert actions.trailing_dividend("AAA", "2023-12-31") == pytest.approx(
             ORDINARY_2023)
 
+    def test_a_cancelled_dividend_is_not_counted(self):
+        """BN-261: it was never paid."""
+        history = [{**row, "STATUS": "paid"} for row in HISTORY]
+        history.append({"IDENTIFIER": "AAA", "EX_DATE": "2023-11-15",
+                        "TYPE": "DIVIDEND", "VALUE": 5.0,
+                        "STATUS": "cancelled"})
+        actions = CorporateActions.from_dataframe(pd.DataFrame(history))
+
+        assert actions.trailing_dividend("AAA", "2023-12-31") == pytest.approx(
+            ORDINARY_2023)
+
     def test_specials_are_excluded_by_default(self,
                                               actions):
         """A special dividend is by definition not expected to repeat, so it
