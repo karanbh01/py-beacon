@@ -96,3 +96,6 @@ fuzz-server.log
 # `git add -A` swept it into a commit once; an ignore rule is cheaper than
 # remembering.
 us_tickers.csv
+
+# Chart comparison results (pytest --mpl-results-path)
+chart-results/

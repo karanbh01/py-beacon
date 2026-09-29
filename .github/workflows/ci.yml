@@ -83,17 +83,21 @@ jobs:
         run: uv pip install --system -e ".[dev]"
 
       - name: Compare chart images
-        run: pytest tests/test_plot_images.py -q --no-cov --mpl
+        run: >-
+          pytest tests/test_plot_images.py -q --no-cov --mpl
+          --mpl-results-path=chart-results
 
-      # The rendered figures and their diffs, so a failure can be looked at
-      # rather than guessed at from an RMS number.
+      # The baseline, the rendered figure and their diff for each failed
+      # chart, so a failure can be looked at rather than guessed at from an
+      # RMS number. pytest-mpl writes to a random temporary folder unless it
+      # is given one, which is why this uploaded nothing until BN-227.
       - name: Upload the comparison
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: chart-image-diff
-          path: /tmp/pytest-mpl-*
-          if-no-files-found: ignore
+          path: chart-results/
+          if-no-files-found: warn
 
   tokens:
     name: design token drift
