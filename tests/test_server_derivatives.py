@@ -124,14 +124,18 @@ class TestFuturesFairValue:
                                                  expiry="2024-01-01"),
                                headers=auth())
 
-        assert response.status_code == 404
+        # 422 since BN-275: a request that cannot be answered as put.
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
 
     def test_no_tenor_at_all_is_refused(self,
                                         client):
         response = client.post("/derivatives/futures/price",
                                json={"spot": SPOT}, headers=auth())
 
-        assert response.status_code == 404
+        # 422 since BN-275: a request that cannot be answered as put.
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
 
     def test_a_negative_tenor_is_refused(self,
                                          client):
@@ -139,7 +143,9 @@ class TestFuturesFairValue:
                                json=futures_body(time_to_expiry=-1.0),
                                headers=auth())
 
-        assert response.status_code == 404
+        # 422 since BN-275: a request that cannot be answered as put.
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
 
     def test_an_overflowing_price_is_refused_not_a_fault(self,
                                                          client):
@@ -514,7 +520,9 @@ class TestTermStructureAndRoll:
                                       "back_expiry": "2026-03-20"},
                               headers=auth())
 
-        assert response.status_code == 404
+        # 422 since BN-275: a request that cannot be answered as put.
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
 
     def test_it_requires_authentication(self,
                                         client):

@@ -37,7 +37,7 @@ from ..derivatives.pricing import (
 )
 from ..derivatives.swaps import TotalReturnSwap
 from ..derivatives.term_structure import FuturesQuote, TermStructure, sensitivity_grid
-from ..exceptions import DataNotFoundError
+from ..exceptions import DataNotFoundError, InvalidArgumentError
 from .schemas import (
     CarryDecomposition,
     FuturesPriceRequest,
@@ -102,26 +102,29 @@ def _tenor(valuation_date: str | None,
     A caller may state the tenor directly or give two dates. Dates win when
     both are present, because they are the less ambiguous statement — a tenor
     typed by hand can silently disagree with the expiry beside it.
+
+    Raises:
+        InvalidArgumentError: If the expiry is before the valuation date, no
+            tenor can be found, or the tenor is negative.
     """
+    # BN-275: these answered 404 DATA_NOT_FOUND, as though data were missing.
     if valuation_date is not None and expiry is not None:
         days = (pd.Timestamp(expiry) - pd.Timestamp(valuation_date)).days
         if days < 0:
-            raise DataNotFoundError(
-                f"a future expiry: {expiry} precedes {valuation_date}",
-                source="futures pricing")
+            raise InvalidArgumentError(
+                f"The expiry {expiry} is before the valuation date "
+                f"{valuation_date}.")
 
         return float(days) / DAYS_PER_YEAR
 
     if explicit is None:
-        raise DataNotFoundError(
-            "a time to expiry",
-            source="supply `time_to_expiry`, or both `valuation_date` and "
-                   "`expiry`")
+        raise InvalidArgumentError(
+            "A time to expiry is needed: supply `time_to_expiry`, or both "
+            "`valuation_date` and `expiry`.")
 
     if explicit < 0:
-        raise DataNotFoundError(
-            f"a non-negative time to expiry, got {explicit}",
-            source="futures pricing")
+        raise InvalidArgumentError(
+            f"The time to expiry must not be negative, got {explicit}.")
 
     return explicit
 
@@ -435,10 +438,9 @@ def build_roll(index_id: str,
     back_tenor = (pd.Timestamp(back_expiry) - valuation).days / DAYS_PER_YEAR
 
     if back_tenor <= front_tenor:
-        raise DataNotFoundError(
-            f"a back expiry after the front: {back_expiry} does not follow "
-            f"{front_expiry}",
-            source="roll pricing")
+        raise InvalidArgumentError(
+            f"The back expiry {back_expiry} must be after the front expiry "
+            f"{front_expiry}.")
 
     front = cost_of_carry_fair_value(spot, curve.zero_rate(front_tenor),
                                      dividend_yield, front_tenor)

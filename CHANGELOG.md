@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Fixed
+
+- Futures and roll pricing answer 422 `INVALID_ARGUMENT`, not 404 `DATA_NOT_FOUND`, for a negative or missing time to expiry, an expiry before the valuation date, and a back expiry that is not after the front.
+
 ## [0.3.0] - 2026-09-30
 
 Money in one currency across multi-currency indices, prices carried over gaps, expressions that refuse fields the data does not have, and engine state that survives. Two breaking changes: `data.actions` is gone from expressions, and some requests the engine cannot answer as put answer 422 instead of 404.
