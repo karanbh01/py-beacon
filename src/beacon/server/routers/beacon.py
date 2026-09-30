@@ -56,7 +56,6 @@ from ..weights import build_weights
 require("fastapi", "The Beacon API server")
 
 from fastapi import APIRouter, Query, Request, status  # noqa: E402
-from pydantic import StringConstraints  # noqa: E402
 
 BenchmarkQuery = Annotated[
     str | None,
@@ -81,7 +80,9 @@ EndQuery = Annotated[str | None,
 # was a runtime check until BN-250 moved it into the spec with `min_length=2`:
 # the fuzz run reported the runtime refusal as the API rejecting valid input,
 # and both answers are a 422 saying what is wrong.
-IdsQuery = Annotated[list[Annotated[str, StringConstraints(min_length=1)]],
+# Each id carries the identifier pattern too, so an id the store would refuse
+# is refused by the schema the fuzzer reads (BN-250).
+IdsQuery = Annotated[list[Identifier],
                      Query(min_length=2,
                            description="Index ids to compare, two or more.")]
 

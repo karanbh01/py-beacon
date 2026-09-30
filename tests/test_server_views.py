@@ -436,6 +436,17 @@ class TestCompare:
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
+    def test_an_id_the_store_would_refuse_is_refused_by_the_schema(self,
+                                                                    client):
+        """BN-250, found by the nightly fuzz run: the items had no pattern, so
+        `a/b` passed the schema and then the store refused it."""
+        response = client.get("/beacon/compare",
+                              params={"ids": [INDEX_ID, "a/b"]},
+                              headers=auth())
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
     def test_an_unknown_id_is_a_404(self,
                                     client):
         """Naming the unknown id, rather than quietly comparing fewer."""
