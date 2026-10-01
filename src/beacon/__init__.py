@@ -3,7 +3,7 @@
 py-beacon, an end-to-end toolkit for index, ETF, and Delta-1 derivatives
 development.
 """
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 from . import derivatives
 from .derivatives import (

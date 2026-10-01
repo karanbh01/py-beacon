@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-01
+
+One fix: futures and roll pricing refuse bad input as a 422 rather than a 404.
+
 ### Fixed
 
 - Futures and roll pricing answer 422 `INVALID_ARGUMENT`, not 404 `DATA_NOT_FOUND`, for a negative or missing time to expiry, an expiry before the valuation date, and a back expiry that is not after the front.
@@ -132,7 +136,8 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/karanbh01/py-beacon/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/karanbh01/py-beacon/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/karanbh01/py-beacon/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/karanbh01/py-beacon/compare/v0.1.0...v0.1.1
