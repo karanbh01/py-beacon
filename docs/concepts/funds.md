@@ -77,8 +77,7 @@ start date and trading cost of its last run (from the base date at no cost if
 it has not run yet).
 
 The `Backtest` a fund builds uses the defaults for everything the fund does
-not pass: the book is kept in **USD** whatever the index's currency, there
-are no modifiers and no benchmark, and calculations are cached in the default
+not pass: the book is kept in the index's currency, there are no modifiers and no benchmark, and calculations are cached in the default
 location (which only applies when the data comes from a store on disk). To
 change any of these, run a `Backtest` yourself.
 

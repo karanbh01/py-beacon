@@ -150,6 +150,7 @@ def assemble_result(result: BacktestResult,
 
     return BacktestRunResult(
         level=SeriesPayload.from_series(level),
+        currency=result.currency,
         returns=SeriesPayload.from_series(returns),
         drawdown=SeriesPayload.from_series(_drawdown(from_capital).iloc[opening:]),
         annual_returns=annual_returns(from_capital),

@@ -398,6 +398,7 @@ def _snapshots_payload(result: IndexResult) -> dict[str, Any]:
                                            "passes": report.passes,
                                            "uncapped_weights": dict(report.uncapped_weights)}
                         for date, report in result.cap_reports.items()},
+        "currency": result.currency,
         "price_gaps": [{"date": gap.date.isoformat(),
                         "asset_id": gap.asset_id,
                         "priced_from": gap.priced_from.isoformat()}
@@ -432,7 +433,8 @@ def _read_entry(entry: Path) -> IndexResult:
         price_gaps=[PriceGap(date=pd.Timestamp(gap["date"]),
                              asset_id=str(gap["asset_id"]),
                              priced_from=pd.Timestamp(gap["priced_from"]))
-                    for gap in snapshots.get("price_gaps", [])])
+                    for gap in snapshots.get("price_gaps", [])],
+        currency=snapshots.get("currency"))
 
 
 # -- the cache ---------------------------------------------------------------

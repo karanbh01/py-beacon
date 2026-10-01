@@ -218,6 +218,8 @@ class BacktestResult:
             `date` and `priced_from` differ only where the schedule landed on
             a day the market was shut, so the run can state which session its
             trades were struck at rather than leaving it inferable.
+        currency: The book's currency, which the NAV, costs and holdings'
+            values are in.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -229,6 +231,7 @@ class BacktestResult:
     unfilled: list[UnfilledOrder] = field(default_factory=list)
     price_gaps: list[PriceGap] = field(default_factory=list)
     rebalance_pricing: list[RebalancePricing] = field(default_factory=list)
+    currency: str = "USD"
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 

@@ -66,7 +66,10 @@ class BacktestEngine(PricingMixin):
             ``"CLOSE"``.
         currency: The portfolio's currency. Prices quoted in another currency
             are converted into it with the FX rate on or before each day.
-            Defaults to ``"USD"``.
+            None, the default, uses the index's currency, or USD when the
+            index does not record one. Pass another to keep the book in a
+            different currency from the index, such as a dollar investor
+            tracking a euro index.
         transaction_cost_bps: Transaction cost in basis points applied to
             each trade's notional value. Defaults to 0 (no cost).
         modifiers: Optional hooks that can skip rebalances or adjust trades.
@@ -97,7 +100,7 @@ class BacktestEngine(PricingMixin):
                  data_provider: DataFetcher,
                  index_result: IndexResult,
                  price_column: str = "CLOSE",
-                 currency: str = "USD",
+                 currency: str | None = None,
                  transaction_cost_bps: float = 0.0,
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
@@ -115,7 +118,7 @@ class BacktestEngine(PricingMixin):
         self.benchmark: IndexResult | pd.Series | None = benchmark
         self.target_index: IndexResult | None = target_index
         self.price_column: str = price_column
-        self.currency: str = currency.upper()
+        self.currency: str = _book_currency(currency, index_result)
         self.calendar: str | None = calendar
 
         # Listing currency per identifier, resolved lazily and once. Prices
@@ -770,6 +773,7 @@ class BacktestEngine(PricingMixin):
             unfilled=unfilled,
             price_gaps=list(self._price_gaps),
             rebalance_pricing=list(self._rebalance_pricing),
+            currency=self.currency,
         ).with_data(self.data_provider)
 
     def _index_books(self) -> IndexBooks:
@@ -796,3 +800,33 @@ class BacktestEngine(PricingMixin):
             return Book.from_levels(self.benchmark)
 
         return Book.from_index(self.benchmark)
+
+
+def _book_currency(currency: str | None,
+                   index_result: IndexResult) -> str:
+    """The book's currency: the one asked for, else the index's, else USD.
+
+    A book in a different currency from its index is a real case (a dollar
+    investor tracking a euro index) and is allowed, but said, because its
+    tracking figures then include exchange-rate moves the index does not see.
+    """
+    # BN-228: the default was USD whatever the index's currency, so a euro
+    # index's backtest kept its books in dollars and nothing said so.
+    index_currency = (index_result.currency.upper()
+                      if index_result.currency else None)
+
+    if currency is None:
+        if index_currency is None:
+            logger.info("The index does not record its currency; the book is "
+                        "kept in USD.")
+
+        return index_currency or "USD"
+
+    book = currency.upper()
+
+    if index_currency is not None and book != index_currency:
+        logger.info("The book is kept in %s and the index is in %s, so the "
+                    "tracking figures include exchange-rate moves.", book,
+                    index_currency)
+
+    return book

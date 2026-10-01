@@ -121,6 +121,8 @@ class IndexResult:
         price_gaps: Every day a held name had no bar on an open session and
             was valued at its last close instead, in date order. Empty when
             the data had a bar for every holding on every day.
+        currency: The currency the levels are in, the definition's. None for
+            a result built by hand, which says nothing about it.
 
     The daily panel is *recorded* rather than re-derived because the index's
     daily state is path-dependent. It is not a forward-fill of the rebalance
@@ -157,6 +159,8 @@ class IndexResult:
     # that refuses in `run()` rather than publishing an empty index.
     calendar_coverage: CalendarCoverage | None = None
     price_gaps: list[PriceGap] = field(default_factory=list)
+    # BN-228: recorded so a backtest can default to it.
+    currency: str | None = None
     _data_fetcher: DataFetcher | None = field(default=None, repr=False, compare=False)
 
     def capped_assets_on_date(self,

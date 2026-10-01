@@ -3430,6 +3430,11 @@ class BacktestRunResult(BaseModel):
     recomputes any of them lands on these numbers exactly.
     """
     level: SeriesPayload = Field(description="Portfolio value, rebased to 100.")
+    currency: str | None = Field(
+        default=None,
+        description="The book's currency, which `total_costs` and "
+                    "`initial_capital` are in: the index's. Null on a run "
+                    "saved before this was recorded, whose book was in USD.")
     returns: SeriesPayload = Field(description="Period returns of `level`.")
     drawdown: SeriesPayload = Field(
         description="Level against its running peak; 0 at a new high.")

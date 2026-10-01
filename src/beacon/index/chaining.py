@@ -148,7 +148,8 @@ def chain_levels(index_id: str,
                        divisor_history=pd.Series(divisors),
                        constituent_snapshots=constituent_snapshots,
                        weight_snapshots=weight_snapshots,
-                       daily_weights=daily_weights_frame(daily_records))
+                       daily_weights=daily_weights_frame(daily_records),
+                       currency=currency.upper())
 
 
 def _ratio_schedule(data_provider: DataFetcher

@@ -129,7 +129,9 @@ class Backtest:
             each trade's notional value. Defaults to 0 (no cost).
         price_column: Market-data column both the calculator and the engine
             read. Defaults to ``"CLOSE"``.
-        currency: The simulated book's currency. Defaults to ``"USD"``.
+        currency: The simulated book's currency. None, the default, uses the
+            index's currency. Pass another to keep the book in a different
+            currency from the index.
         modifiers: Optional hooks that can skip rebalances or adjust trades.
         benchmark: The benchmark of record, stored on every result this
             object produces.
@@ -147,7 +149,7 @@ class Backtest:
                  initial_capital: float,
                  transaction_cost_bps: float = 0.0,
                  price_column: str = "CLOSE",
-                 currency: str = "USD",
+                 currency: str | None = None,
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
                  data_provider: DataFetcher | None = None,
@@ -155,7 +157,7 @@ class Backtest:
         self.initial_capital: float = initial_capital
         self.transaction_cost_bps: float = transaction_cost_bps
         self.price_column: str = price_column
-        self.currency: str = currency
+        self.currency: str | None = currency
         self.modifiers: list[BacktestModifier] | None = modifiers
         self.benchmark: IndexResult | pd.Series | None = benchmark
         self.data_provider: DataFetcher | None = data_provider

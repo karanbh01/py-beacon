@@ -286,11 +286,13 @@ Differences come from what the index does not model or models differently:
 
 ## The book's currency
 
-The simulated book is kept in `Backtest(currency=...)`, which defaults to
-`"USD"`. It does **not** follow the index definition's `currency`: a GBP index
-run with the default is valued in dollars, so its NAV picks up the GBP/USD
-moves and no longer matches the level. Pass the index's currency to keep the
-two aligned:
+The simulated book is kept in the index's currency: a GBP index's backtest
+values its holdings, cash, costs and NAV in pounds, so its NAV follows the
+level. `result.currency` says which currency a run's book is in.
+
+Pass `Backtest(currency=...)` to keep the book in another currency, as a
+dollar investor tracking a sterling index would. The NAV then picks up the
+GBP/USD moves the index does not see, which shows in the tracking figures:
 
 ```python
 sterling = IndexDefinition(
@@ -301,13 +303,16 @@ sterling = IndexDefinition(
     universe_identifiers=["AAA", "BBB", "FFF"],
 )
 
-in_gbp = Backtest(initial_capital=1000.0, currency="GBP",
+in_gbp = Backtest(initial_capital=1000.0,
                   data_provider=fetcher).run(sterling, end="2024-12-31")
-print("Tracking error in GBP:", in_gbp.get_tracking_error())
+in_usd = Backtest(initial_capital=1000.0, currency="USD",
+                  data_provider=fetcher).run(sterling, end="2024-12-31")
+print(in_gbp.currency, in_usd.currency)   # GBP USD
+print(in_gbp.get_tracking_error() < in_usd.get_tracking_error())   # True
 ```
 
-An `IndexFund` has no currency setting and always keeps its book in USD (see
-[Funds and ETFs](funds.md)).
+An index that does not record its currency, such as one built by hand, gets
+a book in USD. An `IndexFund` follows the same rule.
 
 ## The result cache
 

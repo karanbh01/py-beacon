@@ -133,7 +133,8 @@ class TestConstruction:
         assert bt.initial_capital == CAPITAL
         assert bt.transaction_cost_bps == 0.0
         assert bt.price_column == "CLOSE"
-        assert bt.currency == "USD"
+        # None: the index's currency, resolved when the engine runs (BN-228).
+        assert bt.currency is None
         assert bt.modifiers is None
         assert bt.benchmark is None
         assert bt.data_provider is None

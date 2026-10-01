@@ -659,6 +659,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 constituent_snapshots={},
                 weight_snapshots={},
                 calendar_coverage=coverage if coverage.is_partial else None,
+                currency=self.definition.currency,
             )
 
         # A base date the market was shut on is initialised on the first
@@ -954,6 +955,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             daily_weights=daily_weights_frame(daily_records),
             calendar_coverage=coverage if coverage.is_partial else None,
             price_gaps=self.recorded_gaps(),
+            currency=self.definition.currency,
         ).with_data(self.data)
 
     def require_columns(self) -> None:
