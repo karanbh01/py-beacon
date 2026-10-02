@@ -16,10 +16,14 @@ from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 
 # TradeInstruction lives with the ledger that accepts it (BN-151). Imported
 # here as well so `from beacon.backtest.engine import TradeInstruction` keeps
-# working -- and because the engine is its main producer.
-from ..portfolio.base import Holding, Portfolio, TradeInstruction
+# working, and re-exported explicitly now that the trade generation that used
+# it moved to execution.py (BN-266).
+from ..portfolio.base import Portfolio
+from ..portfolio.base import TradeInstruction as TradeInstruction  # noqa: PLC0414
 from ..portfolio.cash_flows import INTEREST
+from .costs import WorkingOrder
 from .dividends import ACCUMULATE, DIVIDEND_POLICIES, DividendsMixin
+from .execution import ExecutionMixin
 from .implementation import Implementation, RebalanceStep, plan
 from .pricing import PricingMixin
 from .result import (
@@ -50,7 +54,7 @@ logger = logging.getLogger(__name__)
 # BN-167. The calendar has been carried by every definition since BN-180; it
 # decides which days the run steps onto (BN-186) and how a missing bar is read
 # (BN-183).
-class BacktestEngine(PricingMixin, DividendsMixin):
+class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
     """Simulates portfolio execution against a target weight schedule.
 
     The engine consumes target weights from an ``IndexResult`` and simulates
@@ -169,6 +173,7 @@ class BacktestEngine(PricingMixin, DividendsMixin):
         self._gaps_seen: set[tuple[str, pd.Timestamp]] = set()
         self._rebalance_pricing: list[RebalancePricing] = []
         self._rebalance_steps: list[RebalanceStep] = []
+        self._working: list[WorkingOrder] = []
 
         # Filled by `run`. A name past its last listed date has no price
         # because it no longer exists, which is neither a holiday nor a gap.
@@ -397,166 +402,6 @@ class BacktestEngine(PricingMixin, DividendsMixin):
         """Return target weights if *date* is a rebalance date, else None."""
         return self._weight_schedule.get(date)
 
-    def _sell_instruction(self,
-                          asset_id: str,
-                          holding: Holding,
-                          target_weights: dict[str, float],
-                          current_value: float,
-                          cost_rate: float,
-                          date: pd.Timestamp) -> TradeInstruction | None:
-        """Return a SELL instruction for *asset_id* if not in target or overweight.
-
-        Returns None if the asset should not be sold (no price, in-target
-        and not overweight, or below the sell-quantity threshold).
-        """
-        price = self._fetch_price(asset_id, date)
-        if price is None:
-            return None
-
-        target_w = target_weights.get(asset_id, 0.0)
-        if target_w == 0:
-            notional = holding.quantity * price
-            cost = notional * cost_rate
-            return TradeInstruction(asset_id, "SELL", holding.quantity, price, cost)
-
-        target_value = current_value * target_w
-        current_asset_value = holding.quantity * price
-        if current_asset_value <= target_value + 1e-6:
-            return None
-
-        excess_value = current_asset_value - target_value
-        qty_to_sell = excess_value / price
-        if qty_to_sell <= 1e-9:
-            return None
-
-        notional = qty_to_sell * price
-        cost = notional * cost_rate
-        return TradeInstruction(asset_id, "SELL", qty_to_sell, price, cost)
-
-    def _buy_instruction(self,
-                         asset_id: str,
-                         target_w: float,
-                         portfolio: Portfolio,
-                         current_value: float,
-                         cost_rate: float,
-                         date: pd.Timestamp) -> TradeInstruction | None:
-        """Return a BUY instruction for *asset_id* if new or underweight.
-
-        Returns None if the asset should not be bought (non-positive target
-        weight, no price, or below the buy-deficit threshold).
-        """
-        if target_w <= 0:
-            return None
-
-        price = self._fetch_price(asset_id, date)
-        if price is None or price <= 0:
-            return None
-
-        target_value = current_value * target_w
-        current_holding_value = 0.0
-        if asset_id in portfolio.holdings:
-            current_holding_value = portfolio.holdings[asset_id].quantity * price
-
-        deficit = target_value - current_holding_value
-        if deficit <= 1e-6:
-            return None
-
-        qty_to_buy = deficit / price
-        notional = qty_to_buy * price
-        cost = notional * cost_rate
-        return TradeInstruction(asset_id, "BUY", qty_to_buy, price, cost)
-
-    def _generate_trades(self,
-                         portfolio: Portfolio,
-                         target_weights: dict[str, float],
-                         date: pd.Timestamp) -> list[TradeInstruction]:
-        """Calculate trades needed to move *portfolio* to *target_weights*.
-
-        Returns a list of :class:`TradeInstruction` objects ordered with
-        sells first, then buys. Transaction costs are calculated from
-        :attr:`transaction_cost_bps`.
-
-        Args:
-            portfolio: The current portfolio state.
-            target_weights: Mapping of asset_id to target weight (0 ≤ w ≤ 1).
-            date: The trade date (used for price look-ups).
-
-        Returns:
-            list of TradeInstruction: Sells followed by buys.
-        """
-        current_value = portfolio.get_total_value()
-        if current_value <= 0:
-            return []
-
-        cost_rate = self.transaction_cost_bps / 10_000.0
-        sells: list[TradeInstruction] = []
-        buys: list[TradeInstruction] = []
-
-        # --- Sells: assets not in target, or overweight ---
-        for asset_id, holding in portfolio.holdings.items():
-            instruction = self._sell_instruction(asset_id, holding, target_weights,
-                                                 current_value, cost_rate, date)
-            if instruction is not None:
-                sells.append(instruction)
-
-        # --- Buys: new or underweight ---
-        for asset_id, target_w in target_weights.items():
-            instruction = self._buy_instruction(asset_id, target_w, portfolio,
-                                                current_value, cost_rate, date)
-            if instruction is not None:
-                buys.append(instruction)
-
-        return sells + buys
-
-    def _rebalance(self,
-                   portfolio: Portfolio,
-                   target_weights: dict[str, float],
-                   date: pd.Timestamp) -> list[UnfilledOrder]:
-        """Adjust *portfolio* to match *target_weights* using :meth:`_generate_trades`.
-
-        Modifiers may veto the rebalance or adjust the trade list.
-
-        Returns:
-            list of UnfilledOrder: Buys that could not be filled in full.
-            Empty when every leg executed.
-        """
-        current_value = portfolio.get_total_value()
-        if current_value <= 0:
-            logger.warning(f"[{date}] Portfolio value is {current_value:.2f}. Skipping rebalance.")
-            return []
-
-        # Check modifiers for skip
-        for modifier in self.modifiers:
-            if modifier.should_skip_rebalance(date, portfolio, target_weights):
-                logger.info(f"[{date}] Rebalance skipped by {modifier.__class__.__name__}.")
-                return []
-
-        logger.info(f"[{date}] Rebalancing to target weights: {target_weights}")
-
-        # Recorded before the trades, and only for a rebalance that goes ahead:
-        # a skipped one priced nothing, and a row saying otherwise would be a
-        # session named for trades that never happened (BN-183).
-        self._record_rebalance_pricing(date)
-
-        trades = self._generate_trades(portfolio, target_weights, date)
-
-        # Let modifiers adjust the trade list
-        for modifier in self.modifiers:
-            trades = modifier.adjust_trades(trades, date, portfolio)
-
-        unfilled: list[UnfilledOrder] = []
-
-        for trade in trades:
-            if trade.side == "SELL":
-                portfolio.apply(trade, date)
-                logger.debug(f"[{date}] Sold {trade.quantity:.4f} of {trade.asset_id}")
-            elif trade.side == "BUY":
-                shortfall = self._execute_buy(portfolio, trade, date)
-                if shortfall is not None:
-                    unfilled.append(shortfall)
-
-        return unfilled
-
     def _record_rebalance_pricing(self,
                                   date: pd.Timestamp) -> None:
         """Note the session this rebalance's prices are read from (BN-183).
@@ -576,78 +421,6 @@ class BacktestEngine(PricingMixin, DividendsMixin):
         if session is not None and session != date:
             logger.info("[%s] The market was shut; the rebalance prices from "
                         "the %s session.", date.date(), session.date())
-
-    def _execute_buy(self,
-                     portfolio: Portfolio,
-                     trade: TradeInstruction,
-                     date: pd.Timestamp) -> UnfilledOrder | None:
-        """Buy as much of *trade* as the available cash supports.
-
-        A rebalance sells before it buys, so the final buy is *expected* to
-        consume almost exactly the proceeds. Comparing cash against the
-        required amount exactly therefore fails routinely on sub-cent floating
-        point noise, and dropping the whole order when cash falls a little
-        short distorts the simulation far more than a slightly smaller
-        position would: the freed weight silently accrues to whatever else is
-        held.
-
-        Args:
-            portfolio: Portfolio to buy into. Mutated.
-            trade: The requested buy.
-            date: Trade date.
-
-        Returns:
-            UnfilledOrder or None: A record when the order could not be filled
-            in full, otherwise None.
-        """
-        required = trade.quantity * trade.price + trade.cost
-
-        # Affordable, allowing for accumulated float error on the cash balance.
-        if portfolio.cash_balance >= required * (1 - CASH_TOLERANCE):
-            portfolio.apply(trade, date)
-            logger.debug(f"[{date}] Bought {trade.quantity:.4f} of {trade.asset_id}")
-            return None
-
-        # Size down instead of abandoning the leg. Cash has to cover the
-        # notional *and* the cost charged on it, so the affordable quantity
-        # solves cash = q * price * (1 + cost_rate).
-        cost_rate = self.transaction_cost_bps / 10_000.0
-        affordable = min(portfolio.cash_balance / (trade.price * (1 + cost_rate)),
-                         trade.quantity)
-
-        if affordable * trade.price < MIN_TRADE_VALUE:
-            logger.warning(
-                f"[{date}] Cannot buy {trade.asset_id}: need "
-                f"{required:.2f}, have {portfolio.cash_balance:.2f}, and the "
-                f"affordable quantity is below the minimum trade value.")
-            return UnfilledOrder(date=date,
-                                 asset_id=trade.asset_id,
-                                 requested_quantity=trade.quantity,
-                                 filled_quantity=0.0,
-                                 price=trade.price,
-                                 shortfall_value=trade.quantity * trade.price)
-
-        available = portfolio.cash_balance
-        reduced_cost = affordable * trade.price * cost_rate
-
-        # The sized-down leg is a new decision, so it is a new instruction:
-        # the engine decides, the portfolio accounts for what it is handed.
-        portfolio.apply(TradeInstruction(asset_id=trade.asset_id,
-                                         side="BUY",
-                                         quantity=affordable,
-                                         price=trade.price,
-                                         cost=reduced_cost), date)
-        logger.warning(
-            f"[{date}] Partially filled {trade.asset_id}: bought "
-            f"{affordable:.4f} of {trade.quantity:.4f} requested "
-            f"(needed {required:.2f}, had {available:.2f}).")
-
-        return UnfilledOrder(date=date,
-                             asset_id=trade.asset_id,
-                             requested_quantity=trade.quantity,
-                             filled_quantity=affordable,
-                             price=trade.price,
-                             shortfall_value=(trade.quantity - affordable) * trade.price)
 
     # ------------------------------------------------------------------
     # Public API
@@ -685,6 +458,7 @@ class BacktestEngine(PricingMixin, DividendsMixin):
         self._gaps_seen.clear()
         self._rebalance_pricing.clear()
         self._rebalance_steps.clear()
+        self._working = []
 
         for screen in self.implementation.screens:
             screen.prepare(self.data_provider)
@@ -782,6 +556,10 @@ class BacktestEngine(PricingMixin, DividendsMixin):
                 unfilled.extend(self._rebalance(portfolio, target_w, date))
                 # Re-price after rebalance
                 self._update_portfolio_prices(portfolio, date)
+            elif self._working:
+                # 2b. Orders an execution limit left working (BN-266).
+                self._work_orders(portfolio, date)
+                self._update_portfolio_prices(portfolio, date)
 
             # 3. End-of-day state is already in the books: the dated mark
             # in step 1 (and the re-mark after a rebalance) wrote the day's
@@ -797,6 +575,7 @@ class BacktestEngine(PricingMixin, DividendsMixin):
                 )
 
         logger.info(f"Backtest finished. Final NAV: {portfolio.get_total_value():.2f}")
+        unfilled.extend(self._abandon_working())
 
         # The run is over, so its books are closed: the portfolio is now the
         # record of this backtest, and a later write would restate it.

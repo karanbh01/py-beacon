@@ -194,7 +194,7 @@ class MinimumPriceScreen(ThresholdScreen):
               date: pd.Timestamp,
               context: ScreenContext) -> float | None:
         start = date - pd.Timedelta(days=PRICE_LOOKBACK_DAYS)
-        prices = _converted_closes(asset_id, start, date, context)
+        prices = converted_closes(asset_id, start, date, context)
 
         return None if prices.empty else float(prices.iloc[-1])
 
@@ -371,13 +371,13 @@ def average_traded(asset_id: str,
     if not by_value:
         return float(volume.mean())
 
-    closes = _converted_closes(asset_id, start, date, context)
+    closes = converted_closes(asset_id, start, date, context)
     traded = (closes.reindex(volume.index) * volume).dropna()
 
     return None if traded.empty else float(traded.mean())
 
 
-def _converted_closes(asset_id: str,
+def converted_closes(asset_id: str,
                       start: pd.Timestamp,
                       end: pd.Timestamp,
                       context: ScreenContext) -> pd.Series:

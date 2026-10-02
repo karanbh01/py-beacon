@@ -100,19 +100,25 @@ trades, lets each modifier adjust them, and executes sells before buys.
 - **Buys**: a target name below its target value is topped up.
 
 Target values are the portfolio's value before the rebalance times each
-target weight. Each trade costs `notional * transaction_cost_bps / 10_000`.
+target weight. Each trade costs `notional * transaction_cost_bps / 10_000`,
+plus market impact when the implementation sets one (see
+[Costs and execution](#costs-and-execution)).
 
-A buy the cash cannot cover is **partially filled**: the engine buys what the
-cash affords, cost included, and records the rest as an `UnfilledOrder` in
-`result.unfilled`. If what the cash affords is worth less than 0.01, nothing
-is bought and the order is recorded with a filled quantity of zero. Because
-buys are sized before costs are paid, the last buy of a rebalance with
-non-zero costs usually comes up short by about that rebalance's costs, so
-`unfilled` is routinely non-empty when costs are on; the shortfall stays in
-cash.
+Buys are sized so that they and their costs fit the cash the sells leave:
+when they would need more, they are scaled down together. A rebalance
+therefore fills in full and leaves the book fully invested, short of its
+target weights only by the costs.
 
-A target name that cannot be priced at all (one already delisted, say) is
-not bought, and is not recorded in `unfilled`.
+A buy the cash still cannot cover (a modifier enlarged it, say) is
+**partially filled**: the engine buys what the cash affords, cost included,
+and records the rest as an `UnfilledOrder` in `result.unfilled` with the
+reason `"cash"`. If what the cash affords is worth less than 0.01, nothing is
+bought and the order is recorded with a filled quantity of zero.
+
+A target name that cannot be priced on the day (one already delisted, say)
+is not bought. It is recorded in `unfilled` with the reason `"no price"`, a
+requested quantity of zero and, as its shortfall, the value the rebalance
+aimed to hold; its weight stays in cash.
 
 ### Which days are traded
 
@@ -279,6 +285,43 @@ large = Backtest(
 print(large.rebalance_steps[0].capped)
 ```
 
+### Costs and execution
+
+`MarketImpact(coefficient=1.0, lookback_days=63)` charges every trade for
+its size, on top of the fixed basis points, by the square-root law:
+
+```text
+impact = coefficient x daily volatility x sqrt(trade value / average daily traded value)
+```
+
+as a fraction of the trade's value, with the volatility and the traded value
+measured over the `lookback_days` before the trade, in the book's currency.
+A name with no history or no volume pays no impact. Without impact a
+backtest's return does not depend on its size; with it, the same weights
+cost a large fund more, in proportion to the square root of its size.
+
+`ExecutionLimit(participation=None, days=None)` caps how much of an order
+trades in one day: at most `participation` of the day's volume, or the
+order spread evenly over `days` trading days, or the smaller of the two.
+What cannot trade on the rebalance day is a working order, traded on the
+following sessions under the same limit, sells before buys and buys no
+further than the cash. A new rebalance replaces any order still working,
+and a replaced order, or one still working when the run ends, is recorded
+in `unfilled` with the reason `"execution limit"`. A day with no volume
+does not limit participation.
+
+```python
+from beacon.backtest import ExecutionLimit, MarketImpact
+
+realistic = Backtest(
+    initial_capital=5_000_000_000.0, data_provider=fetcher,
+    transaction_cost_bps=2.0,
+    implementation=Implementation(
+        impact=MarketImpact(coefficient=0.8),
+        execution=ExecutionLimit(participation=0.1, days=5)),
+).run(definition, start="2023-01-03", end="2024-12-31")
+```
+
 ## Modifiers
 
 A `BacktestModifier` changes rebalance behaviour after the trades are
@@ -325,7 +368,7 @@ fields. Each comparator is a `Book` with the same surface: `levels`,
 | `result.index.optimised` | The optimised index's own calculation, on an optimised run; otherwise `None` |
 | `result.index.tracked` | The book the engine traded toward: `optimised` if present, else `target` |
 | `result.benchmark` | The benchmark of record, when `benchmark=` was given (an `IndexResult` or a level series) |
-| `result.unfilled` | Buys not filled in full |
+| `result.unfilled` | Orders not filled in full, each with its `reason`: `"cash"`, `"no price"` or `"execution limit"` |
 | `result.price_gaps` | Days a name was marked at a carried price on an open session |
 | `result.rebalance_pricing` | The session each rebalance priced from |
 
@@ -333,7 +376,7 @@ fields. Each comparator is a `Book` with the same surface: `levels`,
 print(result.trading_nav.tail(3))
 print(result.index.target.levels.tail(3))
 print(len(result.portfolio.transactions), "transactions,",
-      len(result.unfilled), "partial fills,",
+      len(result.unfilled), "unfilled orders,",
       len(result.price_gaps), "price gaps")
 ```
 
@@ -375,8 +418,9 @@ print("Largest daily gap:", float((nav / level - 1).abs().max()))
 Differences come from what the index does not model or models differently:
 
 - **Costs.** The index trades for free.
-- **Partial fills.** With costs on, the last buy of a rebalance is usually
-  short and the difference sits in cash.
+- **Execution.** Costs leave the book a little under its target weights,
+  an execution limit trades into them over several days, and a name with no
+  price leaves its weight in cash.
 - **Distributions.** A `TOTAL_RETURN` or `NET_TOTAL_RETURN` index reinvests
   a dividend on its ex-date. The book is paid it on the pay date and, by
   default, invests it at the next rebalance, so it holds the cash in between

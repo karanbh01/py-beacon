@@ -8,6 +8,7 @@ otherwise become an API contract by accident. Everything crossing the wire is
 declared here, so OpenAPI describes it and a library refactor cannot silently
 reshape a response.
 """
+import math
 from datetime import UTC, datetime
 from typing import Annotated, Any, Generic, Literal, TypeVar
 
@@ -666,7 +667,7 @@ class IndexBooksPayload(BaseModel):
 
 
 class UnfilledOrderPayload(BaseModel):
-    """A buy the simulation could not execute in full."""
+    """An order the simulation could not execute in full."""
     date: str = Field(
         description="The rebalance date on which the buy fell short, "
                     "YYYY-MM-DD. A simulated trading day out of the backtest, "
@@ -676,8 +677,20 @@ class UnfilledOrderPayload(BaseModel):
     asset_id: str
     requested_quantity: float
     filled_quantity: float
-    price: float
-    shortfall_value: float
+    price: float | None = Field(
+        description="The execution price used. Null when there was none: "
+                    "a name that could not be priced, or an order an "
+                    "execution limit left unfinished.")
+    shortfall_value: float | None = Field(
+        description="The value that went unfilled. For a name that could not "
+                    "be priced, the value the rebalance aimed to hold. Null "
+                    "for an order an execution limit left unfinished.")
+    reason: str = Field(
+        default="cash",
+        description="Why: 'cash' (not enough to buy it all), 'no price' (the "
+                    "name could not be priced on the day) or 'execution "
+                    "limit' (still working when the next rebalance replaced "
+                    "it or the run ended).")
 
 
 class PriceGapPayload(BaseModel):
@@ -789,13 +802,19 @@ class BacktestResultSummary(BaseModel):
                        asset_id=order.asset_id,
                        requested_quantity=order.requested_quantity,
                        filled_quantity=order.filled_quantity,
-                       price=order.price,
-                       shortfall_value=order.shortfall_value)
+                       price=_finite(order.price),
+                       shortfall_value=_finite(order.shortfall_value),
+                       reason=order.reason)
                        for order in result.unfilled],
                    price_gaps=price_gap_payloads(result),
                    rebalance_pricing=rebalance_pricing_payloads(result),
                    metrics=metrics,
                    run_at=datetime.now(UTC).isoformat())
+
+
+def _finite(value: float) -> float | None:
+    """*value*, or None for NaN, which JSON cannot carry."""
+    return None if math.isnan(value) else value
 
 
 def price_gap_payloads(result: BacktestResult) -> list[PriceGapPayload]:

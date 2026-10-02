@@ -10,6 +10,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Added
 
+- Market impact and execution limits in a backtest's `Implementation`. `MarketImpact` charges each trade for its size against the name's traded value, by the square-root law, so the same weights cost a large fund more. `ExecutionLimit` caps how much of an order trades in a day, by participation in the day's volume or spread over a number of days; the rest is worked on the following sessions.
+- `UnfilledOrder.reason`: why an order went unfilled, `"cash"`, `"no price"` or `"execution limit"`. The server's unfilled orders carry it too.
 - Capacity caps in a backtest's `Implementation`: `OwnershipCap` (a share of free-float market cap), `LiquidityCap` (days of traded value at a participation rate) and `WeightCap` limit each position at the book's size, with the excess spread across the names still under their caps or held as cash. `MinimumPosition` drops positions too small to keep. Each rebalance's `RebalanceStep` records what was capped.
 - Dividends in the backtest. A holding is paid each cash distribution on the pay date, for the shares held at the start of the ex-date, converted into the book's currency and net of `withholding_tax_rate` (a new modelling assumption). `Backtest(dividends=...)` accumulates the cash until the next rebalance (the default), reinvests it the same day, or distributes it, with returns adding distributions back. Each payment is recorded in `portfolio.cash_flows`.
 - `Implementation`: how a backtest carries out its index at its size, without changing the index. Its screens decide which names may be held at each rebalance (`MarketCapScreen`, `LiquidityScreen`, `MinimumPriceScreen`, `ListingAgeScreen`, `ExclusionScreen`, `ExpressionScreen`), with optional exit levels (buffers) so names near a threshold do not flip in and out. Removed weight is spread pro rata across the remaining names or held as cash. Pass it as `Backtest(implementation=...)`.
@@ -20,6 +22,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Changed
 
+- A rebalance sizes its buys so that they and their costs fit the cash, so it fills in full. Buys were sized before costs, so the last buy of almost every rebalance with costs came up short and was recorded in `unfilled`.
+- A target name with no price on a rebalance day is recorded in `unfilled` with the reason `"no price"`. It was skipped without a record. In the server's unfilled orders, `price` and `shortfall_value` can now be null.
 - A backtest over data with cash distributions now receives them, so its NAV and every figure from it rise by about the dividend yield. It earned the price return only, and trailed a total-return index by about that much.
 - `ExpressionScreen` is a screen, passed in `Implementation(screens=[...])`, and no longer takes a `fetcher`. It was a trade modifier that cancelled buys of a failing name, left its weight in cash and only trimmed a failing holding. A failing name is now removed from the target, sold in full and its weight redistributed. It moved from `beacon.backtest.rules` to `beacon.backtest`, and a screen passed in `modifiers` is refused with a message saying where it goes.
 - A backtest keeps its book in the index's currency unless `currency` is passed. It defaulted to USD whatever the index's currency, so a euro or sterling index was valued in dollars and its NAV picked up exchange-rate moves the index does not have. This includes backtests run from the engine and by an `IndexFund`.

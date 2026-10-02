@@ -55,10 +55,15 @@ from ..portfolio.cash_flows import DISTRIBUTION
 from .asset_view import BacktestAssetView
 from .implementation import RebalanceStep
 
+# Why an order went unfilled (BN-252, BN-266).
+CASH_SHORT = "cash"
+NO_PRICE = "no price"
+EXECUTION_LIMIT = "execution limit"
+
 
 @dataclass(frozen=True)
 class UnfilledOrder:
-    """A buy the simulation could not execute in full.
+    """An order the simulation could not execute in full.
 
     Recorded on the result rather than only logged: a partially filled
     rebalance leaves the portfolio off its target weights, and a caller
@@ -67,11 +72,18 @@ class UnfilledOrder:
 
     Attributes:
         date: The rebalance date.
-        asset_id: Asset that could not be fully bought.
-        requested_quantity: Quantity the rebalance asked for.
-        filled_quantity: Quantity actually bought; 0.0 when nothing was.
-        price: Execution price used.
-        shortfall_value: Notional value that went unfilled, at *price*.
+        asset_id: Asset that could not be fully traded.
+        requested_quantity: Quantity the rebalance asked for; 0.0 when the
+            name could not be priced to size an order.
+        filled_quantity: Quantity actually traded; 0.0 when nothing was.
+        price: Execution price used; NaN when there was none.
+        shortfall_value: Notional value that went unfilled; for a name with
+            no price, the value the rebalance aimed to hold. NaN for an order
+            an execution limit left unfinished.
+        reason: Why: ``"cash"`` (not enough to buy it all), ``"no price"``
+            (the name could not be priced on the day) or
+            ``"execution limit"`` (still working when the next rebalance
+            replaced it or the run ended).
     """
     date: pd.Timestamp
     asset_id: str
@@ -79,6 +91,7 @@ class UnfilledOrder:
     filled_quantity: float
     price: float
     shortfall_value: float
+    reason: str = CASH_SHORT
 
 
 # RebalancePricing is BN-183. PriceGap, also BN-183, moved to the index

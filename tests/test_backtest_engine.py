@@ -318,7 +318,7 @@ class TestGenerateTrades:
         prices = {"A": {DATES[0].strftime("%Y-%m-%d"): 100.0}}
         engine = self._make_engine(prices)
         portfolio = Portfolio("p", initial_cash=10000.0)
-        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        trades, _ = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
         assert len(trades) == 1
         assert trades[0].side == "BUY"
         assert trades[0].asset_id == "A"
@@ -334,7 +334,7 @@ class TestGenerateTrades:
         # Re-create with cash
         portfolio = Portfolio("p", initial_cash=5000.0)
         portfolio.execute_buy("A", 50, 100.0)
-        trades = engine._generate_trades(portfolio, {}, DATES[0])
+        trades, _ = engine._generate_trades(portfolio, {}, DATES[0])
         assert len(trades) == 1
         assert trades[0].side == "SELL"
         assert trades[0].quantity == pytest.approx(50.0)
@@ -347,7 +347,7 @@ class TestGenerateTrades:
         portfolio = Portfolio("p", initial_cash=10000.0)
         portfolio.execute_buy("A", 100, 100.0)
         # Rotate from A to B
-        trades = engine._generate_trades(portfolio, {"B": 1.0}, DATES[0])
+        trades, _ = engine._generate_trades(portfolio, {"B": 1.0}, DATES[0])
         sell_indices = [i for i, t in enumerate(trades) if t.side == "SELL"]
         buy_indices = [i for i, t in enumerate(trades) if t.side == "BUY"]
         assert len(sell_indices) > 0
@@ -362,7 +362,7 @@ class TestGenerateTrades:
         portfolio = Portfolio("p", initial_cash=10000.0)
         portfolio.execute_buy("A", 100, 100.0)
         # A is 100% of portfolio, target 50%
-        trades = engine._generate_trades(portfolio, {"A": 0.5}, DATES[0])
+        trades, _ = engine._generate_trades(portfolio, {"A": 0.5}, DATES[0])
         sells = [t for t in trades if t.side == "SELL"]
         assert len(sells) == 1
         assert sells[0].quantity == pytest.approx(50.0)
@@ -375,7 +375,7 @@ class TestGenerateTrades:
         portfolio = Portfolio("p", initial_cash=10000.0)
         portfolio.execute_buy("A", 50, 100.0)
         # A is 50% (5000/10000), target 100%
-        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        trades, _ = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
         buys = [t for t in trades if t.side == "BUY"]
         assert len(buys) == 1
         assert buys[0].quantity == pytest.approx(50.0)
@@ -388,7 +388,7 @@ class TestGenerateTrades:
         portfolio = Portfolio("p", initial_cash=10000.0)
         portfolio.execute_buy("A", 100, 100.0)
         # A is 100% of portfolio, target 100%
-        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        trades, _ = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
         assert len(trades) == 0
 
     def test_empty_portfolio_zero_value(self):
@@ -397,15 +397,19 @@ class TestGenerateTrades:
         prices = {"A": {d: 100.0}}
         engine = self._make_engine(prices)
         portfolio = Portfolio("p", initial_cash=0.0)
-        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        trades, _ = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
         assert len(trades) == 0
 
     def test_missing_price_skips_asset(self):
         """No price available -> asset skipped."""
         engine = self._make_engine({})  # no prices at all
         portfolio = Portfolio("p", initial_cash=10000.0)
-        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        trades, unpriced = engine._generate_trades(portfolio, {"A": 1.0},
+                                                   DATES[0])
         assert len(trades) == 0
+        # BN-252: recorded rather than skipped in silence.
+        assert [(order.asset_id, order.reason) for order in unpriced] == [
+            ("A", "no price")]
 
     def test_transaction_cost_bps_on_buy(self):
         """Transaction costs calculated correctly for buys."""
@@ -413,11 +417,15 @@ class TestGenerateTrades:
         prices = {"A": {d: 100.0}}
         engine = self._make_engine(prices, cost_bps=10.0)  # 10 bps = 0.1%
         portfolio = Portfolio("p", initial_cash=10000.0)
-        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        trades, _ = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
         assert len(trades) == 1
         assert trades[0].side == "BUY"
-        # notional = 100 * 100 = 10000, cost = 10000 * 10/10000 = 10.0
-        assert trades[0].cost == pytest.approx(10.0)
+        # Sized net of its cost (BN-252): notional + 0.1% of it is the cash,
+        # so the notional is 10000 / 1.001 and the cost 0.1% of that.
+        notional = trades[0].quantity * trades[0].price
+        assert notional == pytest.approx(10000.0 / 1.001)
+        assert trades[0].cost == pytest.approx(notional * 0.001)
+        assert notional + trades[0].cost == pytest.approx(10000.0)
 
     def test_transaction_cost_bps_on_sell(self):
         """Transaction costs calculated correctly for sells."""
@@ -426,7 +434,7 @@ class TestGenerateTrades:
         engine = self._make_engine(prices, cost_bps=20.0)  # 20 bps = 0.2%
         portfolio = Portfolio("p", initial_cash=10000.0)
         portfolio.execute_buy("A", 100, 100.0)
-        trades = engine._generate_trades(portfolio, {}, DATES[0])
+        trades, _ = engine._generate_trades(portfolio, {}, DATES[0])
         assert len(trades) == 1
         assert trades[0].side == "SELL"
         # notional = 100 * 100 = 10000, cost = 10000 * 20/10000 = 20.0
@@ -456,7 +464,7 @@ class TestGenerateTrades:
         prices = {"A": {d: 100.0}}
         engine = self._make_engine(prices)
         portfolio = Portfolio("p", initial_cash=10000.0)
-        trades = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
+        trades, _ = engine._generate_trades(portfolio, {"A": 1.0}, DATES[0])
         assert all(isinstance(t, TradeInstruction) for t in trades)
 
 

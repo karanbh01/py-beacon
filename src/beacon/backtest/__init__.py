@@ -30,6 +30,7 @@ from .capacity import (
     OwnershipCap,
     WeightCap,
 )
+from .costs import ExecutionLimit, MarketImpact
 from .engine import BacktestEngine
 from .implementation import Implementation, RebalanceStep
 from .main import Backtest
@@ -56,12 +57,14 @@ __all__ = [
     "CapacityCap",
     "DriftThresholdModifier",
     "ExclusionScreen",
+    "ExecutionLimit",
     "ExpressionScreen",
     "Implementation",
     "LiquidityCap",
     "LiquidityScreen",
     "ListingAgeScreen",
     "MarketCapScreen",
+    "MarketImpact",
     "MinimumPosition",
     "MinimumPriceScreen",
     "OwnershipCap",

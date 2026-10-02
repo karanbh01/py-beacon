@@ -26,7 +26,11 @@ large one, and the difference is the cost of size. See
    spread across the names under their caps until none is over (or held as
    cash), and positions too small to keep are dropped and their weight
    redistributed. See `beacon.backtest.capacity`.
-5. **Trades**, generated from the result, then any modifiers.
+5. **Trades**, generated from the result and sized so they and their costs
+   fit the cash, then any modifiers.
+6. **Execution**: every trade at once, or as much as an execution limit
+   allows each day, with market impact on top of the fixed cost. See
+   `beacon.backtest.execution`.
 
 Each rebalance's stages are recorded on the result as a `RebalanceStep`.
 """
@@ -38,6 +42,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from .capacity import CapacityCap, MinimumPosition
+from .costs import ExecutionLimit, MarketImpact
 from .screens import Screen, ScreenContext
 
 PRO_RATA = "pro_rata"
@@ -61,6 +66,10 @@ class Implementation:
         screens: Applied in order at each rebalance; a name must pass all.
         caps: Capacity caps; a name is held at no more than the smallest.
         minimum_position: Positions too small to keep, or None to keep all.
+        impact: Market impact charged on every trade, beside the fixed cost,
+            or None for none.
+        execution: How much of an order can trade in a day, or None to
+            trade every order in full on the rebalance day.
         redistribution: Where removed or capped weight goes: ``"pro_rata"``
             (the default) across the remaining names, or ``"cash"``.
 
@@ -72,6 +81,8 @@ class Implementation:
                  screens: Iterable[Screen] = (),
                  caps: Iterable[CapacityCap] = (),
                  minimum_position: MinimumPosition | None = None,
+                 impact: MarketImpact | None = None,
+                 execution: ExecutionLimit | None = None,
                  redistribution: str = PRO_RATA):
         if redistribution not in REDISTRIBUTIONS:
             raise ValueError(f"Unknown redistribution {redistribution!r}. "
@@ -80,6 +91,8 @@ class Implementation:
         self.screens: tuple[Screen, ...] = tuple(screens)
         self.caps: tuple[CapacityCap, ...] = tuple(caps)
         self.minimum_position = minimum_position
+        self.impact = impact
+        self.execution = execution
         self.redistribution = redistribution
 
     def __repr__(self) -> str:
