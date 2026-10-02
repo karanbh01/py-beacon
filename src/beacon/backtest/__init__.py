@@ -16,12 +16,20 @@ and tracking against the target index. `BacktestModifier` subclasses such as
 An `Implementation` says how a strategy is carried out at a fund's size: its
 screens (`MarketCapScreen`, `LiquidityScreen`, `MinimumPriceScreen`,
 `ListingAgeScreen`, `ExclusionScreen`, `ExpressionScreen`) decide which names
-may be held at each rebalance, and its redistribution rule where the weight
-of the rest goes. Each rebalance's stages are recorded as a `RebalanceStep`.
+may be held at each rebalance, its caps (`OwnershipCap`, `LiquidityCap`,
+`WeightCap`) and `MinimumPosition` how much of each, and its redistribution
+rule where the weight of the rest goes. Each rebalance's stages are recorded as a `RebalanceStep`.
 """
 from ..index.result import PriceGap
 from ..portfolio.base import TradeInstruction
 from .asset_view import BacktestAssetView
+from .capacity import (
+    CapacityCap,
+    LiquidityCap,
+    MinimumPosition,
+    OwnershipCap,
+    WeightCap,
+)
 from .engine import BacktestEngine
 from .implementation import Implementation, RebalanceStep
 from .main import Backtest
@@ -45,14 +53,18 @@ __all__ = [
     "BacktestEngine",
     "BacktestModifier",
     "BacktestResult",
+    "CapacityCap",
     "DriftThresholdModifier",
     "ExclusionScreen",
     "ExpressionScreen",
     "Implementation",
+    "LiquidityCap",
     "LiquidityScreen",
     "ListingAgeScreen",
     "MarketCapScreen",
+    "MinimumPosition",
     "MinimumPriceScreen",
+    "OwnershipCap",
     "PriceGap",
     "RebalancePricing",
     "RebalanceStep",
@@ -61,4 +73,5 @@ __all__ = [
     "ThresholdScreen",
     "TradeInstruction",
     "UnfilledOrder",
+    "WeightCap",
 ]

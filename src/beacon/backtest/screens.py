@@ -237,27 +237,8 @@ class LiquidityScreen(ThresholdScreen):
               asset_id: str,
               date: pd.Timestamp,
               context: ScreenContext) -> float | None:
-        # Calendar days enough to hold the trading days asked for.
-        start = date - pd.Timedelta(days=int(self.lookback_days * 1.6) + 10)
-        frame = context.fetcher.fetch_market_data(asset_id,
-                                                  start.strftime("%Y-%m-%d"),
-                                                  date.strftime("%Y-%m-%d"))
-
-        if frame.empty or "VOLUME" not in frame.columns:
-            return None
-
-        volume = frame["VOLUME"].dropna().tail(self.lookback_days)
-
-        if volume.empty:
-            return None
-
-        if not self.by_value:
-            return float(volume.mean())
-
-        closes = _converted_closes(asset_id, start, date, context)
-        traded = (closes.reindex(volume.index) * volume).dropna()
-
-        return None if traded.empty else float(traded.mean())
+        return average_traded(asset_id, date, context, self.lookback_days,
+                              by_value=self.by_value)
 
 
 class ListingAgeScreen(Screen):
@@ -362,6 +343,38 @@ class ExpressionScreen(Screen):
                context: ScreenContext) -> bool:
         return resolve(self.expression, asset_id, date, context.fetcher,
                        on_missing=self.on_missing, currency=context.currency)
+
+
+def average_traded(asset_id: str,
+                   date: pd.Timestamp,
+                   context: ScreenContext,
+                   lookback_days: int = DEFAULT_LIQUIDITY_DAYS,
+                   by_value: bool = True) -> float | None:
+    """A name's average daily traded value in the book's currency (close
+    times volume, converted day by day), or its average share volume, over
+    its last *lookback_days* trading days to *date*. None when it has no
+    volume."""
+    # Calendar days enough to hold the trading days asked for.
+    start = date - pd.Timedelta(days=int(lookback_days * 1.6) + 10)
+    frame = context.fetcher.fetch_market_data(asset_id,
+                                              start.strftime("%Y-%m-%d"),
+                                              date.strftime("%Y-%m-%d"))
+
+    if frame.empty or "VOLUME" not in frame.columns:
+        return None
+
+    volume = frame["VOLUME"].dropna().tail(lookback_days)
+
+    if volume.empty:
+        return None
+
+    if not by_value:
+        return float(volume.mean())
+
+    closes = _converted_closes(asset_id, start, date, context)
+    traded = (closes.reindex(volume.index) * volume).dropna()
+
+    return None if traded.empty else float(traded.mean())
 
 
 def _converted_closes(asset_id: str,

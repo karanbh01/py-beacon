@@ -300,7 +300,8 @@ class BacktestEngine(PricingMixin, DividendsMixin):
                 if holding.quantity > 0}
 
         step = plan(self.implementation, target, date, held, stale,
-                    ScreenContext(self.data_provider, self.currency))
+                    ScreenContext(self.data_provider, self.currency),
+                    book_value=portfolio.get_total_value())
         self._rebalance_steps.append(step)
 
         if step.removed:
@@ -308,6 +309,10 @@ class BacktestEngine(PricingMixin, DividendsMixin):
                         date.date(), len(step.removed),
                         ", ".join(f"{name} ({why})"
                                   for name, why in sorted(step.removed.items())))
+
+        if step.capped:
+            logger.info("[%s] %d name(s) cut to their capacity.", date.date(),
+                        len(step.capped))
 
         return step.weights
 

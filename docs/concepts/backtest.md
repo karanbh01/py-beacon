@@ -192,7 +192,9 @@ changing the index. Each rebalance runs as stages:
 3. **Redistribution**: the removed weight is spread across the remaining
    names in proportion to their weights (`redistribution="pro_rata"`, the
    default), or left in cash (`redistribution="cash"`).
-4. **Trades**, generated from the result, then any [modifiers](#modifiers).
+4. **Capacity**: each name is cut to its [caps](#capacity) at the book's
+   size, and positions too small to keep are dropped.
+5. **Trades**, generated from the result, then any [modifiers](#modifiers).
 
 | Screen | Removes a name when |
 | --- | --- |
@@ -237,9 +239,45 @@ print({name: round(weight, 3) for name, weight in first.weights.items()})
 
 `result.rebalance_steps` records each rebalance's stages as a
 `RebalanceStep`: the `target`, the names `removed` and the screen that
-removed each (`"stale price"` for a stale one), the `weights` traded to, and
-the `cash_weight` they leave. Screens are re-evaluated at every rebalance
-from data dated on or before it.
+removed each (`"stale price"` for a stale one, `"MinimumPosition"` for one
+too small to keep), the names `capped` and the weight each was cut to, the
+`weights` traded to, and the `cash_weight` they leave. Screens and caps are
+re-evaluated at every rebalance from data dated on or before it.
+
+### Capacity
+
+A cap limits a position without excluding the name, measured against the
+book's value at each rebalance, so a position shrinks smoothly as the fund
+grows rather than vanishing at a threshold.
+
+| Cap | A position's value is at most |
+| --- | --- |
+| `OwnershipCap(max_share)` | `max_share` of the name's free-float market cap |
+| `LiquidityCap(days, participation=0.2, lookback_days=63)` | `days` times its average daily traded value times `participation` |
+| `WeightCap(max_weight)` | `max_weight` of the book |
+
+Each name is held at no more than its tightest cap. The excess of a capped
+name is spread across the names still under their caps, in proportion to
+their weights, until none is over; under `redistribution="cash"` it stays in
+cash, as it does when every name is capped. A name a cap cannot value (no
+free float, no volume) is not limited by it.
+
+`MinimumPosition(value=None, weight=None)` drops a position below either
+level and redistributes its weight, and the caps are applied again
+afterwards.
+
+```python
+from beacon.backtest import LiquidityCap, MinimumPosition, OwnershipCap
+
+large = Backtest(
+    initial_capital=50_000_000_000.0, data_provider=fetcher,
+    implementation=Implementation(
+        caps=[OwnershipCap(0.05), LiquidityCap(days=5)],
+        minimum_position=MinimumPosition(weight=0.01)),
+).run(definition, start="2023-01-03", end="2024-12-31")
+
+print(large.rebalance_steps[0].capped)
+```
 
 ## Modifiers
 

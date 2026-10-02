@@ -22,7 +22,11 @@ large one, and the difference is the cost of size. See
 3. **Redistribution**: removed weight is spread across the remaining names in
    proportion to their weights (``"pro_rata"``), or held as cash
    (``"cash"``).
-4. **Trades**, generated from the result, then any modifiers.
+4. **Capacity**: each name is cut to its caps at the book's size, the excess
+   spread across the names under their caps until none is over (or held as
+   cash), and positions too small to keep are dropped and their weight
+   redistributed. See `beacon.backtest.capacity`.
+5. **Trades**, generated from the result, then any modifiers.
 
 Each rebalance's stages are recorded on the result as a `RebalanceStep`.
 """
@@ -33,6 +37,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from .capacity import CapacityCap, MinimumPosition
 from .screens import Screen, ScreenContext
 
 PRO_RATA = "pro_rata"
@@ -42,14 +47,22 @@ REDISTRIBUTIONS = (PRO_RATA, CASH)
 # What a RebalanceStep names a name the data says has gone stale.
 STALE = "stale price"
 
+# What it names a position dropped as too small to keep.
+TOO_SMALL = "MinimumPosition"
+
+# Below this a weight difference is rounding, not a breach of a cap.
+TOLERANCE = 1e-12
+
 
 class Implementation:
-    """A backtest's screens and redistribution rule.
+    """A backtest's screens, capacity limits and redistribution rule.
 
     Args:
         screens: Applied in order at each rebalance; a name must pass all.
-        redistribution: Where removed weight goes: ``"pro_rata"`` (the
-            default) across the remaining names, or ``"cash"``.
+        caps: Capacity caps; a name is held at no more than the smallest.
+        minimum_position: Positions too small to keep, or None to keep all.
+        redistribution: Where removed or capped weight goes: ``"pro_rata"``
+            (the default) across the remaining names, or ``"cash"``.
 
     Raises:
         ValueError: If *redistribution* is not one of the two.
@@ -57,18 +70,23 @@ class Implementation:
 
     def __init__(self,
                  screens: Iterable[Screen] = (),
+                 caps: Iterable[CapacityCap] = (),
+                 minimum_position: MinimumPosition | None = None,
                  redistribution: str = PRO_RATA):
         if redistribution not in REDISTRIBUTIONS:
             raise ValueError(f"Unknown redistribution {redistribution!r}. "
                              f"Supported: {', '.join(REDISTRIBUTIONS)}.")
 
         self.screens: tuple[Screen, ...] = tuple(screens)
+        self.caps: tuple[CapacityCap, ...] = tuple(caps)
+        self.minimum_position = minimum_position
         self.redistribution = redistribution
 
     def __repr__(self) -> str:
-        names = ", ".join(screen.name for screen in self.screens)
+        screens = ", ".join(screen.name for screen in self.screens)
+        caps = ", ".join(cap.name for cap in self.caps)
 
-        return (f"Implementation(screens=[{names}], "
+        return (f"Implementation(screens=[{screens}], caps=[{caps}], "
                 f"redistribution={self.redistribution!r})")
 
 
@@ -80,13 +98,16 @@ class RebalanceStep:
         date: The rebalance date.
         target: The strategy's weights, before any stage.
         removed: Each name taken out, and the screen that took it out
-            (``"stale price"`` for one the data says has gone stale).
+            (``"stale price"`` for one the data says has gone stale,
+            ``"MinimumPosition"`` for one too small to keep).
+        capped: Each name cut to its capacity, and the weight it was cut to.
         weights: What the trades aimed at, after redistribution.
         cash_weight: The share of the book the weights leave in cash.
     """
     date: pd.Timestamp
     target: dict[str, float]
     removed: dict[str, str] = field(default_factory=dict)
+    capped: dict[str, float] = field(default_factory=dict)
     weights: dict[str, float] = field(default_factory=dict)
     cash_weight: float = 0.0
 
@@ -96,16 +117,20 @@ def plan(implementation: Implementation,
          date: pd.Timestamp,
          held: set[str],
          stale: set[str],
-         context: ScreenContext) -> RebalanceStep:
-    """Run the screening and redistribution stages for one rebalance.
+         context: ScreenContext,
+         book_value: float = 0.0) -> RebalanceStep:
+    """Run the screening, redistribution and capacity stages for one
+    rebalance.
 
     Args:
-        implementation: The screens and redistribution rule.
+        implementation: The screens, caps and redistribution rule.
         target: The strategy's weights.
         date: The rebalance date.
         held: Names the book holds now, for buffered screens.
         stale: Names the data says have gone stale.
         context: The run's data and book currency.
+        book_value: The book's value before the rebalance, which caps and
+            minimum positions are measured against.
 
     Returns:
         RebalanceStep: The weights to trade to, and how they were reached.
@@ -121,14 +146,119 @@ def plan(implementation: Implementation,
                 removed[name] = screen.name
                 break
 
+    total = sum(target.values())
     kept = {name: weight for name, weight in target.items()
             if name not in removed}
-    weights = _redistributed(kept, sum(target.values()),
-                             implementation.redistribution)
+    weights = _redistributed(kept, total, implementation.redistribution)
+    weights, capped = _within_capacity(implementation, weights, total, date,
+                                       book_value, context, removed)
 
     return RebalanceStep(date=date, target=dict(target), removed=removed,
-                         weights=weights,
+                         capped=capped, weights=weights,
                          cash_weight=max(1.0 - sum(weights.values()), 0.0))
+
+
+def _within_capacity(implementation: Implementation,
+                     weights: dict[str, float],
+                     total: float,
+                     date: pd.Timestamp,
+                     book_value: float,
+                     context: ScreenContext,
+                     removed: dict[str, str]
+                     ) -> tuple[dict[str, float], dict[str, float]]:
+    """Cut each name to its caps and drop positions too small to keep,
+    redistributing as the rule says, until neither changes anything.
+
+    Names dropped as too small are added to *removed*. Returns the weights
+    and the names capped, with the weight each was cut to.
+    """
+    minimum = implementation.minimum_position
+
+    if (not implementation.caps and minimum is None) or book_value <= 0.0:
+        return weights, {}
+
+    limits = _limits(implementation.caps, weights, date, book_value, context)
+    rule = implementation.redistribution
+    capped: dict[str, float] = {}
+
+    # Each pass either finishes or drops at least one name, so this ends.
+    for _ in range(len(weights) + 1):
+        weights = _water_filled(weights, limits, rule, capped)
+
+        small = ([name for name, weight in weights.items()
+                  if minimum.too_small(weight, book_value)]
+                 if minimum is not None else [])
+
+        if not small:
+            break
+
+        for name in small:
+            removed[name] = TOO_SMALL
+            capped.pop(name, None)
+            del weights[name]
+
+        weights = _redistributed(weights, total, rule)
+
+    return weights, capped
+
+
+def _limits(caps: tuple[CapacityCap, ...],
+            weights: dict[str, float],
+            date: pd.Timestamp,
+            book_value: float,
+            context: ScreenContext) -> dict[str, float]:
+    """Each name's largest weight: its tightest cap over the book's value.
+    A name no cap can value has no limit."""
+    limits: dict[str, float] = {}
+
+    for name in weights:
+        values = [value for cap in caps
+                  if (value := cap.max_value(name, date, book_value, context))
+                  is not None]
+
+        if values:
+            limits[name] = max(min(values), 0.0) / book_value
+
+    return limits
+
+
+def _water_filled(weights: dict[str, float],
+                  limits: dict[str, float],
+                  rule: str,
+                  capped: dict[str, float]) -> dict[str, float]:
+    """Cut every name over its limit to it and spread the excess across the
+    names under theirs, pro rata, until none is over; under the cash rule
+    the excess stays in cash. Records each cut name in *capped*."""
+    weights = dict(weights)
+
+    for _ in range(len(weights) + 1):
+        over = [name for name, weight in weights.items()
+                if name in limits and weight > limits[name] + TOLERANCE]
+
+        if not over:
+            break
+
+        excess = sum(weights[name] - limits[name] for name in over)
+
+        for name in over:
+            weights[name] = limits[name]
+            capped[name] = limits[name]
+
+        if rule == CASH:
+            continue
+
+        room = {name: weight for name, weight in weights.items()
+                if name not in capped and weight > 0.0}
+        spare = sum(room.values())
+
+        # Every name is at its cap: what is left over stays in cash.
+        if spare <= 0.0:
+            break
+
+        for name, weight in room.items():
+            weights[name] = weight + excess * weight / spare
+
+    return weights
 
 
 def _redistributed(kept: dict[str, float],
