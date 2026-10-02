@@ -6,6 +6,11 @@ development.
 __version__ = "0.3.1"
 
 from . import derivatives
+from .assumptions import (
+    ModellingAssumptions,
+    current_modelling_assumptions,
+    use_modelling_assumptions,
+)
 from .derivatives import (
     DerivativeBase,
     ETFFuture,
@@ -18,8 +23,11 @@ __all__ = [
     "DerivativeBase",
     "ETFFuture",
     "IndexFuture",
+    "ModellingAssumptions",
     "TotalReturnSwap",
     "__version__",
+    "current_modelling_assumptions",
     "derivatives",
     "use",
+    "use_modelling_assumptions",
 ]

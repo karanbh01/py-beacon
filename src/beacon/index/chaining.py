@@ -27,6 +27,7 @@ import logging
 
 import pandas as pd
 
+from ..assumptions import data_treatment_of
 from ..data.corporate_actions import ratios_between
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
@@ -149,7 +150,8 @@ def chain_levels(index_id: str,
                        constituent_snapshots=constituent_snapshots,
                        weight_snapshots=weight_snapshots,
                        daily_weights=daily_weights_frame(daily_records),
-                       currency=currency.upper())
+                       currency=currency.upper(),
+                       modelling_assumptions=data_treatment_of(data_provider))
 
 
 def _ratio_schedule(data_provider: DataFetcher

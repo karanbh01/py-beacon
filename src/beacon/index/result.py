@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from ..assumptions import ModellingAssumptions
 from ..data.fetcher import DataFetcher
 from ..plot.base import PlotAccessor
 from .asset_view import IndexAssetView
@@ -123,6 +124,9 @@ class IndexResult:
             the data had a bar for every holding on every day.
         currency: The currency the levels are in, the definition's. None for
             a result built by hand, which says nothing about it.
+        modelling_assumptions: The data treatment the calculation read data
+            under (FX policy, stale-price threshold, free-float backfill),
+            with the other fields unset. None for a result built by hand.
 
     The daily panel is *recorded* rather than re-derived because the index's
     daily state is path-dependent. It is not a forward-fill of the rebalance
@@ -161,6 +165,8 @@ class IndexResult:
     price_gaps: list[PriceGap] = field(default_factory=list)
     # BN-228: recorded so a backtest can default to it.
     currency: str | None = None
+    # BN-276: what the calculation assumed, so a backtest can check it agrees.
+    modelling_assumptions: ModellingAssumptions | None = None
     _data_fetcher: DataFetcher | None = field(default=None, repr=False, compare=False)
 
     def capped_assets_on_date(self,

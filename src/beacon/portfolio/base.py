@@ -12,6 +12,7 @@ from ..data.fetcher import DataFetcher
 from ..exceptions import FrozenPortfolioError
 from ..sources import resolve
 from .asset_view import PortfolioAssetView
+from .cash_flows import CashFlow
 from .history import PortfolioHistory
 
 logger = logging.getLogger(__name__)
@@ -153,6 +154,8 @@ class Portfolio:
         self.holdings: dict[str, Holding] = {}
         self.cash_balance: float = initial_cash
         self.transactions: list[Transaction] = []
+        # Cash that moved without a trade: interest, dividends (BN-276).
+        self.cash_flows: list[CashFlow] = []
 
         self.initial_capital: float = initial_cash
 
@@ -280,6 +283,33 @@ class Portfolio:
                 date: pd.Timestamp) -> None:
         """Snapshot the books as of *date* into the history."""
         self._history.record(date, self.holdings, self.cash_balance)
+
+    def receive_cash(self,
+                     amount: float,
+                     date: pd.Timestamp,
+                     kind: str,
+                     asset_id: str | None = None) -> None:
+        """Add cash that did not come from a trade, and record it.
+
+        Args:
+            amount: How much. Negative pays cash out, as interest at a
+                negative rate does; the balance never goes below zero.
+            date: When it moved.
+            kind: What it was, such as ``"INTEREST"`` or ``"DIVIDEND"``.
+            asset_id: The holding it came from, for a dividend.
+
+        Raises:
+            FrozenPortfolioError: If the books are closed.
+        """
+        self._refuse_if_frozen("receive_cash")
+
+        if amount == 0.0:
+            return
+
+        self.cash_balance = max(self.cash_balance + amount, 0.0)
+        self.cash_flows.append(CashFlow(date=pd.Timestamp(date), amount=amount,
+                                        kind=kind, asset_id=asset_id))
+        self._record(pd.Timestamp(date))
 
 
     def execute_buy(self,

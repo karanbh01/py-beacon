@@ -40,6 +40,7 @@ from typing import Union
 
 import pandas as pd
 
+from ..assumptions import ModellingAssumptions, apply
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
 from ..optimise.config import MIN_TRACKING_ERROR, OptimisationConfig
@@ -209,7 +210,9 @@ def calculate_derived_index(definition: OptimisedIndexDefinition,
                             start_date: str | None = None,
                             end_date: str | None = None,
                             price_column: str = "CLOSE",
-                            parent_result: IndexResult | None = None) -> IndexResult:
+                            parent_result: IndexResult | None = None,
+                            modelling_assumptions: ModellingAssumptions | None = None
+                            ) -> IndexResult:
     """Calculate an optimised index into a standard :class:`IndexResult`.
 
     Three steps: calculate the parent (or accept a pre-supplied calculation,
@@ -229,6 +232,7 @@ def calculate_derived_index(definition: OptimisedIndexDefinition,
         parent_result: The source's calculation, when the caller already has
             it. None calculates the source here (recursively, when the source
             is itself optimised).
+        modelling_assumptions: How data is read, as for `IndexCalculator`.
 
     Returns:
         IndexResult: Daily levels, divisor history, constituent and weight
@@ -243,9 +247,13 @@ def calculate_derived_index(definition: OptimisedIndexDefinition,
     """
     check_objective(definition)
 
+    assumptions = (modelling_assumptions or ModellingAssumptions()).effective()
+    data_provider = apply(assumptions, data_provider)
+
     parent = (parent_result if parent_result is not None
               else calculate_source(definition.source, data_provider,
-                                    start_date, end_date, price_column))
+                                    start_date, end_date, price_column,
+                                    assumptions))
 
     if not parent.weight_snapshots:
         raise CalculationError(
@@ -287,7 +295,9 @@ def calculate_source(source: AnyIndexDefinition,
                      data_provider: DataFetcher,
                      start_date: str | None = None,
                      end_date: str | None = None,
-                     price_column: str = "CLOSE") -> IndexResult:
+                     price_column: str = "CLOSE",
+                     modelling_assumptions: ModellingAssumptions | None = None
+                     ) -> IndexResult:
     """The parent's calculation, recursive when the parent is itself derived.
 
     The parent's published weights are what a derivation *is* defined
@@ -301,6 +311,7 @@ def calculate_source(source: AnyIndexDefinition,
         start_date: First date (YYYY-MM-DD). None uses the source's base date.
         end_date: Last date (YYYY-MM-DD). Required by the calculator.
         price_column: Market-data column read as the price.
+        modelling_assumptions: How data is read, as for `IndexCalculator`.
 
     Returns:
         IndexResult: The source's own calculation over that window.
@@ -309,11 +320,13 @@ def calculate_source(source: AnyIndexDefinition,
         return calculate_derived_index(source, data_provider,
                                        start_date=start_date,
                                        end_date=end_date,
-                                       price_column=price_column)
+                                       price_column=price_column,
+                                       modelling_assumptions=modelling_assumptions)
 
     return IndexCalculator(source, data_provider,
-                           price_column=price_column).run(start_date=start_date,
-                                                          end_date=end_date)
+                           price_column=price_column,
+                           modelling_assumptions=modelling_assumptions).run(
+                               start_date=start_date, end_date=end_date)
 
 
 def solve_snapshot(definition: OptimisedIndexDefinition,

@@ -6,6 +6,7 @@ import logging
 
 import pandas as pd
 
+from ..assumptions import ModellingAssumptions, apply, data_treatment_of
 from ..data.corporate_actions import ratios_between
 from ..data.fetcher import DataFetcher
 from ..index.requirements import require_price_column
@@ -17,6 +18,7 @@ from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 # here as well so `from beacon.backtest.engine import TradeInstruction` keeps
 # working -- and because the engine is its main producer.
 from ..portfolio.base import Holding, Portfolio, TradeInstruction
+from ..portfolio.cash_flows import INTEREST
 from .pricing import PricingMixin
 from .result import (
     BacktestResult,
@@ -70,6 +72,12 @@ class BacktestEngine(PricingMixin):
             index does not record one. Pass another to keep the book in a
             different currency from the index, such as a dollar investor
             tracking a euro index.
+        modelling_assumptions: What the run takes as given about markets and
+            data, laid over the process-wide default. Data is read under its
+            data treatment, cash earns its cash rate, and the result records
+            them resolved. When *index_result* was calculated under a
+            different data treatment, the run goes ahead and logs a warning
+            naming each setting that differs.
         transaction_cost_bps: Transaction cost in basis points applied to
             each trade's notional value. Defaults to 0 (no cost).
         modifiers: Optional hooks that can skip rebalances or adjust trades.
@@ -101,6 +109,7 @@ class BacktestEngine(PricingMixin):
                  index_result: IndexResult,
                  price_column: str = "CLOSE",
                  currency: str | None = None,
+                 modelling_assumptions: ModellingAssumptions | None = None,
                  transaction_cost_bps: float = 0.0,
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
@@ -109,8 +118,16 @@ class BacktestEngine(PricingMixin):
         self.start_date: pd.Timestamp = pd.Timestamp(start_date)
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
         self.initial_capital: float = initial_capital
-        self.data_provider: DataFetcher = data_provider
+
+        # BN-276: the run's assumptions, resolved once and recorded.
+        assumptions = (modelling_assumptions or ModellingAssumptions()).effective()
+        self.data_provider: DataFetcher = apply(assumptions, data_provider)
+        self.modelling_assumptions: ModellingAssumptions = (
+            assumptions.resolved(self.data_provider)
+            if isinstance(self.data_provider, DataFetcher)
+            else assumptions.with_defaults())
         self.index_result: IndexResult = index_result
+        _warn_if_assumptions_differ(index_result, self.data_provider)
 
         # The comparators of record (decision 13). The engine trades on
         # neither; it stores them so the run states what it was measured
@@ -693,6 +710,9 @@ class BacktestEngine(PricingMixin):
             for asset_id, ratio in ratios_between(ratios, previous, date).items():
                 portfolio.apply_ratio(asset_id, ratio)
 
+            # 0b. Interest on the cash held since the last simulated day.
+            self._accrue_interest(portfolio, previous, date)
+
             previous = date
 
             # 1. Update prices for existing holdings
@@ -774,7 +794,22 @@ class BacktestEngine(PricingMixin):
             price_gaps=list(self._price_gaps),
             rebalance_pricing=list(self._rebalance_pricing),
             currency=self.currency,
+            modelling_assumptions=self.modelling_assumptions,
         ).with_data(self.data_provider)
+
+    def _accrue_interest(self,
+                         portfolio: Portfolio,
+                         previous: pd.Timestamp,
+                         date: pd.Timestamp) -> None:
+        """Credit what the cash earned from *previous* to *date*, ACT/365."""
+        rate = self.modelling_assumptions.cash_rate or 0.0
+        days = (date - previous).days
+
+        if rate == 0.0 or days <= 0 or portfolio.cash_balance <= 0.0:
+            return
+
+        portfolio.receive_cash(portfolio.cash_balance * rate * days / 365.0,
+                               date, INTEREST)
 
     def _index_books(self) -> IndexBooks:
         """The run's calculated indices, one book each (BN-164, BN-167).
@@ -830,3 +865,23 @@ def _book_currency(currency: str | None,
                     index_currency)
 
     return book
+
+
+def _warn_if_assumptions_differ(index_result: IndexResult,
+                                data_provider: DataFetcher) -> None:
+    """Log each data-treatment setting the index was calculated under that
+    differs from the one this run reads data under."""
+    calculated = index_result.modelling_assumptions
+    simulated = data_treatment_of(data_provider)
+
+    if calculated is None or simulated is None:
+        return
+
+    differ = [f"{name} {calculated_value!r} for the index, "
+              f"{simulated.data_treatment()[name]!r} for the backtest"
+              for name, calculated_value in calculated.data_treatment().items()
+              if calculated_value != simulated.data_treatment()[name]]
+
+    if differ:
+        logger.warning("The index was calculated under different modelling "
+                       "assumptions from this backtest: %s.", "; ".join(differ))

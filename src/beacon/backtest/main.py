@@ -36,6 +36,7 @@ from typing import Any
 import pandas as pd
 
 from .. import sources
+from ..assumptions import ModellingAssumptions, apply
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError, MissingDependencyError
 from ..index import cache as index_cache
@@ -132,6 +133,10 @@ class Backtest:
         currency: The simulated book's currency. None, the default, uses the
             index's currency. Pass another to keep the book in a different
             currency from the index.
+        modelling_assumptions: What the run takes as given about markets and
+            data, laid over the process-wide default (see
+            :func:`beacon.use_modelling_assumptions`). The index calculation
+            reads data under the same assumptions as the simulation.
         modifiers: Optional hooks that can skip rebalances or adjust trades.
         benchmark: The benchmark of record, stored on every result this
             object produces.
@@ -150,6 +155,7 @@ class Backtest:
                  transaction_cost_bps: float = 0.0,
                  price_column: str = "CLOSE",
                  currency: str | None = None,
+                 modelling_assumptions: ModellingAssumptions | None = None,
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
                  data_provider: DataFetcher | None = None,
@@ -158,6 +164,7 @@ class Backtest:
         self.transaction_cost_bps: float = transaction_cost_bps
         self.price_column: str = price_column
         self.currency: str | None = currency
+        self.modelling_assumptions: ModellingAssumptions | None = modelling_assumptions
         self.modifiers: list[BacktestModifier] | None = modifiers
         self.benchmark: IndexResult | pd.Series | None = benchmark
         self.data_provider: DataFetcher | None = data_provider
@@ -223,6 +230,12 @@ class Backtest:
         fetcher = (self.data_provider if self.data_provider is not None
                    else sources.resolve())
 
+        # One set of assumptions for the whole run, resolved once: the index
+        # calculation and the simulation read data the same way (BN-276).
+        assumptions = (self.modelling_assumptions
+                       or ModellingAssumptions()).effective()
+        fetcher = apply(assumptions, fetcher)
+
         logger.info("Backtest run for '%s' from %s to %s.",
                     definition.index_id, start or definition.base_date.date(), end)
 
@@ -249,6 +262,7 @@ class Backtest:
             index_result=index_result,
             price_column=self.price_column,
             currency=self.currency,
+            modelling_assumptions=assumptions,
             transaction_cost_bps=self.transaction_cost_bps,
             modifiers=self.modifiers,
             benchmark=self.benchmark,
@@ -289,6 +303,10 @@ class Backtest:
 
         return None
 
+    def _assumptions(self) -> ModellingAssumptions:
+        """This backtest's assumptions over the process-wide default."""
+        return (self.modelling_assumptions or ModellingAssumptions()).effective()
+
     def _calculated(self,
                     definition: AnyIndexDefinition,
                     fetcher: DataFetcher,
@@ -320,16 +338,15 @@ class Backtest:
                         definition.index_id, key)
 
         if isinstance(definition, OptimisedIndexDefinition):
-            calculated = calculate_derived_index(definition, fetcher,
-                                                 start_date=start,
-                                                 end_date=end,
-                                                 price_column=self.price_column,
-                                                 parent_result=parent_result)
+            calculated = calculate_derived_index(
+                definition, fetcher, start_date=start, end_date=end,
+                price_column=self.price_column, parent_result=parent_result,
+                modelling_assumptions=self._assumptions())
         else:
             calculated = IndexCalculator(
-                definition, fetcher,
-                price_column=self.price_column).run(start_date=start,
-                                                    end_date=end)
+                definition, fetcher, price_column=self.price_column,
+                modelling_assumptions=self._assumptions()).run(start_date=start,
+                                                              end_date=end)
 
         result = _rejecting_empty(definition, calculated)
 

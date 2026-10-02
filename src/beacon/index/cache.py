@@ -38,6 +38,7 @@ import pandas as pd
 
 from .. import __version__
 from .._optional import require
+from ..assumptions import ModellingAssumptions
 from ..catalogue import CONSTRAINT, SELECTION, WEIGHTING, classes, parameters_of
 from ..data import store
 from ..data.fetcher import DataFetcher
@@ -305,9 +306,15 @@ def _data_identity(fetcher: DataFetcher) -> tuple[dict[str, Any] | None, str | N
     except OSError as exc:
         return None, f"the store manifest at {manifest} is unreadable: {exc}"
 
+    # The data treatment the fetcher reads under (BN-276): the same store read
+    # with another FX policy or staleness threshold is a different index, and
+    # keying on the store alone served one calculated under the old settings.
     return {"store_path": str(path.resolve()),
             "manifest_sha256": hashlib.sha256(content).hexdigest(),
-            "manifest_mtime_ns": modified}, None
+            "manifest_mtime_ns": modified,
+            "fx_policy": fetcher.fx_policy,
+            "max_price_staleness_days": fetcher.max_price_staleness_days,
+            "free_float_backfill_days": fetcher.free_float_backfill_days}, None
 
 
 def _window_payload(definition: AnyIndexDefinition,
@@ -399,11 +406,18 @@ def _snapshots_payload(result: IndexResult) -> dict[str, Any]:
                                            "uncapped_weights": dict(report.uncapped_weights)}
                         for date, report in result.cap_reports.items()},
         "currency": result.currency,
+        "modelling_assumptions": (result.modelling_assumptions.as_dict()
+                                  if result.modelling_assumptions else None),
         "price_gaps": [{"date": gap.date.isoformat(),
                         "asset_id": gap.asset_id,
                         "priced_from": gap.priced_from.isoformat()}
                        for gap in result.price_gaps],
     }
+
+
+def _assumptions(stored: dict[str, Any] | None) -> ModellingAssumptions | None:
+    """Stored modelling assumptions back as the object, None when absent."""
+    return ModellingAssumptions(**stored) if stored else None
 
 
 def _read_entry(entry: Path) -> IndexResult:
@@ -434,7 +448,8 @@ def _read_entry(entry: Path) -> IndexResult:
                              asset_id=str(gap["asset_id"]),
                              priced_from=pd.Timestamp(gap["priced_from"]))
                     for gap in snapshots.get("price_gaps", [])],
-        currency=snapshots.get("currency"))
+        currency=snapshots.get("currency"),
+        modelling_assumptions=_assumptions(snapshots.get("modelling_assumptions")))
 
 
 # -- the cache ---------------------------------------------------------------

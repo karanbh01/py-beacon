@@ -10,6 +10,7 @@ import pandas as pd
 
 from ...asset.base import Asset
 from ...asset.equity import Equity
+from ...assumptions import ModellingAssumptions, apply, data_treatment_of
 from ...data.fetcher import DataFetcher
 from ...exceptions import CalculationError, UnexpectedCalculationError
 from ..capping import CapReport, apply_cap
@@ -84,7 +85,8 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
     def __init__(self,
                  index_definition: IndexDefinition,
                  data_provider: DataFetcher,
-                 price_column: str = "CLOSE"):
+                 price_column: str = "CLOSE",
+                 modelling_assumptions: ModellingAssumptions | None = None):
         """
         Initializes the IndexCalculator.
 
@@ -93,6 +95,11 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             data_provider: A DataFetcher instance to access market and asset data.
             price_column: Market-data column read as the constituent price when
                 computing market values. Defaults to ``"CLOSE"``.
+            modelling_assumptions: How data is read: the FX policy, the
+                stale-price threshold and the free-float backfill. Laid over
+                the process-wide default; unset fields take the data source's
+                own settings. A backtest passes its own, so the index and the
+                backtest read data the same way.
         """
         if not index_definition:
             raise ValueError("index_definition must be provided.")
@@ -100,7 +107,9 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             raise ValueError("data_provider must be provided.")
 
         self.definition: IndexDefinition = index_definition
-        self.data: DataFetcher = data_provider
+        # BN-276: read under the run's modelling assumptions.
+        assumptions = (modelling_assumptions or ModellingAssumptions()).effective()
+        self.data: DataFetcher = apply(assumptions, data_provider)
         self.price_column: str = price_column
 
         # What the methodology gets to know about the index it is running
@@ -660,6 +669,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 weight_snapshots={},
                 calendar_coverage=coverage if coverage.is_partial else None,
                 currency=self.definition.currency,
+                modelling_assumptions=data_treatment_of(self.data),
             )
 
         # A base date the market was shut on is initialised on the first
@@ -956,6 +966,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             calendar_coverage=coverage if coverage.is_partial else None,
             price_gaps=self.recorded_gaps(),
             currency=self.definition.currency,
+            modelling_assumptions=data_treatment_of(self.data),
         ).with_data(self.data)
 
     def require_columns(self) -> None:

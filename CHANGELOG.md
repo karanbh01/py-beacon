@@ -10,11 +10,17 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Added
 
+- `ModellingAssumptions`: what a backtest takes as given about markets and data in one object. FX policy, stale-price threshold and free-float backfill (shared with the index calculation), and cash rate, risk-free rate and periods per year. Set a process-wide default with `use_modelling_assumptions`, and override it per backtest with `Backtest(modelling_assumptions=...)`. Results and index results record what they assumed. The defaults change no result.
+- Cash can earn interest (`cash_rate`), recorded in `Portfolio.cash_flows`.
 - `IndexResult.currency` and `BacktestResult.currency`: the currency an index's levels and a backtest's book are in. A backtest run from the engine reports its `currency` too.
 
 ### Changed
 
 - A backtest keeps its book in the index's currency unless `currency` is passed. It defaulted to USD whatever the index's currency, so a euro or sterling index was valued in dollars and its NAV picked up exchange-rate moves the index does not have. This includes backtests run from the engine and by an `IndexFund`.
+
+### Fixed
+
+- The index result cache keys on the data source's FX policy, stale-price threshold and free-float backfill. It keyed on the store alone, so changing one of those settings could reuse an index calculated under the old one.
 
 ## [0.3.1] - 2026-10-01
 

@@ -75,6 +75,7 @@ nav:
       - Universes: reference/universe.md
       - Expressions: reference/expressions.md
       - Backtest: reference/backtest.md
+      - Modelling assumptions: reference/assumptions.md
       - Portfolio: reference/portfolio.md
       - Funds and ETFs: reference/fund.md
       - Derivatives: reference/derivatives.md

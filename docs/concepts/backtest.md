@@ -14,8 +14,9 @@ is the simulation underneath it, and `BacktestResult` is what both return.
 
 ## Running a backtest
 
-`Backtest` holds the assumptions that stay fixed across runs (capital, costs,
-the book's currency, modifiers, a benchmark, the data source, the cache).
+`Backtest` holds what stays fixed across runs (capital, costs, the book's
+currency, [modelling assumptions](#modelling-assumptions), modifiers, a
+benchmark, the data source, the cache).
 Each `run()` takes the subject: an index definition and a window.
 
 ```python
@@ -313,6 +314,54 @@ print(in_gbp.get_tracking_error() < in_usd.get_tracking_error())   # True
 
 An index that does not record its currency, such as one built by hand, gets
 a book in USD. An `IndexFund` follows the same rule.
+
+## Modelling assumptions
+
+`ModellingAssumptions` gathers what a run takes as given about markets and
+data, so a result can say what it assumed. Every field is optional:
+
+| Field | Unset means | What it decides |
+| --- | --- | --- |
+| `fx_policy` | The data source's (`"CARRY_FORWARD"` unless set) | The FX rate on a day a pair printed none |
+| `max_price_staleness_days` | The data source's (no limit unless set) | How long a name may go without trading before it is dropped; 0 is no limit |
+| `free_float_backfill_days` | The data source's (90 unless set) | How far a free float carries over blank cells |
+| `cash_rate` | 0 | The annual rate cash earns, accrued daily, ACT/365 |
+| `risk_free_rate` | 0 | The rate the Sharpe ratio is measured against |
+| `periods_per_year` | 252 | How returns, volatility and tracking error are annualised |
+
+The first three are **data treatment**: they decide how data is read, so they
+reach the index calculation too. A backtest hands its assumptions to the
+calculator, and the index and the simulation read data the same way. The
+other three are **simulation conventions**, which do not affect an index.
+
+Set a default for the whole process once, and override any field for one
+backtest. A backtest's own fields win field by field, so the example below
+keeps the process-wide FX policy:
+
+```python
+from beacon import ModellingAssumptions, use_modelling_assumptions
+
+use_modelling_assumptions(ModellingAssumptions(fx_policy="EXACT_DAY"))
+
+earning = Backtest(initial_capital=1_000_000.0, data_provider=fetcher,
+                   modelling_assumptions=ModellingAssumptions(cash_rate=0.02)
+                   ).run(definition, end="2024-12-31")
+print(earning.modelling_assumptions.fx_policy,
+      earning.modelling_assumptions.cash_rate)   # EXACT_DAY 0.02
+
+use_modelling_assumptions(None)   # back to nothing set
+```
+
+`result.modelling_assumptions` records every field resolved: unset data
+treatment filled from the data source, unset conventions from the defaults.
+Interest on cash appears in `result.portfolio.cash_flows`, one `CashFlow` per
+day, beside the trades in `transactions`.
+
+An `IndexResult` records the data treatment it was calculated under in its own
+`modelling_assumptions`. When `BacktestEngine` is given an index calculated
+under different data treatment from its own, it runs and logs a warning
+naming each setting that differs. The result cache keys on the data
+treatment, so a calculation under one FX policy is never reused for another.
 
 ## The result cache
 

@@ -13,6 +13,7 @@ Every public module, generated from its docstrings. Each page covers a package a
 | [Universes](universe.md) | `beacon.universe` |
 | [Expressions](expressions.md) | `beacon.expressions` |
 | [Backtest](backtest.md) | `beacon.backtest` |
+| [Modelling assumptions](assumptions.md) | `beacon.assumptions` |
 | [Portfolio](portfolio.md) | `beacon.portfolio` |
 | [Funds and ETFs](fund.md) | `beacon.fund` |
 | [Derivatives](derivatives.md) | `beacon.derivatives` |

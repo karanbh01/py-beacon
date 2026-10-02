@@ -46,6 +46,7 @@ import numpy as np
 import pandas as pd
 
 from ..analysis.relative import RelativeMetrics, relative_metrics
+from ..assumptions import DEFAULT_PERIODS_PER_YEAR, ModellingAssumptions
 from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult, PriceGap
 from ..plot.base import PlotAccessor
@@ -220,6 +221,9 @@ class BacktestResult:
             trades were struck at rather than leaving it inferable.
         currency: The book's currency, which the NAV, costs and holdings'
             values are in.
+        modelling_assumptions: What the run assumed, every field resolved.
+            None for a result built by hand, which the summary then measures
+            with a zero risk-free rate over 252 periods a year.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -232,6 +236,7 @@ class BacktestResult:
     price_gaps: list[PriceGap] = field(default_factory=list)
     rebalance_pricing: list[RebalancePricing] = field(default_factory=list)
     currency: str = "USD"
+    modelling_assumptions: ModellingAssumptions | None = None
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 
@@ -363,12 +368,28 @@ class BacktestResult:
 
         return yearly.astype(float)
 
+    def _periods_per_year(self) -> int:
+        """The run's annualisation factor."""
+        assumptions = self.modelling_assumptions
+        periods = assumptions.periods_per_year if assumptions else None
+
+        return periods or DEFAULT_PERIODS_PER_YEAR
+
+    def _risk_free_rate(self) -> float:
+        """The rate the run's Sharpe ratio is measured against."""
+        assumptions = self.modelling_assumptions
+        rate = assumptions.risk_free_rate if assumptions else None
+
+        return rate or 0.0
+
     def get_tracking_error(self) -> float | None:
         """Calculate annualised tracking error against the tracked index.
 
         Tracking error is the standard deviation of the difference between
         daily portfolio returns and index returns on their common dates,
-        annualised by the square root of 252. The first day compares the
+        annualised by the square root of the run's periods per year (252
+        unless its modelling assumptions say otherwise). The first day
+        compares the
         portfolio's return from its initial capital (the opening trades'
         cost) with the index's return of zero from its starting level.
 
@@ -393,7 +414,7 @@ class BacktestResult:
             return None
 
         active_returns = aligned["port"] - aligned["index"]
-        return float(active_returns.std() * np.sqrt(252))
+        return float(active_returns.std() * np.sqrt(self._periods_per_year()))
 
     def get_tracking_difference(self) -> float | None:
         """Calculate cumulative tracking difference against the tracked index.
@@ -424,9 +445,11 @@ class BacktestResult:
     def summary(self) -> dict[str, float | None]:
         """Calculate key performance metrics for the backtest.
 
-        Returns are daily and annualised over 252 trading days; the Sharpe
-        ratio assumes a zero risk-free rate. Total return is measured against
-        the portfolio's initial capital.
+        Returns are daily and annualised over the run's periods per year, and
+        the Sharpe ratio is the annualised return in excess of its risk-free
+        rate, over the volatility. Both come from the run's modelling
+        assumptions: 252 and 0 unless they say otherwise. Total return is
+        measured against the portfolio's initial capital.
 
         Returns:
             dict: Dictionary containing: total_return, annualised_return,
@@ -443,17 +466,21 @@ class BacktestResult:
                         else float(nav.iloc[-1] / initial - 1))
 
         # Annualised return
+        periods = self._periods_per_year()
+
         if n_periods > 0:
-            years = n_periods / 252.0
+            years = n_periods / float(periods)
             annualised_return = float((1 + total_return) ** (1 / years) - 1) if years > 0 else 0.0
         else:
             annualised_return = 0.0
 
         # Volatility (annualised)
-        volatility = float(returns.std() * np.sqrt(252)) if n_periods > 1 else 0.0
+        volatility = float(returns.std() * np.sqrt(periods)) if n_periods > 1 else 0.0
 
-        # Sharpe ratio (assumes risk-free rate = 0)
-        sharpe_ratio = float(annualised_return / volatility) if volatility > 0 else 0.0
+        # BN-276: in excess of the run's risk-free rate, which was always 0.
+        risk_free = self._risk_free_rate()
+        sharpe_ratio = (float((annualised_return - risk_free) / volatility)
+                        if volatility > 0 else 0.0)
 
         # Max drawdown, from the initial capital, so a fall on the first day
         # (the cost of buying in, say) counts.

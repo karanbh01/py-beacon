@@ -9,6 +9,7 @@ Accepts single identifiers or lists and passes through column names as-is.
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -116,6 +117,9 @@ FX_POLICIES = (FX_CARRY_FORWARD, FX_EXACT_DAY)
 # it is what every path but one already did, so adopting the setting changes no
 # existing number until somebody asks it to.
 DEFAULT_FX_POLICY = FX_CARRY_FORWARD
+
+# Passed to `DataFetcher.with_settings` for a setting to keep as it is.
+KEEP: Any = object()
 
 # How far back the cheap first stage of a batch "last known bar" read reaches.
 # Nearly every name is answered from it; the ones that are not are read again
@@ -284,6 +288,44 @@ class DataFetcher:
         # again -- and they are over at the moment the date moves on (BN-190).
         # Cleared whenever the market data underneath it is replaced.
         self._session_panel: SessionPanel | None = None
+
+    def with_settings(self,
+                      fx_policy: str = KEEP,
+                      max_price_staleness_days: int | None = KEEP,
+                      free_float_backfill_days: int = KEEP) -> "DataFetcher":
+        """This data read under other settings.
+
+        The same object when nothing differs. Otherwise a new fetcher over the
+        same data, with its own caches, since a cached FX series or free-float
+        history depends on the settings it was read under. Pass `KEEP` (the
+        default) for a setting to leave as it is.
+
+        Raises:
+            ValueError: As the constructor does, for a setting it refuses.
+        """
+        # BN-276: how ModellingAssumptions reach the data a run reads.
+        policy = self.fx_policy if fx_policy is KEEP else fx_policy
+        staleness = (self.max_price_staleness_days
+                     if max_price_staleness_days is KEEP
+                     else max_price_staleness_days)
+        backfill = (self.free_float_backfill_days
+                    if free_float_backfill_days is KEEP
+                    else free_float_backfill_days)
+
+        if (policy == self.fx_policy
+                and staleness == self.max_price_staleness_days
+                and backfill == self.free_float_backfill_days):
+            return self
+
+        other = DataFetcher(self._market, self._reference, self._actions,
+                            self._features, fx_policy=policy,
+                            max_price_staleness_days=staleness,
+                            free_float_backfill_days=backfill)
+        other._refreshed = dict(self._refreshed)
+        other._source = self._source
+        other._store_path = self._store_path
+
+        return other
 
     # -- properties ----------------------------------------------------------
 
