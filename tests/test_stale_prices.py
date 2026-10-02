@@ -183,25 +183,24 @@ class TestIndexConstruction:
 class TestBacktests:
 
     def test_a_stale_name_is_dropped_from_the_target(self):
-        target = engine_over(build_fetcher(threshold=30))._drop_stale(
-            {"LOUD": 0.5, "QUIET": 0.5}, AS_OF)
+        """The first screen at every rebalance, recorded as such (BN-264)."""
+        step = engine_over(build_fetcher(threshold=30)).run().rebalance_steps[0]
 
-        assert set(target) == {"LOUD"}
+        assert step.removed == {"QUIET": "stale price"}
 
     def test_the_remaining_weights_are_renormalised(self):
         """Leaving the survivors at 0.5 would put the difference into cash
         silently and report a tracking gap against an index that holds the
         name -- a smaller book reported as a different one."""
-        target = engine_over(build_fetcher(threshold=30))._drop_stale(
-            {"LOUD": 0.5, "QUIET": 0.5}, AS_OF)
+        step = engine_over(build_fetcher(threshold=30)).run().rebalance_steps[0]
 
-        assert target["LOUD"] == pytest.approx(1.0)
+        assert step.weights == {"LOUD": pytest.approx(1.0)}
 
     def test_an_untouched_target_is_returned_unchanged(self):
-        weights = {"LOUD": 0.5, "QUIET": 0.5}
+        step = engine_over(build_fetcher()).run().rebalance_steps[0]
 
-        assert engine_over(build_fetcher())._drop_stale(weights,
-                                                        AS_OF) == weights
+        assert step.removed == {}
+        assert step.weights == {"LOUD": 0.5, "QUIET": 0.5}
 
     def test_a_run_completes_holding_only_the_live_name(self):
         """End to end, because the target filter and the book are different

@@ -10,12 +10,15 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Added
 
+- `Implementation`: how a backtest carries out its index at its size, without changing the index. Its screens decide which names may be held at each rebalance (`MarketCapScreen`, `LiquidityScreen`, `MinimumPriceScreen`, `ListingAgeScreen`, `ExclusionScreen`, `ExpressionScreen`), with optional exit levels (buffers) so names near a threshold do not flip in and out. Removed weight is spread pro rata across the remaining names or held as cash. Pass it as `Backtest(implementation=...)`.
+- `BacktestResult.rebalance_steps`: for each rebalance, the target, the names removed and the screen that removed each, and the weights traded to.
 - `ModellingAssumptions`: what a backtest takes as given about markets and data in one object. FX policy, stale-price threshold and free-float backfill (shared with the index calculation), and cash rate, risk-free rate and periods per year. Set a process-wide default with `use_modelling_assumptions`, and override it per backtest with `Backtest(modelling_assumptions=...)`. Results and index results record what they assumed. The defaults change no result.
 - Cash can earn interest (`cash_rate`), recorded in `Portfolio.cash_flows`.
 - `IndexResult.currency` and `BacktestResult.currency`: the currency an index's levels and a backtest's book are in. A backtest run from the engine reports its `currency` too.
 
 ### Changed
 
+- `ExpressionScreen` is a screen, passed in `Implementation(screens=[...])`, and no longer takes a `fetcher`. It was a trade modifier that cancelled buys of a failing name, left its weight in cash and only trimmed a failing holding. A failing name is now removed from the target, sold in full and its weight redistributed. It moved from `beacon.backtest.rules` to `beacon.backtest`, and a screen passed in `modifiers` is refused with a message saying where it goes.
 - A backtest keeps its book in the index's currency unless `currency` is passed. It defaulted to USD whatever the index's currency, so a euro or sterling index was valued in dollars and its NAV picked up exchange-rate moves the index does not have. This includes backtests run from the engine and by an `IndexFund`.
 
 ### Fixed

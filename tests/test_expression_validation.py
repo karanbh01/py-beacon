@@ -408,10 +408,10 @@ class TestEveryUseValidates:
 
     def test_an_expression_screen_refuses_it(self,
                                              fetcher):
-        from beacon.backtest.rules import ExpressionScreen
+        from beacon.backtest import ExpressionScreen
 
         with pytest.raises(ExpressionError, match="ExpressionScreen"):
-            ExpressionScreen(self.TYPO, fetcher)
+            ExpressionScreen(self.TYPO).prepare(fetcher)
 
     def test_an_index_refuses_it_before_running(self,
                                                 fetcher):

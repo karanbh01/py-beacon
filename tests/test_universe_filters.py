@@ -13,10 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from beacon import universe
-from beacon.backtest.engine import TradeInstruction
-from beacon.backtest.rules import ExpressionScreen
+from beacon.backtest import ExpressionScreen, ScreenContext
 from beacon.expressions import data
-from beacon.portfolio.base import Portfolio
 from beacon.server import ServerConfig, create_app
 from beacon.testing import dataset
 
@@ -274,82 +272,42 @@ class TestTheApi:
 
 
 class TestTheBacktestScreen:
-    """`ExpressionScreen`, composed with the modifier chain."""
+    """`ExpressionScreen`, a screen at the backtest's screening stage.
 
-    def portfolio_of(self,
-                     holdings: dict[str, float]) -> Portfolio:
-        portfolio = Portfolio(portfolio_id="screen-test",
-                              initial_cash=1_000_000.0)
+    It used to be a trade modifier that only trimmed a failing holding
+    (BN-255); removing a name from the target is now the engine's job, tested
+    in tests/test_backtest_stages.py.
+    """
 
-        for asset_id, quantity in holdings.items():
-            portfolio.execute_buy(asset_id, quantity, 100.0, date=REBALANCE)
+    def context(self,
+                fetcher) -> ScreenContext:
+        return ScreenContext(fetcher, "USD")
 
-        return portfolio
+    def test_it_admits_a_passing_name(self,
+                                      fetcher):
+        screen = ExpressionScreen(data.market.close > 0)
 
-    def test_it_never_skips_a_rebalance(self,
-                                        fetcher):
-        """A screen changes what is traded, not whether."""
-        screen = ExpressionScreen(data.market.close > 0, fetcher)
+        assert screen.admits("AAA", REBALANCE, False, self.context(fetcher))
 
-        assert not screen.should_skip_rebalance(REBALANCE,
-                                                self.portfolio_of({}), {})
+    def test_it_rejects_a_failing_name(self,
+                                       fetcher):
+        screen = ExpressionScreen(data.market.close > 1e9)
 
-    def test_it_drops_buys_of_excluded_names(self,
-                                             fetcher):
-        screen = ExpressionScreen(data.market.close > 1e9, fetcher)
-        trades = [TradeInstruction("AAA", "BUY", 10.0, 100.0, 0.0)]
-
-        assert screen.adjust_trades(trades, REBALANCE,
-                                    self.portfolio_of({})) == []
-
-    def test_it_keeps_buys_of_passing_names(self,
-                                            fetcher):
-        screen = ExpressionScreen(data.market.close > 0, fetcher)
-        trades = [TradeInstruction("AAA", "BUY", 10.0, 100.0, 0.0)]
-
-        assert screen.adjust_trades(trades, REBALANCE,
-                                    self.portfolio_of({})) == trades
-
-    def test_it_sells_a_holding_that_fails(self,
-                                           fetcher):
-        """Dropping only the buys would leave the position from before the
-        screen turned against it — so the screen would appear to work on new
-        entries and quietly not apply to anything held."""
-        screen = ExpressionScreen(data.market.close > 1e9, fetcher)
-        portfolio = self.portfolio_of({"AAA": 10.0})
-
-        adjusted = screen.adjust_trades([], REBALANCE, portfolio)
-
-        assert [(trade.asset_id, trade.side) for trade in adjusted] == [
-            ("AAA", "SELL")]
-
-    def test_it_does_not_duplicate_an_existing_sell(self,
-                                                    fetcher):
-        screen = ExpressionScreen(data.market.close > 1e9, fetcher)
-        portfolio = self.portfolio_of({"AAA": 10.0})
-        trades = [TradeInstruction("AAA", "SELL", 10.0, 100.0, 0.0)]
-
-        adjusted = screen.adjust_trades(trades, REBALANCE, portfolio)
-
-        assert len(adjusted) == 1
+        assert not screen.admits("AAA", REBALANCE, True, self.context(fetcher))
 
     def test_it_is_re_evaluated_per_rebalance(self,
                                               fetcher):
         """Resolving once at the start would let a name that only became
-        liquid later pass an earlier rebalance — look-ahead wearing a
+        liquid later pass an earlier rebalance: look-ahead wearing a
         different hat, and it makes the backtest look better rather than
         fail."""
-        screen = ExpressionScreen(data.market.close > 0, fetcher)
-        portfolio = self.portfolio_of({})
-        trades = [TradeInstruction("AAA", "BUY", 10.0, 100.0, 0.0)]
+        screen = ExpressionScreen(data.market.close > 0)
+        context = self.context(fetcher)
 
-        early = screen.adjust_trades(trades, pd.Timestamp("2024-02-01"),
-                                     portfolio)
-        late = screen.adjust_trades(trades, REBALANCE, portfolio)
+        assert screen.admits("AAA", pd.Timestamp("2024-02-01"), False, context)
+        assert screen.admits("AAA", REBALANCE, False, context)
 
-        assert early == trades and late == trades
-
-    def test_it_drops_the_same_names_an_index_rule_would(self,
+    def test_it_admits_the_same_names_an_index_rule_would(self,
                                                          fetcher):
         """The acceptance case: a backtest screened by an expression drops
         what the equivalent index rule drops."""
@@ -357,12 +315,13 @@ class TestTheBacktestScreen:
         from beacon.index import ExpressionRule
 
         expression = data.market.market_cap > 1e12
-        screen = ExpressionScreen(expression, fetcher)
+        screen = ExpressionScreen(expression)
         rule = ExpressionRule.from_expression(expression)
 
         for name in ["AAA", "BBB", "CCC", "DDD"]:
             asset = Equity(asset_id=name, ticker=name, name=name,
                            currency="USD", exchange="XNYS")
 
-            assert screen.passes(name, REBALANCE) == rule.is_eligible(
+            assert screen.admits(name, REBALANCE, False,
+                                 self.context(fetcher)) == rule.is_eligible(
                 asset, REBALANCE, fetcher)

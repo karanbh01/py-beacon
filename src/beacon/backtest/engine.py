@@ -19,6 +19,7 @@ from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 # working -- and because the engine is its main producer.
 from ..portfolio.base import Holding, Portfolio, TradeInstruction
 from ..portfolio.cash_flows import INTEREST
+from .implementation import Implementation, RebalanceStep, plan
 from .pricing import PricingMixin
 from .result import (
     BacktestResult,
@@ -28,6 +29,7 @@ from .result import (
     UnfilledOrder,
 )
 from .rules import BacktestModifier
+from .screens import Screen, ScreenContext
 
 # Reused from the portfolio rather than redefined: the engine decides whether
 # to size an order down, the portfolio decides whether to accept it, and the
@@ -80,6 +82,10 @@ class BacktestEngine(PricingMixin):
             naming each setting that differs.
         transaction_cost_bps: Transaction cost in basis points applied to
             each trade's notional value. Defaults to 0 (no cost).
+        implementation: The screens and redistribution rule applied at each
+            rebalance (see :class:`~beacon.backtest.Implementation`). None
+            screens nothing beyond stale prices and redistributes pro rata,
+            which is how a run behaved before it had stages.
         modifiers: Optional hooks that can skip rebalances or adjust trades.
         benchmark: The benchmark of record, stored on the result so every
             reader quotes excess return against the same comparator.
@@ -111,6 +117,7 @@ class BacktestEngine(PricingMixin):
                  currency: str | None = None,
                  modelling_assumptions: ModellingAssumptions | None = None,
                  transaction_cost_bps: float = 0.0,
+                 implementation: Implementation | None = None,
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
                  target_index: IndexResult | None = None,
@@ -153,6 +160,7 @@ class BacktestEngine(PricingMixin):
         self._price_gaps: list[PriceGap] = []
         self._gaps_seen: set[tuple[str, pd.Timestamp]] = set()
         self._rebalance_pricing: list[RebalancePricing] = []
+        self._rebalance_steps: list[RebalanceStep] = []
 
         # Filled by `run`. A name past its last listed date has no price
         # because it no longer exists, which is neither a holiday nor a gap.
@@ -160,6 +168,8 @@ class BacktestEngine(PricingMixin):
 
         self.transaction_cost_bps: float = transaction_cost_bps
         self.modifiers: list[BacktestModifier] = modifiers or []
+        self.implementation: Implementation = implementation or Implementation()
+        _refuse_screens_as_modifiers(self.modifiers)
 
         # The internal schedule representation: rebalance date -> weights.
         self._weight_schedule: dict[pd.Timestamp, dict[str, float]] = (
@@ -257,45 +267,35 @@ class BacktestEngine(PricingMixin):
 
         return schedule
 
-    def _drop_stale(self,
-                    weights: dict[str, float],
-                    date: pd.Timestamp) -> dict[str, float]:
-        """Remove names that have not traded recently enough to hold (BN-211).
+    def _planned(self,
+                 target: dict[str, float],
+                 date: pd.Timestamp,
+                 portfolio: Portfolio) -> dict[str, float]:
+        """Screen and redistribute one rebalance's target, and record how.
 
-        Applied to the *target* rather than to the book, so the ordinary
-        rebalance sells them: a stale name still has a last price, which is
-        what a delisted one does not, so it can be traded out through the
-        normal path. `_dispose_delisted` exists precisely because that path is
-        unavailable there, and the two conditions should not share a mechanism
-        just because they both end in a position being closed.
-
-        A no-op when no threshold is set, which is the default.
-
-        Weights are **renormalised** over what remains. Dropping a name and
-        leaving the rest as they were would put the difference into cash
-        silently and report a tracking gap against an index that holds it --
-        a smaller book, not a different one, which is the substitution this
-        codebase keeps removing. If a caller wants the cash they can say so by
-        weighting to less than one.
+        Stale names (BN-211) are the first screen: applied to the target
+        rather than the book, so the ordinary rebalance sells them, which a
+        stale name allows because it still has a last price. A delisted one
+        does not, which is why `_dispose_delisted` is a separate path.
         """
-        stale = self.data_provider.stale_identifiers(list(weights), date)
+        # BN-264: the stages replaced `_drop_stale`, which renormalised over
+        # the names left; the default pro-rata redistribution does the same.
+        stale_of = getattr(self.data_provider, "stale_identifiers", None)
+        stale = set(stale_of(list(target), date)) if callable(stale_of) else set()
+        held = {name for name, holding in portfolio.holdings.items()
+                if holding.quantity > 0}
 
-        if not stale:
-            return weights
+        step = plan(self.implementation, target, date, held, stale,
+                    ScreenContext(self.data_provider, self.currency))
+        self._rebalance_steps.append(step)
 
-        kept = {name: weight for name, weight in weights.items()
-                if name not in stale}
-        total = sum(kept.values())
+        if step.removed:
+            logger.info("[%s] %d name(s) removed from the target: %s.",
+                        date.date(), len(step.removed),
+                        ", ".join(f"{name} ({why})"
+                                  for name, why in sorted(step.removed.items())))
 
-        logger.info("[%s] %d name(s) dropped from the target: no trade within "
-                    "%d days.", date.date(), len(stale),
-                    self.data_provider.max_price_staleness_days)
-
-        if total <= 0.0:
-            return kept
-
-        return {name: weight / total for name, weight in kept.items()}
-
+        return step.weights
 
     def _dispose_delisted(self,
                           portfolio: Portfolio,
@@ -665,6 +665,10 @@ class BacktestEngine(PricingMixin):
         self._price_gaps.clear()
         self._gaps_seen.clear()
         self._rebalance_pricing.clear()
+        self._rebalance_steps.clear()
+
+        for screen in self.implementation.screens:
+            screen.prepare(self.data_provider)
 
         # The traded index's own sessions (BN-186), from the calendar BN-183
         # already wired in for the price read -- one source of truth, so the
@@ -728,7 +732,7 @@ class BacktestEngine(PricingMixin):
             target_w = self._get_target_weights_for_date(date)
 
             if target_w is not None:
-                target_w = self._drop_stale(target_w, date)
+                target_w = self._planned(target_w, date, portfolio)
 
             if target_w is not None:
                 # Step 1 prepares the day's page from what is *held*, and on
@@ -793,6 +797,7 @@ class BacktestEngine(PricingMixin):
             unfilled=unfilled,
             price_gaps=list(self._price_gaps),
             rebalance_pricing=list(self._rebalance_pricing),
+            rebalance_steps=list(self._rebalance_steps),
             currency=self.currency,
             modelling_assumptions=self.modelling_assumptions,
         ).with_data(self.data_provider)
@@ -885,3 +890,13 @@ def _warn_if_assumptions_differ(index_result: IndexResult,
     if differ:
         logger.warning("The index was calculated under different modelling "
                        "assumptions from this backtest: %s.", "; ".join(differ))
+
+
+def _refuse_screens_as_modifiers(modifiers: list[BacktestModifier]) -> None:
+    """Say where a screen goes, if one was passed as a modifier."""
+    screens = [type(modifier).__name__ for modifier in modifiers
+               if isinstance(modifier, Screen)]
+
+    if screens:
+        raise TypeError(f"{', '.join(screens)} is a screen, not a modifier: "
+                        f"pass it as Implementation(screens=[...]).")

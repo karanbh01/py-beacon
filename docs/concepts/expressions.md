@@ -244,40 +244,36 @@ dataset, and picks arbitrarily between two that carry the same field name.
 
 ### Backtest screens
 
-`ExpressionScreen(expression, fetcher, on_missing=False)`, from
-`beacon.backtest.rules`, applies an expression inside a backtest. Pass it in
-the engine's `modifiers`. The target weights still come from the index; the
-screen removes what should not be held. At every rebalance it resolves the
-expression for each name being traded or held, as of the rebalance date:
-
-- a buy of a name that fails is dropped, and its weight stays in cash;
-- a name held that fails is sold, at the price the portfolio was last marked
-  at, with no transaction cost;
-- if the rebalance already sells part of a failing name, that sell stands and
-  no further exit is added;
-- a failing name with no price to sell at is kept, with a warning.
+`ExpressionScreen(expression, on_missing=False)`, from `beacon.backtest`,
+applies an expression inside a backtest. Pass it in the backtest's
+`Implementation`. The target weights still come from the index; at every
+rebalance the screen resolves the expression for each target name as of the
+rebalance date, and a name that fails is removed from the target: sold if
+held, never bought, and its weight redistributed. Money fields are in the
+book's currency.
 
 ```python
-from beacon.backtest import BacktestEngine
-from beacon.backtest.rules import ExpressionScreen
+from beacon.backtest import BacktestEngine, ExpressionScreen, Implementation
 
-screen = ExpressionScreen(data.market.close < 150, fetcher)
+screen = ExpressionScreen(data.market.close < 150)
 
 backtest = BacktestEngine(start_date="2024-01-02", end_date="2024-06-28",
                           initial_capital=1_000_000.0, data_provider=fetcher,
                           index_result=result, calendar="XNYS",
-                          modifiers=[screen]).run()
+                          implementation=Implementation(screens=[screen])).run()
 
-print(sorted(backtest.portfolio.holdings))   # ['BBB', 'CCC']: AAA closed above 150 in June
+print(sorted(backtest.portfolio.holdings))
 ```
 
-See [Backtest](backtest.md) for the engine and its other modifiers.
+See [Backtest](backtest.md#implementation-screens-and-redistribution) for the
+other screens, buffers and redistribution.
 
 ## Validation
 
 Every use of an expression checks it against the data before it runs:
-`universe.where` and `ExpressionScreen` when they are called, and an index's
-`ExpressionRule` before the index calculates or previews anything. A field the
+`universe.where` when it is called, `ExpressionScreen` when a backtest using
+it starts, and an index's `ExpressionRule` before the index calculates or
+previews anything. A field the
 data does not have raises `ExpressionError`, naming each such field with the
 suggestions below, rather than leaving the screen to select nothing. To check
 an expression yourself, use `beacon.expressions.validation`:

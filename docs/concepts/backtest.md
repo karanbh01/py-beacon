@@ -149,62 +149,106 @@ resolves to the name's last bar on or before it:
 A date outside the data's coverage raises `CalculationError`. A delisted name
 is never carried forward past its last listed date.
 
-**Stale names.** When the fetcher is opened with `max_price_staleness_days`,
-a rebalance drops every target name that has not traded within that many
-calendar days, and renormalises the remaining weights so the book stays fully
-invested. The dropped name is then sold through the ordinary path at its last
-price. With no threshold (the default) nothing is dropped.
+**Stale names.** When `max_price_staleness_days` is set (on the data source
+or in the [modelling assumptions](#modelling-assumptions)), a rebalance
+removes every target name that has not traded within that many calendar days.
+It is the first screen at every rebalance (see
+[Implementation](#implementation-screens-and-redistribution)), and the
+removed name is then sold through the ordinary path at its last price. With
+no threshold (the default) nothing is removed.
+
+## Implementation: screens and redistribution
+
+An `Implementation` says how the index is carried out at your size, without
+changing the index. Each rebalance runs as stages:
+
+1. **Target**: the index's weights, as published.
+2. **Screens**: stale names are removed first, then each screen in order
+   removes the names it rejects. A removed name is sold if held and never
+   bought.
+3. **Redistribution**: the removed weight is spread across the remaining
+   names in proportion to their weights (`redistribution="pro_rata"`, the
+   default), or left in cash (`redistribution="cash"`).
+4. **Trades**, generated from the result, then any [modifiers](#modifiers).
+
+| Screen | Removes a name when |
+| --- | --- |
+| `MarketCapScreen(min_cap, exit=None, float_adjusted=False)` | its market cap, in the book's currency, is below the level |
+| `LiquidityScreen(min_traded_value=..., exit=None, lookback_days=63)` | its average daily close times volume, in the book's currency, is below the level |
+| `LiquidityScreen(min_volume=..., exit=None, lookback_days=63)` | its average daily share volume is below the level |
+| `MinimumPriceScreen(min_price, exit=None)` | its last close, in the book's currency, is below the level |
+| `ListingAgeScreen(min_days)` | fewer than `min_days` calendar days have passed since its first price in the data |
+| `ExclusionScreen(identifiers=..., sectors=..., regions=...)` | it is listed, or its `SECTOR` or `REGION` on the date is |
+| `ExpressionScreen(expression, on_missing=False)` | it fails the [expression](expressions.md); money fields are in the book's currency |
+
+**Buffers.** The threshold screens take an optional `exit` level below the
+entry level. A name not held must reach the entry level to come in; a held
+name stays until it falls below `exit`, so a name near the threshold does not
+flip in and out at every rebalance. Without `exit`, both levels are the
+entry level.
+
+A threshold screen rejects a name it cannot value (no price or no share
+count) unless built with `on_missing=True`. An `ExpressionScreen` naming a
+field the data does not have refuses the run before it starts.
+
+```python
+from beacon.backtest import (
+    ExpressionScreen,
+    Implementation,
+    MarketCapScreen,
+)
+from beacon.expressions import data
+
+screened = Backtest(
+    initial_capital=1_000_000.0, data_provider=fetcher,
+    implementation=Implementation(screens=[
+        ExpressionScreen(data.reference.sector != "Utilities"),
+        MarketCapScreen(min_cap=5e10, exit=4e10),
+    ]),
+).run(definition, start="2023-01-03", end="2024-12-31")
+
+first = screened.rebalance_steps[0]
+print(first.removed)                         # {'CCC': 'ExpressionScreen'}
+print({name: round(weight, 3) for name, weight in first.weights.items()})
+```
+
+`result.rebalance_steps` records each rebalance's stages as a
+`RebalanceStep`: the `target`, the names `removed` and the screen that
+removed each (`"stale price"` for a stale one), the `weights` traded to, and
+the `cash_weight` they leave. Screens are re-evaluated at every rebalance
+from data dated on or before it.
 
 ## Modifiers
 
-A `BacktestModifier` changes rebalance behaviour without changing the index.
-It implements two methods:
+A `BacktestModifier` changes rebalance behaviour after the trades are
+generated. It implements two methods:
 
 - `should_skip_rebalance(date, portfolio, target_weights)`: return `True` to
   skip the rebalance entirely.
 - `adjust_trades(trades, date, portfolio)`: return a changed list of
   `TradeInstruction`s.
 
-Modifiers run in the order given. Two ship:
-
-- **`DriftThresholdModifier(threshold)`** skips a rebalance when every name's
-  weight is within `threshold` of its target (0.02 means 2 percentage
-  points), saving turnover.
-- **`ExpressionScreen(expression, fetcher, on_missing=False)`**, in
-  `beacon.backtest.rules`, drops names that fail an
-  [expression](expressions.md), evaluated point in time at every rebalance.
-  Buys of an excluded name are cancelled and a holding of it is sold at the
-  price it was last marked at, with no cost. The freed weight is **not**
-  redistributed: it stays in cash. A name with no value for the expression
-  fails unless `on_missing=True`.
+Modifiers run in the order given. **`DriftThresholdModifier(threshold)`**
+ships: it skips a rebalance when every name's weight is within `threshold` of
+its target (0.02 means 2 percentage points), saving turnover. Deciding which
+names may be held is a screen's job; a screen passed as a modifier is refused
+with a message saying where it goes.
 
 ```python
 from beacon.backtest import DriftThresholdModifier
-from beacon.backtest.rules import ExpressionScreen
-from beacon.expressions import data
 
 drifting = Backtest(
     initial_capital=1_000_000.0, data_provider=fetcher,
     modifiers=[DriftThresholdModifier(0.02)],
 ).run(definition, start="2023-01-03", end="2024-12-31")
 
-screened = Backtest(
-    initial_capital=1_000_000.0, data_provider=fetcher,
-    modifiers=[ExpressionScreen(data.reference.sector != "Utilities", fetcher)],
-).run(definition, start="2023-01-03", end="2024-12-31")
-
 print("Rebalances traded:", len(drifting.rebalance_pricing),
       "of", len(result.rebalance_pricing))
-print("Weights without CCC:", screened.portfolio.get_weights())
-print("Cash:", round(screened.portfolio.cash.iloc[-1], 2))
 ```
 
 The drift run trades only its first rebalance. Share counts never change in
 the sample data, so the market-cap weights move with prices exactly as the
-portfolio's do and there is never more than 2 points to correct. The screened run never holds
-CCC, the one utility, and keeps CCC's weight in cash. Combining the two needs
-care: an excluded name stays away from its target, so the drift threshold
-never skips.
+portfolio's do and there is never more than 2 points to correct.
 
 ## Reading the result
 
