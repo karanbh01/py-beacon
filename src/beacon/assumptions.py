@@ -18,8 +18,9 @@ data too, so these reach it as well, and an index and the backtest tracking it
 never assume different things.
 
 **Simulation conventions** decide how a backtest is valued and measured: what
-cash earns, the risk-free rate the Sharpe ratio is measured against, and how
-many periods make a year when returns are annualised. They do not affect an
+cash earns, the risk-free rate the Sharpe ratio is measured against, how many
+periods make a year when returns are annualised, and the share of each
+dividend withheld. They do not affect an
 index.
 
 ## Unset fields, and where their values come from
@@ -71,6 +72,8 @@ class ModellingAssumptions:
             Unset is 0.
         periods_per_year: How many periods make a year when returns are
             annualised. Unset is 252.
+        withholding_tax_rate: The share of each dividend withheld before the
+            book receives it, as a decimal. Unset is 0.
 
     Raises:
         ValueError: If a field is set to a value it cannot take.
@@ -81,6 +84,7 @@ class ModellingAssumptions:
     cash_rate: float | None = None
     risk_free_rate: float | None = None
     periods_per_year: int | None = None
+    withholding_tax_rate: float | None = None
 
     def __post_init__(self) -> None:
         if self.fx_policy is not None and self.fx_policy not in FX_POLICIES:
@@ -99,6 +103,12 @@ class ModellingAssumptions:
         if self.periods_per_year is not None and self.periods_per_year < 1:
             raise ValueError(f"periods_per_year must be at least 1, got "
                              f"{self.periods_per_year!r}.")
+
+        if (self.withholding_tax_rate is not None
+                and not 0.0 <= self.withholding_tax_rate < 1.0):
+            raise ValueError(f"withholding_tax_rate is a share of each "
+                             f"dividend from 0 up to 1, got "
+                             f"{self.withholding_tax_rate!r}.")
 
         for name in ("cash_rate", "risk_free_rate"):
             value = getattr(self, name)
@@ -131,7 +141,8 @@ class ModellingAssumptions:
             cash_rate=_or(self.cash_rate, DEFAULT_CASH_RATE),
             risk_free_rate=_or(self.risk_free_rate, DEFAULT_RISK_FREE_RATE),
             periods_per_year=_or(self.periods_per_year,
-                                 DEFAULT_PERIODS_PER_YEAR))
+                                 DEFAULT_PERIODS_PER_YEAR),
+            withholding_tax_rate=_or(self.withholding_tax_rate, 0.0))
 
     def with_defaults(self) -> "ModellingAssumptions":
         """The simulation conventions filled from the library defaults where
@@ -141,7 +152,8 @@ class ModellingAssumptions:
                        risk_free_rate=_or(self.risk_free_rate,
                                           DEFAULT_RISK_FREE_RATE),
                        periods_per_year=_or(self.periods_per_year,
-                                            DEFAULT_PERIODS_PER_YEAR))
+                                            DEFAULT_PERIODS_PER_YEAR),
+                       withholding_tax_rate=_or(self.withholding_tax_rate, 0.0))
 
     def effective(self) -> "ModellingAssumptions":
         """These assumptions laid over the process-wide default."""

@@ -157,6 +157,29 @@ It is the first screen at every rebalance (see
 removed name is then sold through the ordinary path at its last price. With
 no threshold (the default) nothing is removed.
 
+## Dividends
+
+A holding is entitled to a cash distribution if it is held at the start of
+the ex-date, before that day's trades. The cash arrives on the pay date (the
+ex-date when the data gives none), converted into the book's currency that
+day and net of `withholding_tax_rate` from the
+[modelling assumptions](#modelling-assumptions). A holding sold before the
+pay date is still paid. Cancelled distributions are ignored, and the price
+data must already show the ex-date drop, as an unadjusted feed does.
+
+`Backtest(dividends=...)` decides what happens to the cash:
+
+| Policy | The cash |
+| --- | --- |
+| `"accumulate"` (default) | stays in the book and is invested at the next rebalance |
+| `"reinvest"` | buys the current holdings, in proportion to their value, the day it arrives |
+| `"distribute"` | is paid out of the book; returns add it back, so performance is still total return |
+
+Each payment is a `CashFlow` in `result.portfolio.cash_flows`: a `DIVIDEND`
+per name paid, and a negative `DISTRIBUTION` when the cash is paid out. With
+`"distribute"`, `trading_nav` is the NAV after the payout, while
+`get_returns()` and `summary()` add the payout back.
+
 ## Implementation: screens and redistribution
 
 An `Implementation` says how the index is carried out at your size, without
@@ -317,8 +340,11 @@ Differences come from what the index does not model or models differently:
 - **Partial fills.** With costs on, the last buy of a rebalance is usually
   short and the difference sits in cash.
 - **Distributions.** A `TOTAL_RETURN` or `NET_TOTAL_RETURN` index reinvests
-  dividends; the engine receives no distributions and earns only the price
-  return. It falls behind by about the dividend yield.
+  a dividend on its ex-date. The book is paid it on the pay date and, by
+  default, invests it at the next rebalance, so it holds the cash in between
+  (see [Dividends](#dividends)). With `dividends="reinvest"` and the pay date
+  on the ex-date, the two agree exactly. Set `withholding_tax_rate` to the
+  index's rate to track a net-total-return index.
 - **Price gaps.** On an open session with no bar, both carry the name's last
   close and record the day in their own `price_gaps`, so a gap does not
   separate them.
@@ -372,11 +398,12 @@ data, so a result can say what it assumed. Every field is optional:
 | `cash_rate` | 0 | The annual rate cash earns, accrued daily, ACT/365 |
 | `risk_free_rate` | 0 | The rate the Sharpe ratio is measured against |
 | `periods_per_year` | 252 | How returns, volatility and tracking error are annualised |
+| `withholding_tax_rate` | 0 | The share of each dividend withheld before the book receives it |
 
 The first three are **data treatment**: they decide how data is read, so they
 reach the index calculation too. A backtest hands its assumptions to the
 calculator, and the index and the simulation read data the same way. The
-other three are **simulation conventions**, which do not affect an index.
+others are **simulation conventions**, which do not affect an index.
 
 Set a default for the whole process once, and override any field for one
 backtest. A backtest's own fields win field by field, so the example below

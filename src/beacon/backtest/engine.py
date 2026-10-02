@@ -19,6 +19,7 @@ from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 # working -- and because the engine is its main producer.
 from ..portfolio.base import Holding, Portfolio, TradeInstruction
 from ..portfolio.cash_flows import INTEREST
+from .dividends import ACCUMULATE, DIVIDEND_POLICIES, DividendsMixin
 from .implementation import Implementation, RebalanceStep, plan
 from .pricing import PricingMixin
 from .result import (
@@ -49,7 +50,7 @@ logger = logging.getLogger(__name__)
 # BN-167. The calendar has been carried by every definition since BN-180; it
 # decides which days the run steps onto (BN-186) and how a missing bar is read
 # (BN-183).
-class BacktestEngine(PricingMixin):
+class BacktestEngine(PricingMixin, DividendsMixin):
     """Simulates portfolio execution against a target weight schedule.
 
     The engine consumes target weights from an ``IndexResult`` and simulates
@@ -82,6 +83,12 @@ class BacktestEngine(PricingMixin):
             naming each setting that differs.
         transaction_cost_bps: Transaction cost in basis points applied to
             each trade's notional value. Defaults to 0 (no cost).
+        dividends: What happens to cash distributions the holdings are
+            paid: ``"accumulate"`` (the default) keeps them as cash until the
+            next rebalance, ``"reinvest"`` buys the current holdings with
+            them the day they arrive, and ``"distribute"`` pays them out of
+            the book, with returns adding them back. See
+            :mod:`beacon.backtest.dividends`.
         implementation: The screens and redistribution rule applied at each
             rebalance (see :class:`~beacon.backtest.Implementation`). None
             screens nothing beyond stale prices and redistributes pro rata,
@@ -117,6 +124,7 @@ class BacktestEngine(PricingMixin):
                  currency: str | None = None,
                  modelling_assumptions: ModellingAssumptions | None = None,
                  transaction_cost_bps: float = 0.0,
+                 dividends: str = ACCUMULATE,
                  implementation: Implementation | None = None,
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
@@ -169,6 +177,12 @@ class BacktestEngine(PricingMixin):
         self.transaction_cost_bps: float = transaction_cost_bps
         self.modifiers: list[BacktestModifier] = modifiers or []
         self.implementation: Implementation = implementation or Implementation()
+
+        if dividends not in DIVIDEND_POLICIES:
+            raise ValueError(f"Unknown dividend policy {dividends!r}. "
+                             f"Supported: {', '.join(DIVIDEND_POLICIES)}.")
+
+        self.dividends: str = dividends
         _refuse_screens_as_modifiers(self.modifiers)
 
         # The internal schedule representation: rebalance date -> weights.
@@ -670,6 +684,8 @@ class BacktestEngine(PricingMixin):
         for screen in self.implementation.screens:
             screen.prepare(self.data_provider)
 
+        self._start_dividends()
+
         # The traded index's own sessions (BN-186), from the calendar BN-183
         # already wired in for the price read -- one source of truth, so the
         # day the engine steps onto is the day it can price. Without a
@@ -716,6 +732,11 @@ class BacktestEngine(PricingMixin):
 
             # 0b. Interest on the cash held since the last simulated day.
             self._accrue_interest(portfolio, previous, date)
+
+            # 0c. Dividends: owed for what is held at the start of an ex-date,
+            # received on the pay date (BN-263).
+            self._record_entitlements(portfolio, previous, date)
+            self._pay_dividends(portfolio, date)
 
             previous = date
 

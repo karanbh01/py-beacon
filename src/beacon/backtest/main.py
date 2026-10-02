@@ -49,6 +49,7 @@ from ..index.derived import (
 )
 from ..index.result import IndexResult
 from ..optimise import OptimisationConfig
+from .dividends import ACCUMULATE
 from .engine import BacktestEngine
 from .implementation import Implementation
 from .result import BacktestResult
@@ -138,6 +139,9 @@ class Backtest:
             data, laid over the process-wide default (see
             :func:`beacon.use_modelling_assumptions`). The index calculation
             reads data under the same assumptions as the simulation.
+        dividends: What happens to cash distributions: ``"accumulate"`` (the
+            default), ``"reinvest"`` or ``"distribute"``. See
+            :mod:`beacon.backtest.dividends`.
         implementation: The screens and redistribution rule applied at each
             rebalance. None screens nothing beyond stale prices.
         modifiers: Optional hooks that can skip rebalances or adjust trades.
@@ -159,6 +163,7 @@ class Backtest:
                  price_column: str = "CLOSE",
                  currency: str | None = None,
                  modelling_assumptions: ModellingAssumptions | None = None,
+                 dividends: str = ACCUMULATE,
                  implementation: Implementation | None = None,
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
@@ -170,6 +175,7 @@ class Backtest:
         self.currency: str | None = currency
         self.modelling_assumptions: ModellingAssumptions | None = modelling_assumptions
         self.implementation: Implementation | None = implementation
+        self.dividends: str = dividends
         self.modifiers: list[BacktestModifier] | None = modifiers
         self.benchmark: IndexResult | pd.Series | None = benchmark
         self.data_provider: DataFetcher | None = data_provider
@@ -268,6 +274,7 @@ class Backtest:
             price_column=self.price_column,
             currency=self.currency,
             modelling_assumptions=assumptions,
+            dividends=self.dividends,
             implementation=self.implementation,
             transaction_cost_bps=self.transaction_cost_bps,
             modifiers=self.modifiers,

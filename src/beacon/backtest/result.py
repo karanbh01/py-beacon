@@ -51,6 +51,7 @@ from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult, PriceGap
 from ..plot.base import PlotAccessor
 from ..portfolio.base import Portfolio
+from ..portfolio.cash_flows import DISTRIBUTION
 from .asset_view import BacktestAssetView
 from .implementation import RebalanceStep
 
@@ -332,7 +333,9 @@ class BacktestResult:
 
         The first runs from the initial capital to the first day's close, so
         it carries the cost of the opening trades; each later one is from one
-        close to the next.
+        close to the next. Cash paid out of the book (a ``"distribute"``
+        dividend policy) is added back on the day it was paid, so returns
+        stay total returns.
 
         Returns:
             pd.Series: Returns by date, one per simulated day.
@@ -342,17 +345,43 @@ class BacktestResult:
         if nav.empty:
             return pd.Series(dtype=float)
 
-        returns = nav.pct_change()
+        paid = self._paid_out().reindex(nav.index, fill_value=0.0)
+        returns = (nav + paid) / nav.shift(1) - 1.0
         initial = self.portfolio.initial_capital
 
         # BN-246: the first return used to be dropped, so the cost of buying
         # in on day one never reached any metric.
         if initial > 0:
-            returns.iloc[0] = nav.iloc[0] / initial - 1.0
+            returns.iloc[0] = (nav.iloc[0] + paid.iloc[0]) / initial - 1.0
 
             return returns
 
         return returns.dropna()
+
+    def _paid_out(self) -> pd.Series:
+        """Cash paid out of the book to its investors, by date, as positive
+        amounts. Empty unless the run distributed dividends."""
+        paid = [(flow.date, -flow.amount) for flow in self.portfolio.cash_flows
+                if flow.kind == DISTRIBUTION]
+
+        if not paid:
+            return pd.Series(dtype=float)
+
+        frame = pd.DataFrame(paid, columns=["date", "amount"])
+
+        return frame.groupby("date")["amount"].sum()
+
+    def _performance_nav(self) -> pd.Series:
+        """The NAV as total return: the NAV itself, or, when cash was paid
+        out, the initial capital grown by the returns."""
+        nav = self.trading_nav
+
+        if self._paid_out().empty or nav.empty:
+            return nav
+
+        initial = self.portfolio.initial_capital
+
+        return initial * (1.0 + self.get_returns()).cumprod()
 
     def get_annual_returns(self) -> pd.Series:
         """The portfolio's calendar-year returns.
@@ -454,7 +483,8 @@ class BacktestResult:
         the Sharpe ratio is the annualised return in excess of its risk-free
         rate, over the volatility. Both come from the run's modelling
         assumptions: 252 and 0 unless they say otherwise. Total return is
-        measured against the portfolio's initial capital.
+        measured against the portfolio's initial capital, with any dividends
+        paid out of the book added back.
 
         Returns:
             dict: Dictionary containing: total_return, annualised_return,
@@ -463,7 +493,8 @@ class BacktestResult:
         """
         returns = self.get_returns()
         n_periods = len(returns)
-        nav = self.trading_nav
+        # BN-263: with dividends paid out, the NAV understates performance.
+        nav = self._performance_nav()
         initial = self.portfolio.initial_capital
 
         # Total return

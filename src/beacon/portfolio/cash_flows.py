@@ -13,6 +13,8 @@ import pandas as pd
 
 INTEREST = "INTEREST"
 DIVIDEND = "DIVIDEND"
+# Cash paid out of the book to its investors, recorded as a negative amount.
+DISTRIBUTION = "DISTRIBUTION"
 
 
 @dataclass(frozen=True)
@@ -22,7 +24,8 @@ class CashFlow:
     Attributes:
         date: When the cash moved.
         amount: How much, in the portfolio's currency.
-        kind: What it was: ``"INTEREST"`` or ``"DIVIDEND"``.
+        kind: What it was: ``"INTEREST"``, ``"DIVIDEND"`` (received from a
+            holding) or ``"DISTRIBUTION"`` (paid out to investors).
         asset_id: The holding it came from, for a dividend. None for interest.
     """
     date: pd.Timestamp
