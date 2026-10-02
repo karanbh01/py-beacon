@@ -150,6 +150,11 @@ class TestConstruction:
                                                 cache):
         assert Backtest(initial_capital=CAPITAL, cache=cache).cache is cache
 
+    def test_false_turns_caching_off(self):
+        """BN-262: None means the default location, so off needed its own
+        spelling."""
+        assert Backtest(initial_capital=CAPITAL, cache=False).cache is None
+
     def test_the_end_date_is_required(self):
         """Mirrors the calculator's own contract: a window with no end is a
         caller mistake, not a default to invent."""

@@ -3,12 +3,18 @@
 IndexFund: a fund that tracks a target index by running a backtest of it.
 """
 import logging
+from typing import Any, Literal
 
 import pandas as pd
 
+from ..assumptions import ModellingAssumptions
+from ..backtest.dividends import REINVEST
+from ..backtest.implementation import Implementation
 from ..backtest.main import Backtest
 from ..backtest.result import BacktestResult
+from ..backtest.rules import BacktestModifier
 from ..data.fetcher import DataFetcher
+from ..index.cache import IndexResultCache
 from ..index.calculation import IndexCalculator
 from ..index.constructor import IndexDefinition
 from ..index.result import IndexResult
@@ -35,7 +41,15 @@ class IndexFund:
                  index_agent: IndexCalculator,
                  portfolio: Portfolio,
                  data_provider: DataFetcher,
-                 management_fee_bps: int = 0):
+                 management_fee_bps: int = 0,
+                 *,
+                 currency: str | None = None,
+                 modelling_assumptions: ModellingAssumptions | None = None,
+                 dividends: str = REINVEST,
+                 implementation: Implementation | None = None,
+                 modifiers: list[BacktestModifier] | None = None,
+                 benchmark: IndexResult | pd.Series | None = None,
+                 cache: IndexResultCache | Literal[False] | None = None):
         """
         Initializes an IndexFund.
 
@@ -50,6 +64,23 @@ class IndexFund:
                        the fund never mutates this portfolio.
             data_provider: DataFetcher instance for market data.
             management_fee_bps: The annual management fee in basis points (e.g., 10 bps = 0.1%).
+
+        The keyword-only settings are passed to the
+        :class:`~beacon.backtest.main.Backtest` the fund runs, and each takes
+        that class's default when unset:
+
+        Keyword Args:
+            currency: The book's currency. None keeps it in the index's.
+            modelling_assumptions: What the run takes as given about markets
+                and data, laid over the process-wide default.
+            dividends: What happens to cash distributions: ``"reinvest"``
+                (the default), ``"cash"`` or ``"distribute"``.
+            implementation: How the index is carried out at the fund's size:
+                screens, caps, market impact and execution limits.
+            modifiers: Hooks that can skip rebalances or adjust trades.
+            benchmark: The benchmark of record, stored on every result.
+            cache: Where calculated indices are kept between runs. None uses
+                the default location, and False turns caching off.
 
         Raises:
             ValueError: If any argument is missing or empty, or
@@ -74,6 +105,18 @@ class IndexFund:
         self.portfolio: Portfolio = portfolio
         self.data_provider: DataFetcher = data_provider
         self.management_fee_bps: int = management_fee_bps  # e.g., 20 for 0.20%
+
+        # Passed to every Backtest the fund builds (BN-262): a fund used to
+        # run with the defaults whatever the caller needed.
+        self._backtest_settings: dict[str, Any] = {
+            "currency": currency,
+            "modelling_assumptions": modelling_assumptions,
+            "dividends": dividends,
+            "implementation": implementation,
+            "modifiers": modifiers,
+            "benchmark": benchmark,
+            "cache": cache,
+        }
 
         # Cached outputs of the composed calculator + engine pipeline.
         self._index_result: IndexResult | None = None
@@ -142,7 +185,8 @@ class IndexFund:
         backtest = Backtest(initial_capital=self.portfolio.cash_balance,
                             transaction_cost_bps=transaction_cost_bps,
                             price_column=self.index_agent.price_column,
-                            data_provider=self.data_provider)
+                            data_provider=self.data_provider,
+                            **self._backtest_settings)
         self._backtest_result = backtest.run(self.target_index_definition,
                                              start=start,
                                              end=end_date)

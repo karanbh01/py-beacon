@@ -149,6 +149,22 @@ class TestTheCheckRunsBeforeAnyWork:
         assert "whole dataset" in message
         assert "N0" not in message
 
+    def test_an_equal_weighted_index_needs_share_counts_too(self):
+        """BN-262: the calculation sizes every index from market cap. Was:
+        a pass here, then a failure at the divisor as an index "worth 0.0".
+        No change to the definition helps, so none is suggested."""
+        calculator = IndexCalculator(definition(EqualWeighted()),
+                                     fetcher_with(CLOSE=100.0))
+
+        with pytest.raises(CalculationError) as raised:
+            calculator.run(end_date=END)
+
+        message = str(raised.value)
+
+        assert ("SHARES_OUTSTANDING, for the index calculation, to size the "
+                "index from market cap") in message
+        assert "change the definition" not in message
+
     def test_a_missing_volume_column_names_volume(self):
         """Was: "index holds nothing on its base date", with no mention of
         volume at all."""
@@ -191,7 +207,7 @@ class TestTheCheckRunsBeforeAnyWork:
                                        [MarketCapRule(min_market_cap=1.0)]),
                             "CLOSE")
 
-        assert needs["SHARES_OUTSTANDING"] == [
+        assert needs["SHARES_OUTSTANDING"][:2] == [
             "MarketCapWeighted (free-float adjusted)", "MarketCapRule"]
         assert needs["CLOSE"][0].startswith("the index calculation")
 

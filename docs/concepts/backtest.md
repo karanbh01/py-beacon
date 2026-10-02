@@ -544,9 +544,9 @@ or capital calculates the index once.
   store, even with identical content, changes its stamp and misses.
 - **Location.** `cache=None` (the default) uses `index_cache` in the
   platform's app-data folder, which needs the `platformdirs` package; without
-  it runs are uncached. Pass `IndexResultCache(path)` to put it elsewhere.
-  There is no switch that turns caching off; in-memory data is simply never
-  cached.
+  it runs are uncached. Pass `IndexResultCache(path)` to put it elsewhere,
+  or `cache=False` to turn caching off. In-memory data is never cached
+  either way.
 - **Housekeeping.** Entries are written atomically, a corrupt entry is a miss
   and is removed, and the cache is pruned to 512 MB, least recently used
   first. `clear()` empties it.

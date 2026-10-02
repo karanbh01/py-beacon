@@ -4,14 +4,20 @@ ETF: an exchange-traded fund, an IndexFund with a ticker, a creation unit size
 and a simulated market price.
 """
 import logging
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
+from ..assumptions import ModellingAssumptions
+from ..backtest.dividends import REINVEST
+from ..backtest.implementation import Implementation
 from ..backtest.result import BacktestResult
+from ..backtest.rules import BacktestModifier
 from ..data.fetcher import DataFetcher
+from ..index.cache import IndexResultCache
 from ..index.calculation import IndexCalculator
 from ..index.constructor import IndexDefinition
+from ..index.result import IndexResult
 from ..portfolio.base import Portfolio
 from .base import IndexFund
 
@@ -30,7 +36,15 @@ class ETF(IndexFund):
                  portfolio: Portfolio,
                  data_provider: DataFetcher,
                  management_fee_bps: int = 0,
-                 creation_unit_size: int = 50000): # Typical size of a creation unit
+                 creation_unit_size: int = 50000,  # Typical size of a creation unit
+                 *,
+                 currency: str | None = None,
+                 modelling_assumptions: ModellingAssumptions | None = None,
+                 dividends: str = REINVEST,
+                 implementation: Implementation | None = None,
+                 modifiers: list[BacktestModifier] | None = None,
+                 benchmark: IndexResult | pd.Series | None = None,
+                 cache: IndexResultCache | Literal[False] | None = None):
         """
         Initializes an ETF.
 
@@ -47,6 +61,10 @@ class ETF(IndexFund):
             management_fee_bps: Annual management fee in basis points.
             creation_unit_size: The number of ETF shares in a creation/redemption unit.
 
+        The keyword-only settings are those of
+        :class:`~beacon.fund.base.IndexFund`, passed to the backtest the ETF
+        runs.
+
         Raises:
             ValueError: If an argument is missing or empty,
                 *management_fee_bps* is negative, or *creation_unit_size* is
@@ -57,7 +75,14 @@ class ETF(IndexFund):
                          index_agent=index_agent,
                          portfolio=portfolio,
                          data_provider=data_provider,
-                         management_fee_bps=management_fee_bps)
+                         management_fee_bps=management_fee_bps,
+                         currency=currency,
+                         modelling_assumptions=modelling_assumptions,
+                         dividends=dividends,
+                         implementation=implementation,
+                         modifiers=modifiers,
+                         benchmark=benchmark,
+                         cache=cache)
         if not etf_ticker:
             raise ValueError("etf_ticker cannot be empty.")
         if creation_unit_size <= 0:

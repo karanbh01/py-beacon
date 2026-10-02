@@ -31,7 +31,7 @@ the front door works on the core install exactly as it does on a full one.
 # walk-forward mode, not built here. Optimised runs are BN-167; `beacon.optimise`
 # has imported scipy-free since BN-166.
 import logging
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
@@ -154,7 +154,8 @@ class Backtest:
             is honoured.
         cache: Where calculated IndexResults are kept between runs. None
             uses the default location when `platformdirs` is available and
-            degrades to no caching when it is not.
+            degrades to no caching when it is not. False turns caching off,
+            so every run calculates its index afresh.
     """
 
     def __init__(self,
@@ -168,7 +169,7 @@ class Backtest:
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
                  data_provider: DataFetcher | None = None,
-                 cache: IndexResultCache | None = None):
+                 cache: IndexResultCache | Literal[False] | None = None):
         self.initial_capital: float = initial_capital
         self.transaction_cost_bps: float = transaction_cost_bps
         self.price_column: str = price_column
@@ -179,8 +180,12 @@ class Backtest:
         self.modifiers: list[BacktestModifier] | None = modifiers
         self.benchmark: IndexResult | pd.Series | None = benchmark
         self.data_provider: DataFetcher | None = data_provider
-        self.cache: IndexResultCache | None = (cache if cache is not None
-                                               else _default_cache())
+        # False switches caching off (BN-262): None already meant "the
+        # default location", so there was no way to ask for none.
+        self.cache: IndexResultCache | None = (
+            None if cache is False
+            else cache if cache is not None
+            else _default_cache())
 
         logger.info("Backtest initialised: capital %.2f, cost %.1f bps, "
                     "cache %s.",

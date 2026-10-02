@@ -3,9 +3,11 @@
 Whether a dataset has the columns a definition needs, asked once up front.
 
 Every rule and weighting scheme declares the market columns it reads
-(`required_columns`), and `require_columns` checks the union, plus the price
-column the calculation values holdings with, against the dataset **before a
-run does any work**. A missing column is refused with a `CalculationError`
+(`required_columns`), and `require_columns` checks the union, plus what the
+calculation itself reads, against the dataset **before a run does any work**.
+The calculation reads the price column it values holdings with, and
+SHARES_OUTSTANDING, because it sizes every index from market cap whatever the
+weighting scheme. A missing column is refused with a `CalculationError`
 that names each column, what needs it, and what the dataset has instead.
 
 Without this check, a run would get as far as the first read that needed the
@@ -37,6 +39,10 @@ from ..expressions.core import Expression
 from ..expressions.validation import require_valid
 from .constructor import IndexDefinition
 
+# Who needs a column the calculation reads, whatever the definition.
+CALCULATION = "the index calculation"
+SHARES_COLUMN = "SHARES_OUTSTANDING"
+
 
 def required_by(definition: IndexDefinition,
                 price_column: str) -> dict[str, list[str]]:
@@ -64,12 +70,18 @@ def required_by(definition: IndexDefinition,
             if who not in needs[column]:
                 needs[column].append(who)
 
-    note([price_column], "the index calculation, to value holdings daily")
+    note([price_column], f"{CALCULATION}, to value holdings daily")
     note(definition.weighting_scheme.required_columns(),
          _describe_scheme(definition.weighting_scheme))
 
     for rule in definition.eligibility_rules:
         note(rule.required_columns(), rule.rule_name)
+
+    # BN-262: the base-date size is price x shares summed, for every scheme,
+    # so an equal-weighted index over data with no share counts used to pass
+    # this check and fail at the divisor as an index "worth 0.0".
+    note([SHARES_COLUMN], f"{CALCULATION}, to size the index from market cap "
+                          f"whatever its weighting")
 
     return needs
 
@@ -184,11 +196,17 @@ def _describe_missing(definition: IndexDefinition,
     """The refusal, stated as the dataset's problem rather than a company's."""
     lines = "; ".join(f"{column}, for {' and '.join(who)}"
                       for column, who in sorted(missing.items()))
+    plural = len(missing) > 1
+    # A column the calculation reads can only be loaded: no change to the
+    # definition stops it being read.
+    avoidable = any(not who.startswith(CALCULATION)
+                    for needers in missing.values() for who in needers)
+    instead = (f", or change the definition so it does not need "
+               f"{'them' if plural else 'it'}" if avoidable else "")
 
     return (f"index '{definition.index_id}' cannot run on this dataset. It needs "
             f"{lines}, and the dataset's market data has no such "
-            f"column{'s' if len(missing) > 1 else ''} -- it has "
+            f"column{'s' if plural else ''} -- it has "
             f"{', '.join(available) or 'no columns at all'}. This is a property "
             f"of the whole dataset, not of any one company. Load the missing "
-            f"column{'s' if len(missing) > 1 else ''}, or change the definition "
-            f"so it does not need {'them' if len(missing) > 1 else 'it'}.")
+            f"column{'s' if plural else ''}{instead}.")

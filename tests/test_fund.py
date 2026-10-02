@@ -7,11 +7,12 @@ provider exposing the unified DataFetcher interface — fetch_market_data,
 fetch_reference_data and fetch_shares_outstanding — so the full pipeline runs
 end to end with no external data.
 """
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
 
+from beacon.backtest import Backtest, BacktestModifier
 from beacon.data.base import MarketData
 from beacon.data.fetcher import DataFetcher
 from beacon.fund.base import IndexFund
@@ -331,6 +332,88 @@ class TestIndexFundFee:
 # ---------------------------------------------------------------------------
 # ETF — construction
 # ---------------------------------------------------------------------------
+
+class SkipEveryRebalance(BacktestModifier):
+
+    def should_skip_rebalance(self,
+                              date,
+                              portfolio,
+                              target_weights):
+        return True
+
+    def adjust_trades(self,
+                      trades,
+                      date,
+                      portfolio):
+        return trades
+
+
+def _fund(fund_class,
+          definition,
+          calculator,
+          data_provider,
+          **settings):
+    tickers = {"etf_ticker": "SET"} if fund_class is ETF else {}
+
+    return fund_class(fund_id="SET", target_index_definition=definition,
+                      index_agent=calculator,
+                      portfolio=Portfolio("set_pf", initial_cash=INITIAL_CAPITAL),
+                      data_provider=data_provider, **tickers, **settings)
+
+
+class TestTheBacktestSettingsReachTheRun:
+    """BN-262: a fund used to run with the backtest defaults, whatever the
+    caller needed."""
+
+    @pytest.mark.parametrize("fund_class", [IndexFund, ETF])
+    def test_a_modifier_is_applied(self,
+                                   fund_class,
+                                   definition,
+                                   calculator,
+                                   data_provider):
+        fund = _fund(fund_class, definition, calculator, data_provider,
+                     modifiers=[SkipEveryRebalance()])
+
+        assert fund.run_backtest(end_date=END_DATE).portfolio.transactions == []
+
+    def test_a_benchmark_is_recorded(self,
+                                     definition,
+                                     calculator,
+                                     data_provider):
+        levels = pd.Series(100.0, index=TRADING_DAYS)
+        fund = _fund(IndexFund, definition, calculator, data_provider,
+                     benchmark=levels)
+
+        assert fund.run_backtest(end_date=END_DATE).benchmark is not None
+
+    def test_every_setting_is_passed_to_the_backtest(self,
+                                                     definition,
+                                                     calculator,
+                                                     data_provider):
+        fund = _fund(IndexFund, definition, calculator, data_provider,
+                     currency="USD", dividends="cash", cache=False)
+
+        with patch("beacon.fund.base.Backtest", wraps=Backtest) as built:
+            fund.run_backtest(end_date=END_DATE)
+
+        settings = built.call_args.kwargs
+
+        assert (settings["currency"], settings["dividends"],
+                settings["cache"]) == ("USD", "cash", False)
+
+    def test_unset_they_are_the_backtest_defaults(self,
+                                                  index_fund):
+        with patch("beacon.fund.base.Backtest", wraps=Backtest) as built:
+            index_fund.run_backtest(end_date=END_DATE)
+
+        settings = built.call_args.kwargs
+
+        assert settings["dividends"] == "reinvest"
+        assert all(settings[name] is None
+                   for name in ("currency", "modelling_assumptions",
+                                "implementation", "modifiers", "benchmark",
+                                "cache"))
+
 
 class TestETFConstruction:
 

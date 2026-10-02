@@ -76,10 +76,26 @@ the stored run does not reach, the fund runs again to that date with the
 start date and trading cost of its last run (from the base date at no cost if
 it has not run yet).
 
-The `Backtest` a fund builds uses the defaults for everything the fund does
-not pass: the book is kept in the index's currency, there are no modifiers and no benchmark, and calculations are cached in the default
-location (which only applies when the data comes from a store on disk). To
-change any of these, run a `Backtest` yourself.
+The fund passes these keyword-only settings to the `Backtest` it builds,
+each with that class's default when unset: `currency`,
+`modelling_assumptions`, `dividends`, `implementation`, `modifiers`,
+`benchmark` and `cache` (`cache=False` turns caching off). What each does is
+in [Backtest](backtest.md).
+
+```python
+from beacon.backtest import Implementation, WeightCap
+
+capped = ETF(fund_id="CAPPED-FUND", etf_ticker="CAPD",
+             target_index_definition=definition,
+             index_agent=IndexCalculator(definition, fetcher),
+             portfolio=Portfolio("seed", initial_cash=10_000_000.0),
+             data_provider=fetcher, management_fee_bps=20,
+             implementation=Implementation(caps=[WeightCap(0.25)]),
+             cache=False)
+
+capped_result = capped.run_backtest(end_date="2024-12-31")
+print(max(capped_result.rebalance_steps[0].weights.values()) <= 0.25)  # True
+```
 
 ## NAV and the management fee
 

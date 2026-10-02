@@ -57,8 +57,10 @@ Before it does any work it checks two things:
 
 - **The data has every column the definition reads.** Each rule and scheme
   declares its market-data columns (`required_columns()`), and the run checks
-  them, plus the price column it values holdings with (`CLOSE` unless
-  `IndexCalculator(price_column=...)` says otherwise), against the dataset. A
+  them, plus what the calculation itself reads, against the dataset: the
+  price column it values holdings with (`CLOSE` unless
+  `IndexCalculator(price_column=...)` says otherwise) and `SHARES_OUTSTANDING`,
+  because it sizes every index from market cap, an equal-weighted one too. A
   missing column raises a `CalculationError` naming the column and what needs
   it. The check is skipped when the data provider cannot list its columns.
 - **The calendar covers the window.** A window wholly outside the range of

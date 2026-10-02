@@ -10,6 +10,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Added
 
+- `Backtest(cache=False)` turns the index result cache off. `cache=None` already meant the default location, so there was no way to ask for none.
+- `IndexFund` and `ETF` take the backtest settings as keyword arguments (`currency`, `modelling_assumptions`, `dividends`, `implementation`, `modifiers`, `benchmark` and `cache`) and pass them to the backtest they run. A fund ran with the defaults whatever was needed.
 - Market impact and execution limits in a backtest's `Implementation`. `MarketImpact` charges each trade for its size against the name's traded value, by the square-root law, so the same weights cost a large fund more. `ExecutionLimit` caps how much of an order trades in a day, by participation in the day's volume or spread over a number of days; the rest is worked on the following sessions. A blank volume is replaced by the last one reported within `volume_backfill_days` (a new modelling assumption, 5 days unless set), and otherwise by the average daily volume.
 - `UnfilledOrder.reason`: why an order went unfilled, `"cash"`, `"no price"` or `"execution limit"`. The server's unfilled orders carry it too.
 - Capacity caps in a backtest's `Implementation`: `OwnershipCap` (a share of free-float market cap), `LiquidityCap` (days of traded value at a participation rate) and `WeightCap` limit each position at the book's size, with the excess spread across the names still under their caps or held as cash. `MinimumPosition` drops positions too small to keep. Each rebalance's `RebalanceStep` records what was capped.
@@ -30,6 +32,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Fixed
 
+- An index over data with no `SHARES_OUTSTANDING` column is refused before the run starts, saying the calculation sizes every index from market cap. An equal-weighted index passed the check, since its scheme reads no columns, and then failed at the divisor as an index worth 0.0.
 - The index result cache keys on the data source's FX policy, stale-price threshold and free-float backfill. It keyed on the store alone, so changing one of those settings could reuse an index calculated under the old one.
 
 ## [0.3.1] - 2026-10-01
