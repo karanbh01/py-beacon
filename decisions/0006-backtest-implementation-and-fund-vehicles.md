@@ -4,7 +4,8 @@ Date: 2026-09-29
 
 ## Status
 
-Accepted. Built in phases, tracked as BN-263 to BN-272 (#276 to #285).
+Accepted. Built in phases, tracked as BN-263 to BN-272 (#276 to #285), and
+BN-276 (#289) for modelling assumptions, added 2026-10-02.
 
 ## Context
 
@@ -25,7 +26,7 @@ index by about the dividend yield.
 
 ## Decision
 
-A backtest run has three independent parts:
+A backtest run has four independent parts:
 
 1. **Strategy**: what is held. An index definition (tracked in full), an
    index with a replication method, or an active strategy. Always passed to
@@ -35,9 +36,12 @@ A backtest run has three independent parts:
    capacity limits too.
 3. **Vehicle**: how the money is held and how it moves. None for a plain
    backtest, or a `Vehicle` built from a structure preset.
+4. **Modelling assumptions**: how the simulation models markets and data,
+   whatever the strategy, size or vehicle. A `ModellingAssumptions` object.
 
 ```python
-backtest = Backtest(implementation=..., vehicle=etf, data_provider=data)
+backtest = Backtest(modelling_assumptions=ModellingAssumptions(...),
+                    implementation=..., vehicle=etf, data_provider=data)
 
 backtest.run(my_index, start, end)                     # full physical
 backtest.run(IndexTracking(my_index, replication="optimised"), start, end)
@@ -49,6 +53,29 @@ backtest.run(ActiveStrategy(...), start, end)
 Keeping them apart is what allows a fair comparison: the same index and the
 same limits, only the vehicle changed (an index fund against an ETF on the
 same flows, say).
+
+### Modelling assumptions
+
+What the simulation takes as given about the world, gathered in one object
+rather than spread across data-source settings, module constants and fixed
+engine behaviour:
+
+- **Data treatment**, shared with the index calculation so the index and the
+  backtest never assume different things: the FX policy on a day with no
+  rate, the stale-price threshold, the free-float backfill window, how old a
+  feature value may be, and a missing bar carried at its last close.
+- **Simulation conventions**: when and at what price trades happen (today the
+  rebalance day's close, sells before buys), what cash earns (today
+  nothing), the risk-free rate for Sharpe (today 0), periods per year (252),
+  how a delisting settles, and dividend timing and withholding (#276).
+
+The defaults reproduce today's behaviour exactly, so adding the object
+changes no result. `ModellingAssumptions` owns the data-treatment settings;
+a data source's own settings remain the fallback, so existing code keeps
+working. A process-wide default can be set once, as `beacon.use()` sets the
+data source, and a `Backtest` can override it. Every result records the
+assumptions it was produced under, and the index cache keys on the ones that
+affect a calculation.
 
 ### The backtest as stages
 
@@ -171,6 +198,7 @@ saved runs record them.
 | 7. Strategies: replication and active | BN-269 (#282) |
 | 8. Synthetic and futures replication; withholding tax by domicile | BN-270, BN-271 (#283, #284) |
 | 9. Engine API, then the app's vehicle picker | BN-272 (#285) |
+| Alongside 2: modelling assumptions | BN-276 (#289) |
 
 ## Consequences
 
