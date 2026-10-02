@@ -127,6 +127,13 @@ class TestTrackingATotalReturnIndex:
         np.testing.assert_allclose(nav.reindex(levels.index).to_numpy(),
                                    levels.to_numpy(), rtol=1e-9)
 
+    def test_reinvesting_is_the_default(self):
+        data = fetcher()
+        index = total_return_index(data)
+
+        assert run(data, index).trading_nav.equals(
+            run(data, index, dividends="reinvest").trading_nav)
+
     def test_without_dividends_the_book_trails_by_the_yield(self):
         data = fetcher(status="cancelled")
         index = total_return_index(fetcher())
@@ -154,9 +161,8 @@ class TestReceivingTheCash:
         assert paid[0].amount == pytest.approx(shares_at_ex()
                                                * DIVIDEND_PER_SHARE)
 
-    def test_accumulating_keeps_it_as_cash_until_the_next_rebalance(self):
-        """The default: no trade on the pay date."""
-        result = run()
+    def test_kept_as_cash_there_is_no_trade_on_the_pay_date(self):
+        result = run(dividends="cash")
         trades_on_ex = [trade for trade in result.portfolio.transactions
                         if trade.transaction_date == EX]
 

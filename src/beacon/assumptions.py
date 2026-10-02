@@ -19,9 +19,9 @@ never assume different things.
 
 **Simulation conventions** decide how a backtest is valued and measured: what
 cash earns, the risk-free rate the Sharpe ratio is measured against, how many
-periods make a year when returns are annualised, and the share of each
-dividend withheld. They do not affect an
-index.
+periods make a year when returns are annualised, the share of each
+dividend withheld, and how far a day's traded volume carries over blank
+cells when an execution limit needs it. They do not affect an index.
 
 ## Unset fields, and where their values come from
 
@@ -46,6 +46,9 @@ from .data.fetcher import FX_POLICIES, KEEP, DataFetcher
 DEFAULT_CASH_RATE = 0.0
 DEFAULT_RISK_FREE_RATE = 0.0
 DEFAULT_PERIODS_PER_YEAR = 252
+# BN-266: a missed volume print is carried this far before the execution
+# limit falls back to the average daily volume.
+DEFAULT_VOLUME_BACKFILL_DAYS = 5
 
 # The fields that change how data is read, and so reach the index.
 DATA_TREATMENT = ("fx_policy", "max_price_staleness_days",
@@ -74,6 +77,10 @@ class ModellingAssumptions:
             annualised. Unset is 252.
         withholding_tax_rate: The share of each dividend withheld before the
             book receives it, as a decimal. Unset is 0.
+        volume_backfill_days: How many calendar days a name's last reported
+            volume stands in for a blank one when an execution limit reads
+            the day's volume. Past that, its average daily volume is used. A
+            volume reported as 0 is never replaced. Unset is 5.
 
     Raises:
         ValueError: If a field is set to a value it cannot take.
@@ -85,13 +92,15 @@ class ModellingAssumptions:
     risk_free_rate: float | None = None
     periods_per_year: int | None = None
     withholding_tax_rate: float | None = None
+    volume_backfill_days: int | None = None
 
     def __post_init__(self) -> None:
         if self.fx_policy is not None and self.fx_policy not in FX_POLICIES:
             raise ValueError(f"Unknown fx_policy: {self.fx_policy!r}. Supported "
                              f"values: {list(FX_POLICIES)}.")
 
-        for name in ("max_price_staleness_days", "free_float_backfill_days"):
+        for name in ("max_price_staleness_days", "free_float_backfill_days",
+                     "volume_backfill_days"):
             value = getattr(self, name)
 
             if value is not None and (isinstance(value, bool)
@@ -142,7 +151,9 @@ class ModellingAssumptions:
             risk_free_rate=_or(self.risk_free_rate, DEFAULT_RISK_FREE_RATE),
             periods_per_year=_or(self.periods_per_year,
                                  DEFAULT_PERIODS_PER_YEAR),
-            withholding_tax_rate=_or(self.withholding_tax_rate, 0.0))
+            withholding_tax_rate=_or(self.withholding_tax_rate, 0.0),
+            volume_backfill_days=_or(self.volume_backfill_days,
+                                     DEFAULT_VOLUME_BACKFILL_DAYS))
 
     def with_defaults(self) -> "ModellingAssumptions":
         """The simulation conventions filled from the library defaults where
@@ -153,7 +164,9 @@ class ModellingAssumptions:
                                           DEFAULT_RISK_FREE_RATE),
                        periods_per_year=_or(self.periods_per_year,
                                             DEFAULT_PERIODS_PER_YEAR),
-                       withholding_tax_rate=_or(self.withholding_tax_rate, 0.0))
+                       withholding_tax_rate=_or(self.withholding_tax_rate, 0.0),
+                       volume_backfill_days=_or(self.volume_backfill_days,
+                                                DEFAULT_VOLUME_BACKFILL_DAYS))
 
     def effective(self) -> "ModellingAssumptions":
         """These assumptions laid over the process-wide default."""

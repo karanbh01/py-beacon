@@ -42,6 +42,7 @@ import logging
 
 import pandas as pd
 
+from ..assumptions import ModellingAssumptions
 from ..data.fetcher import DataFetcher
 from ..portfolio.base import (
     CASH_TOLERANCE,
@@ -75,7 +76,9 @@ class ExecutionMixin:
     implementation: Implementation
     modifiers: list[BacktestModifier]
     transaction_cost_bps: float
+    modelling_assumptions: ModellingAssumptions
     _working: list[WorkingOrder]
+    _no_volume: set[str]
 
     def _fetch_price(self,
                      asset_id: str,
@@ -304,7 +307,7 @@ class ExecutionMixin:
         if price is None or price <= 0:
             return
 
-        quantity = limit.allowed(order, date, self.data_provider)
+        quantity = limit.allowed(order, self._volume(order.asset_id, limit, date))
 
         if order.side == "SELL":
             held = portfolio.holdings.get(order.asset_id)
@@ -322,6 +325,26 @@ class ExecutionMixin:
         portfolio.apply(self._instruction(order.asset_id, order.side, quantity,
                                           price, date), date)
         order.filled += quantity
+
+    def _volume(self,
+                asset_id: str,
+                limit: ExecutionLimit,
+                date: pd.Timestamp) -> float | None:
+        """The volume *limit* holds *asset_id* to on *date*; None, with one
+        warning per name, when it has none."""
+        if limit.participation is None:
+            return None
+
+        volume = limit.volume(asset_id, date, self.data_provider,
+                              self.modelling_assumptions.volume_backfill_days
+                              or 0)
+
+        if volume is None and asset_id not in self._no_volume:
+            self._no_volume.add(asset_id)
+            logger.warning(f"{asset_id} has no volume, so the participation "
+                           f"limit cannot apply to it.")
+
+        return volume
 
     def _cost_rate(self,
                    asset_id: str,

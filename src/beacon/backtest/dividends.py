@@ -10,12 +10,17 @@ assumptions. A holding sold between the two dates is still paid.
 
 What happens to the cash is the run's dividend policy:
 
-- ``"accumulate"`` (the default): it stays in the book as cash and is invested
-  at the next rebalance.
-- ``"reinvest"``: it buys more of the current holdings, in proportion to their
-  value, the day it arrives.
+- ``"reinvest"`` (the default): it buys more of the current holdings, in
+  proportion to their value, the day it arrives, as a total-return index
+  assumes.
+- ``"cash"``: it stays in the book as cash and is invested at the next
+  rebalance.
 - ``"distribute"``: it is paid out of the book. The NAV falls by it and the
   returns add it back, so performance is still measured as total return.
+
+``"reinvest"`` and ``"cash"`` both keep the income in the book, as an
+accumulating share class does; they differ only in when it is invested.
+``"distribute"`` pays it out, as a distributing share class does.
 
 Every payment is a `CashFlow` on `portfolio.cash_flows`: a ``DIVIDEND`` for
 each name paid, and a ``DISTRIBUTION`` (negative) when it is paid out.
@@ -39,10 +44,10 @@ from ..portfolio.cash_flows import DISTRIBUTION, DIVIDEND
 
 logger = logging.getLogger(__name__)
 
-ACCUMULATE = "accumulate"
 REINVEST = "reinvest"
+KEEP_CASH = "cash"
 DISTRIBUTE = "distribute"
-DIVIDEND_POLICIES = (ACCUMULATE, REINVEST, DISTRIBUTE)
+DIVIDEND_POLICIES = (REINVEST, KEEP_CASH, DISTRIBUTE)
 
 
 @dataclass(frozen=True)

@@ -22,7 +22,7 @@ from ..portfolio.base import Portfolio
 from ..portfolio.base import TradeInstruction as TradeInstruction  # noqa: PLC0414
 from ..portfolio.cash_flows import INTEREST
 from .costs import WorkingOrder
-from .dividends import ACCUMULATE, DIVIDEND_POLICIES, DividendsMixin
+from .dividends import DIVIDEND_POLICIES, REINVEST, DividendsMixin
 from .execution import ExecutionMixin
 from .implementation import Implementation, RebalanceStep, plan
 from .pricing import PricingMixin
@@ -88,9 +88,9 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
         transaction_cost_bps: Transaction cost in basis points applied to
             each trade's notional value. Defaults to 0 (no cost).
         dividends: What happens to cash distributions the holdings are
-            paid: ``"accumulate"`` (the default) keeps them as cash until the
-            next rebalance, ``"reinvest"`` buys the current holdings with
-            them the day they arrive, and ``"distribute"`` pays them out of
+            paid: ``"reinvest"`` (the default) buys the current holdings
+            with them the day they arrive, ``"cash"`` keeps them as cash
+            until the next rebalance, and ``"distribute"`` pays them out of
             the book, with returns adding them back. See
             :mod:`beacon.backtest.dividends`.
         implementation: The screens and redistribution rule applied at each
@@ -128,7 +128,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
                  currency: str | None = None,
                  modelling_assumptions: ModellingAssumptions | None = None,
                  transaction_cost_bps: float = 0.0,
-                 dividends: str = ACCUMULATE,
+                 dividends: str = REINVEST,
                  implementation: Implementation | None = None,
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
@@ -174,6 +174,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
         self._rebalance_pricing: list[RebalancePricing] = []
         self._rebalance_steps: list[RebalanceStep] = []
         self._working: list[WorkingOrder] = []
+        self._no_volume: set[str] = set()
 
         # Filled by `run`. A name past its last listed date has no price
         # because it no longer exists, which is neither a holiday nor a gap.
@@ -459,6 +460,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
         self._rebalance_pricing.clear()
         self._rebalance_steps.clear()
         self._working = []
+        self._no_volume = set()
 
         for screen in self.implementation.screens:
             screen.prepare(self.data_provider)

@@ -49,7 +49,7 @@ from ..index.derived import (
 )
 from ..index.result import IndexResult
 from ..optimise import OptimisationConfig
-from .dividends import ACCUMULATE
+from .dividends import REINVEST
 from .engine import BacktestEngine
 from .implementation import Implementation
 from .result import BacktestResult
@@ -139,8 +139,8 @@ class Backtest:
             data, laid over the process-wide default (see
             :func:`beacon.use_modelling_assumptions`). The index calculation
             reads data under the same assumptions as the simulation.
-        dividends: What happens to cash distributions: ``"accumulate"`` (the
-            default), ``"reinvest"`` or ``"distribute"``. See
+        dividends: What happens to cash distributions: ``"reinvest"`` (the
+            default), ``"cash"`` or ``"distribute"``. See
             :mod:`beacon.backtest.dividends`.
         implementation: The screens and redistribution rule applied at each
             rebalance. None screens nothing beyond stale prices.
@@ -163,7 +163,7 @@ class Backtest:
                  price_column: str = "CLOSE",
                  currency: str | None = None,
                  modelling_assumptions: ModellingAssumptions | None = None,
-                 dividends: str = ACCUMULATE,
+                 dividends: str = REINVEST,
                  implementation: Implementation | None = None,
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,

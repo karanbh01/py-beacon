@@ -71,9 +71,17 @@ class MarketImpact:
 class ExecutionLimit:
     """How much of an order can trade in one day.
 
+    Under a participation limit, a name with a volume of 0 on the day trades
+    nothing. A blank volume is replaced by the last one reported, if no older
+    than the run's `volume_backfill_days`, and otherwise by the name's
+    average daily volume over *lookback_days*. A name with no volume at all
+    is not limited by participation, and the run logs a warning.
+
     Args:
         participation: At most this share of the day's volume, as a decimal.
         days: Spread each order evenly over this many trading days.
+        lookback_days: Trading days in the average daily volume that stands
+            in for a blank one.
 
     Raises:
         ValueError: If neither is given, or either is out of range.
@@ -81,7 +89,8 @@ class ExecutionLimit:
 
     def __init__(self,
                  participation: float | None = None,
-                 days: int | None = None):
+                 days: int | None = None,
+                 lookback_days: int = DEFAULT_LIQUIDITY_DAYS):
         if participation is None and days is None:
             raise ValueError("ExecutionLimit needs a participation, a number "
                              "of days or both.")
@@ -95,22 +104,46 @@ class ExecutionLimit:
 
         self.participation = participation
         self.days = days
+        self.lookback_days = lookback_days
+
+    def volume(self,
+               asset_id: str,
+               date: pd.Timestamp,
+               fetcher: DataFetcher,
+               backfill_days: int) -> float | None:
+        """The shares *asset_id* is taken to trade on *date*: the day's
+        volume, else the last reported within *backfill_days* calendar days,
+        else the average daily volume. None when it has no volume at all."""
+        start = date - pd.Timedelta(days=int(self.lookback_days * 1.6) + 10)
+        frame = fetcher.fetch_market_data(asset_id, start.strftime("%Y-%m-%d"),
+                                          date.strftime("%Y-%m-%d"))
+
+        if frame.empty or "VOLUME" not in frame.columns:
+            return None
+
+        reported = frame["VOLUME"].dropna()
+        reported = reported[reported.index <= date]
+
+        if reported.empty:
+            return None
+
+        if (date - reported.index[-1]).days <= backfill_days:
+            return float(np.asarray(reported)[-1])
+
+        return float(reported.tail(self.lookback_days).mean())
 
     def allowed(self,
                 order: "WorkingOrder",
-                date: pd.Timestamp,
-                fetcher: DataFetcher) -> float:
-        """How many shares of *order* may trade on *date*."""
+                volume: float | None) -> float:
+        """How many shares of *order* may trade on a day the name trades
+        *volume* shares; None when its volume is unknown."""
         allowed = order.remaining
 
         if self.days is not None:
             allowed = min(allowed, order.quantity / self.days)
 
-        if self.participation is not None:
-            volume = _volume_on(order.asset_id, date, fetcher)
-
-            if volume is not None:
-                allowed = min(allowed, volume * self.participation)
+        if self.participation is not None and volume is not None:
+            allowed = min(allowed, volume * self.participation)
 
         return max(allowed, 0.0)
 
@@ -128,17 +161,3 @@ class WorkingOrder:
     def remaining(self) -> float:
         return self.quantity - self.filled
 
-
-def _volume_on(asset_id: str,
-               date: pd.Timestamp,
-               fetcher: DataFetcher) -> float | None:
-    """The shares *asset_id* traded on *date*, or None when unknown."""
-    day = date.strftime("%Y-%m-%d")
-    frame = fetcher.fetch_market_data(asset_id, day, day)
-
-    if frame.empty or "VOLUME" not in frame.columns:
-        return None
-
-    volume = frame["VOLUME"].dropna()
-
-    return None if volume.empty else float(np.asarray(volume)[-1])

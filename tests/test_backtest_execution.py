@@ -3,13 +3,17 @@
 and buys sized net of their costs.
 
 BIG moves up and down 1% on alternate days and trades 10 million shares a
-day. THIN is flat at 10 and trades 1,000 shares a day. The data starts a
+day. THIN is flat at 10 and trades 1,000 shares a day, unless a test says
+otherwise. NOVOL is flat at 10 with no volume at all. The data starts a
 quarter before the backtest, so impact has a volatility to work from.
 """
+import logging
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from beacon import ModellingAssumptions
 from beacon.backtest import (
     BacktestEngine,
     ExecutionLimit,
@@ -33,14 +37,19 @@ def big_prices() -> np.ndarray:
     return 100.0 * np.cumprod(moves)
 
 
-def fetcher() -> DataFetcher:
+def fetcher(thin_volume: dict | None = None) -> DataFetcher:
+    """*thin_volume* replaces THIN's volume on the days it names."""
+    thin_volume = thin_volume or {}
     rows = [{"IDENTIFIER": "BIG", "DATE": day, "CLOSE": price, "VOLUME": 1e7}
             for day, price in zip(HISTORY, big_prices(), strict=True)]
-    rows += [{"IDENTIFIER": "THIN", "DATE": day, "CLOSE": 10.0, "VOLUME": 1e3}
+    rows += [{"IDENTIFIER": "THIN", "DATE": day, "CLOSE": 10.0,
+              "VOLUME": thin_volume.get(day, 1e3)} for day in HISTORY]
+    rows += [{"IDENTIFIER": "NOVOL", "DATE": day, "CLOSE": 10.0}
              for day in HISTORY]
     reference = pd.DataFrame([
         {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
-         "CURRENCY": "USD", "EXCHANGE": "XNYS"} for name in ("BIG", "THIN")])
+         "CURRENCY": "USD", "EXCHANGE": "XNYS"}
+        for name in ("BIG", "THIN", "NOVOL")])
 
     return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
                        ReferenceData.from_dataframe(reference))
@@ -48,12 +57,14 @@ def fetcher() -> DataFetcher:
 
 def run(capital: float,
         schedule: dict | None = None,
+        data: DataFetcher | None = None,
         **engine_args):
     schedule = schedule or {FIRST: {"BIG": 1.0}}
 
     return BacktestEngine(start_date=str(DAYS[0].date()),
                           end_date=str(DAYS[-1].date()),
-                          initial_capital=capital, data_provider=fetcher(),
+                          initial_capital=capital,
+                          data_provider=data if data is not None else fetcher(),
                           index_result=index_result_from_weights(schedule),
                           calendar="XNYS", **engine_args).run()
 
@@ -155,6 +166,86 @@ class TestExecutionLimits:
 
         assert [order.asset_id for order in working] == ["THIN"]
         assert working[0].filled_quantity < working[0].requested_quantity
+
+
+class TestTheDaysVolume:
+    """Which volume a participation limit holds a name to."""
+
+    LIMIT = ExecutionLimit(participation=0.1, lookback_days=20)
+    DAY = DAYS[10]
+
+    def volume(self,
+               thin_volume: dict,
+               backfill_days: int = 5,
+               name: str = "THIN") -> float | None:
+        return self.LIMIT.volume(name, self.DAY, fetcher(thin_volume),
+                                 backfill_days)
+
+    def test_the_days_volume_when_reported(self):
+        assert self.volume({self.DAY: 2500.0}) == 2500.0
+
+    def test_a_volume_of_zero_stands(self):
+        """Nothing traded, perhaps a one-off holiday: not a gap to fill."""
+        assert self.volume({self.DAY: 0.0}) == 0.0
+
+    def test_a_blank_takes_the_last_reported_within_the_backfill(self):
+        yesterday = DAYS[9]
+
+        assert self.volume({yesterday: 700.0, self.DAY: np.nan}) == 700.0
+
+    def test_past_the_backfill_a_blank_takes_the_average(self):
+        """The last report was the day before; with no backfill the average
+        of the 20 reported days before stands in."""
+        volumes = {day: float(i) for i, day in enumerate(HISTORY)}
+        volumes[self.DAY] = np.nan
+        reported = [v for day, v in volumes.items() if day < self.DAY]
+
+        assert self.volume(volumes, backfill_days=0) == pytest.approx(
+            np.mean(reported[-20:]))
+
+    def test_a_name_with_no_volume_has_none(self):
+        assert self.volume({}, name="NOVOL") is None
+
+    def test_the_backfill_defaults_to_five_days(self):
+        assert ModellingAssumptions().resolved(
+            fetcher()).volume_backfill_days == 5
+
+    def test_a_day_with_zero_volume_trades_nothing(self):
+        result = run(1e4, {FIRST: {"THIN": 0.5, "BIG": 0.5}},
+                     data=fetcher({DAYS[1]: 0.0}),
+                     implementation=Implementation(
+                         execution=ExecutionLimit(participation=0.1)))
+
+        assert [held(result, "THIN", day) for day in DAYS[:3]] == pytest.approx(
+            [100.0, 100.0, 200.0])
+
+    def test_the_run_takes_its_backfill_from_the_assumptions(self):
+        """A blank on day two: carried, 1,000 traded at 10%; not carried,
+        the average of the 1,000s and the 5,000s before it."""
+        spikes = dict.fromkeys(HISTORY[:-len(DAYS)], 5e3)
+        data = {**spikes, DAYS[1]: np.nan}
+        args = {"implementation": Implementation(
+            execution=ExecutionLimit(participation=0.1))}
+        carried = run(1e4, {FIRST: {"THIN": 0.5, "BIG": 0.5}},
+                      data=fetcher(data), **args)
+        averaged = run(1e4, {FIRST: {"THIN": 0.5, "BIG": 0.5}},
+                       data=fetcher(data),
+                       modelling_assumptions=ModellingAssumptions(
+                           volume_backfill_days=0), **args)
+
+        assert held(carried, "THIN", DAYS[1]) == pytest.approx(200.0)
+        assert held(averaged, "THIN", DAYS[1]) > 200.0
+
+    def test_a_name_with_no_volume_is_not_held_back_and_warns_once(self,
+                                                                    caplog):
+        with caplog.at_level(logging.WARNING, logger="beacon.backtest.execution"):
+            result = run(1e4, {FIRST: {"NOVOL": 0.5, "BIG": 0.5}},
+                         implementation=Implementation(
+                             execution=ExecutionLimit(participation=0.1)))
+
+        assert held(result, "NOVOL", FIRST) == pytest.approx(500.0)
+        assert sum("no volume" in record.message
+                   for record in caplog.records) == 1
 
 
 class TestTheSettingsAreChecked:

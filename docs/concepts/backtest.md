@@ -177,9 +177,14 @@ data must already show the ex-date drop, as an unadjusted feed does.
 
 | Policy | The cash |
 | --- | --- |
-| `"accumulate"` (default) | stays in the book and is invested at the next rebalance |
-| `"reinvest"` | buys the current holdings, in proportion to their value, the day it arrives |
+| `"reinvest"` (default) | buys the current holdings, in proportion to their value, the day it arrives, as a total-return index assumes |
+| `"cash"` | stays in the book as cash and is invested at the next rebalance |
 | `"distribute"` | is paid out of the book; returns add it back, so performance is still total return |
+
+`"reinvest"` and `"cash"` both keep the income in the book, as an
+accumulating share class does, and differ only in when it is invested.
+`"distribute"` pays it out, as a distributing share class does. `"cash"`
+avoids a round of small trades, and their costs, on every pay date.
 
 Each payment is a `CashFlow` in `result.portfolio.cash_flows`: a `DIVIDEND`
 per name paid, and a negative `DISTRIBUTION` when the cash is paid out. With
@@ -307,8 +312,12 @@ What cannot trade on the rebalance day is a working order, traded on the
 following sessions under the same limit, sells before buys and buys no
 further than the cash. A new rebalance replaces any order still working,
 and a replaced order, or one still working when the run ends, is recorded
-in `unfilled` with the reason `"execution limit"`. A day with no volume
-does not limit participation.
+in `unfilled` with the reason `"execution limit"`. A volume of 0 means
+nothing trades that day. A blank volume is replaced by the last one reported,
+if no older than `volume_backfill_days` in the
+[modelling assumptions](#modelling-assumptions), and otherwise by the name's
+average daily volume over `lookback_days` (63 by default). A name with no
+volume at all is not limited by participation, and the run logs a warning.
 
 ```python
 from beacon.backtest import ExecutionLimit, MarketImpact
@@ -423,10 +432,10 @@ Differences come from what the index does not model or models differently:
   price leaves its weight in cash.
 - **Distributions.** A `TOTAL_RETURN` or `NET_TOTAL_RETURN` index reinvests
   a dividend on its ex-date. The book is paid it on the pay date and, by
-  default, invests it at the next rebalance, so it holds the cash in between
-  (see [Dividends](#dividends)). With `dividends="reinvest"` and the pay date
-  on the ex-date, the two agree exactly. Set `withholding_tax_rate` to the
-  index's rate to track a net-total-return index.
+  default, reinvests it that day, so the two agree exactly when the pay date
+  is the ex-date. With `dividends="cash"` the book holds the cash until the
+  next rebalance (see [Dividends](#dividends)). Set `withholding_tax_rate` to
+  the index's rate to track a net-total-return index.
 - **Price gaps.** On an open session with no bar, both carry the name's last
   close and record the day in their own `price_gaps`, so a gap does not
   separate them.
@@ -481,6 +490,7 @@ data, so a result can say what it assumed. Every field is optional:
 | `risk_free_rate` | 0 | The rate the Sharpe ratio is measured against |
 | `periods_per_year` | 252 | How returns, volatility and tracking error are annualised |
 | `withholding_tax_rate` | 0 | The share of each dividend withheld before the book receives it |
+| `volume_backfill_days` | 5 | How many calendar days a name's last reported volume stands in for a blank one under an execution limit |
 
 The first three are **data treatment**: they decide how data is read, so they
 reach the index calculation too. A backtest hands its assumptions to the
