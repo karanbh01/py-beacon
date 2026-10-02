@@ -8,20 +8,24 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-02
+
+A backtest can now model how a fund carries out its index at its size: screens, capacity caps, market impact and execution limits, dividends, and its modelling assumptions in one object. Results change: a backtest receives dividends, sizes its buys net of costs, and keeps its book in the index's currency. `ExpressionScreen` moved to `beacon.backtest`.
+
 ### Added
 
-- The index preview returns each constituent's market caps: `market_cap` and `free_float_market_cap` in the index currency, `market_cap_local` and `free_float_market_cap_local` in `local_currency`, with `market_cap_currency`, `priced_from` and `price_is_stale`. Every name has them, excluded ones included, at the preview's `resolved_date`, and they match `GET /data/reference` field for field. Null where a name has no price or the data has no free float.
-- `Backtest(cache=False)` turns the index result cache off. `cache=None` already meant the default location, so there was no way to ask for none.
-- `IndexFund` and `ETF` take the backtest settings as keyword arguments (`currency`, `modelling_assumptions`, `dividends`, `implementation`, `modifiers`, `benchmark` and `cache`) and pass them to the backtest they run. A fund ran with the defaults whatever was needed.
+- `Implementation`: how a backtest carries out its index at its size, without changing the index. Its screens decide which names may be held at each rebalance (`MarketCapScreen`, `LiquidityScreen`, `MinimumPriceScreen`, `ListingAgeScreen`, `ExclusionScreen`, `ExpressionScreen`), with optional exit levels (buffers) so names near a threshold do not flip in and out. Removed weight is spread pro rata across the remaining names or held as cash. Pass it as `Backtest(implementation=...)`.
+- Capacity caps in a backtest's `Implementation`: `OwnershipCap` (a share of free-float market cap), `LiquidityCap` (days of traded value at a participation rate) and `WeightCap` limit each position at the book's size, with the excess spread across the names still under their caps or held as cash. `MinimumPosition` drops positions too small to keep. Each rebalance's `RebalanceStep` records what was capped.
 - Market impact and execution limits in a backtest's `Implementation`. `MarketImpact` charges each trade for its size against the name's traded value, by the square-root law, so the same weights cost a large fund more. `ExecutionLimit` caps how much of an order trades in a day, by participation in the day's volume or spread over a number of days; the rest is worked on the following sessions. A blank volume is replaced by the last one reported within `volume_backfill_days` (a new modelling assumption, 5 days unless set), and otherwise by the average daily volume.
 - `UnfilledOrder.reason`: why an order went unfilled, `"cash"`, `"no price"` or `"execution limit"`. The server's unfilled orders carry it too.
-- Capacity caps in a backtest's `Implementation`: `OwnershipCap` (a share of free-float market cap), `LiquidityCap` (days of traded value at a participation rate) and `WeightCap` limit each position at the book's size, with the excess spread across the names still under their caps or held as cash. `MinimumPosition` drops positions too small to keep. Each rebalance's `RebalanceStep` records what was capped.
-- Dividends in the backtest. A holding is paid each cash distribution on the pay date, for the shares held at the start of the ex-date, converted into the book's currency and net of `withholding_tax_rate` (a new modelling assumption). `Backtest(dividends=...)` reinvests the cash in the current holdings the day it arrives (the default), keeps it as cash until the next rebalance, or distributes it, with returns adding distributions back. Each payment is recorded in `portfolio.cash_flows`.
-- `Implementation`: how a backtest carries out its index at its size, without changing the index. Its screens decide which names may be held at each rebalance (`MarketCapScreen`, `LiquidityScreen`, `MinimumPriceScreen`, `ListingAgeScreen`, `ExclusionScreen`, `ExpressionScreen`), with optional exit levels (buffers) so names near a threshold do not flip in and out. Removed weight is spread pro rata across the remaining names or held as cash. Pass it as `Backtest(implementation=...)`.
 - `BacktestResult.rebalance_steps`: for each rebalance, the target, the names removed and the screen that removed each, and the weights traded to.
 - `ModellingAssumptions`: what a backtest takes as given about markets and data in one object. FX policy, stale-price threshold and free-float backfill (shared with the index calculation), and cash rate, risk-free rate and periods per year. Set a process-wide default with `use_modelling_assumptions`, and override it per backtest with `Backtest(modelling_assumptions=...)`. Results and index results record what they assumed. The defaults change no result.
+- Dividends in the backtest. A holding is paid each cash distribution on the pay date, for the shares held at the start of the ex-date, converted into the book's currency and net of `withholding_tax_rate` (a new modelling assumption). `Backtest(dividends=...)` reinvests the cash in the current holdings the day it arrives (the default), keeps it as cash until the next rebalance, or distributes it, with returns adding distributions back. Each payment is recorded in `portfolio.cash_flows`.
 - Cash can earn interest (`cash_rate`), recorded in `Portfolio.cash_flows`.
 - `IndexResult.currency` and `BacktestResult.currency`: the currency an index's levels and a backtest's book are in. A backtest run from the engine reports its `currency` too.
+- `IndexFund` and `ETF` take the backtest settings as keyword arguments (`currency`, `modelling_assumptions`, `dividends`, `implementation`, `modifiers`, `benchmark` and `cache`) and pass them to the backtest they run. A fund ran with the defaults whatever was needed.
+- `Backtest(cache=False)` turns the index result cache off. `cache=None` already meant the default location, so there was no way to ask for none.
+- The index preview returns each constituent's market caps: `market_cap` and `free_float_market_cap` in the index currency, `market_cap_local` and `free_float_market_cap_local` in `local_currency`, with `market_cap_currency`, `priced_from` and `price_is_stale`. Every name has them, excluded ones included, at the preview's `resolved_date`, and they match `GET /data/reference` field for field. Null where a name has no price or the data has no free float.
 
 ### Changed
 
@@ -165,7 +169,8 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/karanbh01/py-beacon/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/karanbh01/py-beacon/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/karanbh01/py-beacon/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/karanbh01/py-beacon/compare/v0.1.1...v0.2.0
