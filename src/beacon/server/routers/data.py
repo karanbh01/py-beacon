@@ -41,8 +41,8 @@ from ..data_stores import StoreRegistry
 from ..documents import read_collection, validated
 from ..errors import FindingsError
 from ..jobs import JobRegistry
+from ..market_caps import DEFAULT_CURRENCY
 from ..reference import (
-    DEFAULT_CURRENCY,
     MAX_BATCH,
     build_entries,
     parse_currency,

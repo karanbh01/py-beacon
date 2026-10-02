@@ -7,6 +7,8 @@ under test here is mostly the *shape* of the answer — order, misses, and which
 fields come back — because those are what decide whether the client can delete
 its truncation code, and none of them are visible from a single-name response.
 """
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -15,7 +17,12 @@ from beacon.analysis.liquidity import average_daily_volume
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 from beacon.server import ServerConfig, create_app
-from beacon.server.reference import MAX_BATCH, parse_identifiers, parse_list
+from beacon.server.reference import (
+    MAX_BATCH,
+    build_entries,
+    parse_identifiers,
+    parse_list,
+)
 
 TOKEN = "test-token-value"
 ASSETS = ["AAA", "BBB", "CCC"]
@@ -24,6 +31,8 @@ DATES = pd.bdate_range("2025-01-02", periods=120)
 # AAA trades ten times BBB, so an ADV that silently returned the wrong name's
 # volume would be obvious rather than plausible.
 VOLUMES = {"AAA": 10_000.0, "BBB": 1_000.0, "CCC": 5_000.0}
+# BN-277: one name in dollars and two in pounds, for the read counts.
+CAP_CURRENCY = {"AAA": "USD", "BBB": "GBP", "CCC": "GBP"}
 
 
 def build_fetcher(with_reference: bool = True) -> DataFetcher:
@@ -581,3 +590,52 @@ class TestACapSaysHowOldItIs:
 
         assert entries["GHOST"]["market_cap"] is None
         assert entries["GHOST"]["priced_from"] is None
+
+
+class TestTheBatchIsReadOnce:
+    """BN-277: a name's currency, row and FX rate were read one name at a
+    time, which was 80% of a 1,000-name request. The reads no longer grow
+    with the batch, so this counts them rather than timing them."""
+
+    def fetcher(self) -> DataFetcher:
+        market = pd.DataFrame(
+            [{"IDENTIFIER": name, "DATE": date, "CLOSE": 10.0,
+              "SHARES_OUTSTANDING": 1e6}
+             for name in CAP_CURRENCY for date in DATES]
+            + [{"IDENTIFIER": "GBPUSD", "DATE": date, "RATE": 1.25}
+               for date in DATES])
+        reference = pd.DataFrame([
+            {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
+             "CURRENCY": currency}
+            for name, currency in CAP_CURRENCY.items()])
+
+        return DataFetcher(MarketData.from_dataframe(market),
+                           ReferenceData.from_dataframe(reference))
+
+    def reads(self,
+              names: list[str]) -> tuple[int, int, dict]:
+        fetcher = self.fetcher()
+        date = str(DATES[-1].date())
+
+        with (patch.object(fetcher, "fetch_reference_data",
+                           wraps=fetcher.fetch_reference_data) as reference,
+              patch.object(fetcher, "fx_rate_on",
+                           wraps=fetcher.fx_rate_on) as rates):
+            entries = build_entries(fetcher, names, date, ["market_cap"], "USD")
+
+        caps = {entry.identifier: entry.fields["market_cap"]
+                for entry in entries}
+
+        return reference.call_count, rates.call_count, caps
+
+    def test_reference_reads_do_not_grow_with_the_batch(self):
+        one, _, _ = self.reads(["AAA"])
+        three, _, _ = self.reads(list(CAP_CURRENCY))
+
+        assert three == one
+
+    def test_each_currency_is_converted_once(self):
+        _, rates, caps = self.reads(list(CAP_CURRENCY))
+
+        assert rates == 2
+        assert caps == pytest.approx({"AAA": 1e7, "BBB": 1.25e7, "CCC": 1.25e7})

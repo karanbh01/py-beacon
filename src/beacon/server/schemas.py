@@ -2893,6 +2893,40 @@ class PreviewAsset(BaseModel):
         default=None,
         description="Derived preview only: `solved_weight` minus "
                     "`source_weight`. What the constraints did to this name.")
+    market_cap: float | None = Field(
+        default=None,
+        description="Price x shares outstanding at `resolved_date`, converted "
+                    "into `market_cap_currency`, the index currency. Null when "
+                    "the name has no price or share count, or no rate converts "
+                    "it. Computed as `/data/reference` computes it.")
+    free_float_market_cap: float | None = Field(
+        default=None,
+        description="`market_cap` x free float, in `market_cap_currency`. Null "
+                    "when the free float is unknown or `market_cap` is null.")
+    market_cap_local: float | None = Field(
+        default=None,
+        description="Price x shares outstanding, unconverted, in "
+                    "`local_currency`.")
+    free_float_market_cap_local: float | None = Field(
+        default=None,
+        description="`market_cap_local` x free float, in `local_currency`. "
+                    "Null when the free float is unknown.")
+    market_cap_currency: str | None = Field(
+        default=None,
+        description="ISO code the converted caps are in: the index currency.")
+    local_currency: str | None = Field(
+        default=None,
+        description="ISO code the `_local` caps are in: the instrument's own "
+                    "quote currency. Null when the name has no price.")
+    priced_from: str | None = Field(
+        default=None,
+        description="The date of the close and share count behind the caps, "
+                    "YYYY-MM-DD: the last print on or before `resolved_date`. "
+                    "Null when the name has no price at all.")
+    price_is_stale: bool | None = Field(
+        default=None,
+        description="Whether `priced_from` is more than 30 days before "
+                    "`resolved_date`. Null when the name has no price at all.")
 
 
 class PreviewConstraint(BaseModel):

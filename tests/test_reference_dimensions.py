@@ -25,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from beacon.server import ServerConfig, create_app
-from beacon.server.reference import DEFAULT_CURRENCY
+from beacon.server.market_caps import DEFAULT_CURRENCY
 from beacon.synthetic import SyntheticConfig, generate
 from beacon.synthetic import regions as regions_module
 
@@ -278,11 +278,8 @@ class TestTheSurface:
     """What beacon-ui generates its filters from."""
 
     def test_the_derived_fields_are_documented(self):
-        from beacon.server.reference import (
-            DERIVED_FIELDS,
-            FREE_FLOAT_MARKET_CAP,
-            MARKET_CAP,
-        )
+        from beacon.server.market_caps import FREE_FLOAT_MARKET_CAP, MARKET_CAP
+        from beacon.server.reference import DERIVED_FIELDS
 
         assert MARKET_CAP in DERIVED_FIELDS
         assert FREE_FLOAT_MARKET_CAP in DERIVED_FIELDS

@@ -215,6 +215,17 @@ class TestTheDerivedFaceOfTheResponse:
             assert row["excluded_at"] is None
             assert row["capped"] is False
 
+    def test_every_row_carries_its_market_caps(self,
+                                                client):
+        """BN-278: on the derived face too, priced at the resolved session."""
+        payload = preview(client)
+
+        for row in payload["assets"]:
+            assert row["market_cap"] == pytest.approx(row["market_cap_local"])
+            assert row["market_cap"] > 0
+            assert row["market_cap_currency"] == "USD"
+            assert row["priced_from"] == payload["resolved_date"]
+
     def test_an_as_of_before_the_parent_s_first_rebalance_is_refused(self,
                                                                      client):
         """There is no snapshot to solve, and inventing one would be a lie

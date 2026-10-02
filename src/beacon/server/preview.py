@@ -49,6 +49,7 @@ from ..index.result import IndexResult
 from ..optimise.constraints import HOLDING_THRESHOLD
 from ..optimise.result import OptimisationResult
 from .definitions import build_definition, build_index_definition
+from .market_caps import FREE_FLOAT_MARKET_CAP, MARKET_CAP, market_caps
 from .schemas import (
     IndexDocument,
     PreviewAsset,
@@ -72,6 +73,29 @@ def _resolved_date(fetcher: DataFetcher,
     session = fetcher.resolve_session(date)
 
     return session.strftime("%Y-%m-%d") if session is not None else None
+
+
+def _with_market_caps(assets: list[PreviewAsset],
+                      fetcher: DataFetcher,
+                      date: pd.Timestamp,
+                      resolved: str | None,
+                      currency: str) -> list[PreviewAsset]:
+    """*assets*, each with its market caps at the resolved session, converted
+    into the index currency.
+
+    Every row gets them, excluded names included, because a cap is often why
+    a name was excluded. They come from the same code as `/data/reference`'s,
+    not from the weighting, which values only the names it weights and
+    refuses one it cannot price where this reports null.
+    """
+    # BN-278: beacon-ui fetched these with a second round trip after every
+    # preview, which was most of the Constituent Preview's wait.
+    end = pd.Timestamp(resolved) if resolved is not None else date
+    caps = market_caps(fetcher, [asset.identifier for asset in assets],
+                       {MARKET_CAP, FREE_FLOAT_MARKET_CAP}, end, currency)
+
+    return [asset.model_copy(update=caps.get(asset.identifier, {}))
+            for asset in assets]
 
 
 def _as_preview_step(step: SelectionStep,
@@ -185,12 +209,15 @@ def _pipeline_preview(document: IndexDocument,
     uncapped_by_id = {asset.asset_id: weight for asset, weight in raw_weights.items()}
 
     assets = _asset_rows(universe, by_id, uncapped_by_id, cap_report.capped, exclusions)
+    resolved = _resolved_date(fetcher, date)
 
     return PreviewResponse(index_id=document.id,
                            as_of=date.strftime("%Y-%m-%d"),
-                           resolved_date=_resolved_date(fetcher, date),
+                           resolved_date=resolved,
                            steps=steps,
-                           assets=assets,
+                           assets=_with_market_caps(assets, fetcher, date,
+                                                    resolved,
+                                                    definition.currency),
                            weights=by_id,
                            total_weight=sum(by_id.values()),
                            cap=cap_report.cap,
@@ -258,12 +285,15 @@ def _derived_preview(document: IndexDocument,
     solved = {str(asset): float(weight)
               for asset, weight in result.weights.items()}
 
+    resolved = _resolved_date(fetcher, date)
+
     return PreviewResponse(
         index_id=document.id,
         as_of=date.strftime("%Y-%m-%d"),
-        resolved_date=_resolved_date(fetcher, date),
+        resolved_date=resolved,
         solve=_solve_block(definition, rebalance, result),
-        assets=_derived_asset_rows(source_weights, solved),
+        assets=_with_market_caps(_derived_asset_rows(source_weights, solved),
+                                 fetcher, date, resolved, definition.currency),
         weights=solved,
         total_weight=sum(solved.values()))
 

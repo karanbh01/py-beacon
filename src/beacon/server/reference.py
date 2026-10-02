@@ -54,6 +54,19 @@ import pandas as pd
 from ..analysis.liquidity import TRAILING_MONTHS, average_daily_volume
 from ..data.fetcher import DataFetcher
 from ..exceptions import InvalidRuleError
+from .market_caps import (
+    DEFAULT_CURRENCY,
+    DERIVED_CURRENCY_FIELD,
+    FREE_FLOAT_MARKET_CAP,
+    FREE_FLOAT_MARKET_CAP_LOCAL,
+    LOCAL_CURRENCY_FIELD,
+    LOOKBACK_DAYS,
+    MARKET_CAP,
+    MARKET_CAP_LOCAL,
+    PRICE_IS_STALE_FIELD,
+    PRICED_FROM_FIELD,
+    market_caps,
+)
 from .schemas import ReferenceEntry
 
 logger = logging.getLogger(__name__)
@@ -61,43 +74,6 @@ logger = logging.getLogger(__name__)
 # Derived field name -> what it means. Not stored on any dataset; computed here
 # from market data the server already holds.
 ADV_3M = "adv_3m"
-MARKET_CAP = "market_cap"
-FREE_FLOAT_MARKET_CAP = "free_float_market_cap"
-
-# The currency a derived money amount is converted into when the caller names
-# none.
-#
-# A market capitalisation is money, and since BN-128 the members of one
-# universe are quoted in seven currencies. Returning raw local values alone
-# would make the column unsortable and every comparison silently wrong -- a yen
-# cap ranks above a dollar one on magnitude alone -- so a converted figure is
-# published too, and `market_cap_currency` states what it was converted into
-# rather than leaving a client to assume. USD is the default rather than the
-# answer: `currency` names another (BN-189).
-DEFAULT_CURRENCY = "USD"
-DERIVED_CURRENCY_FIELD = "market_cap_currency"
-
-# The local half of each money pair: the figure as the exchange reports it,
-# in the instrument's own currency.
-LOCAL_CURRENCY_FIELD = "local_currency"
-
-# When the observation behind every money field on this entry was printed, and
-# whether that is old enough to be worth saying so (BN-210). Published
-# alongside the caps rather than requested, on the same terms as the currency
-# fields: a figure whose age a reader has to infer is a figure they will
-# eventually mis-read, and the null this replaced said "unknown" for a name
-# whose value was perfectly well known and simply not recent.
-PRICED_FROM_FIELD = "priced_from"
-PRICE_IS_STALE_FIELD = "price_is_stale"
-MARKET_CAP_LOCAL = "market_cap_local"
-FREE_FLOAT_MARKET_CAP_LOCAL = "free_float_market_cap_local"
-
-# The derived fields that are money, and so come as a pair. The key is what a
-# caller asks for; both halves and both currency codes come back together,
-# because a client that has to request the unit separately from the number is
-# a client that will one day render the number without it.
-MONEY_FIELDS = {MARKET_CAP: MARKET_CAP_LOCAL,
-                FREE_FLOAT_MARKET_CAP: FREE_FLOAT_MARKET_CAP_LOCAL}
 
 # What a caller may name in `fields`. Descriptions say which currency a figure
 # is in and name its counterpart (BN-181) -- and they say it by naming the
@@ -126,21 +102,6 @@ DERIVED_FIELDS = {
 # on its own would be a second way to ask the same question -- and a fifth
 # name for the field picker, the catalogue and the expression namespace to
 # learn. Documented here so nothing has to infer them from the payload.
-# What counts as a recent price, in days (BN-210).
-#
-# Two jobs, and it used to have only the first. It is the window read for the
-# last price and share count -- the one nearly every name is answered from --
-# and it is the threshold above which a price is reported as stale.
-#
-# What it is no longer is a *bound on the answer*. A name absent from the
-# window used to be reported as having no market cap at all, which put a blank
-# beside a weight the index had computed perfectly well from the same missing
-# name's last print. The cap is now computed from whatever price exists and
-# carries the date it came from; this number decides whether that date is worth
-# flagging, not whether the figure is published.
-LOOKBACK_DAYS = 30
-
-
 COMPANION_FIELDS = {
     DERIVED_CURRENCY_FIELD: (f"ISO code the converted money fields are in: "
                              f"the request's `currency`, {DEFAULT_CURRENCY} "
@@ -269,200 +230,6 @@ def _clean(row: pd.Series) -> dict[str, Any]:
     return fields
 
 
-def _market_caps(fetcher: DataFetcher,
-                 identifiers: list[str],
-                 requested: set[str],
-                 end: pd.Timestamp,
-                 currency: str) -> dict[str, dict[str, Any]]:
-    """Market capitalisation per name, local and converted into *currency*.
-
-    A point-in-time cap is a price times a share count, both of which move, so
-    this is a market-data join rather than a stored attribute -- which is why
-    it is derived and has to be asked for by name.
-    """
-    wanted = requested & set(MONEY_FIELDS)
-
-    if not wanted:
-        return {}
-
-    # Narrowed to what the store actually has (BN-209). `fetch_market_data`
-    # selects strictly, so naming a column the store lacks raises `KeyError`
-    # and escapes as a bare 500 -- and `FREE_FLOAT` is optional by this
-    # library's own contract, so a store with prices and share counts and no
-    # free float is ordinary rather than broken. `market_cap` does not even
-    # use that column; it shares this list with its sibling field, so asking
-    # for one used to drag in the requirements of both.
-    #
-    # `adv_3m` below has always done the equivalent by passing no column list
-    # at all. Narrowing is kept rather than copied away because a wide store
-    # has no reason to ship every column to answer a question about three.
-    available = set(fetcher.market_columns)
-    columns: list[str] = [
-        name for name in ("CLOSE", "SHARES_OUTSTANDING", "FREE_FLOAT")
-        if name in available]
-
-    # One row per name, read in two stages and reduced once. Lives on the
-    # fetcher since BN-211, because the staleness gate needs the same read
-    # and two copies of it would be two things to keep in step.
-    frame = fetcher.latest_rows(identifiers, end, columns,
-                                recent_days=LOOKBACK_DAYS)
-
-    computed: dict[str, dict[str, Any]] = {}
-
-    for identifier in identifiers:
-        # Every key the request implies is present on every entry, null where
-        # it could not be computed. A name whose row is missing entirely still
-        # reports the currency it would have been converted into, because that
-        # is a property of the request rather than of the name.
-        entry: dict[str, Any] = dict.fromkeys(wanted)
-        entry.update(dict.fromkeys(MONEY_FIELDS[field] for field in wanted))
-        entry[DERIVED_CURRENCY_FIELD] = currency
-        entry[LOCAL_CURRENCY_FIELD] = None
-        entry[PRICED_FROM_FIELD] = None
-        entry[PRICE_IS_STALE_FIELD] = None
-
-        entry.update(_cap_fields(fetcher, identifier, wanted,
-                                 _rows_for(frame, identifier), end, currency))
-
-        computed[identifier] = entry
-
-    return computed
-
-
-
-
-def _cap_fields(fetcher: DataFetcher,
-                identifier: str,
-                wanted: set[str],
-                rows: pd.DataFrame | None,
-                end: pd.Timestamp,
-                currency: str) -> dict[str, Any]:
-    """One name's money fields, or an empty mapping when it has none.
-
-    Free float is applied as a multiplier rather than fetched separately: it
-    lives in the same row, and reading it twice would double the work to
-    produce a number that is the first one scaled.
-
-    **An unconvertible cap is reported as unknown (BN-188).** This used to fall
-    back to a rate of 1.0 and return the local figure under a
-    `market_cap_currency` of USD, which is how a yen cap came to sort above a
-    dollar one in the universe table. A null is a value the client already
-    renders as "we do not have this"; a local number wearing a dollar label is
-    one it cannot tell from a real answer. The batch still succeeds -- one name
-    without a rate must not fail four hundred and ninety-nine that have one.
-
-    **Only the converted half goes null (BN-189).** The local figure needs no
-    rate to be true, so withholding it because an FX pair is absent would hide
-    a number the server is holding -- and would take the cross-check against
-    an external source down with it, which is the one thing a reader can do
-    when the converted column is missing.
-    """
-    if rows is None or rows.empty:
-        return {}
-
-    # The last observation on or before the date, so a name that stopped
-    # trading before it is valued at its final print rather than reported as
-    # missing -- and one that never traded is.
-    latest = rows.iloc[-1]
-    price = latest.get("CLOSE")
-    shares = latest.get("SHARES_OUTSTANDING")
-
-    if pd.isna(price) or pd.isna(shares):
-        return {}
-
-    # The day the numbers above were printed, which is not necessarily the day
-    # the caller asked about (BN-210). A cap computed from a three-month-old
-    # close is a true statement about a company that has not traded since; it
-    # is only misleading if nothing says how old it is.
-    priced_from = pd.Timestamp(rows.index[-1])
-    stale = (end - priced_from).days > LOOKBACK_DAYS
-
-    local_currency = _currency_of(fetcher, identifier, end)
-    rate = fetcher.fx_rate_on(local_currency, currency, end)
-
-    if rate is None:
-        logger.warning(
-            "No %s/%s rate on or before %s; %s's market cap is reported in "
-            "%s alone, with the converted figure left unknown rather than "
-            "quoted as an unconverted %s number.",
-            local_currency, currency, end.date(), identifier, local_currency,
-            local_currency)
-
-    fields: dict[str, Any] = {
-        LOCAL_CURRENCY_FIELD: local_currency,
-        PRICED_FROM_FIELD: priced_from.date().isoformat(),
-        PRICE_IS_STALE_FIELD: stale,
-    }
-
-    # Each half is scaled from its own base rather than one from the other:
-    # multiplication is not associative in floating point, and converting the
-    # floated local figure would move the published `free_float_market_cap` by
-    # a last-place bit against what this endpoint returned before BN-189.
-    local_cap = float(price) * float(shares)
-    converted_cap = local_cap * rate if rate is not None else None
-
-    if MARKET_CAP in wanted:
-        fields[MARKET_CAP_LOCAL] = local_cap
-        fields[MARKET_CAP] = converted_cap
-
-    if FREE_FLOAT_MARKET_CAP in wanted:
-        free_float = latest.get("FREE_FLOAT")
-
-        # Unknown float is an unknown float-adjusted cap, not a float of one
-        # (BN-209). Assuming 100% returned the FULL cap under a free-float
-        # heading -- identical to `market_cap`, and indistinguishable from a
-        # name that genuinely has no restricted stock. `MarketCapWeighted`
-        # refuses the same gap in so many words: "using its full market cap
-        # instead would weight one name on a different basis from the rest."
-        # Two surfaces over one question must not answer it oppositely.
-        share = float(free_float) if pd.notna(free_float) else None
-
-        fields[FREE_FLOAT_MARKET_CAP_LOCAL] = (
-            None if share is None else local_cap * share)
-        fields[FREE_FLOAT_MARKET_CAP] = (
-            None if share is None or converted_cap is None
-            else converted_cap * share)
-
-    return fields
-
-
-def _rows_for(frame: pd.DataFrame,
-              identifier: str) -> pd.DataFrame | None:
-    """One instrument's rows out of a multi-identifier frame."""
-    if frame.empty:
-        return None
-
-    if isinstance(frame.index, pd.MultiIndex):
-        if identifier not in frame.index.get_level_values("IDENTIFIER"):
-            return None
-
-        return frame.xs(identifier, level="IDENTIFIER")
-
-    return frame
-
-
-def _currency_of(fetcher: DataFetcher,
-                 identifier: str,
-                 as_of: pd.Timestamp) -> str:
-    """The currency an instrument is quoted in, from reference data.
-
-    Falls back to the default rather than to whatever the request asked to
-    convert into: a name with no stated currency is an unknown, and answering
-    with the request's currency would make the local and converted figures
-    agree by construction and report a EUR figure for a name nobody has said
-    trades in euros.
-    """
-    reference = fetcher.fetch_reference_data(identifier,
-                                             as_of.strftime("%Y-%m-%d"))
-
-    if reference.empty or "CURRENCY" not in reference.columns:
-        return DEFAULT_CURRENCY
-
-    value = reference["CURRENCY"].iloc[0]
-
-    return str(value).upper() if pd.notna(value) else DEFAULT_CURRENCY
-
-
 def _derived_fields(fetcher: DataFetcher,
                     identifiers: list[str],
                     requested: set[str],
@@ -473,7 +240,7 @@ def _derived_fields(fetcher: DataFetcher,
         return {}
 
     end = pd.Timestamp(as_of) if as_of else fetcher.date_range[1]
-    caps = _market_caps(fetcher, identifiers, requested, end, currency)
+    caps = market_caps(fetcher, identifiers, requested, end, currency)
 
     if ADV_3M not in requested:
         return caps

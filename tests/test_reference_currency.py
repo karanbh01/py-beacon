@@ -30,11 +30,10 @@ from beacon.data.fetcher import DataFetcher
 from beacon.exceptions import InvalidRuleError
 from beacon.expressions.namespaces import DERIVED_COLUMNS
 from beacon.server import ServerConfig, create_app
+from beacon.server.market_caps import DEFAULT_CURRENCY, MONEY_FIELDS
 from beacon.server.reference import (
     COMPANION_FIELDS,
-    DEFAULT_CURRENCY,
     DERIVED_FIELDS,
-    MONEY_FIELDS,
     build_entries,
 )
 

@@ -19,7 +19,7 @@ from ...exceptions import DataNotFoundError
 from ..active_data import require_data
 from ..documents import load_document, validated
 from ..jobs import JobRegistry
-from ..reference import DEFAULT_CURRENCY
+from ..market_caps import DEFAULT_CURRENCY
 from ..risk import build_estimation_job
 from ..schemas import (
     Identifier,
