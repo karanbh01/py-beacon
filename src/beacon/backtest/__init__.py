@@ -32,6 +32,15 @@ from .capacity import (
 )
 from .costs import ExecutionLimit, MarketImpact
 from .engine import BacktestEngine
+from .flows import (
+    DatedFlows,
+    FlowContext,
+    FlowRecord,
+    Flows,
+    PerformanceChasingFlows,
+    PeriodicFlows,
+    RandomFlows,
+)
 from .implementation import Implementation, RebalanceStep
 from .main import Backtest
 from .result import BacktestResult, RebalancePricing, UnfilledOrder
@@ -47,6 +56,7 @@ from .screens import (
     ScreenContext,
     ThresholdScreen,
 )
+from .vehicle import Vehicle
 
 __all__ = [
     "Backtest",
@@ -55,10 +65,14 @@ __all__ = [
     "BacktestModifier",
     "BacktestResult",
     "CapacityCap",
+    "DatedFlows",
     "DriftThresholdModifier",
     "ExclusionScreen",
     "ExecutionLimit",
     "ExpressionScreen",
+    "FlowContext",
+    "FlowRecord",
+    "Flows",
     "Implementation",
     "LiquidityCap",
     "LiquidityScreen",
@@ -68,7 +82,10 @@ __all__ = [
     "MinimumPosition",
     "MinimumPriceScreen",
     "OwnershipCap",
+    "PerformanceChasingFlows",
+    "PeriodicFlows",
     "PriceGap",
+    "RandomFlows",
     "RebalancePricing",
     "RebalanceStep",
     "Screen",
@@ -76,5 +93,6 @@ __all__ = [
     "ThresholdScreen",
     "TradeInstruction",
     "UnfilledOrder",
+    "Vehicle",
     "WeightCap",
 ]

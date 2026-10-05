@@ -8,6 +8,12 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Added
+
+- Flows in a backtest: `Backtest(flows=...)` takes money in and pays it out, as `DatedFlows`, `PeriodicFlows` (an amount or a share of the assets), `RandomFlows` (seeded) or `PerformanceChasingFlows`, or several added together. Flows create and cancel units at the day's NAV per unit, so `nav_per_unit` measures performance whatever money moved, and with flows every return metric is a unit's and the summary adds `money_weighted_return`. The result records each flow in `flows`, and `aum` and `units_outstanding` each day. Without flows every figure is unchanged.
+- `Implementation(cash_buffer=...)` keeps a share of the book in cash, which outflows draw on first, and `invest_flows` says whether an inflow buys the last rebalance's weights (the default) or the holdings pro rata.
+- `Vehicle`: what the fund itself charges and its unit price at launch. `Vehicle(management_fee_bps=...)` accrues the fee daily on net assets (ACT/365) as a liability the NAV is net of, paid from cash as it can be. Structure presets come later.
+
 ## [0.4.0] - 2026-10-02
 
 A backtest can now model how a fund carries out its index at its size: screens, capacity caps, market impact and execution limits, dividends, and its modelling assumptions in one object. Results change: a backtest receives dividends, sizes its buys net of costs, and keeps its book in the index's currency. `ExpressionScreen` moved to `beacon.backtest`.

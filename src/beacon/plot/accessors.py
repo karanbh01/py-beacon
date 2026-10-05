@@ -284,7 +284,9 @@ class BacktestPlots(ChartMethods):
         upper = figure.add_subplot(grid[0])
         lower = figure.add_subplot(grid[1], sharex=upper)
 
-        levels = _rebase(_series(self._result.trading_nav))
+        # A unit's NAV when money flowed, so a flow is not drawn as a gain
+        # (BN-267); the NAV itself otherwise.
+        levels = _rebase(_series(self._result.performance_levels()))
         upper.plot(levels.index, levels.to_numpy(), color=_ink(upper, "accent"),
                    linewidth=beacon_style.SERIES_WIDTH)
         _mark_last(upper, levels)

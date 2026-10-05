@@ -2,7 +2,8 @@
 """
 Cash a portfolio receives or pays that is not a trade.
 
-Interest on cash, and dividends once a backtest receives them. A trade moves
+Interest on cash, dividends, money investors put in or take out, and fees.
+A trade moves
 cash and a holding together and is a `Transaction`; a cash flow moves cash
 alone, so it is recorded on its own list rather than stretched into a trade.
 """
@@ -15,6 +16,11 @@ INTEREST = "INTEREST"
 DIVIDEND = "DIVIDEND"
 # Cash paid out of the book to its investors, recorded as a negative amount.
 DISTRIBUTION = "DISTRIBUTION"
+# Money investors put in (positive) and take out (negative), BN-267.
+SUBSCRIPTION = "SUBSCRIPTION"
+REDEMPTION = "REDEMPTION"
+# The fund's own charges paid from cash, recorded as a negative amount.
+FEE = "FEE"
 
 
 @dataclass(frozen=True)
@@ -25,7 +31,9 @@ class CashFlow:
         date: When the cash moved.
         amount: How much, in the portfolio's currency.
         kind: What it was: ``"INTEREST"``, ``"DIVIDEND"`` (received from a
-            holding) or ``"DISTRIBUTION"`` (paid out to investors).
+            holding), ``"DISTRIBUTION"`` (paid out to investors),
+            ``"SUBSCRIPTION"`` or ``"REDEMPTION"`` (money investors put in
+            or took out) or ``"FEE"`` (the fund's charges).
         asset_id: The holding it came from, for a dividend. None for interest.
     """
     date: pd.Timestamp

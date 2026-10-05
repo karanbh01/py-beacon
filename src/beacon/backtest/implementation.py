@@ -33,9 +33,18 @@ large one, and the difference is the cost of size. See
    `beacon.backtest.execution`.
 
 Each rebalance's stages are recorded on the result as a `RebalanceStep`.
+
+## Cash and flows
+
+A `cash_buffer` keeps that share of the book in cash: each rebalance invests
+the rest, and an outflow is paid from cash before anything is sold. Money
+arriving between rebalances is invested the day it arrives, toward the last
+rebalance's weights (``invest_flows="target"``, the default) or in proportion
+to the holdings (``"holdings"``), keeping the buffer topped up first.
 """
 # BN-264. Capacity caps (BN-265) and execution limits and market impact
-# (BN-266) join this object as further stages.
+# (BN-266) join this object as further stages; the cash buffer and how flows
+# are invested are BN-267.
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
@@ -48,6 +57,11 @@ from .screens import Screen, ScreenContext
 PRO_RATA = "pro_rata"
 CASH = "cash"
 REDISTRIBUTIONS = (PRO_RATA, CASH)
+
+# Where money arriving between rebalances goes.
+TARGET = "target"
+HOLDINGS = "holdings"
+FLOW_INVESTMENTS = (TARGET, HOLDINGS)
 
 # What a RebalanceStep names a name the data says has gone stale.
 STALE = "stale price"
@@ -72,9 +86,15 @@ class Implementation:
             trade every order in full on the rebalance day.
         redistribution: Where removed or capped weight goes: ``"pro_rata"``
             (the default) across the remaining names, or ``"cash"``.
+        cash_buffer: The share of the book kept in cash, such as 0.02 for 2%.
+            Outflows are paid from cash first.
+        invest_flows: What money arriving between rebalances buys: the last
+            rebalance's weights (``"target"``, the default) or the holdings
+            in proportion to their value (``"holdings"``).
 
     Raises:
-        ValueError: If *redistribution* is not one of the two.
+        ValueError: If *redistribution* or *invest_flows* is not one of its
+            choices, or *cash_buffer* is not from 0 up to 1.
     """
 
     def __init__(self,
@@ -83,10 +103,20 @@ class Implementation:
                  minimum_position: MinimumPosition | None = None,
                  impact: MarketImpact | None = None,
                  execution: ExecutionLimit | None = None,
-                 redistribution: str = PRO_RATA):
+                 redistribution: str = PRO_RATA,
+                 cash_buffer: float = 0.0,
+                 invest_flows: str = TARGET):
         if redistribution not in REDISTRIBUTIONS:
             raise ValueError(f"Unknown redistribution {redistribution!r}. "
                              f"Supported: {', '.join(REDISTRIBUTIONS)}.")
+
+        if invest_flows not in FLOW_INVESTMENTS:
+            raise ValueError(f"Unknown invest_flows {invest_flows!r}. "
+                             f"Supported: {', '.join(FLOW_INVESTMENTS)}.")
+
+        if not 0.0 <= cash_buffer < 1.0:
+            raise ValueError(f"cash_buffer is a share of the book from 0 up "
+                             f"to 1, got {cash_buffer!r}.")
 
         self.screens: tuple[Screen, ...] = tuple(screens)
         self.caps: tuple[CapacityCap, ...] = tuple(caps)
@@ -94,6 +124,8 @@ class Implementation:
         self.impact = impact
         self.execution = execution
         self.redistribution = redistribution
+        self.cash_buffer = cash_buffer
+        self.invest_flows = invest_flows
 
     def __repr__(self) -> str:
         screens = ", ".join(screen.name for screen in self.screens)
@@ -163,6 +195,14 @@ def plan(implementation: Implementation,
     kept = {name: weight for name, weight in target.items()
             if name not in removed}
     weights = _redistributed(kept, total, implementation.redistribution)
+
+    # BN-267: the buffer is set aside before the caps, so a name dropped as
+    # too small is redistributed within what is invested.
+    if implementation.cash_buffer > 0.0:
+        invested = 1.0 - implementation.cash_buffer
+        weights = {name: weight * invested for name, weight in weights.items()}
+        total *= invested
+
     weights, capped = _within_capacity(implementation, weights, total, date,
                                        book_value, context, removed)
 

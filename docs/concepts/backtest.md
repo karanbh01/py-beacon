@@ -15,9 +15,11 @@ is the simulation underneath it, and `BacktestResult` is what both return.
 ## Running a backtest
 
 `Backtest` holds what stays fixed across runs (capital, costs, the book's
-currency, [modelling assumptions](#modelling-assumptions), modifiers, a
-benchmark, the data source, the cache).
-Each `run()` takes the subject: an index definition and a window.
+currency, the [implementation](#implementation-screens-and-redistribution),
+the [flows and vehicle](#flows-units-and-the-fee),
+[modelling assumptions](#modelling-assumptions), modifiers, a benchmark, the
+data source, the cache). Each `run()` takes the subject: an index definition
+and a window.
 
 ```python
 import logging
@@ -76,18 +78,23 @@ day it:
    and the per-share cost and price divide by it, so the holding's value is
    unchanged. It is not a trade and costs nothing. A cancelled action is
    ignored.
-2. **Marks** every holding at that day's price, converted into the book's
+2. **Accrues** interest on the cash and the vehicle's management fee since
+   the last session, and receives any [dividends](#dividends) due.
+3. **Marks** every holding at that day's price, converted into the book's
    currency.
-3. **Settles delistings.** A holding past its last listed date (reference
+4. **Settles delistings.** A holding past its last listed date (reference
    data's `DATE_TO`) is sold into cash at the last price the portfolio saw,
    with no transaction cost: an acquisition or a failure is not a trade
    crossed in a market. A delisted holding with no usable last price is
    written off. The cash waits for the next rebalance.
-4. **Rebalances**, if the day is a key in the index's weight snapshots. The
+5. **Deals flows** at the day's NAV per unit (see
+   [Flows, units and the fee](#flows-units-and-the-fee)).
+6. **Rebalances**, if the day is a key in the index's weight snapshots. The
    snapshots are keyed by the date weights take effect, so an announcement lag
-   needs nothing from the engine.
-5. **Records** the day: positions, weights, cash and NAV go into the
-   portfolio's books.
+   needs nothing from the engine. On any other day it invests an inflow and
+   works orders an execution limit left.
+7. **Records** the day: positions, weights, cash and NAV go into the
+   portfolio's books, after paying what fee the cash allows.
 
 A rebalance first removes stale names from the target (see
 [Prices](#prices)), then asks each modifier whether to skip, generates the
@@ -331,6 +338,71 @@ realistic = Backtest(
 ).run(definition, start="2023-01-03", end="2024-12-31")
 ```
 
+## Flows, units and the fee
+
+A run can take money in and pay it out. Flows are their own part of the run,
+the same whatever the vehicle, so the same flows can be run through different
+vehicles. Pass one scenario or a list, which are added together:
+
+| Scenario | What flows |
+| --- | --- |
+| `DatedFlows({"2024-03-01": 5e6, "2024-09-02": -2e6})` | Amounts on dates; one on a day not simulated arrives the next simulated day |
+| `PeriodicFlows(amount=1e6)` or `PeriodicFlows(fraction=-0.01)` | A fixed amount, or a share of the assets, each `frequency` (`"MONTHLY"` by default) |
+| `RandomFlows(drift=0.05, volatility=0.2, seed=1)` | A normal share of the assets each flow day, with annual drift and volatility, seeded |
+| `PerformanceChasingFlows(sensitivity=0.1, lookback_days=63)` | `base + sensitivity x` the trailing return, as a share of the assets |
+
+Amounts are in the book's currency, positive in and negative out. A periodic
+scenario flows on the first simulated day of each period after the first day
+of the run, which the initial capital already funds.
+
+**Units.** The initial capital buys units at the vehicle's launch price (1.0
+without one). Each flow creates or cancels units at that day's NAV per unit,
+before anything is traded for it, so a flow changes the fund's size and not
+its NAV per unit. With flows, every return metric is a unit's
+(time-weighted), and the summary adds `money_weighted_return`, the annual
+internal rate of return of the investors' money, which does depend on when
+it arrived. Without flows the units never change and the metrics are
+computed exactly as before.
+
+**Investing and paying.** An inflow on a rebalance day is invested by the
+rebalance. On any other day it is invested at once, toward the last
+rebalance's weights (`Implementation(invest_flows="target")`, the default) or
+in proportion to the holdings (`"holdings"`); under an execution limit the
+buying is worked over the following days. An outflow is paid from cash first,
+then by selling every holding pro rata. It is paid the day it is dealt, so
+those sales are not held back by an execution limit, and one larger than the
+fund is cut to the fund. The trading costs of a flow are borne by the fund.
+
+**Cash buffer.** `Implementation(cash_buffer=0.02)` keeps 2% of the book in
+cash: each rebalance invests the rest, an inflow tops the buffer up before
+buying, and an outflow draws on it first.
+
+**The vehicle and its fee.** `Vehicle(management_fee_bps=20)` charges 0.20% a
+year, accrued every calendar day on the net assets (ACT/365). It is owed as a
+liability: the NAV is net of it, a rebalance invests only what is not owed,
+and it is paid from cash as soon as there is cash, recorded as a `FEE` cash
+flow. `Vehicle(launch_price=100.0)` sets the NAV per unit at launch.
+
+```python
+from beacon.backtest import (
+    DatedFlows,
+    Implementation,
+    PeriodicFlows,
+    Vehicle,
+)
+
+growing = Backtest(
+    initial_capital=1_000_000.0, data_provider=fetcher,
+    implementation=Implementation(cash_buffer=0.02),
+    flows=[PeriodicFlows(amount=50_000.0), DatedFlows({"2024-06-03": -200_000.0})],
+    vehicle=Vehicle(management_fee_bps=20, launch_price=100.0),
+).run(definition, start="2023-01-03", end="2024-12-31")
+
+print(growing.aum.iloc[-1], growing.nav_per_unit.iloc[-1])
+print(len(growing.flows), "flows;",
+      round(growing.summary()["money_weighted_return"], 4), "money-weighted")
+```
+
 ## Modifiers
 
 A `BacktestModifier` changes rebalance behaviour after the trades are
@@ -372,7 +444,11 @@ fields. Each comparator is a `Book` with the same surface: `levels`,
 | Attribute | What it holds |
 |---|---|
 | `result.portfolio` | The simulated `Portfolio`, frozen: `nav`, `cash`, `positions`, `weights`, `transactions`, `initial_capital` |
-| `result.trading_nav` | `portfolio.nav` without its opening row (initial capital on the eve of the first trading day): one row per simulated day. |
+| `result.trading_nav` | `portfolio.nav` without its opening row (initial capital on the eve of the first trading day), net of any fee owed: one row per simulated day. Also `result.aum`. |
+| `result.nav_per_unit` | The NAV over the units outstanding: a unit's performance, whatever money flowed |
+| `result.units_outstanding` | Units outstanding each simulated day |
+| `result.flows` | Each flow as dealt: `date`, `amount`, `nav_per_unit` and the `units` created or cancelled |
+| `result.fees_payable` | The management fee owed and not yet paid at the end of each day |
 | `result.index.target` | The calculated index being aimed at. Its `source` is the `IndexResult`. |
 | `result.index.optimised` | The optimised index's own calculation, on an optimised run; otherwise `None` |
 | `result.index.tracked` | The book the engine traded toward: `optimised` if present, else `target` |
@@ -391,7 +467,8 @@ print(len(result.portfolio.transactions), "transactions,",
 
 `summary()` returns total and annualised return, volatility, Sharpe ratio
 (zero risk-free rate), maximum drawdown and, when the run tracked an index,
-`tracking_error` and `tracking_difference`. Returns are daily and annualised
+`tracking_error` and `tracking_difference`; with flows, every figure is a
+unit's and `money_weighted_return` is added. Returns are daily and annualised
 over 252 periods. `get_tracking_error()` is the annualised standard deviation
 of daily NAV returns minus `index.tracked` returns; `get_tracking_difference()`
 is the cumulative NAV return minus the cumulative index return.
@@ -402,7 +479,8 @@ close, so the cost of the opening trades is in the tracking metrics,
 volatility and maximum drawdown, as it is in `total_return`. On that first day
 the index's return is zero, since it starts at its base level.
 
-`result.against(other)` compares the NAV with any other result, book,
+`result.against(other)` compares the NAV (per unit, with flows) with any
+other result, book,
 `IndexResult` or level series and returns excess return, tracking error, beta
 and correlation. It stores nothing, so the benchmark of record stays what the
 run was given. `result.asset("AAA")` gives one name's trades, holding periods
@@ -427,6 +505,7 @@ print("Largest daily gap:", float((nav / level - 1).abs().max()))
 Differences come from what the index does not model or models differently:
 
 - **Costs.** The index trades for free.
+- **Fees, flows and cash.** A vehicle's management fee lowers the NAV, a cash buffer holds part of the book out of the market, and trading for flows costs the fund; the index has none of these. Compare a unit's NAV, not the NAV, when money flowed.
 - **Execution.** Costs leave the book a little under its target weights,
   an execution limit trades into them over several days, and a name with no
   price leaves its weight in cash.

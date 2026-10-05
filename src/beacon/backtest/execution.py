@@ -78,6 +78,7 @@ class ExecutionMixin:
     transaction_cost_bps: float
     modelling_assumptions: ModellingAssumptions
     _working: list[WorkingOrder]
+    _fees_payable: float
     _no_volume: set[str]
 
     def _fetch_price(self,
@@ -154,8 +155,10 @@ class ExecutionMixin:
         (BN-252): they used to be sized on the whole NAV with nothing set
         aside for costs, so the last buy of almost every costed rebalance ran
         short.
+
+        Sized on the fund's net assets, so the fee it owes stays in cash.
         """
-        current_value = portfolio.get_total_value()
+        current_value = portfolio.get_total_value() - self._fees_payable
         if current_value <= 0:
             return [], []
 
@@ -223,7 +226,7 @@ class ExecutionMixin:
         Returns:
             list of UnfilledOrder: What could not be traded as asked.
         """
-        current_value = portfolio.get_total_value()
+        current_value = portfolio.get_total_value() - self._fees_payable
         if current_value <= 0:
             logger.warning(f"[{date}] Portfolio value is {current_value:.2f}. "
                            f"Skipping rebalance.")

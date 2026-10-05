@@ -51,9 +51,11 @@ from ..index.result import IndexResult
 from ..optimise import OptimisationConfig
 from .dividends import REINVEST
 from .engine import BacktestEngine
+from .flows import Flows
 from .implementation import Implementation
 from .result import BacktestResult
 from .rules import BacktestModifier
+from .vehicle import Vehicle
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +146,11 @@ class Backtest:
             :mod:`beacon.backtest.dividends`.
         implementation: The screens and redistribution rule applied at each
             rebalance. None screens nothing beyond stale prices.
+        flows: Money arriving and leaving: one scenario or several, added
+            together (see :mod:`beacon.backtest.flows`). None for a fixed
+            amount of capital.
+        vehicle: The fund's fee and unit price at launch. None charges no
+            fee.
         modifiers: Optional hooks that can skip rebalances or adjust trades.
         benchmark: The benchmark of record, stored on every result this
             object produces.
@@ -169,13 +176,17 @@ class Backtest:
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
                  data_provider: DataFetcher | None = None,
-                 cache: IndexResultCache | Literal[False] | None = None):
+                 cache: IndexResultCache | Literal[False] | None = None,
+                 flows: Flows | list[Flows] | None = None,
+                 vehicle: Vehicle | None = None):
         self.initial_capital: float = initial_capital
         self.transaction_cost_bps: float = transaction_cost_bps
         self.price_column: str = price_column
         self.currency: str | None = currency
         self.modelling_assumptions: ModellingAssumptions | None = modelling_assumptions
         self.implementation: Implementation | None = implementation
+        self.flows: Flows | list[Flows] | None = flows
+        self.vehicle: Vehicle | None = vehicle
         self.dividends: str = dividends
         self.modifiers: list[BacktestModifier] | None = modifiers
         self.benchmark: IndexResult | pd.Series | None = benchmark
@@ -281,6 +292,8 @@ class Backtest:
             modelling_assumptions=assumptions,
             dividends=self.dividends,
             implementation=self.implementation,
+            flows=self.flows,
+            vehicle=self.vehicle,
             transaction_cost_bps=self.transaction_cost_bps,
             modifiers=self.modifiers,
             benchmark=self.benchmark,

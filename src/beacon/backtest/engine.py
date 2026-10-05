@@ -20,10 +20,11 @@ from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 # it moved to execution.py (BN-266).
 from ..portfolio.base import Portfolio
 from ..portfolio.base import TradeInstruction as TradeInstruction  # noqa: PLC0414
-from ..portfolio.cash_flows import INTEREST
+from .accounting import AccountingMixin
 from .costs import WorkingOrder
 from .dividends import DIVIDEND_POLICIES, REINVEST, DividendsMixin
 from .execution import ExecutionMixin
+from .flows import FlowRecord, Flows
 from .implementation import Implementation, RebalanceStep, plan
 from .pricing import PricingMixin
 from .result import (
@@ -35,6 +36,7 @@ from .result import (
 )
 from .rules import BacktestModifier
 from .screens import Screen, ScreenContext
+from .vehicle import Vehicle
 
 # Reused from the portfolio rather than redefined: the engine decides whether
 # to size an order down, the portfolio decides whether to accept it, and the
@@ -54,7 +56,8 @@ logger = logging.getLogger(__name__)
 # BN-167. The calendar has been carried by every definition since BN-180; it
 # decides which days the run steps onto (BN-186) and how a missing bar is read
 # (BN-183).
-class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
+class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
+                     AccountingMixin):
     """Simulates portfolio execution against a target weight schedule.
 
     The engine consumes target weights from an ``IndexResult`` and simulates
@@ -97,6 +100,11 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
             rebalance (see :class:`~beacon.backtest.Implementation`). None
             screens nothing beyond stale prices and redistributes pro rata,
             which is how a run behaved before it had stages.
+        flows: Money arriving and leaving: one scenario or several, added
+            together (see :mod:`beacon.backtest.flows`). None for a fixed
+            amount of capital.
+        vehicle: The fund's fee and unit price at launch (see
+            :class:`~beacon.backtest.Vehicle`). None charges no fee.
         modifiers: Optional hooks that can skip rebalances or adjust trades.
         benchmark: The benchmark of record, stored on the result so every
             reader quotes excess return against the same comparator.
@@ -133,7 +141,9 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
                  modifiers: list[BacktestModifier] | None = None,
                  benchmark: IndexResult | pd.Series | None = None,
                  target_index: IndexResult | None = None,
-                 calendar: str | None = None):
+                 calendar: str | None = None,
+                 flows: Flows | list[Flows] | None = None,
+                 vehicle: Vehicle | None = None):
         self.start_date: pd.Timestamp = pd.Timestamp(start_date)
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
         self.initial_capital: float = initial_capital
@@ -190,6 +200,18 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
 
         self.dividends: str = dividends
         _refuse_screens_as_modifiers(self.modifiers)
+
+        # BN-267: flows are their own part of the run; the vehicle carries
+        # the fee. Both empty leave every figure as it was.
+        self.flows: list[Flows] = ([flows] if isinstance(flows, Flows)
+                                   else list(flows or []))
+        self.vehicle: Vehicle | None = vehicle
+        self._fees_payable = 0.0
+        self._units = 0.0
+        self._flow_records: list[FlowRecord] = []
+        self._units_history: dict[pd.Timestamp, float] = {}
+        self._payable_history: dict[pd.Timestamp, float] = {}
+        self._per_unit: dict[pd.Timestamp, float] = {}
 
         # The internal schedule representation: rebalance date -> weights.
         self._weight_schedule: dict[pd.Timestamp, dict[str, float]] = (
@@ -307,7 +329,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
 
         step = plan(self.implementation, target, date, held, stale,
                     ScreenContext(self.data_provider, self.currency),
-                    book_value=portfolio.get_total_value())
+                    book_value=self._net_value(portfolio))
         self._rebalance_steps.append(step)
 
         if step.removed:
@@ -503,6 +525,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
         self._delistings = delistings
         ratios = self._ratio_schedule()
         previous = eve
+        self._start_accounting(eve, trading_days[0])
 
         for idx, date in enumerate(trading_days):
             # 0. Splits and stock dividends change the share count before the
@@ -511,15 +534,16 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
             for asset_id, ratio in ratios_between(ratios, previous, date).items():
                 portfolio.apply_ratio(asset_id, ratio)
 
-            # 0b. Interest on the cash held since the last simulated day.
-            self._accrue_interest(portfolio, previous, date)
+            # 0b. Interest on the cash, and the vehicle's fee on the net
+            # assets, since the last simulated day (BN-267).
+            self._accrue(portfolio, previous, date)
 
             # 0c. Dividends: owed for what is held at the start of an ex-date,
             # received on the pay date (BN-263).
             self._record_entitlements(portfolio, previous, date)
             self._pay_dividends(portfolio, date)
 
-            previous = date
+            last, previous = previous, date
 
             # 1. Update prices for existing holdings
             self._update_portfolio_prices(portfolio, date)
@@ -529,6 +553,10 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
             # be sold by the ordinary path -- that path needs a price, and
             # there is not one.
             self._dispose_delisted(portfolio, date, delistings)
+
+            # 1c. Flows, dealt at today's NAV per unit before anything is
+            # traded for them (BN-267).
+            inflow = self._deal_flows(portfolio, last, date)
 
             # 2. Check for rebalance
             target_w = self._get_target_weights_for_date(date)
@@ -558,10 +586,17 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
                 unfilled.extend(self._rebalance(portfolio, target_w, date))
                 # Re-price after rebalance
                 self._update_portfolio_prices(portfolio, date)
-            elif self._working:
-                # 2b. Orders an execution limit left working (BN-266).
+            elif inflow > 0.0 or self._working:
+                # 2b. An inflow invested between rebalances, and orders an
+                # execution limit left working (BN-266, BN-267).
+                if inflow > 0.0:
+                    self._invest_inflow(portfolio, date)
+
                 self._work_orders(portfolio, date)
                 self._update_portfolio_prices(portfolio, date)
+
+            # 2c. Pay what fee the cash allows; record the day's units.
+            self._close_books(portfolio, date)
 
             # 3. End-of-day state is already in the books: the dated mark
             # in step 1 (and the re-mark after a rebalance) wrote the day's
@@ -607,21 +642,11 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin):
             rebalance_steps=list(self._rebalance_steps),
             currency=self.currency,
             modelling_assumptions=self.modelling_assumptions,
+            flows=list(self._flow_records),
+            units=pd.Series(self._units_history, dtype=float),
+            fees_payable=pd.Series(self._payable_history, dtype=float),
+            launch_price=self.launch_price,
         ).with_data(self.data_provider)
-
-    def _accrue_interest(self,
-                         portfolio: Portfolio,
-                         previous: pd.Timestamp,
-                         date: pd.Timestamp) -> None:
-        """Credit what the cash earned from *previous* to *date*, ACT/365."""
-        rate = self.modelling_assumptions.cash_rate or 0.0
-        days = (date - previous).days
-
-        if rate == 0.0 or days <= 0 or portfolio.cash_balance <= 0.0:
-            return
-
-        portfolio.receive_cash(portfolio.cash_balance * rate * days / 365.0,
-                               date, INTEREST)
 
     def _index_books(self) -> IndexBooks:
         """The run's calculated indices, one book each (BN-164, BN-167).

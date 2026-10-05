@@ -30,9 +30,19 @@ somebody last idly compared against.
 
 The portfolio's NAV opens with initial capital on the eve of the first
 trading day. :attr:`trading_nav` is the same series with that opening row
-dropped, and the fund's fee accrual and the wire format read it. The return
-metrics start from the initial capital instead: the first day's return runs
-from the capital to the first close, so the cost of buying in counts.
+dropped, net of any management fee the fund owes, and the wire format reads
+it. The return metrics start from the initial capital instead: the first
+day's return runs from the capital to the first close, so the cost of buying
+in counts.
+
+## Flows and units
+
+With flows the NAV is the fund's size, which money arriving and leaving moves
+as much as the market does. Performance is then measured per unit:
+:attr:`nav_per_unit` is the NAV over the units outstanding, every return
+metric is computed from it (time-weighted), and the summary adds the
+money-weighted return, which does count when the money arrived. Without flows
+the units never change and the metrics are computed exactly as before.
 """
 # BN-154 removed the old flat fields (`portfolio_nav`, `cash_history`,
 # `actual_weight_history`, the `portfolio_id` alias) in favour of books.
@@ -51,8 +61,9 @@ from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult, PriceGap
 from ..plot.base import PlotAccessor
 from ..portfolio.base import Portfolio
-from ..portfolio.cash_flows import DISTRIBUTION
+from ..portfolio.cash_flows import DISTRIBUTION, REDEMPTION, SUBSCRIPTION
 from .asset_view import BacktestAssetView
+from .flows import FlowRecord, money_weighted_return
 from .implementation import RebalanceStep
 
 # Why an order went unfilled (BN-252, BN-266).
@@ -242,6 +253,13 @@ class BacktestResult:
         modelling_assumptions: What the run assumed, every field resolved.
             None for a result built by hand, which the summary then measures
             with a zero risk-free rate over 252 periods a year.
+        flows: Each day's flow as dealt: the amount, and the units created or
+            cancelled at that day's NAV per unit. Empty without flows.
+        units: Units outstanding at the end of each day, from the eve of the
+            first trading day.
+        fees_payable: The management fee owed and not yet paid at the end of
+            each day, which the NAV is net of.
+        launch_price: NAV per unit at launch.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -256,6 +274,11 @@ class BacktestResult:
     rebalance_steps: list[RebalanceStep] = field(default_factory=list)
     currency: str = "USD"
     modelling_assumptions: ModellingAssumptions | None = None
+    flows: list[FlowRecord] = field(default_factory=list)
+    units: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    fees_payable: pd.Series = field(
+        default_factory=lambda: pd.Series(dtype=float))
+    launch_price: float = 1.0
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 
@@ -266,15 +289,57 @@ class BacktestResult:
         The portfolio's own `nav` opens with initial capital on the eve of
         the first trading day, the record of what the run started with.
         Every *metric* derives from this series instead: the eve row is a
-        starting fact, not a day the simulation traded.
+        starting fact, not a day the simulation traded. Net of the management
+        fee owed and not yet paid, when the run had a vehicle charging one.
         """
-        nav = self.portfolio.nav
+        nav = self._net_nav()
 
         if (self.portfolio.inception is not None and not nav.empty
                 and nav.index[0] == self.portfolio.inception):
             return nav.iloc[1:]
 
         return nav
+
+    @property
+    def aum(self) -> pd.Series:
+        """The fund's assets under management each simulated day: the
+        trading NAV, which flows move as well as the market."""
+        return self.trading_nav
+
+    @property
+    def units_outstanding(self) -> pd.Series:
+        """Units outstanding at the end of each simulated day."""
+        return self._units_on(self.trading_nav.index)
+
+    @property
+    def nav_per_unit(self) -> pd.Series:
+        """NAV per unit each simulated day: the performance of a unit held
+        throughout, whatever money arrived or left. A day with no units
+        outstanding carries the last NAV per unit."""
+        nav = self.trading_nav
+        units = self._units_on(nav.index)
+        per_unit = (nav / units).where(units > 0.0)
+
+        return per_unit.ffill().fillna(self.launch_price)
+
+    def _net_nav(self) -> pd.Series:
+        """The portfolio's NAV less the fee owed each day."""
+        nav = self.portfolio.nav
+
+        if self.fees_payable.empty or nav.empty:
+            return nav
+
+        owed = self.fees_payable.reindex(nav.index).ffill().fillna(0.0)
+
+        return nav - owed
+
+    def _units_on(self,
+                  dates: pd.Index) -> pd.Series:
+        """Units outstanding on *dates*, carried forward."""
+        if self.units.empty:
+            return pd.Series(1.0, index=dates)
+
+        return self.units.reindex(dates).ffill().fillna(self.units.iloc[0])
 
     @property
     def total_unfilled_value(self) -> float:
@@ -339,7 +404,7 @@ class BacktestResult:
             correlation over the common window, as `analysis.relative`
             computes them.
         """
-        return relative_metrics(self.trading_nav, _levels_of(other))
+        return relative_metrics(self.performance_levels(), _levels_of(other))
 
     def get_returns(self) -> pd.Series:
         """The portfolio's daily returns.
@@ -350,6 +415,9 @@ class BacktestResult:
         dividend policy) is added back on the day it was paid, so returns
         stay total returns.
 
+        With flows, returns are those of a unit (time-weighted): NAV per unit
+        from one day to the next, so money arriving is not a return.
+
         Returns:
             pd.Series: Returns by date, one per simulated day.
         """
@@ -357,6 +425,9 @@ class BacktestResult:
 
         if nav.empty:
             return pd.Series(dtype=float)
+
+        if self.flows:
+            return self._unit_returns()
 
         paid = self._paid_out().reindex(nav.index, fill_value=0.0)
         returns = (nav + paid) / nav.shift(1) - 1.0
@@ -371,6 +442,51 @@ class BacktestResult:
 
         return returns.dropna()
 
+    def _unit_returns(self) -> pd.Series:
+        """Daily returns of NAV per unit, with cash paid out added back."""
+        nav = self.trading_nav
+        units = self._units_on(nav.index)
+        paid = self._paid_out().reindex(nav.index, fill_value=0.0)
+        per_unit = self.nav_per_unit
+        total = ((nav + paid) / units).where(units > 0.0).fillna(per_unit)
+        before = per_unit.shift(1)
+        before.iloc[0] = self.launch_price
+
+        return (total / before - 1.0).astype(float)
+
+    def performance_levels(self) -> pd.Series:
+        """The run's performance as a level series: the trading NAV, or with
+        flows the NAV per unit, which they do not move."""
+        return self.nav_per_unit if self.flows else self.trading_nav
+
+    def money_weighted_return(self) -> float | None:
+        """The annual internal rate of return of the investors' money.
+
+        Counts the initial capital, every subscription and redemption, any
+        distribution paid out, and the final NAV, each on its date (ACT/365).
+        Unlike the time-weighted figures it depends on when money arrived.
+
+        Returns:
+            float or None: The rate a year, or None when it does not exist
+            (no money at risk, say).
+        """
+        nav = self.trading_nav
+
+        if nav.empty:
+            return None
+
+        start = (self.portfolio.inception if self.portfolio.inception is not None
+                 else nav.index[0])
+        investor: list[tuple[pd.Timestamp, float]] = [
+            (pd.Timestamp(start), -self.portfolio.initial_capital)]
+        investor += [(flow.date, -flow.amount)
+                     for flow in self.portfolio.cash_flows
+                     if flow.kind in (SUBSCRIPTION, REDEMPTION, DISTRIBUTION)]
+        investor.append((pd.Timestamp(nav.index[-1]), float(nav.iloc[-1])))
+
+        return money_weighted_return([(date, amount) for date, amount in investor
+                                      if amount != 0.0])
+
     def _paid_out(self) -> pd.Series:
         """Cash paid out of the book to its investors, by date, as positive
         amounts. Empty unless the run distributed dividends."""
@@ -384,17 +500,23 @@ class BacktestResult:
 
         return frame.groupby("date")["amount"].sum()
 
-    def _performance_nav(self) -> pd.Series:
-        """The NAV as total return: the NAV itself, or, when cash was paid
-        out, the initial capital grown by the returns."""
+    def _performance_nav(self) -> tuple[pd.Series, float]:
+        """The NAV as total return, and what it started from: the NAV and the
+        initial capital; the capital grown by the returns, when cash was
+        paid out; or, with flows, a unit grown from its launch price."""
         nav = self.trading_nav
 
-        if self._paid_out().empty or nav.empty:
-            return nav
+        if self.flows and not nav.empty:
+            launch = self.launch_price
+
+            return launch * (1.0 + self.get_returns()).cumprod(), launch
 
         initial = self.portfolio.initial_capital
 
-        return initial * (1.0 + self.get_returns()).cumprod()
+        if self._paid_out().empty or nav.empty:
+            return nav, initial
+
+        return initial * (1.0 + self.get_returns()).cumprod(), initial
 
     def get_annual_returns(self) -> pd.Series:
         """The portfolio's calendar-year returns.
@@ -499,16 +621,20 @@ class BacktestResult:
         measured against the portfolio's initial capital, with any dividends
         paid out of the book added back.
 
+        With flows every figure is a unit's, and the money-weighted return
+        is added.
+
         Returns:
             dict: Dictionary containing: total_return, annualised_return,
             volatility, sharpe_ratio, max_drawdown, and, when the run tracked
-            an index, tracking_error and tracking_difference.
+            an index, tracking_error and tracking_difference; with flows,
+            money_weighted_return.
         """
         returns = self.get_returns()
         n_periods = len(returns)
-        # BN-263: with dividends paid out, the NAV understates performance.
-        nav = self._performance_nav()
-        initial = self.portfolio.initial_capital
+        # BN-263: with dividends paid out, the NAV understates performance;
+        # BN-267: with flows it is the fund's size, so a unit is measured.
+        nav, initial = self._performance_nav()
 
         # Total return
         total_return = (0.0 if nav.empty or initial == 0
@@ -559,6 +685,9 @@ class BacktestResult:
         if td is not None:
             result["tracking_difference"] = td
 
+        if self.flows:
+            result["money_weighted_return"] = self.money_weighted_return()
+
         return result
 
     def __repr__(self) -> str:
@@ -590,7 +719,7 @@ def _from_start(levels: pd.Series) -> pd.Series:
 def _levels_of(other: Comparable) -> pd.Series:
     """The level series a comparator carries, whichever kind it is."""
     if isinstance(other, BacktestResult):
-        return other.trading_nav
+        return other.performance_levels()
 
     if isinstance(other, Book):
         return other.levels
