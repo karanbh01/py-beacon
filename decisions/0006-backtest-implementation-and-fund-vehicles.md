@@ -5,7 +5,9 @@ Date: 2026-09-29
 ## Status
 
 Accepted. Built in phases, tracked as BN-263 to BN-272 (#276 to #285), and
-BN-276 (#289) for modelling assumptions, added 2026-10-02.
+BN-276 (#289) for modelling assumptions, added 2026-10-02. Amended 2026-10-05:
+flows are a fifth part of a run rather than a vehicle setting, the cash buffer
+belongs to the implementation, and dividends are reinvested by default.
 
 ## Context
 
@@ -26,22 +28,26 @@ index by about the dividend yield.
 
 ## Decision
 
-A backtest run has four independent parts:
+A backtest run has five independent parts:
 
 1. **Strategy**: what is held. An index definition (tracked in full), an
    index with a replication method, or an active strategy. Always passed to
    `run()`.
-2. **Implementation**: screens, capacity caps, costs, execution limits. It
-   applies to every vehicle, since a plain backtest at 100 billion needs
-   capacity limits too.
-3. **Vehicle**: how the money is held and how it moves. None for a plain
-   backtest, or a `Vehicle` built from a structure preset.
-4. **Modelling assumptions**: how the simulation models markets and data,
+2. **Implementation**: screens, capacity caps, costs, execution limits, the
+   cash buffer and how flows are invested. It applies to every vehicle, since
+   a plain backtest at 100 billion needs capacity limits too.
+3. **Flows**: the money arriving and leaving, as a scenario. None for a fixed
+   amount of capital.
+4. **Vehicle**: how the money is held: fees, and the rules a structure applies
+   to flows. None for a plain backtest, or a `Vehicle` built from a structure
+   preset.
+5. **Modelling assumptions**: how the simulation models markets and data,
    whatever the strategy, size or vehicle. A `ModellingAssumptions` object.
 
 ```python
 backtest = Backtest(modelling_assumptions=ModellingAssumptions(...),
-                    implementation=..., vehicle=etf, data_provider=data)
+                    implementation=..., flows=..., vehicle=etf,
+                    data_provider=data)
 
 backtest.run(my_index, start, end)                     # full physical
 backtest.run(IndexTracking(my_index, replication="optimised"), start, end)
@@ -50,9 +56,13 @@ backtest.run(ActiveStrategy(...), start, end)
 
 `run()` has one form with or without a vehicle.
 
-Keeping them apart is what allows a fair comparison: the same index and the
-same limits, only the vehicle changed (an index fund against an ETF on the
-same flows, say).
+Keeping them apart is what allows a fair comparison: the same index, the same
+limits and the same flows, only the vehicle changed (an index fund against an
+ETF, say).
+
+Flows are not a modelling assumption. The assumptions describe how markets and
+data behave and have a process-wide default; flows are a scenario chosen per
+run, and one default schedule for every backtest would mean nothing.
 
 ### Modelling assumptions
 
@@ -106,8 +116,11 @@ follows the index (#241), and every price read converts into it (#266).
 ### Dividends
 
 Received on the pay date for the shares held on the ex-date, converted into the
-book's currency. **Accumulated by default, distributed as an option**, for
-every fund type. A flat withholding rate first; rates by domicile later.
+book's currency. **Reinvested in the current holdings by default**, held as
+cash until the next rebalance, or distributed, for every fund type. The first
+two keep the income in the book, as an accumulating share class does; the
+third pays it out, as a distributing class does. A flat withholding rate
+first; rates by domicile later.
 
 ### AUM
 
@@ -115,18 +128,25 @@ every fund type. A flat withholding rate first; rates by domicile later.
   Performance uses NAV per unit (time-weighted); a money-weighted return is
   reported beside it. With no flows every number is as it is today.
 - **Flows**, every form, the user's choice: dated amounts, periodic amounts or
-  percentages of AUM, stochastic (seeded), performance-chasing, and creation
-  units for exchange-traded funds.
-- **Inflows are invested immediately.** A flow too large for a day's
-  participation limit is worked over several days.
-- **Outflows** sell pro rata, drawing on a cash buffer first where one is set.
+  percentages of AUM, stochastic (seeded), and performance-chasing. They are
+  their own part of the run, the same whatever the vehicle.
+- **Inflows are invested immediately**, toward the current target weights by
+  default or pro rata to the holdings, as the implementation says. A flow too
+  large for a day's participation limit is worked over several days.
+- **Outflows** sell pro rata, drawing on the implementation's cash buffer
+  first where one is set.
+- **The management fee** is the vehicle's, accrued daily on AUM over calendar
+  days (ACT/365) and taken from cash.
 
 ### Vehicles and funds
 
 The **vehicle** and the **strategy** are separate. A `Vehicle` is how the money
-is held: a structure preset and its settings (fees, flows, pricing and
-dilution, creations, distributions, cash buffer). It says nothing about what
-is held. That keeps `run()` uniform, matches the app (the strategy chosen in
+is held: a structure preset and its settings (fees, pricing and dilution,
+dealing and gates, creations, distributions). It says nothing about what is
+held, and does not originate flows: it applies its structure's rules to the
+run's flows. An ETF rounds them to creation units and deals them in cash or in
+kind, an interval fund deals only on set dates behind gates, a closed-ended
+fund takes none, and pricing or a levy decides who bears their trading cost. That keeps `run()` uniform, matches the app (the strategy chosen in
 one place, the vehicle in another), and allows the comparisons that matter:
 one ETF wrapper tracking two indices, or one index in an OEIC and in an ETF.
 
@@ -193,7 +213,7 @@ saved runs record them.
 | 2. Staged backtest and screens (with #266 currency, #268, #241 book currency) | BN-264 (#277) |
 | 3. Capacity caps | BN-265 (#278) |
 | 4. Market impact and execution limits (with #265) | BN-266 (#279) |
-| 5. AUM: units and flows | BN-267 (#280) |
+| 5. AUM: units, flows, and a minimal vehicle with the fee | BN-267 (#280) |
 | 6. Vehicles and structure presets; Fund as a product record | BN-268 (#281) |
 | 7. Strategies: replication and active | BN-269 (#282) |
 | 8. Synthetic and futures replication; withholding tax by domicile | BN-270, BN-271 (#283, #284) |
