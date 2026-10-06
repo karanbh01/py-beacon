@@ -6,7 +6,7 @@ import logging
 
 import pandas as pd
 
-from ..assumptions import ModellingAssumptions, apply, data_treatment_of
+from ..assumptions import ModellingAssumptions, apply
 from ..data.corporate_actions import ratios_between
 from ..data.fetcher import DataFetcher
 from ..index.requirements import require_price_column
@@ -21,21 +21,22 @@ from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 from ..portfolio.base import Portfolio
 from ..portfolio.base import TradeInstruction as TradeInstruction  # noqa: PLC0414
 from .accounting import AccountingMixin
+from .books import benchmark_book, index_books
 from .costs import WorkingOrder
 from .dividends import DIVIDEND_POLICIES, REINVEST, DividendsMixin
 from .execution import ExecutionMixin
 from .flows import FlowRecord, Flows
 from .implementation import Implementation, RebalanceStep, plan
+from .listings import ListingsMixin
 from .pricing import PricingMixin
-from .result import (
-    BacktestResult,
-    Book,
-    IndexBooks,
-    RebalancePricing,
-    UnfilledOrder,
-)
+from .result import BacktestResult, RebalancePricing, UnfilledOrder
 from .rules import BacktestModifier
-from .screens import Screen, ScreenContext
+from .screens import ScreenContext
+from .settings import (
+    book_currency,
+    refuse_screens_as_modifiers,
+    warn_if_assumptions_differ,
+)
 from .vehicle import Vehicle
 
 # Reused from the portfolio rather than redefined: the engine decides whether
@@ -57,7 +58,7 @@ logger = logging.getLogger(__name__)
 # decides which days the run steps onto (BN-186) and how a missing bar is read
 # (BN-183).
 class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
-                     AccountingMixin):
+                     AccountingMixin, ListingsMixin):
     """Simulates portfolio execution against a target weight schedule.
 
     The engine consumes target weights from an ``IndexResult`` and simulates
@@ -156,7 +157,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             if isinstance(self.data_provider, DataFetcher)
             else assumptions.with_defaults())
         self.index_result: IndexResult = index_result
-        _warn_if_assumptions_differ(index_result, self.data_provider)
+        warn_if_assumptions_differ(index_result, self.data_provider)
 
         # The comparators of record (decision 13). The engine trades on
         # neither; it stores them so the run states what it was measured
@@ -164,7 +165,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
         self.benchmark: IndexResult | pd.Series | None = benchmark
         self.target_index: IndexResult | None = target_index
         self.price_column: str = price_column
-        self.currency: str = _book_currency(currency, index_result)
+        self.currency: str = book_currency(currency, index_result)
         self.calendar: str | None = calendar
 
         # Listing currency per identifier, resolved lazily and once. Prices
@@ -199,7 +200,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
                              f"Supported: {', '.join(DIVIDEND_POLICIES)}.")
 
         self.dividends: str = dividends
-        _refuse_screens_as_modifiers(self.modifiers)
+        refuse_screens_as_modifiers(self.modifiers)
 
         # BN-267: flows are their own part of the run; the vehicle carries
         # the fee. Both empty leave every figure as it was.
@@ -262,53 +263,6 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             warm(asset_ids, date)
 
 
-    def _delisting_dates(self) -> dict[str, pd.Timestamp]:
-        """When each holding stops being listed, or an empty mapping.
-
-        Defensive about what the provider *offers*, not about whether it
-        works. The provider is an interface rather than a class, so a fetcher
-        assembled by hand or stood in for by a double need not implement this,
-        and a backtest over a universe where nothing is ever delisted should
-        not require it to — hence the `getattr`, and hence a non-mapping answer
-        being read as "nothing leaves".
-
-        A failure is a different thing, and used to be swallowed into the same
-        empty mapping with a WARNING (BN-197). Empty does not mean "unknown"
-        here, it means "nothing is ever delisted", and the engine acts on it:
-        the price read stops declining to carry a dead name forward, and
-        disposal never settles the holding. So the book ran to the end holding
-        names that no longer existed, each marked at its last close, and
-        published a NAV as though that were real — with the only record of it
-        in a log nobody reads after the fact.
-
-        `IndexCalculator.delisting_schedule` calls the same method bare and
-        always has. Two surfaces over one call answering differently is the
-        BN-174 shape, and the one that substitutes is the one that was wrong.
-        """
-        getter = getattr(self.data_provider, "delisting_dates", None)
-
-        if getter is None:
-            return {}
-
-        dates = getter()
-
-        return dates if isinstance(dates, dict) else {}
-
-    def _ratio_schedule(self) -> dict[pd.Timestamp, dict[str, float]]:
-        """Every split and stock dividend in the data, by ex-date and name.
-
-        Empty for a data provider with no action history, including one
-        assembled by hand without a `corporate_actions` attribute.
-        """
-        actions = getattr(self.data_provider, "corporate_actions", None)
-
-        if actions is None or actions.is_empty:
-            return {}
-
-        schedule: dict[pd.Timestamp, dict[str, float]] = actions.ratio_schedule()
-
-        return schedule
-
     def _planned(self,
                  target: dict[str, float],
                  date: pd.Timestamp,
@@ -343,62 +297,6 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
                         len(step.capped))
 
         return step.weights
-
-    def _dispose_delisted(self,
-                          portfolio: Portfolio,
-                          date: pd.Timestamp,
-                          delistings: dict[str, pd.Timestamp]) -> None:
-        """Settle any holding whose listing has ended, into cash.
-
-        Without this the position is held forever. A name past its last listed
-        date has no price, so `_update_portfolio_prices` leaves the holding
-        marked at its last close and `_sell_instruction` returns None rather
-        than a trade -- the NAV keeps carrying a company that no longer
-        exists, and its weight is never released to anything that does.
-
-        The signal is *this mapping*, read from reference data's `DATE_TO`,
-        and it always was: nothing here infers a delisting from prices running
-        out, which is why BN-183 could change the price read without touching
-        disposal. `_fetch_price` consults the same mapping and declines to
-        carry a price forward past it, so the two agree on when a name stopped
-        existing rather than one of them guessing from an absence.
-
-        Settled at the last price the portfolio saw, and **without** a
-        transaction cost. That is the modelling decision, and it is
-        deliberate: an acquisition pays cash to the holder and a failure pays
-        nothing, but neither is a trade crossed in a market that is by then
-        closed. Charging brokerage on it would invent a fee nobody was
-        billed.
-
-        Args:
-            portfolio: Mutated in place.
-            date: Today.
-            delistings: identifier -> last listed date.
-        """
-        if not delistings:
-            return
-
-        for asset_id in list(portfolio.holdings):
-            last_listed = delistings.get(asset_id)
-
-            if last_listed is None or date <= last_listed:
-                continue
-
-            holding = portfolio.holdings[asset_id]
-            price = holding.current_price
-
-            if price is None or price <= 0 or holding.quantity <= 0:
-                logger.warning(
-                    "[%s] %s delisted with no usable last price; the holding "
-                    "is dropped and its value written off.", date, asset_id)
-                portfolio.holdings.pop(asset_id, None)
-                continue
-
-            portfolio.execute_sell(asset_id, holding.quantity, price,
-                                   cost=0.0, date=date)
-
-            logger.info("[%s] Settled %.4f of %s at %.4f after delisting.",
-                        date, holding.quantity, asset_id, price)
 
     def _scheduled_days(self) -> pd.DatetimeIndex:
         """Rebalance dates inside the run window that are not sessions.
@@ -634,8 +532,8 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
         # process-level source moves later.
         return BacktestResult(
             portfolio=portfolio,
-            index=self._index_books(),
-            benchmark=self._benchmark_book(),
+            index=index_books(self.index_result, self.target_index),
+            benchmark=benchmark_book(self.benchmark),
             unfilled=unfilled,
             price_gaps=list(self._price_gaps),
             rebalance_pricing=list(self._rebalance_pricing),
@@ -647,88 +545,3 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             fees_payable=pd.Series(self._payable_history, dtype=float),
             launch_price=self.launch_price,
         ).with_data(self.data_provider)
-
-    def _index_books(self) -> IndexBooks:
-        """The run's calculated indices, one book each (BN-164, BN-167).
-
-        Given *index_result* alone, the run traded a plain calculation: it is
-        the `index.target` book. Given *target_index* as well — the
-        derived-index shape — the schedule the engine traded is an optimised
-        calculation and *target_index* is the parent it was solved from, so
-        they land in `index.optimised` and `index.target` respectively.
-        """
-        if self.target_index is not None:
-            return IndexBooks(target=Book.from_index(self.target_index),
-                              optimised=Book.from_index(self.index_result))
-
-        return IndexBooks(target=Book.from_index(self.index_result))
-
-    def _benchmark_book(self) -> "Book | None":
-        """The benchmark of record, whichever form it was given in."""
-        if self.benchmark is None:
-            return None
-
-        if isinstance(self.benchmark, pd.Series):
-            return Book.from_levels(self.benchmark)
-
-        return Book.from_index(self.benchmark)
-
-
-def _book_currency(currency: str | None,
-                   index_result: IndexResult) -> str:
-    """The book's currency: the one asked for, else the index's, else USD.
-
-    A book in a different currency from its index is a real case (a dollar
-    investor tracking a euro index) and is allowed, but said, because its
-    tracking figures then include exchange-rate moves the index does not see.
-    """
-    # BN-228: the default was USD whatever the index's currency, so a euro
-    # index's backtest kept its books in dollars and nothing said so.
-    index_currency = (index_result.currency.upper()
-                      if index_result.currency else None)
-
-    if currency is None:
-        if index_currency is None:
-            logger.info("The index does not record its currency; the book is "
-                        "kept in USD.")
-
-        return index_currency or "USD"
-
-    book = currency.upper()
-
-    if index_currency is not None and book != index_currency:
-        logger.info("The book is kept in %s and the index is in %s, so the "
-                    "tracking figures include exchange-rate moves.", book,
-                    index_currency)
-
-    return book
-
-
-def _warn_if_assumptions_differ(index_result: IndexResult,
-                                data_provider: DataFetcher) -> None:
-    """Log each data-treatment setting the index was calculated under that
-    differs from the one this run reads data under."""
-    calculated = index_result.modelling_assumptions
-    simulated = data_treatment_of(data_provider)
-
-    if calculated is None or simulated is None:
-        return
-
-    differ = [f"{name} {calculated_value!r} for the index, "
-              f"{simulated.data_treatment()[name]!r} for the backtest"
-              for name, calculated_value in calculated.data_treatment().items()
-              if calculated_value != simulated.data_treatment()[name]]
-
-    if differ:
-        logger.warning("The index was calculated under different modelling "
-                       "assumptions from this backtest: %s.", "; ".join(differ))
-
-
-def _refuse_screens_as_modifiers(modifiers: list[BacktestModifier]) -> None:
-    """Say where a screen goes, if one was passed as a modifier."""
-    screens = [type(modifier).__name__ for modifier in modifiers
-               if isinstance(modifier, Screen)]
-
-    if screens:
-        raise TypeError(f"{', '.join(screens)} is a screen, not a modifier: "
-                        f"pass it as Implementation(screens=[...]).")
