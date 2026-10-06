@@ -60,6 +60,7 @@ nav:
       - Expressions and screens: concepts/expressions.md
       - Backtest: concepts/backtest.md
       - Funds and ETFs: concepts/funds.md
+      - Fund vehicles and pricing: concepts/fund-vehicles.md
       - Derivatives: concepts/derivatives.md
       - Optimiser: concepts/optimiser.md
       - Risk model: concepts/risk-model.md
