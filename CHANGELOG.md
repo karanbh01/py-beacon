@@ -16,8 +16,13 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - Diversification limits for a fund structure, applied with the capacity caps: `UcitsLimits` (5/10/40, or 20/35 for an index tracker) and `Act1940Limits` (the 1940 Act's diversified-fund test).
 - Structure presets: `uk_oeic`, `luxembourg_sicav`, `irish_icav` and `us_mutual_fund`, each a `Vehicle` with its structure's usual pricing and limits, any setting of which can be changed. `preset(name)` and `PRESETS` list them.
 - Exchange-traded funds: `EtfVehicle`, and the `ucits_etf` (cash creations) and `us_etf` (in kind) presets. Flows are rounded to whole creation units, with the rest carried to the next day; in-kind creations move the holdings without cost, and cash ones pay a creation fee into the fund. After each close the shares are quoted on an exchange by `EtfMarket`: a premium that persists, follows creations and the NAV's return, and stays inside the arbitrage band, and a spread that follows the basket's trading cost and the NAV's volatility. `result.market` holds each day's quote and the summary adds the exchange investor's return and the average premium and spread.
+- `Fund`: a fund product, with a name, a currency, `ShareClass`es and documents, one strategy and one vehicle. `fund.backtest(share_class=...)` runs a `Backtest` of it with that class's fee and distribution policy (accumulating or distributing).
 - `OwnershipCap(free_float=False)` measures against every share outstanding rather than the free float.
 - `Vehicle`: what the fund itself charges and its unit price at launch. `Vehicle(management_fee_bps=...)` accrues the fee daily on net assets (ACT/365) as a liability the NAV is net of, paid from cash as it can be. Structure presets come later.
+
+### Deprecated
+
+- `IndexFund` and `ETF`, to be removed in 0.6.0. Use a `Fund` with a vehicle: an open-ended preset such as `uk_oeic()` for an `IndexFund`, or `ucits_etf()` or `us_etf()` for an `ETF`. Until then they keep their own fee convention (a fee per trading day, applied to the backtest's NAV afterwards).
 
 ## [0.4.0] - 2026-10-02
 

@@ -5,10 +5,66 @@ description: "Index funds and ETFs: seed capital, the management fee, the market
 
 # Funds and ETFs
 
-`beacon.fund` models a fund that tracks an index. `IndexFund` runs a
-[backtest](backtest.md) of its index and reports a NAV net of a management
-fee. `ETF` is an `IndexFund` with a ticker, a creation unit size and a
-simulated market price. Tracking analytics for either live in
+A `Fund` is a fund product: a name, a currency, its share classes and
+documents, with one strategy (what it holds) and one
+[vehicle](fund-vehicles.md) (how the money is held). Its `backtest()` runs a
+[backtest](backtest.md) with the fund's vehicle on its strategy.
+
+```python
+import logging
+
+from beacon.backtest import PeriodicFlows, ucits_etf
+from beacon.fund import Fund, ShareClass
+from beacon.index.constructor import IndexDefinition
+from beacon.index.methodology import MarketCapWeighted
+from beacon.testing import dataset
+
+logging.getLogger("beacon").setLevel(logging.ERROR)  # keep the output short
+
+fetcher = dataset.data_fetcher()  # frozen sample data, held in memory
+
+definition = IndexDefinition(
+    index_id="SAMPLE", index_name="Sample Market-Cap Index",
+    base_date="2023-01-03", base_value=1000.0, currency="USD",
+    eligibility_rules=[], weighting_scheme=MarketCapWeighted(),
+    rebalancing_frequency="QUARTERLY", calendar="XNYS",
+    universe_identifiers=["AAA", "BBB", "CCC", "DDD", "EEE"],
+)
+
+fund = Fund(name="Sample UCITS ETF", strategy=definition,
+            vehicle=ucits_etf(management_fee_bps=12),
+            share_classes=[ShareClass("Acc"),
+                           ShareClass("Dist", distribution="distributing"),
+                           ShareClass("I Acc", management_fee_bps=7)],
+            documents={"prospectus": "https://example.com/prospectus.pdf"})
+
+for share_class in fund.share_classes:
+    result = fund.backtest(end="2024-12-31", initial_capital=50_000_000.0,
+                           share_class=share_class.name, transaction_cost_bps=2.0,
+                           flows=PeriodicFlows(fraction=0.01),
+                           data_provider=fetcher)
+    print(share_class.name, round(result.summary()["total_return"], 6))
+```
+
+Each share class has its own management fee (the vehicle's when unset) and
+distribution policy: an accumulating class reinvests its income and a
+distributing class pays it out. `fund.backtest(share_class=...)` runs the
+fund once for that class. A real fund's classes share one pool of assets, so
+their flows trade one book and share its capacity and costs; a run per class
+leaves that out.
+
+## IndexFund and ETF
+
+!!! warning "Deprecated"
+    `IndexFund` and `ETF` will be removed in 0.6.0. Use a `Fund` with a
+    vehicle: `uk_oeic()` or another open-ended preset in place of
+    `IndexFund`, and `ucits_etf()` or `us_etf()` in place of `ETF`, which
+    model creations and the market price's premium, discount and spread.
+    They charge their management fee as below, not as a vehicle does.
+
+`IndexFund` runs a [backtest](backtest.md) of its index and reports a NAV net
+of a management fee. `ETF` is an `IndexFund` with a ticker, a creation unit
+size and a simulated market price. Tracking analytics for either live in
 `beacon.analysis`.
 
 ## What a fund is made of

@@ -3,6 +3,7 @@
 IndexFund: a fund that tracks a target index by running a backtest of it.
 """
 import logging
+import warnings
 from typing import Any, Literal
 
 import pandas as pd
@@ -33,6 +34,9 @@ class IndexFund:
     and :class:`~beacon.backtest.engine.BacktestEngine`. It contains no
     buy/sell logic of its own: rebalancing and portfolio accounting are
     delegated entirely to the backtest engine.
+
+    Deprecated: use :class:`~beacon.fund.Fund` with a vehicle such as
+    :func:`~beacon.backtest.uk_oeic`. `IndexFund` will be removed in 0.6.0.
     """
 
     def __init__(self,
@@ -86,6 +90,14 @@ class IndexFund:
             ValueError: If any argument is missing or empty, or
                 *management_fee_bps* is negative.
         """
+        # BN-268: superseded by Fund and the vehicles; removed in 0.6.0. An
+        # ETF says so itself.
+        if type(self) is IndexFund:
+            warnings.warn("IndexFund is deprecated and will be removed in "
+                          "0.6.0. Use beacon.fund.Fund with a vehicle, such as "
+                          "beacon.backtest.uk_oeic().", DeprecationWarning,
+                          stacklevel=2)
+
         if not fund_id:
             raise ValueError("fund_id cannot be empty.")
         if not target_index_definition:

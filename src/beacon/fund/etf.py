@@ -4,6 +4,7 @@ ETF: an exchange-traded fund, an IndexFund with a ticker, a creation unit size
 and a simulated market price.
 """
 import logging
+import warnings
 from typing import Any, Literal
 
 import pandas as pd
@@ -27,6 +28,11 @@ class ETF(IndexFund):
     """
     Represents an Exchange Traded Fund (ETF), which is a type of IndexFund
     with a ticker, a creation/redemption unit size and a market price.
+
+    Deprecated: use :class:`~beacon.fund.Fund` with
+    :func:`~beacon.backtest.ucits_etf` or :func:`~beacon.backtest.us_etf`,
+    which model creations, the market price, its premium or discount and its
+    spread. `ETF` will be removed in 0.6.0.
     """
     def __init__(self,
                  fund_id: str,
@@ -70,6 +76,11 @@ class ETF(IndexFund):
                 *management_fee_bps* is negative, or *creation_unit_size* is
                 not positive.
         """
+        # BN-268: superseded by Fund and the ETF vehicles; removed in 0.6.0.
+        warnings.warn("ETF is deprecated and will be removed in 0.6.0. Use "
+                      "beacon.fund.Fund with beacon.backtest.ucits_etf() or "
+                      "us_etf().", DeprecationWarning, stacklevel=2)
+
         super().__init__(fund_id=fund_id,
                          target_index_definition=target_index_definition,
                          index_agent=index_agent,

@@ -24,6 +24,10 @@ from beacon.index.schedule import sessions
 from beacon.portfolio.base import Portfolio
 from conftest import wire_fetch_price
 
+# IndexFund and ETF are deprecated (BN-268); these tests keep them
+# working until they are removed, without the warning in every result.
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+
 # ---------------------------------------------------------------------------
 # Synthetic universe: 2 assets, equal weight, monthly rebalance, ~3 months
 # ---------------------------------------------------------------------------

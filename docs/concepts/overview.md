@@ -88,8 +88,10 @@ without costs; [Backtest](backtest.md) explains why.
 
 ## Built on top
 
-- [Funds](funds.md): `IndexFund` and `ETF` run a backtest of their index and
-  deduct a management fee.
+- [Funds](funds.md): a `Fund` is a fund product, with share classes, one
+  strategy and one [vehicle](fund-vehicles.md): a structure such as a UK
+  OEIC or a UCITS ETF, with its pricing, limits and, for an ETF, its market
+  price.
 - [Derivatives](derivatives.md): futures and total return swaps priced off
   an index, an ETF or a stock.
 - [Optimiser](optimiser.md): weights found numerically under constraints,

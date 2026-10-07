@@ -17,6 +17,10 @@ from beacon.fund.etf import ETF
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Portfolio
 
+# IndexFund and ETF are deprecated (BN-268); these tests keep them
+# working until they are removed, without the warning in every result.
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
