@@ -33,6 +33,15 @@ it. A method left to estimate its rate is given the cost of trading the whole
 flow: the fixed cost plus market impact, across the names the flow would
 buy or sell.
 
+## Exchange-traded funds
+
+With an `EtfVehicle` the flows are the APs' net demand, rounded toward zero
+to whole creation units each day, with the rest carried to the next. An
+in-kind creation or redemption moves the holdings themselves, pro rata and
+without cost; a cash one is invested or raised like any flow, and its
+creation fee is paid into the fund. After each close the shares are quoted
+on the exchange (see `beacon.backtest.etf`).
+
 ## The management fee
 
 The vehicle's fee accrues every calendar day on the fund's net assets
@@ -51,6 +60,7 @@ from ..portfolio.base import Portfolio, TradeInstruction
 from ..portfolio.cash_flows import FEE, INTEREST, REDEMPTION, SUBSCRIPTION
 from .costs import WorkingOrder
 from .dealing import Deal, SinglePricing
+from .etf import EtfVehicle, MarketMaker, Quote
 from .flows import FlowContext, FlowRecord, Flows
 from .implementation import HOLDINGS, Implementation, RebalanceStep
 from .result import UnfilledOrder
@@ -134,6 +144,14 @@ class AccountingMixin:
         self._payable_history: dict[pd.Timestamp, float] = {eve: 0.0}
         self._per_unit: dict[pd.Timestamp, float] = {eve: self.launch_price}
 
+        # BN-268: an ETF's carried demand, its quotes and its basket's cost.
+        self._creation_carry = 0.0
+        self._dealt_today = 0.0
+        self._quotes: list[Quote] = []
+        self._basket: tuple[tuple[int, int], float] | None = None
+        self._market_maker = (MarketMaker(self.vehicle)
+                              if isinstance(self.vehicle, EtfVehicle) else None)
+
         for scenario in self.flows:
             scenario.start(first_day)
 
@@ -158,6 +176,7 @@ class AccountingMixin:
         self._units_history[date] = self._units
         self._payable_history[date] = self._fees_payable
         self._per_unit[date] = self._nav_per_unit(portfolio)
+        self._quote_market(portfolio, date)
 
     # -- accruals ------------------------------------------------------------
 
@@ -204,6 +223,8 @@ class AccountingMixin:
             float: The cash that arrived, for the day to invest; 0 for none
             or an outflow.
         """
+        self._dealt_today = 0.0
+
         if not self.flows:
             return 0.0
 
@@ -213,6 +234,11 @@ class AccountingMixin:
         context = FlowContext(previous=previous, date=date, aum=net,
                               nav_per_unit=history.iloc[1:])
         amount = sum(scenario.amount(context) for scenario in self.flows)
+        etf = self.vehicle if isinstance(self.vehicle, EtfVehicle) else None
+        creations = None
+
+        if etf is not None:
+            amount, creations = self._in_creation_units(etf, amount, per_unit)
 
         if amount < 0.0:
             amount = -min(-amount, max(net, 0.0))
@@ -220,24 +246,63 @@ class AccountingMixin:
         if abs(amount) < MIN_TRADE_VALUE:
             return 0.0
 
+        in_kind = etf is not None and etf.in_kind
         deal = self._dealt(portfolio, amount, per_unit, net, date)
 
         if deal.cash > 0.0:
             portfolio.receive_cash(deal.cash, date, SUBSCRIPTION)
+
+            if in_kind:
+                self._transfer_in(portfolio, deal.cash, date)
         elif deal.cash < 0.0:
-            deal = _scaled(deal, self._redeem(portfolio, -deal.cash, date)
-                           / -deal.cash)
+            deal = _scaled(deal, self._redeem(portfolio, -deal.cash, date,
+                                              free=in_kind) / -deal.cash)
 
         self._units = max(self._units + deal.units, 0.0)
+        self._dealt_today = deal.cash
         self._flow_records.append(FlowRecord(
             date=date, amount=deal.cash, nav_per_unit=per_unit,
             units=deal.units, dealing_price=deal.price,
-            adjustment=deal.adjustment))
+            adjustment=deal.adjustment, creation_units=creations))
 
         logger.debug("[%s] Flow of %.2f dealt at %.6f a unit.", date.date(),
                      deal.cash, deal.price)
 
-        return max(deal.cash, 0.0)
+        # Delivered in kind, an inflow is already invested.
+        return 0.0 if in_kind else max(deal.cash, 0.0)
+
+    def _in_creation_units(self,
+                           etf: EtfVehicle,
+                           amount: float,
+                           per_unit: float) -> tuple[float, float]:
+        """The demand an ETF can deal today in whole creation units, and how
+        many; the rest carries to tomorrow."""
+        wanted = amount + self._creation_carry
+        units = etf.creation_units(wanted, per_unit)
+        dealt = units * etf.creation_unit * per_unit
+        self._creation_carry = wanted - dealt
+
+        return dealt, units
+
+    def _transfer_in(self,
+                     portfolio: Portfolio,
+                     amount: float,
+                     date: pd.Timestamp) -> None:
+        """Holdings worth *amount* delivered in kind: bought pro rata at the
+        day's prices, at no cost."""
+        weights = self._flow_weights(portfolio, date)
+        total = sum(weights.values())
+
+        if total <= 0.0:
+            return
+
+        for name, weight in weights.items():
+            price = self._fetch_price(name, date)
+
+            if price is not None and price > 0.0:
+                quantity = amount * weight / total / price
+                portfolio.apply(TradeInstruction(name, "BUY", quantity, price,
+                                                 0.0), date)
 
     def _dealt(self,
                portfolio: Portfolio,
@@ -274,14 +339,16 @@ class AccountingMixin:
     def _redeem(self,
                 portfolio: Portfolio,
                 owed: float,
-                date: pd.Timestamp) -> float:
+                date: pd.Timestamp,
+                free: bool = False) -> float:
         """Raise *owed* in cash, selling pro rata if the cash falls short,
-        and pay it out. Returns what was paid."""
+        and pay it out; with *free*, the holdings leave in kind, at no cost.
+        Returns what was paid."""
         for _ in range(SELL_ROUNDS):
             short = owed + self._fees_payable - portfolio.cash_balance
 
-            if short < MIN_TRADE_VALUE or not self._sell_pro_rata(portfolio,
-                                                                   short, date):
+            if short < MIN_TRADE_VALUE or not self._sell_pro_rata(
+                    portfolio, short, date, free):
                 break
 
         paid = min(owed, max(portfolio.cash_balance - self._fees_payable, 0.0))
@@ -294,9 +361,11 @@ class AccountingMixin:
     def _sell_pro_rata(self,
                        portfolio: Portfolio,
                        amount: float,
-                       date: pd.Timestamp) -> bool:
+                       date: pd.Timestamp,
+                       free: bool = False) -> bool:
         """Sell every holding in proportion to its value to raise about
-        *amount*. Returns whether anything was sold."""
+        *amount*, at no cost when *free*. Returns whether anything was
+        sold."""
         values = self._held_values(portfolio, date)
         held = sum(values.values())
 
@@ -304,7 +373,8 @@ class AccountingMixin:
             return False
 
         # Grossed up for the fixed cost; impact is covered by another round.
-        share = min(amount / held / (1.0 - self._fixed_cost_rate()), 1.0)
+        rate = 0.0 if free else self._fixed_cost_rate()
+        share = min(amount / held / (1.0 - rate), 1.0)
         sold = False
 
         for name, value in values.items():
@@ -313,8 +383,10 @@ class AccountingMixin:
             quantity = holding.quantity * share
 
             if quantity * price >= MIN_TRADE_VALUE:
-                portfolio.apply(self._instruction(name, "SELL", quantity, price,
-                                                  date), date)
+                portfolio.apply(TradeInstruction(name, "SELL", quantity, price, 0.0)
+                                if free else self._instruction(name, "SELL",
+                                                               quantity, price,
+                                                               date), date)
                 sold = True
 
         return sold
@@ -380,6 +452,54 @@ class AccountingMixin:
                 if holding.quantity > 0
                 and (price := self._fetch_price(name, date)) is not None
                 and price > 0}
+
+    # -- an ETF's quotes ----------------------------------------------------
+
+    def _quote_market(self,
+                      portfolio: Portfolio,
+                      date: pd.Timestamp) -> None:
+        """Quote an ETF's shares at the close."""
+        maker = self._market_maker
+
+        if maker is None:
+            return
+
+        history = list(self._per_unit.values())
+        net = self._net_value(portfolio)
+        flow_share = self._dealt_today / net if net > 0.0 else 0.0
+
+        self._quotes.append(maker.quote(date, history[-1], history[-2],
+                                        flow_share,
+                                        self._basket_cost(portfolio, date,
+                                                          maker.vehicle)))
+
+    def _basket_cost(self,
+                     portfolio: Portfolio,
+                     date: pd.Timestamp,
+                     etf: EtfVehicle) -> float:
+        """The cost of trading one creation unit's basket, as a share of it.
+
+        With market impact on, refreshed at each rebalance and each new week,
+        since impact reads every holding's history.
+        """
+        week = (date.isocalendar().year, date.isocalendar().week)
+        rebalanced = bool(self._rebalance_steps) and self._rebalance_steps[-1].date == date
+        cached = self._basket
+
+        if (self.implementation.impact is not None and cached is not None
+                and cached[0] == week and not rebalanced):
+            return cached[1]
+
+        values = self._held_values(portfolio, date)
+        total = sum(values.values())
+        unit_value = etf.creation_unit * self._nav_per_unit(portfolio)
+        cost = (self._fixed_cost_rate() if total <= 0.0
+                else sum(value / total
+                         * self._cost_rate(name, unit_value * value / total, date)
+                         for name, value in values.items()))
+        self._basket = (week, cost)
+
+        return cost
 
     def _fixed_cost_rate(self) -> float:
         """The fixed cost as a fraction of a trade's value."""

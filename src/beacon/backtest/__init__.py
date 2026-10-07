@@ -40,6 +40,7 @@ from .dealing import (
     SwingPricing,
 )
 from .engine import BacktestEngine
+from .etf import EtfMarket, EtfVehicle, Quote
 from .flows import (
     DatedFlows,
     FlowContext,
@@ -58,7 +59,9 @@ from .presets import (
     irish_icav,
     luxembourg_sicav,
     preset,
+    ucits_etf,
     uk_oeic,
+    us_etf,
     us_mutual_fund,
 )
 from .result import BacktestResult, RebalancePricing, UnfilledOrder
@@ -91,6 +94,8 @@ __all__ = [
     "DiversificationLimit",
     "DriftThresholdModifier",
     "DualPricing",
+    "EtfMarket",
+    "EtfVehicle",
     "ExclusionScreen",
     "ExecutionLimit",
     "ExpressionScreen",
@@ -111,6 +116,7 @@ __all__ = [
     "Preset",
     "PriceGap",
     "Pricing",
+    "Quote",
     "RandomFlows",
     "RebalancePricing",
     "RebalanceStep",
@@ -127,6 +133,8 @@ __all__ = [
     "irish_icav",
     "luxembourg_sicav",
     "preset",
+    "ucits_etf",
     "uk_oeic",
+    "us_etf",
     "us_mutual_fund",
 ]

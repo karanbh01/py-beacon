@@ -27,6 +27,7 @@ class MetricsMixin:
     units: pd.Series
     fees_payable: pd.Series
     launch_price: float
+    market: pd.DataFrame
 
     @property
     def trading_nav(self) -> pd.Series:
@@ -356,7 +357,30 @@ class MetricsMixin:
         if self.flows:
             result["money_weighted_return"] = self.money_weighted_return()
 
+        if not self.market.empty:
+            result.update(self.market_summary())
+
         return result
+
+    def market_return(self) -> float | None:
+        """An exchange investor's return on an ETF: bought at the ask on the
+        first day and sold at the bid on the last. None for another vehicle.
+        Cash the fund paid out is not included."""
+        if self.market.empty:
+            return None
+
+        return float(self.market["bid"].iloc[-1] / self.market["ask"].iloc[0] - 1.0)
+
+    def market_summary(self) -> dict[str, float | None]:
+        """An ETF's trading on the exchange: the investor's return at market
+        prices, the average premium and spread, and the share of days at a
+        premium."""
+        market = self.market
+
+        return {"market_return": self.market_return(),
+                "average_premium": float(market["premium"].mean()),
+                "average_spread": float(market["spread"].mean()),
+                "days_at_premium": float((market["premium"] > 0).mean())}
 
 
 def _from_start(levels: pd.Series) -> pd.Series:

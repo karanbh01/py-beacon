@@ -80,6 +80,8 @@ class FlowRecord:
         adjustment: What the dealing investors paid into the fund, through
             the price or a levy, toward the trading their flow caused. 0
             under single pricing.
+        creation_units: For an ETF, the creation units created (positive)
+            or redeemed (negative); None for any other vehicle.
     """
     date: pd.Timestamp
     amount: float
@@ -87,6 +89,7 @@ class FlowRecord:
     units: float
     dealing_price: float
     adjustment: float = 0.0
+    creation_units: float | None = None
 
 
 class Flows(ABC):

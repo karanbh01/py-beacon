@@ -314,6 +314,34 @@ at the ask on the first day and selling at the bid on the last, with the
 market price in between. The difference between the two is what the ETF's
 trading cost its secondary-market investors.
 
+### In code
+
+`ucits_etf()` and `us_etf()` are the two ETF presets, and `EtfVehicle` builds
+any other. `EtfMarket` holds the quote model's settings, all of which have
+defaults:
+
+```python
+from beacon.backtest import EtfMarket, MarketImpact, Implementation, ucits_etf
+
+etf = ucits_etf(creation_unit=50_000, ap_fee=500.0,
+                market=EtfMarket(spread_floor_bps=2.0, persistence=0.5,
+                                 flow_sensitivity=0.1, return_sensitivity=0.05,
+                                 noise_bps=2.0, seed=7))
+
+listed = Backtest(initial_capital=50_000_000.0, transaction_cost_bps=5.0,
+                  implementation=Implementation(impact=MarketImpact()),
+                  flows=[PeriodicFlows(fraction=0.02)], vehicle=etf,
+                  data_provider=fetcher,
+                  ).run(definition, start="2023-01-03", end="2024-12-31")
+
+print(listed.market[["premium", "spread", "bid", "ask"]].tail(3))
+print({name: round(value, 6) for name, value in listed.market_summary().items()})
+```
+
+`result.market` holds each day's quote, and `market_summary()` (also part of
+`summary()`) gives the exchange investor's return and the average premium and
+spread. Each flow's `creation_units` says how many units it was.
+
 ### What the model leaves out
 
 - **Stale holdings prices.** When an ETF's holdings trade in a market that is

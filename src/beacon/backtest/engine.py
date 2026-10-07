@@ -24,6 +24,7 @@ from .accounting import AccountingMixin
 from .books import benchmark_book, index_books
 from .costs import WorkingOrder
 from .dividends import DIVIDEND_POLICIES, REINVEST, DividendsMixin
+from .etf import Quote, quotes_frame
 from .execution import ExecutionMixin
 from .flows import FlowRecord, Flows
 from .implementation import Implementation, RebalanceStep, plan
@@ -213,6 +214,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
         self._units_history: dict[pd.Timestamp, float] = {}
         self._payable_history: dict[pd.Timestamp, float] = {}
         self._per_unit: dict[pd.Timestamp, float] = {}
+        self._quotes: list[Quote] = []
 
         # The internal schedule representation: rebalance date -> weights.
         self._weight_schedule: dict[pd.Timestamp, dict[str, float]] = (
@@ -545,4 +547,5 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             units=pd.Series(self._units_history, dtype=float),
             fees_payable=pd.Series(self._payable_history, dtype=float),
             launch_price=self.launch_price,
+            market=quotes_frame(self._quotes),
         ).with_data(self.data_provider)

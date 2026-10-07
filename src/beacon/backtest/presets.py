@@ -17,18 +17,21 @@ can be changed by passing it, so a preset is a starting point, not a rule:
 | `luxembourg_sicav` | Partial swing pricing, above 2% of the fund | UCITS |
 | `irish_icav` | Anti-dilution levy, above 2% of the fund | UCITS |
 | `us_mutual_fund` | Single pricing, with an optional redemption fee | 1940 Act |
+| `ucits_etf` | Cash creations with a creation fee; an exchange price | UCITS |
+| `us_etf` | In-kind creations; an exchange price | 1940 Act |
 
 Swing factors and levies are estimated from the run's cost model unless set.
 The UCITS limits are those for a fund replicating an index (20% in one
 issuer, 35% in the largest), since a backtest tracks an index.
 """
-# BN-268, phase 6 of decisions/0006. The ETF presets join with the ETF
-# vehicle. See docs/concepts/fund-vehicles.md for the reasoning behind each.
+# BN-268, phase 6 of decisions/0006. See docs/concepts/fund-vehicles.md for
+# the reasoning behind each.
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from .dealing import OUT, DilutionLevy, SwingPricing
+from .etf import EtfVehicle
 from .limits import Act1940Limits, UcitsLimits
 from .vehicle import Vehicle
 
@@ -78,6 +81,25 @@ def us_mutual_fund(redemption_fee_bps: float = 0.0,
                   limits=[Act1940Limits()])
 
 
+def ucits_etf(**settings: Any) -> EtfVehicle:
+    """A UCITS ETF: cash creations, a creation fee estimated from the
+    basket's trading cost, and the UCITS limits."""
+    settings.setdefault("name", "UCITS ETF")
+    settings.setdefault("limits", [UcitsLimits()])
+
+    return EtfVehicle(**settings)
+
+
+def us_etf(**settings: Any) -> EtfVehicle:
+    """A US ETF: in-kind creations and the 1940 Act's test for a
+    diversified fund."""
+    settings.setdefault("name", "US ETF")
+    settings.setdefault("in_kind", True)
+    settings.setdefault("limits", [Act1940Limits()])
+
+    return EtfVehicle(**settings)
+
+
 @dataclass(frozen=True)
 class Preset:
     """A preset by name, for listing.
@@ -98,6 +120,8 @@ PRESETS: dict[str, Preset] = {
         Preset("luxembourg_sicav", "Luxembourg SICAV", luxembourg_sicav),
         Preset("irish_icav", "Irish ICAV", irish_icav),
         Preset("us_mutual_fund", "US mutual fund", us_mutual_fund),
+        Preset("ucits_etf", "UCITS ETF", ucits_etf),
+        Preset("us_etf", "US ETF", us_etf),
     )
 }
 

@@ -169,6 +169,9 @@ class BacktestResult(MetricsMixin):
         fees_payable: The management fee owed and not yet paid at the end of
             each day, which the NAV is net of.
         launch_price: NAV per unit at launch.
+        market: For an ETF, each day's quote on the exchange: NAV per share,
+            premium, spread, market price, bid and ask, and the arbitrage
+            band. Empty for any other vehicle.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -188,6 +191,7 @@ class BacktestResult(MetricsMixin):
     fees_payable: pd.Series = field(
         default_factory=lambda: pd.Series(dtype=float))
     launch_price: float = 1.0
+    market: pd.DataFrame = field(default_factory=pd.DataFrame)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 
