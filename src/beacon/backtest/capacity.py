@@ -47,31 +47,38 @@ class CapacityCap(ABC):
 
 
 class OwnershipCap(CapacityCap):
-    """At most a share of a name's free-float market cap.
+    """At most a share of a name's free-float market cap, or of its whole
+    market cap.
 
     Args:
         max_share: The share, as a decimal: 0.05 holds at most 5% of the
             free float.
+        free_float: Measure against the free-float market cap (the default)
+            or, when False, against every share outstanding.
 
     Raises:
         ValueError: If *max_share* is not above 0 and at most 1.
     """
 
     def __init__(self,
-                 max_share: float):
+                 max_share: float,
+                 free_float: bool = True):
         if not 0.0 < max_share <= 1.0:
             raise ValueError(f"OwnershipCap's max_share is a share of the free "
                              f"float above 0 and at most 1, got {max_share!r}.")
 
         self.max_share = max_share
+        self.free_float = free_float
 
     def max_value(self,
                   asset_id: str,
                   date: pd.Timestamp,
                   book_value: float,
                   context: ScreenContext) -> float | None:
-        cap = value_of(data.market.free_float_market_cap, asset_id, date,
-                       context.fetcher, currency=context.currency)
+        field = (data.market.free_float_market_cap if self.free_float
+                 else data.market.market_cap)
+        cap = value_of(field, asset_id, date, context.fetcher,
+                       currency=context.currency)
 
         return None if cap is None else float(cap) * self.max_share
 

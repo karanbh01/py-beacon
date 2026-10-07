@@ -68,6 +68,50 @@ fund near a limit holds less of a name rather than breaking it:
 as an accumulating share class does, or paid out, as a distributing class
 does.
 
+### Using a preset
+
+Pass a preset as the backtest's `vehicle`, by its function or by name, and
+change any setting by passing it:
+
+```python
+import logging
+
+from beacon.backtest import (
+    Backtest,
+    DatedFlows,
+    DilutionLevy,
+    PeriodicFlows,
+    preset,
+    uk_oeic,
+)
+from beacon.index.constructor import IndexDefinition
+from beacon.index.methodology import MarketCapWeighted
+from beacon.testing import dataset
+
+logging.getLogger("beacon").setLevel(logging.ERROR)  # keep the output short
+
+fetcher = dataset.data_fetcher()
+definition = IndexDefinition(
+    index_id="SAMPLE", index_name="Sample Market-Cap Index",
+    base_date="2023-01-03", base_value=1000.0, currency="USD",
+    eligibility_rules=[], weighting_scheme=MarketCapWeighted(),
+    rebalancing_frequency="QUARTERLY", calendar="XNYS",
+    universe_identifiers=["AAA", "BBB", "CCC", "DDD", "EEE"],
+)
+flows = [PeriodicFlows(fraction=0.02), DatedFlows({"2024-03-01": -2_000_000.0})]
+
+for vehicle in (uk_oeic(management_fee_bps=15),
+                preset("irish_icav", pricing=DilutionLevy(rate_bps=25))):
+    result = Backtest(initial_capital=10_000_000.0, transaction_cost_bps=10.0,
+                      flows=flows, vehicle=vehicle, data_provider=fetcher,
+                      ).run(definition, start="2023-01-03", end="2024-12-31")
+    paid_in = sum(flow.adjustment for flow in result.flows)
+    print(vehicle.name, round(result.nav_per_unit.iloc[-1], 4),
+          "paid in by dealing investors:", round(paid_in, 2))
+```
+
+`PRESETS` lists every preset by name.
+
 ## Dilution, and the four pricing methods
 
 When investors buy into or sell out of an open-ended fund, the fund trades to

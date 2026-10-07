@@ -24,9 +24,14 @@ Flows are dealt after the day's prices are marked:
   sales that fund it are not held back by an execution limit. One larger
   than the fund is cut to the fund.
 
-The costs of trading for a flow are borne by the fund, as they are when
-nothing offsets them (swing pricing and levies come with the structure
-presets).
+## Pricing
+
+The vehicle's pricing method (see `beacon.backtest.dealing`) sets the price
+units are dealt at, or adds a levy, so the dealing investors can pay for the
+trading their flow causes. Under single pricing, the default, the fund bears
+it. A method left to estimate its rate is given the cost of trading the whole
+flow: the fixed cost plus market impact, across the names the flow would
+buy or sell.
 
 ## The management fee
 
@@ -45,6 +50,7 @@ from ..assumptions import ModellingAssumptions
 from ..portfolio.base import Portfolio, TradeInstruction
 from ..portfolio.cash_flows import FEE, INTEREST, REDEMPTION, SUBSCRIPTION
 from .costs import WorkingOrder
+from .dealing import Deal, SinglePricing
 from .flows import FlowContext, FlowRecord, Flows
 from .implementation import HOLDINGS, Implementation, RebalanceStep
 from .result import UnfilledOrder
@@ -99,6 +105,13 @@ class AccountingMixin:
                    portfolio: Portfolio,
                    trades: list[TradeInstruction],
                    date: pd.Timestamp) -> list[UnfilledOrder]:
+        """Provided by ExecutionMixin; declared so this one type-checks."""
+        raise NotImplementedError
+
+    def _cost_rate(self,
+                   asset_id: str,
+                   notional: float,
+                   date: pd.Timestamp) -> float:
         """Provided by ExecutionMixin; declared so this one type-checks."""
         raise NotImplementedError
 
@@ -201,23 +214,62 @@ class AccountingMixin:
                               nav_per_unit=history.iloc[1:])
         amount = sum(scenario.amount(context) for scenario in self.flows)
 
-        if amount > 0.0:
-            portfolio.receive_cash(amount, date, SUBSCRIPTION)
-        elif amount < 0.0:
-            amount = -self._redeem(portfolio, min(-amount, max(net, 0.0)), date)
+        if amount < 0.0:
+            amount = -min(-amount, max(net, 0.0))
 
         if abs(amount) < MIN_TRADE_VALUE:
             return 0.0
 
-        units = amount / per_unit
-        self._units = max(self._units + units, 0.0)
-        self._flow_records.append(FlowRecord(date=date, amount=amount,
-                                             nav_per_unit=per_unit, units=units))
+        deal = self._dealt(portfolio, amount, per_unit, net, date)
+
+        if deal.cash > 0.0:
+            portfolio.receive_cash(deal.cash, date, SUBSCRIPTION)
+        elif deal.cash < 0.0:
+            deal = _scaled(deal, self._redeem(portfolio, -deal.cash, date)
+                           / -deal.cash)
+
+        self._units = max(self._units + deal.units, 0.0)
+        self._flow_records.append(FlowRecord(
+            date=date, amount=deal.cash, nav_per_unit=per_unit,
+            units=deal.units, dealing_price=deal.price,
+            adjustment=deal.adjustment))
 
         logger.debug("[%s] Flow of %.2f dealt at %.6f a unit.", date.date(),
-                     amount, per_unit)
+                     deal.cash, deal.price)
 
-        return max(amount, 0.0)
+        return max(deal.cash, 0.0)
+
+    def _dealt(self,
+               portfolio: Portfolio,
+               amount: float,
+               per_unit: float,
+               net: float,
+               date: pd.Timestamp) -> Deal:
+        """Today's flow, priced by the vehicle's method."""
+        pricing = (self.vehicle.pricing if self.vehicle is not None
+                   else SinglePricing())
+        cost = (self._flow_cost_rate(portfolio, amount, date)
+                if pricing.estimated else 0.0)
+
+        return pricing.deal(amount, per_unit, net, cost)
+
+    def _flow_cost_rate(self,
+                        portfolio: Portfolio,
+                        amount: float,
+                        date: pd.Timestamp) -> float:
+        """The cost of trading a flow of *amount*, as a share of it: what an
+        inflow would buy, or the holdings an outflow would sell, each at its
+        share of the flow."""
+        weights = (self._flow_weights(portfolio, date) if amount > 0.0
+                   else self._held_values(portfolio, date))
+        total = sum(weights.values())
+
+        if total <= 0.0:
+            return self._fixed_cost_rate()
+
+        return sum(weight / total
+                   * self._cost_rate(name, abs(amount) * weight / total, date)
+                   for name, weight in weights.items())
 
     def _redeem(self,
                 portfolio: Portfolio,
@@ -332,3 +384,14 @@ class AccountingMixin:
     def _fixed_cost_rate(self) -> float:
         """The fixed cost as a fraction of a trade's value."""
         return self.transaction_cost_bps / 10_000.0
+
+
+def _scaled(deal: Deal,
+            share: float) -> Deal:
+    """*deal* cut to *share* of itself: a redemption the fund could only
+    partly pay."""
+    if share >= 1.0:
+        return deal
+
+    return Deal(units=deal.units * share, cash=deal.cash * share,
+                price=deal.price, adjustment=deal.adjustment * share)

@@ -283,7 +283,8 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
 
         step = plan(self.implementation, target, date, held, stale,
                     ScreenContext(self.data_provider, self.currency),
-                    book_value=self._net_value(portfolio))
+                    book_value=self._net_value(portfolio),
+                    limits=self.vehicle.limits if self.vehicle is not None else ())
         self._rebalance_steps.append(step)
 
         if step.removed:

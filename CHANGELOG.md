@@ -12,6 +12,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 - Flows in a backtest: `Backtest(flows=...)` takes money in and pays it out, as `DatedFlows`, `PeriodicFlows` (an amount or a share of the assets), `RandomFlows` (seeded) or `PerformanceChasingFlows`, or several added together. Flows create and cancel units at the day's NAV per unit, so `nav_per_unit` measures performance whatever money moved, and with flows every return metric is a unit's and the summary adds `money_weighted_return`. The result records each flow in `flows`, and `aum` and `units_outstanding` each day. Without flows every figure is unchanged.
 - `Implementation(cash_buffer=...)` keeps a share of the book in cash, which outflows draw on first, and `invest_flows` says whether an inflow buys the last rebalance's weights (the default) or the holdings pro rata.
+- Pricing methods for a fund's dealing, so the investors who come or go can pay for the trading they cause: `SinglePricing` (the default), `DualPricing`, `SwingPricing` (full, or partial above a threshold) and `DilutionLevy`. A swing factor, spread or levy left unset is estimated from the run's own costs. Each flow records its `dealing_price` and the `adjustment` paid into the fund.
+- Diversification limits for a fund structure, applied with the capacity caps: `UcitsLimits` (5/10/40, or 20/35 for an index tracker) and `Act1940Limits` (the 1940 Act's diversified-fund test).
+- Structure presets: `uk_oeic`, `luxembourg_sicav`, `irish_icav` and `us_mutual_fund`, each a `Vehicle` with its structure's usual pricing and limits, any setting of which can be changed. `preset(name)` and `PRESETS` list them.
+- `OwnershipCap(free_float=False)` measures against every share outstanding rather than the free float.
 - `Vehicle`: what the fund itself charges and its unit price at launch. `Vehicle(management_fee_bps=...)` accrues the fee daily on net assets (ACT/365) as a liability the NAV is net of, paid from cash as it can be. Structure presets come later.
 
 ## [0.4.0] - 2026-10-02

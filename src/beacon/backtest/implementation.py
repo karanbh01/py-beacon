@@ -52,10 +52,10 @@ import pandas as pd
 
 from .capacity import CapacityCap, MinimumPosition
 from .costs import ExecutionLimit, MarketImpact
+from .limits import DiversificationLimit
+from .redistribution import CASH, PRO_RATA, redistributed, water_filled
 from .screens import Screen, ScreenContext
 
-PRO_RATA = "pro_rata"
-CASH = "cash"
 REDISTRIBUTIONS = (PRO_RATA, CASH)
 
 # Where money arriving between rebalances goes.
@@ -68,9 +68,6 @@ STALE = "stale price"
 
 # What it names a position dropped as too small to keep.
 TOO_SMALL = "MinimumPosition"
-
-# Below this a weight difference is rounding, not a breach of a cap.
-TOLERANCE = 1e-12
 
 
 class Implementation:
@@ -163,7 +160,8 @@ def plan(implementation: Implementation,
          held: set[str],
          stale: set[str],
          context: ScreenContext,
-         book_value: float = 0.0) -> RebalanceStep:
+         book_value: float = 0.0,
+         limits: Iterable[DiversificationLimit] = ()) -> RebalanceStep:
     """Run the screening, redistribution and capacity stages for one
     rebalance.
 
@@ -176,6 +174,7 @@ def plan(implementation: Implementation,
         context: The run's data and book currency.
         book_value: The book's value before the rebalance, which caps and
             minimum positions are measured against.
+        limits: The vehicle's diversification limits, applied with the caps.
 
     Returns:
         RebalanceStep: The weights to trade to, and how they were reached.
@@ -194,7 +193,7 @@ def plan(implementation: Implementation,
     total = sum(target.values())
     kept = {name: weight for name, weight in target.items()
             if name not in removed}
-    weights = _redistributed(kept, total, implementation.redistribution)
+    weights = redistributed(kept, total, implementation.redistribution)
 
     # BN-267: the buffer is set aside before the caps, so a name dropped as
     # too small is redistributed within what is invested.
@@ -204,7 +203,8 @@ def plan(implementation: Implementation,
         total *= invested
 
     weights, capped = _within_capacity(implementation, weights, total, date,
-                                       book_value, context, removed)
+                                       book_value, context, removed,
+                                       tuple(limits))
 
     return RebalanceStep(date=date, target=dict(target), removed=removed,
                          capped=capped, weights=weights,
@@ -217,26 +217,34 @@ def _within_capacity(implementation: Implementation,
                      date: pd.Timestamp,
                      book_value: float,
                      context: ScreenContext,
-                     removed: dict[str, str]
+                     removed: dict[str, str],
+                     diversification: tuple[DiversificationLimit, ...] = ()
                      ) -> tuple[dict[str, float], dict[str, float]]:
-    """Cut each name to its caps and drop positions too small to keep,
-    redistributing as the rule says, until neither changes anything.
+    """Cut each name to its caps and the vehicle's diversification limits,
+    and drop positions too small to keep, redistributing as the rule says,
+    until none changes anything.
 
     Names dropped as too small are added to *removed*. Returns the weights
     and the names capped, with the weight each was cut to.
     """
     minimum = implementation.minimum_position
 
-    if (not implementation.caps and minimum is None) or book_value <= 0.0:
+    caps = (*implementation.caps,
+            *(cap for limit in diversification for cap in limit.caps()))
+
+    if (not caps and minimum is None and not diversification) or book_value <= 0.0:
         return weights, {}
 
-    limits = _limits(implementation.caps, weights, date, book_value, context)
+    limits = _limits(caps, weights, date, book_value, context)
     rule = implementation.redistribution
     capped: dict[str, float] = {}
 
     # Each pass either finishes or drops at least one name, so this ends.
     for _ in range(len(weights) + 1):
-        weights = _water_filled(weights, limits, rule, capped)
+        weights = water_filled(weights, limits, rule, capped)
+
+        for limit in diversification:
+            weights = limit.limited(weights, rule, capped)
 
         small = ([name for name, weight in weights.items()
                   if minimum.too_small(weight, book_value)]
@@ -250,7 +258,7 @@ def _within_capacity(implementation: Implementation,
             capped.pop(name, None)
             del weights[name]
 
-        weights = _redistributed(weights, total, rule)
+        weights = redistributed(weights, total, rule)
 
     return weights, capped
 
@@ -273,54 +281,3 @@ def _limits(caps: tuple[CapacityCap, ...],
             limits[name] = max(min(values), 0.0) / book_value
 
     return limits
-
-
-def _water_filled(weights: dict[str, float],
-                  limits: dict[str, float],
-                  rule: str,
-                  capped: dict[str, float]) -> dict[str, float]:
-    """Cut every name over its limit to it and spread the excess across the
-    names under theirs, pro rata, until none is over; under the cash rule
-    the excess stays in cash. Records each cut name in *capped*."""
-    weights = dict(weights)
-
-    for _ in range(len(weights) + 1):
-        over = [name for name, weight in weights.items()
-                if name in limits and weight > limits[name] + TOLERANCE]
-
-        if not over:
-            break
-
-        excess = sum(weights[name] - limits[name] for name in over)
-
-        for name in over:
-            weights[name] = limits[name]
-            capped[name] = limits[name]
-
-        if rule == CASH:
-            continue
-
-        room = {name: weight for name, weight in weights.items()
-                if name not in capped and weight > 0.0}
-        spare = sum(room.values())
-
-        # Every name is at its cap: what is left over stays in cash.
-        if spare <= 0.0:
-            break
-
-        for name, weight in room.items():
-            weights[name] = weight + excess * weight / spare
-
-    return weights
-
-
-def _redistributed(kept: dict[str, float],
-                   total: float,
-                   rule: str) -> dict[str, float]:
-    """*kept* scaled back up to *total*, or left as it is for cash."""
-    remaining = sum(kept.values())
-
-    if rule == CASH or remaining <= 0.0:
-        return kept
-
-    return {name: weight * total / remaining for name, weight in kept.items()}

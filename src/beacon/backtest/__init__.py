@@ -31,6 +31,14 @@ from .capacity import (
     WeightCap,
 )
 from .costs import ExecutionLimit, MarketImpact
+from .dealing import (
+    Deal,
+    DilutionLevy,
+    DualPricing,
+    Pricing,
+    SinglePricing,
+    SwingPricing,
+)
 from .engine import BacktestEngine
 from .flows import (
     DatedFlows,
@@ -42,7 +50,17 @@ from .flows import (
     RandomFlows,
 )
 from .implementation import Implementation, RebalanceStep
+from .limits import Act1940Limits, DiversificationLimit, UcitsLimits
 from .main import Backtest
+from .presets import (
+    PRESETS,
+    Preset,
+    irish_icav,
+    luxembourg_sicav,
+    preset,
+    uk_oeic,
+    us_mutual_fund,
+)
 from .result import BacktestResult, RebalancePricing, UnfilledOrder
 from .rules import BacktestModifier, DriftThresholdModifier
 from .screens import (
@@ -59,6 +77,8 @@ from .screens import (
 from .vehicle import Vehicle
 
 __all__ = [
+    "PRESETS",
+    "Act1940Limits",
     "Backtest",
     "BacktestAssetView",
     "BacktestEngine",
@@ -66,7 +86,11 @@ __all__ = [
     "BacktestResult",
     "CapacityCap",
     "DatedFlows",
+    "Deal",
+    "DilutionLevy",
+    "DiversificationLimit",
     "DriftThresholdModifier",
+    "DualPricing",
     "ExclusionScreen",
     "ExecutionLimit",
     "ExpressionScreen",
@@ -84,15 +108,25 @@ __all__ = [
     "OwnershipCap",
     "PerformanceChasingFlows",
     "PeriodicFlows",
+    "Preset",
     "PriceGap",
+    "Pricing",
     "RandomFlows",
     "RebalancePricing",
     "RebalanceStep",
     "Screen",
     "ScreenContext",
+    "SinglePricing",
+    "SwingPricing",
     "ThresholdScreen",
     "TradeInstruction",
+    "UcitsLimits",
     "UnfilledOrder",
     "Vehicle",
     "WeightCap",
+    "irish_icav",
+    "luxembourg_sicav",
+    "preset",
+    "uk_oeic",
+    "us_mutual_fund",
 ]

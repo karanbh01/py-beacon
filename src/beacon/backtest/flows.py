@@ -73,13 +73,20 @@ class FlowRecord:
         date: The day it was dealt.
         amount: What was paid in (positive) or out (negative), in the book's
             currency. A redemption larger than the fund is cut to the fund.
-        nav_per_unit: The NAV per unit units were created or cancelled at.
+        nav_per_unit: The day's NAV per unit, before the flow.
         units: Units created (positive) or cancelled (negative).
+        dealing_price: The price per unit they were dealt at: NAV per unit,
+            or NAV moved by the vehicle's pricing method.
+        adjustment: What the dealing investors paid into the fund, through
+            the price or a levy, toward the trading their flow caused. 0
+            under single pricing.
     """
     date: pd.Timestamp
     amount: float
     nav_per_unit: float
     units: float
+    dealing_price: float
+    adjustment: float = 0.0
 
 
 class Flows(ABC):
