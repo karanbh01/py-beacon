@@ -19,7 +19,9 @@ install, everything works from any directory.
 ## The gates
 
 Three things must be clean before anything is committed. CI runs all of them
-across Python 3.11–3.13 on Linux, macOS and Windows.
+across Python 3.11–3.13 on Linux, macOS and Windows: on every pull request,
+nightly and by hand. A push to `main` runs them on Linux with Python 3.11 and
+3.13 only, to keep it to about ten minutes.
 
 ```bash
 ruff check .        # lint
@@ -110,15 +112,18 @@ A release goes to GitHub and to PyPI. The workflow is
 2. Set `__version__` in `src/beacon/__init__.py`, and rename `[Unreleased]` to
    `## [X.Y.Z] - YYYY-MM-DD`, with a fresh empty `[Unreleased]` above it.
    `tests/test_changelog.py` fails if the version has no dated section.
-3. Dry run: run the Release workflow by hand (Actions, Release, Run
+3. Run the CI workflow by hand (Actions, CI, Run workflow) on `main`. A push
+   to `main` tests only Ubuntu on two Python versions; this runs all three
+   operating systems on every supported version. Wait for it to pass.
+4. Dry run: run the Release workflow by hand (Actions, Release, Run
    workflow) on `main`. It publishes to TestPyPI and installs the package
    back from there. TestPyPI accepts each version once, so do this before
    tagging.
-4. Tag `vX.Y.Z` and push the tag. The tag must match `__version__`. The
+5. Tag `vX.Y.Z` and push the tag. The tag must match `__version__`. The
    workflow builds the wheel and sdist, checks them, installs the wheel, and
    creates a draft GitHub release with both files, the `openapi.json` of that exact
    build, and the changelog section.
-5. Review the draft and publish it. Publishing uploads the draft's own files
+6. Review the draft and publish it. Publishing uploads the draft's own files
    to PyPI, then asks Cloudflare to rebuild pybeacon.dev through the deploy
    hook in the `CLOUDFLARE_DEPLOY_HOOK` secret. If the secret is missing or
    the request fails, the job warns and the release still counts as done;

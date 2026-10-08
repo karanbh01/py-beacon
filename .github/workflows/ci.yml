@@ -5,9 +5,17 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # The full matrix, nightly and by hand. A push to main runs a smaller one
+  # (see the test job), so this is where macOS, Windows and Python 3.12 are
+  # covered between pull requests. Run it by hand before tagging a release.
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
 
+# The event is part of the group so that a push to main cancels only an
+# earlier push's run, never the nightly or a by-hand run of the same commit.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -21,9 +29,12 @@ jobs:
       # Report every failing cell, not just the first — an OS- or version-
       # specific break is exactly what this matrix exists to surface.
       fail-fast: false
+      # A push to main runs Ubuntu on the oldest and newest supported Python,
+      # about ten minutes. Every other event runs all nine cells: pull
+      # requests, the nightly run and a run by hand before a release (BN-283).
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        os: ${{ fromJSON(github.event_name == 'push' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest", "windows-latest"]') }}
+        python-version: ${{ fromJSON(github.event_name == 'push' && '["3.11", "3.13"]' || '["3.11", "3.12", "3.13"]') }}
 
     steps:
       - uses: actions/checkout@v5
@@ -51,8 +62,11 @@ jobs:
       - name: Type check
         run: mypy
 
+      # Across every core the runner has (pytest-xdist). Coverage is combined
+      # from the workers, so the gate still covers the whole suite. Local runs
+      # stay single-process, where the full suite is already short of memory.
       - name: Test
-        run: pytest -q
+        run: pytest -q -n auto
 
   charts:
     name: chart image regression
@@ -62,8 +76,8 @@ jobs:
     # its own image tests. Comparing on three operating systems would mean
     # three sets of baselines and three ways to be almost right.
     #
-    # The other nine cells still run these tests without --mpl, so the charts
-    # are exercised everywhere and only compared here.
+    # The test matrix still runs these tests without --mpl, so the charts are
+    # exercised everywhere and only compared here.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

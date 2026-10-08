@@ -75,6 +75,7 @@ dev = [
   "pytest-asyncio",      # the job registry is driven on an event loop
   "pytest-cov",
   "pytest-timeout",      # a hung job or socket read must fail, not stall CI
+  "pytest-xdist",        # CI runs the suite across the runner's cores
   "ruff",
   "mypy",
   "pre-commit",
