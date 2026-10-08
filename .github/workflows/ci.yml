@@ -65,7 +65,13 @@ jobs:
       # Across every core the runner has (pytest-xdist). Coverage is combined
       # from the workers, so the gate still covers the whole suite. Local runs
       # stay single-process, where the full suite is already short of memory.
+      # Coverage measures through sys.monitoring where Python has it (3.12
+      # and later), which costs far less than the C tracer it uses by
+      # default before 3.14. Empty on 3.11, which keeps the C tracer rather
+      # than warn and fall back (BN-285).
       - name: Test
+        env:
+          COVERAGE_CORE: ${{ matrix.python-version != '3.11' && 'sysmon' || '' }}
         run: pytest -q -n auto
 
   charts:
