@@ -89,6 +89,36 @@ print("Tracking error:   ", round(result.summary()["tracking_error"], 6))
 transactions. The portfolio ends a little behind the index because it pays
 for its trades.
 
+## How it fits together
+
+Data, the index and the backtest are separate layers. A `DataFetcher` serves
+every calculation its data. An `IndexDefinition` says what the index holds,
+and `IndexCalculator` computes its history as an `IndexResult`. A backtest
+trades to the index's weights, and a derivative is priced off its levels.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karanbh01/py-beacon/main/.github/assets/architecture-dark.png">
+  <img alt="Data and the methodology feed the calculation, which produces an IndexResult. Derivatives are priced off it, and a backtest trades to its weights and produces a BacktestResult for analysis." src="https://raw.githubusercontent.com/karanbh01/py-beacon/main/.github/assets/architecture-light.png" width="464">
+</picture>
+
+A backtest has five parts. The strategy decides what is held and the
+implementation how it is traded. Flows move money in and out, which the
+vehicle deals at its price and charges its fees on. The modelling
+assumptions are what the run takes as given.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karanbh01/py-beacon/main/.github/assets/backtest-dark.png">
+  <img alt="The strategy's weights go through the implementation as trades, and flows are dealt through the vehicle as units and fees. Both, with the modelling assumptions, feed Backtest.run(), which produces a BacktestResult." src="https://raw.githubusercontent.com/karanbh01/py-beacon/main/.github/assets/backtest-light.png" width="634">
+</picture>
+
+The strategy can hold the index in full, track it with fewer names, or try
+to beat it. Each gives the backtest its target weights.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karanbh01/py-beacon/main/.github/assets/strategies-dark.png">
+  <img alt="From the index, an IndexDefinition holds every name at its index weight, IndexTracking holds fewer names, optimised or sampled, and an ActiveStrategy builds weights from a signal and a construction. Each gives target weights." src="https://raw.githubusercontent.com/karanbh01/py-beacon/main/.github/assets/strategies-light.png" width="670">
+</picture>
+
 ## What it does
 
 - **Indices.** Select constituents with eligibility rules, including
