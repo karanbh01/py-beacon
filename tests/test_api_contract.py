@@ -32,12 +32,12 @@ from beacon.exceptions import CalculationError
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Portfolio
 from beacon.server import ServerConfig, create_app
-from beacon.server.backtests import _metrics as run_metrics
 from beacon.server.schemas import (
     BacktestMetrics,
     BacktestResultSummary,
     BacktestRunResult,
     BookPayload,
+    metrics_from,
 )
 from beacon.testing import dataset
 
@@ -129,7 +129,11 @@ ERROR_CODES = {"UNAUTHORIZED", "DATA_NOT_FOUND", "VALIDATION_ERROR",
 BACKTEST_RUN_FIELDS = {"level", "returns", "drawdown", "annual_returns",
                        "index_level", "metrics", "benchmark", "rebalances",
                        "total_costs", "initial_capital", "price_gaps",
-                       "rebalance_pricing", "currency"}
+                       "rebalance_pricing", "currency",
+                       # BN-272: strategies, flows, vehicles and the stages.
+                       "settings", "nav_per_unit", "units", "flows", "fees_paid",
+                       "market", "replication", "active", "rebalance_steps",
+                       "unfilled"}
 BACKTEST_RUN_REQUIRED = {"level", "returns", "drawdown", "annual_returns",
                          "index_level", "metrics"}
 
@@ -154,6 +158,12 @@ RECORD_BOOK_FIELDS = {"levels", "weights", "weights_dates_total",
 SUMMARY_HEADLINE_METRICS = {"total_return", "annualised_return", "volatility",
                             "sharpe_ratio", "max_drawdown"}
 SUMMARY_TRACKING_METRICS = {"tracking_error", "tracking_difference"}
+# BN-272: what a run has only with flows, an ETF or an active strategy.
+SUMMARY_CONDITIONAL_METRICS = {"money_weighted_return", "market_return",
+                               "average_premium", "average_spread",
+                               "days_at_premium", "information_ratio",
+                               "average_active_share",
+                               "average_ex_ante_tracking_error"}
 
 
 def auth() -> dict[str, str]:
@@ -815,7 +825,8 @@ class TestTheMetricsMirrorIsPinned:
         """The wire half. A field added to `BacktestMetrics` without being
         added above fails here, naming both sides."""
         assert set(BacktestMetrics.model_fields) == (SUMMARY_HEADLINE_METRICS
-                                                    | SUMMARY_TRACKING_METRICS)
+                                                    | SUMMARY_TRACKING_METRICS
+                                                    | SUMMARY_CONDITIONAL_METRICS)
 
     def test_summary_produces_exactly_the_keys_the_payload_reads(self):
         """The library half, and the direction that catches an addition: a
@@ -839,7 +850,8 @@ class TestTheMetricsMirrorIsPinned:
         published = spec["components"]["schemas"]["BacktestMetrics"]
 
         assert set(published["properties"]) == (SUMMARY_HEADLINE_METRICS
-                                                | SUMMARY_TRACKING_METRICS)
+                                                | SUMMARY_TRACKING_METRICS
+                                                | SUMMARY_CONDITIONAL_METRICS)
         assert set(published["required"]) == SUMMARY_HEADLINE_METRICS
 
     def test_the_payload_carries_every_metric_of_a_tracked_run(self):
@@ -862,16 +874,17 @@ class TestTheMetricsMirrorIsPinned:
             BacktestResultSummary.from_result(result)
 
     def test_the_run_payload_reads_through_the_same_checked_reader(self):
-        """`backtests._metrics` is a second mirror of the same five literals,
-        and it carried its own 0.0 fallback — so the run endpoint would have
-        gone on publishing a plausible zero after the record stopped."""
+        """The run payload's metrics were once a second mirror of the same
+        five literals, with its own 0.0 fallback, so the run endpoint would
+        have gone on publishing a plausible zero after the record stopped.
+        Both now read through `metrics_from`."""
         result = _run_with_a_tracked_index()
         summary = result.summary()
         del summary["volatility"]
         result.summary = lambda: summary  # type: ignore[method-assign]
 
         with pytest.raises(CalculationError, match="volatility"):
-            run_metrics(result)
+            metrics_from(result.summary())
 
 
 class TestTheRecordBookIsPublished:

@@ -22,6 +22,7 @@ Each name is treated as its own issuer.
 # BN-268, phase 6 of decisions/0006.
 from abc import ABC, abstractmethod
 
+from ..catalogue import LIMIT, register
 from .capacity import CapacityCap, OwnershipCap
 from .redistribution import TOLERANCE, water_filled
 
@@ -96,6 +97,7 @@ class _LargeHoldingsLimit(DiversificationLimit):
         return weights
 
 
+@register(LIMIT, "UCITS")
 class UcitsLimits(DiversificationLimit):
     """The UCITS diversification rules.
 
@@ -128,6 +130,7 @@ class UcitsLimits(DiversificationLimit):
         return f"UcitsLimits(index_tracking={self.index_tracking!r})"
 
 
+@register(LIMIT, "1940 Act diversified")
 class Act1940Limits(DiversificationLimit):
     """The US Investment Company Act's test for a diversified fund."""
 

@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from ..catalogue import ACTIVE_CONSTRAINT, COUNT, FRACTION, Display, register
 from ..optimise.constraints import (
     INEQUALITY,
     Cardinality,
@@ -84,6 +85,9 @@ class ActiveConstraint(ABC):
         """The optimiser constraints this becomes for *problem*."""
 
 
+@register(ACTIVE_CONSTRAINT, "Tracking-error budget", fields={
+    "maximum": Display("Most tracking error", unit=FRACTION, minimum=0.0),
+})
 class TrackingErrorBudget(ActiveConstraint):
     """An ex-ante tracking error to the benchmark of at most *maximum*.
 
@@ -121,6 +125,10 @@ class TrackingErrorBudget(ActiveConstraint):
             gradient=lambda w: -2.0 * sigma @ problem.active(w) / limit)])]
 
 
+@register(ACTIVE_CONSTRAINT, "Active share", fields={
+    "minimum": Display("Least active share", unit=FRACTION, minimum=0.0, maximum=1.0),
+    "maximum": Display("Most active share", unit=FRACTION, minimum=0.0, maximum=1.0),
+})
 class ActiveShare(ActiveConstraint):
     """An active share in a range.
 
@@ -172,6 +180,9 @@ class ActiveShare(ActiveConstraint):
         return [_Conditions(conditions)]
 
 
+@register(ACTIVE_CONSTRAINT, "Sector weights against the benchmark", fields={
+    "within": Display("Largest difference", unit=FRACTION, minimum=0.0, maximum=1.0),
+})
 class RelativeSectorBounds(ActiveConstraint):
     """Each sector's weight within *within* of the benchmark's.
 
@@ -205,6 +216,9 @@ class RelativeSectorBounds(ActiveConstraint):
         return [_Conditions(conditions)]
 
 
+@register(ACTIVE_CONSTRAINT, "Positions against the benchmark", fields={
+    "within": Display("Largest difference", unit=FRACTION, minimum=0.0, maximum=1.0),
+})
 class RelativePositionBounds(ActiveConstraint):
     """Each name within *within* of its benchmark weight.
 
@@ -230,6 +244,9 @@ class RelativePositionBounds(ActiveConstraint):
         return [_Conditions([], box)]
 
 
+@register(ACTIVE_CONSTRAINT, "Holdings limit", fields={
+    "maximum": Display("Most names held", unit=COUNT, minimum=1),
+})
 class HoldingsLimit(ActiveConstraint):
     """No more than *maximum* names held.
 
@@ -249,6 +266,9 @@ class HoldingsLimit(ActiveConstraint):
         return [Cardinality(self.maximum)]
 
 
+@register(ACTIVE_CONSTRAINT, "Turnover limit", fields={
+    "maximum": Display("Most one-way turnover", unit=FRACTION, minimum=0.0, maximum=1.0),
+})
 class TurnoverLimit(ActiveConstraint):
     """At most *maximum* traded one way from the last rebalance's weights.
     The first rebalance, with nothing held, is not limited.

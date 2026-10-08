@@ -208,7 +208,7 @@ class Backtest:
                     "off" if self.cache is None else f"at {self.cache.root}")
 
     def run(self,
-            definition: AnyIndexDefinition | IndexTracking,
+            definition: AnyIndexDefinition | IndexTracking | ActiveStrategy,
             start: str | None = None,
             end: str | None = None,
             optimised: bool = False,
@@ -223,7 +223,9 @@ class Backtest:
                 as ``index.target`` and its own as ``index.optimised``. Or an
                 :class:`~beacon.strategy.IndexTracking`, which holds the index
                 through a replication: the index is calculated and measured
-                against, and the replicated weights are traded.
+                against, and the replicated weights are traded. Or an
+                :class:`~beacon.strategy.ActiveStrategy`, which builds its own
+                portfolio and is measured against the index as its benchmark.
             start: First date (YYYY-MM-DD). Defaults to the definition's
                 base date.
             end: Last date (YYYY-MM-DD). Required.

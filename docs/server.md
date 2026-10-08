@@ -95,7 +95,8 @@ A client needs three things from startup (the full sequence is in
 | `/data/watchlists` | Saved lists of identifiers. |
 | `/universes` | Saved universes: the pools of names an index selects from, and their members on a date. A `GLOBAL` universe covering the loaded data is kept up to date automatically and cannot be edited. |
 | `/indices` | Index definitions: save, validate, preview, the rebalance schedule, the rule types and calendars an editor can offer, and deriving an optimised index from a saved one. |
-| `/beacon` | Running a backtest of a saved index (a job), and reading its results: the latest record, overview, weights, attribution, one asset, and a comparison of several indices. |
+| `/beacon` | Running a backtest of a saved index (a job), checking a backtest request without running it, and reading the results: the latest record, overview, weights, attribution, one asset, and a comparison of several indices. |
+| `/backtest/options` | Everything a backtest request may carry: each family's types and fields, the vehicle presets, and the modelling assumptions with their defaults. See [Backtest requests](#backtest-requests). |
 | `/optimise` | Constraint sets, and optimisation runs (a job) with their frontier and exposures. |
 | `/risk-models` | Estimating a risk model (a job) and reading the estimated models. |
 | `/reports` | Report templates, rendering a report to PDF (a job), and downloading the PDF. |
@@ -106,6 +107,46 @@ A client needs three things from startup (the full sequence is in
 An endpoint that needs data answers 409 `NO_DATA_LOADED` when none is
 loaded. The rest, such as listing saved indices or reading `/health`, work
 without data.
+
+## Backtest requests
+
+`POST /beacon/{index_id}/backtest` takes the dates, the initial capital and
+the trading cost, and, optionally, every other part of a
+[backtest](concepts/backtest.md):
+
+| Field | What it says |
+| --- | --- |
+| `strategy` | What is held: `{"type": "index"}` (the default), `{"type": "index_tracking", "replication": {...}}`, or `{"type": "active", "signal": {...}, "construction": {...}, "constraints": [...]}`. The path's index is the one tracked, or an active strategy's benchmark. See [Strategies](concepts/strategies.md). |
+| `implementation` | Screens, capacity caps, a minimum position, market impact, execution limits, the redistribution rule, a cash buffer and what inflows buy. |
+| `flows` | Money arriving and leaving, as a list of scenarios. |
+| `vehicle` | A preset (`uk_oeic`, `ucits_etf`, ..., or null for the generic vehicle) and the settings to change. See [Fund vehicles and pricing](concepts/fund-vehicles.md). |
+| `modelling_assumptions` | What the run takes as given; each unset field takes the engine's default. |
+| `dividends`, `currency` | The dividend policy, and the book's currency. |
+
+A request without them runs exactly as one with only the dates, capital and
+cost. Configurable objects use one shape, `{"type": ..., "params": {...}}`,
+and `GET /backtest/options` lists every type with its fields: their types,
+defaults, choices, units (`fraction` is shown as a percentage, `money` is in
+the book's currency) and bounds. It needs no data.
+
+A vehicle's `settings` are laid over its preset's: a typed object (`pricing`)
+or a list (`limits`) replaces the preset's whole, a plain object (`market`)
+merges key by key, an omitted key keeps the preset's value, and null means
+none, refused on a setting that cannot be none. Settings that apply only to
+exchange-traded vehicles say so in `applies_to` and are refused on any other.
+
+A request whose settings cannot be built is refused with 422
+`INVALID_RULE` before any job starts, with a finding for each problem at its
+field's path, such as `vehicle.settings.pricing.params.threshold`.
+`POST /beacon/{index_id}/backtest/validate` takes the same body and answers
+the fully resolved settings, or the findings, without running anything.
+
+The run's result carries its resolved `settings`, and, as the run uses them,
+`nav_per_unit`, `units` and the `flows` ledger, an ETF's `market` quotes, the
+`replication` or `active` record of each rebalance, the implementation's
+`rebalance_steps` and the `unfilled` orders. `nav_per_unit`, `units` and every
+`market` series share `level`'s dates; with flows, `level` is NAV per unit,
+so a flow is not drawn as a gain.
 
 ## Jobs
 

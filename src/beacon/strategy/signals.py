@@ -20,6 +20,7 @@ from collections.abc import Callable
 import numpy as np
 import pandas as pd
 
+from ..catalogue import SIGNAL, register
 from ..data.fetcher import DataFetcher
 from ..expressions.core import Field
 from ..expressions.resolve import value_of
@@ -64,6 +65,7 @@ class Signal(ABC):
                                                      for name, score in scored.items()}
 
 
+@register(SIGNAL, "Field")
 class FieldSignal(Signal):
     """A field's value: a market column, a reference value or a feature.
 
@@ -114,6 +116,7 @@ class FunctionSignal(Signal):
                 for name in names}
 
 
+@register(SIGNAL, "Momentum")
 class Momentum(Signal):
     """Price momentum: the return over a lookback, leaving out the most
     recent days, where short-term reversal works against it.

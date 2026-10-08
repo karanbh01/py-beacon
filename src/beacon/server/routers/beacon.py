@@ -25,8 +25,11 @@ from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import DataNotFoundError
 from ..active_data import require_data
+from ..backtest_settings import GENERIC, BuiltSettings
+from ..backtest_settings import build as build_settings
 from ..backtests import build_backtest_job
 from ..documents import load_document, read_collection, validated
+from ..errors import FindingsError
 from ..jobs import JobRegistry
 from ..runs import snapshot_at, snapshots_from
 from ..schemas import (
@@ -37,6 +40,7 @@ from ..schemas import (
     BacktestRecordRow,
     BacktestRequest,
     BacktestResultSummary,
+    BacktestValidation,
     CompareView,
     Identifier,
     IndexDocument,
@@ -135,8 +139,27 @@ def _record_row(index_id: str,
     500d on `/record`, so a client was offered a row it could not open.
     """
     record = BacktestResultSummary.model_validate(document)
+    settings = record.settings or {}
+    vehicle = settings.get("vehicle") or {}
 
-    return BacktestRecordRow(index_id=index_id, run_at=record.run_at)
+    return BacktestRecordRow(index_id=index_id, run_at=record.run_at,
+                             strategy=(settings.get("strategy") or {}).get("type"),
+                             vehicle=(vehicle.get("settings") or {}).get("name"),
+                             vehicle_preset=(vehicle.get("preset")
+                                             if vehicle.get("preset") != GENERIC else None),
+                             currency=record.currency)
+
+
+def _built_settings(settings: BacktestRequest,
+                    fetcher: DataFetcher) -> BuiltSettings:
+    """A request's settings built, or 422 with every finding."""
+    built, findings = build_settings(settings, fetcher)
+
+    if built is None:
+        raise FindingsError("backtest request", "its settings could not be built",
+                            findings)
+
+    return built
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
@@ -169,6 +192,9 @@ def build_beacon_router() -> APIRouter:
         document = _index_document(request, index_id)
         fetcher = _data_fetcher(request)
         settings = body if body is not None else BacktestRequest()
+        # BN-272: built before the job, so a bad setting is a 422 naming the
+        # field rather than a job that fails a moment later.
+        built = _built_settings(settings, fetcher)
 
         registry: JobRegistry = request.app.state.jobs
         store: DocumentStore = request.app.state.index_store
@@ -176,9 +202,28 @@ def build_beacon_router() -> APIRouter:
         job = registry.submit(
             f"backtest:{index_id}",
             build_backtest_job(document, fetcher, settings, store,
-                               record_store=records))
+                               record_store=records, built=built))
 
         return BacktestJobStatus(**job.snapshot())
+
+    @router.post("/{index_id}/backtest/validate", response_model=BacktestValidation)
+    def validate_backtest(request: Request,
+                          index_id: Identifier,
+                          body: BacktestRequest | None = None) -> BacktestValidation:
+        """What a backtest request would run, without running it.
+
+        The same body `POST /beacon/{index_id}/backtest` takes. Answers the
+        fully resolved settings (the preset filled in, the modelling
+        assumptions resolved against the loaded data) or every finding, each
+        at its field's path.
+        """
+        _index_document(request, index_id)
+        built, findings = build_settings(body if body is not None else BacktestRequest(),
+                                         _data_fetcher(request))
+
+        return BacktestValidation(valid=built is not None,
+                                  settings=built.resolved if built is not None else None,
+                                  findings=findings)
 
     # Compare is declared before the parameterised routes so that a request for
     # /beacon/compare is not captured by /beacon/{index_id}/... — FastAPI

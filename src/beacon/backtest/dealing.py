@@ -31,6 +31,8 @@ buyers or net sellers rather than to each deal.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from ..catalogue import BPS, FRACTION, PRICING, Display, register
+
 IN = "subscriptions"
 OUT = "redemptions"
 BOTH = "both"
@@ -81,6 +83,7 @@ class Pricing(ABC):
         """
 
 
+@register(PRICING, "Single pricing")
 class SinglePricing(Pricing):
     """Everyone deals at NAV per unit."""
 
@@ -95,6 +98,10 @@ class SinglePricing(Pricing):
         return "SinglePricing()"
 
 
+@register(PRICING, "Dual pricing", fields={
+    "offer_bps": Display("Offer adjustment", unit=BPS, minimum=0.0),
+    "bid_bps": Display("Bid adjustment", unit=BPS, minimum=0.0),
+})
 class DualPricing(Pricing):
     """Buyers pay an offer price above NAV, sellers receive a bid price
     below it.
@@ -133,6 +140,10 @@ class DualPricing(Pricing):
         return f"DualPricing(offer_bps={self.offer_bps!r}, bid_bps={self.bid_bps!r})"
 
 
+@register(PRICING, "Swing pricing", fields={
+    "factor_bps": Display("Swing factor", unit=BPS, minimum=0.0),
+    "threshold": Display("Swing above this flow", unit=FRACTION, minimum=0.0, maximum=1.0),
+})
 class SwingPricing(Pricing):
     """A single price that swings with the day's net flow.
 
@@ -172,6 +183,11 @@ class SwingPricing(Pricing):
                 f"threshold={self.threshold!r})")
 
 
+@register(PRICING, "Dilution levy", fields={
+    "rate_bps": Display("Levy", unit=BPS, minimum=0.0),
+    "threshold": Display("Charge above this deal", unit=FRACTION, minimum=0.0, maximum=1.0),
+    "on": Display("Applies to", choices=LEVY_SIDES),
+})
 class DilutionLevy(Pricing):
     """A charge into the fund on deals larger than a threshold.
 

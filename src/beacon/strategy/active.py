@@ -48,6 +48,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from ..catalogue import CONSTRUCTION, FRACTION, RATIO, Display, register
 from ..exceptions import CalculationError
 from ..expressions.core import Expression
 from ..expressions.resolve import resolve
@@ -128,6 +129,9 @@ class Construction(ABC):
         """
 
 
+@register(CONSTRUCTION, "Maximum alpha within a tracking-error budget", fields={
+    "tracking_error": Display("Tracking-error budget", unit=FRACTION, minimum=0.0),
+})
 class MaxAlpha(Construction):
     """The most exposure to the scores within a tracking-error budget.
 
@@ -204,6 +208,10 @@ class MaxAlpha(Construction):
         return f"MaxAlpha(tracking_error={self.tracking_error!r})"
 
 
+@register(CONSTRUCTION, "Mean-variance", fields={
+    "risk_aversion": Display("Risk aversion", unit=RATIO, minimum=0.0),
+    "alpha_per_score": Display("Expected return per score", unit=FRACTION, minimum=0.0),
+})
 class MeanVariance(Construction):
     """The best trade-off of expected active return against active variance.
 

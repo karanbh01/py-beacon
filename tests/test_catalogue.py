@@ -19,6 +19,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from beacon import catalogue
+from beacon.backtest.capacity import CapacityCap
+from beacon.backtest.dealing import Pricing
+from beacon.backtest.flows import Flows
+from beacon.backtest.limits import DiversificationLimit
+from beacon.backtest.screens import Screen
 from beacon.index.methodology import (
     EligibilityRuleBase,
     EqualWeighted,
@@ -31,6 +36,10 @@ from beacon.optimise.constraints import Constraint
 from beacon.server import ServerConfig, create_app
 from beacon.server.constraints import constraint_params
 from beacon.server.definitions import selection_rules, weighting_schemes
+from beacon.strategy.active import Construction
+from beacon.strategy.constraints import ActiveConstraint
+from beacon.strategy.signals import Signal
+from beacon.strategy.tracking import Replication
 
 TOKEN = "test-token-value"
 
@@ -237,6 +246,10 @@ class TestRegistry:
         assert names == sorted(names)
 
 
+# Library classes a client cannot send, so the catalogue does not offer them.
+NOT_ON_THE_WIRE = {"FunctionSignal"}
+
+
 class TestCompleteness:
     """A class that exists but is not registered is the failure to catch."""
 
@@ -244,13 +257,25 @@ class TestCompleteness:
         (EligibilityRuleBase, catalogue.SELECTION),
         (WeightingSchemeBase, catalogue.WEIGHTING),
         (Constraint, catalogue.CONSTRAINT),
+        # A backtest's parts, BN-272.
+        (Screen, catalogue.SCREEN),
+        (CapacityCap, catalogue.CAP),
+        (Flows, catalogue.FLOW),
+        (Pricing, catalogue.PRICING),
+        (DiversificationLimit, catalogue.LIMIT),
+        (Replication, catalogue.REPLICATION),
+        (Signal, catalogue.SIGNAL),
+        (Construction, catalogue.CONSTRUCTION),
+        (ActiveConstraint, catalogue.ACTIVE_CONSTRAINT),
     ])
     def test_every_library_class_is_registered(self, base, kind):
         # A private class is not something to offer: BN-280's active
         # constraints build one per solve, from that rebalance's benchmark.
+        # Nor is one with no wire form, such as a signal wrapping a function.
         missing = {cls.__name__ for cls in subclasses_of(base)
                    if not inspect.isabstract(cls)
-                   and not cls.__name__.startswith("_")} - catalogue.registered_names(kind)
+                   and not cls.__name__.startswith("_")
+                   and cls.__name__ not in NOT_ON_THE_WIRE} - catalogue.registered_names(kind)
 
         assert not missing, (
             f"{', '.join(sorted(missing))} exist but are not in the catalogue, "

@@ -23,6 +23,7 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
+from ..catalogue import CAP, FRACTION, Display, register
 from ..expressions import data
 from ..expressions.resolve import value_of
 from .screens import DEFAULT_LIQUIDITY_DAYS, ScreenContext, average_traded
@@ -46,6 +47,9 @@ class CapacityCap(ABC):
         this cap does not limit the name."""
 
 
+@register(CAP, "Ownership", fields={
+    "max_share": Display("Largest share owned", unit=FRACTION, minimum=0.0, maximum=1.0),
+})
 class OwnershipCap(CapacityCap):
     """At most a share of a name's free-float market cap, or of its whole
     market cap.
@@ -83,6 +87,9 @@ class OwnershipCap(CapacityCap):
         return None if cap is None else float(cap) * self.max_share
 
 
+@register(CAP, "Days to liquidate", fields={
+    "participation": Display("Share of daily trading", unit=FRACTION, minimum=0.0, maximum=1.0),
+})
 class LiquidityCap(CapacityCap):
     """At most what could be sold over a number of days.
 
@@ -121,6 +128,9 @@ class LiquidityCap(CapacityCap):
         return None if traded is None else traded * self.days * self.participation
 
 
+@register(CAP, "Weight", fields={
+    "max_weight": Display("Largest weight", unit=FRACTION, minimum=0.0, maximum=1.0),
+})
 class WeightCap(CapacityCap):
     """At most a share of the book, whatever the name.
 

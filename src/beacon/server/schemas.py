@@ -16,6 +16,7 @@ import pandas as pd
 from pydantic import (
     AfterValidator,
     BaseModel,
+    ConfigDict,
     Field,
     RootModel,
     SerializerFunctionWrapHandler,
@@ -441,6 +442,34 @@ class BacktestMetrics(BaseModel):
     max_drawdown: Pct
     tracking_error: Pct | None = None
     tracking_difference: Pct | None = None
+    # BN-272: figures a run has only with flows, an ETF or an active strategy.
+    money_weighted_return: Pct | None = Field(
+        default=None,
+        description="The investors' annual internal rate of return, when "
+                    "money flowed. Null otherwise.")
+    market_return: Pct | None = Field(
+        default=None,
+        description="For an ETF, an exchange investor's return: bought at the "
+                    "ask on the first day, sold at the bid on the last.")
+    average_premium: Pct | None = Field(
+        default=None, description="For an ETF, the mean premium to NAV.")
+    average_spread: Pct | None = Field(
+        default=None, description="For an ETF, the mean bid-ask spread.")
+    days_at_premium: Pct | None = Field(
+        default=None,
+        description="For an ETF, the share of days its price was above NAV.")
+    information_ratio: float | None = Field(
+        default=None,
+        description="For an active strategy, annualised active return over "
+                    "tracking error against its benchmark.")
+    average_active_share: Pct | None = Field(
+        default=None,
+        description="For an active strategy, the mean active share at its "
+                    "rebalances.")
+    average_ex_ante_tracking_error: Pct | None = Field(
+        default=None,
+        description="For an active strategy, the mean ex-ante tracking error "
+                    "at its rebalances.")
 
 
 # BN-176: a missing headline metric raises. The previous 0.0 fallback was the
@@ -449,6 +478,21 @@ class BacktestMetrics(BaseModel):
 # absent, whereas a 500 naming the key is discoverable. `TestTheMetricsMirror...`
 # in `tests/test_api_contract.py` pins the two key sets against each other,
 # which is what keeps this raise unreachable in practice.
+def metrics_from(summary: dict[str, float | None]) -> BacktestMetrics:
+    """The payload's metrics from `BacktestResult.summary()`: the headline
+    five, which must be there, and whichever others the run has."""
+    optional = {name: summary.get(name) for name in BacktestMetrics.model_fields
+                if name not in HEADLINE_METRICS}
+
+    return BacktestMetrics.model_validate(
+        {**optional, **{name: headline_metric(summary, name) for name in HEADLINE_METRICS}})
+
+
+# The five every run has; the rest are null unless the run produces them.
+HEADLINE_METRICS = ("total_return", "annualised_return", "volatility",
+                    "sharpe_ratio", "max_drawdown")
+
+
 def headline_metric(summary: dict[str, float | None],
             key: str) -> float:
     """Read a core metric, which `BacktestResult.summary()` always populates.
@@ -755,6 +799,11 @@ class BacktestResultSummary(BaseModel):
     rebalance_pricing: list[RebalancePricingPayload] = Field(
         default_factory=list, description=REBALANCE_PRICING_DESCRIPTION)
     metrics: BacktestMetrics
+    settings: dict[str, Any] | None = Field(
+        default=None,
+        description="What ran, fully resolved, as the run payload's `settings`. "
+                    "Null on a record from before it was kept.")
+    currency: str | None = Field(default=None, description="The book's currency.")
     # None only on records written before BN-162 stamped them: a listing row
     # without a date is honest about predating the stamp.
     run_at: str | None = Field(
@@ -771,7 +820,8 @@ class BacktestResultSummary(BaseModel):
     @classmethod
     def from_result(cls,
                     result: BacktestResult,
-                    cap: float | None = None) -> "BacktestResultSummary":
+                    cap: float | None = None,
+                    settings: dict[str, Any] | None = None) -> "BacktestResultSummary":
         """Build from a library `BacktestResult`.
 
         Args:
@@ -781,35 +831,34 @@ class BacktestResultSummary(BaseModel):
                 on a passive run, its parent's on an optimised one. Stamped on
                 that book's rebalance snapshots only: a solved index has no cap
                 of its own, since its constraints are what shaped its weights.
+            settings: What ran, resolved, to keep with the record.
         """
-        summary = result.summary()
-        metrics = BacktestMetrics(
-            total_return=headline_metric(summary, "total_return"),
-            annualised_return=headline_metric(summary, "annualised_return"),
-            volatility=headline_metric(summary, "volatility"),
-            sharpe_ratio=headline_metric(summary, "sharpe_ratio"),
-            max_drawdown=headline_metric(summary, "max_drawdown"),
-            tracking_error=summary.get("tracking_error"),
-            tracking_difference=summary.get("tracking_difference"))
+        metrics = metrics_from(result.summary())
 
         return cls(portfolio=_portfolio_payload(result.portfolio),
                    index=IndexBooksPayload(
                        target=_book_payload(result.index.target, cap),
                        optimised=_book_payload(result.index.optimised)),
                    benchmark=_book_payload(result.benchmark),
-                   unfilled=[UnfilledOrderPayload(
-                       date=str(order.date.date()),
-                       asset_id=order.asset_id,
-                       requested_quantity=order.requested_quantity,
-                       filled_quantity=order.filled_quantity,
-                       price=_finite(order.price),
-                       shortfall_value=_finite(order.shortfall_value),
-                       reason=order.reason)
-                       for order in result.unfilled],
+                   unfilled=unfilled_payloads(result),
                    price_gaps=price_gap_payloads(result),
                    rebalance_pricing=rebalance_pricing_payloads(result),
                    metrics=metrics,
+                   settings=settings,
+                   currency=result.currency,
                    run_at=datetime.now(UTC).isoformat())
+
+
+def unfilled_payloads(result: BacktestResult) -> list[UnfilledOrderPayload]:
+    """The run's unfilled orders, for whichever payload publishes them."""
+    return [UnfilledOrderPayload(date=str(order.date.date()),
+                                 asset_id=order.asset_id,
+                                 requested_quantity=order.requested_quantity,
+                                 filled_quantity=order.filled_quantity,
+                                 price=_finite(order.price),
+                                 shortfall_value=_finite(order.shortfall_value),
+                                 reason=order.reason)
+            for order in result.unfilled]
 
 
 def _finite(value: float) -> float | None:
@@ -919,6 +968,17 @@ class BacktestRecordRow(BaseModel):
         default=None,
         description="ISO-8601 UTC capture time; null on records written "
                     "before they were stamped.")
+    strategy: str | None = Field(
+        default=None,
+        description="The strategy's type: 'index', 'index_tracking' or "
+                    "'active'. Null on a record from before it was kept.")
+    vehicle: str | None = Field(
+        default=None, description="The vehicle's name; null for a plain backtest.")
+    vehicle_preset: str | None = Field(
+        default=None,
+        description="The preset's key, stable across renames; null for a plain "
+                    "backtest or a generic vehicle.")
+    currency: str | None = Field(default=None, description="The book's currency.")
 
 
 # An envelope rather than the bare array this used to return (BN-174). The
@@ -2214,6 +2274,20 @@ class ParameterSpec(BaseModel):
                     "means any value of `type` is allowed.")
     help: str | None = Field(default=None,
                              description="One line of guidance for the field.")
+    unit: str | None = Field(
+        default=None,
+        description="What the value is measured in: 'fraction' (show 0.02 as "
+                    "2%), 'bps', 'days', 'money' (in the book's currency), "
+                    "'count' or 'ratio'. Null for a value with no unit.")
+    minimum: float | None = Field(
+        default=None, description="The smallest value accepted, when bounded.")
+    maximum: float | None = Field(
+        default=None, description="The largest value accepted, when bounded.")
+    applies_to: list[str] | None = Field(
+        default=None,
+        description="For a vehicle setting, the archetypes it belongs to, "
+                    "such as 'exchange_traded'. Null means every vehicle, and "
+                    "every type outside the vehicle settings.")
     # BN-175. `type` describes a scalar — number, integer, boolean, string, or
     # `json` for everything else — so the catalogue could not say that a
     # parameter takes an expression tree, and a client's only recourse was to
@@ -3106,8 +3180,152 @@ class RelativeMetricsPayload(BaseModel):
         description="The benchmark, rebased to 100 on the shared window.")
 
 
+class TypedSpec(BaseModel):
+    """One configurable object: its type and its parameters.
+
+    The types and what each accepts are listed by `GET /backtest/options`.
+    """
+    model_config = ConfigDict(extra="forbid")
+    type: str = Field(description="The type's name, as `/backtest/options` lists it.")
+    params: dict[str, Any] = Field(default_factory=dict,
+                                   description="Its parameters, by name.")
+
+
+class StrategySpec(BaseModel):
+    """What the backtest holds.
+
+    The path's index is the strategy's index: the one tracked, or the
+    benchmark an active strategy is measured against.
+    """
+    model_config = ConfigDict(extra="forbid")
+    type: str = Field(
+        default="index",
+        description="'index' (the index in full, the default), "
+                    "'index_tracking' (through a `replication`) or 'active'.")
+    replication: TypedSpec | None = Field(
+        default=None, description="For index tracking: how the index is held.")
+    signal: TypedSpec | None = Field(
+        default=None, description="For an active strategy: what it believes.")
+    construction: TypedSpec | None = Field(
+        default=None,
+        description="For an active strategy: how it builds its portfolio. "
+                    "MaxAlpha with its default budget when null.")
+    constraints: list[TypedSpec] = Field(
+        default_factory=list,
+        description="For an active strategy: what its portfolio must satisfy.")
+    universe: list[Identifier] | None = Field(
+        default=None,
+        description="For an active strategy: the names it may hold. Null "
+                    "means the benchmark's constituents.")
+    screen: dict[str, Any] | None = Field(
+        default=None,
+        description="For an active strategy: a condition every holding must "
+                    "pass, as an expression tree.")
+    rebalancing: str = Field(
+        default="MONTHLY",
+        description="For an active strategy: WEEKLY, MONTHLY, QUARTERLY or "
+                    "ANNUALLY.")
+    lookback_days: int | None = Field(
+        default=None, ge=2,
+        description="For an active strategy: trading days its covariance is "
+                    "estimated over; a year when null.")
+    minimum_observations: int | None = Field(
+        default=None, ge=2,
+        description="For an active strategy: the fewest returns a name needs "
+                    "to be measured; 126 when null.")
+
+
+class ImplementationSpec(BaseModel):
+    """How the strategy is carried out at the fund's size."""
+    model_config = ConfigDict(extra="forbid")
+    screens: list[TypedSpec] = Field(default_factory=list,
+                                     description="Which names may be held.")
+    caps: list[TypedSpec] = Field(default_factory=list,
+                                  description="How much of each may be held.")
+    minimum_position: dict[str, float | None] | None = Field(
+        default=None,
+        description="Positions too small to keep: `value` (money, in the "
+                    "book's currency) and `weight` (a fraction).")
+    impact: dict[str, float] | None = Field(
+        default=None,
+        description="Market impact: `coefficient` and `lookback_days`. Null "
+                    "for none.")
+    execution: dict[str, float | None] | None = Field(
+        default=None,
+        description="Execution limits: `participation` (a fraction of the "
+                    "day's volume), `days` and `lookback_days`. Null to trade "
+                    "every order on the rebalance day.")
+    redistribution: str = Field(
+        default="pro_rata",
+        description="Where removed or capped weight goes: 'pro_rata' or 'cash'.")
+    cash_buffer: float = Field(
+        default=0.0, ge=0.0, lt=1.0,
+        description="The share of the book kept in cash, a fraction.")
+    invest_flows: str = Field(
+        default="target",
+        description="What money arriving between rebalances buys: 'target' "
+                    "(the last rebalance's weights) or 'holdings'.")
+
+
+class VehicleSpec(BaseModel):
+    """How the money is held: a preset, with any settings laid over it.
+
+    Settings merge over the preset's: a typed object (`pricing`) or a list
+    (`limits`) replaces the preset's whole, a plain object (`market`) merges
+    key by key, an omitted key keeps the preset's value, and null means none
+    (refused on a setting that cannot be none). Money settings are in the
+    book's currency.
+    """
+    model_config = ConfigDict(extra="forbid")
+    preset: str | None = Field(
+        default=None,
+        description="A preset's key from `/backtest/options`, or null for the "
+                    "generic vehicle.")
+    settings: dict[str, Any] = Field(
+        default_factory=dict,
+        description="The settings to change, by name. Only what differs from "
+                    "the preset need be sent.")
+
+
+class ModellingAssumptionsSpec(BaseModel):
+    """What the run takes as given about markets and data. Every field is
+    optional; an unset one takes the engine's default, which
+    `/backtest/options` lists."""
+    model_config = ConfigDict(extra="forbid")
+    fx_policy: str | None = Field(
+        default=None,
+        description="The FX rate on a day a pair printed none: CARRY_FORWARD "
+                    "or EXACT_DAY.")
+    max_price_staleness_days: int | None = Field(
+        default=None, ge=0,
+        description="Calendar days a name may go without trading before it is "
+                    "dropped as stale; 0 is no limit.")
+    free_float_backfill_days: int | None = Field(
+        default=None, ge=0,
+        description="Calendar days a reported free float carries over blanks.")
+    cash_rate: float | None = Field(
+        default=None, gt=-1.0, lt=1.0,
+        description="The annual rate cash earns, a fraction, ACT/365.")
+    risk_free_rate: float | None = Field(
+        default=None, gt=-1.0, lt=1.0,
+        description="The annual rate the Sharpe ratio is measured against.")
+    periods_per_year: int | None = Field(
+        default=None, ge=1, description="How many periods make a year.")
+    withholding_tax_rate: float | None = Field(
+        default=None, ge=0.0, lt=1.0,
+        description="The share of each dividend withheld, a fraction.")
+    volume_backfill_days: int | None = Field(
+        default=None, ge=0,
+        description="Calendar days a reported volume stands in for a blank one "
+                    "under an execution limit.")
+
+
 class BacktestRequest(BaseModel):
-    """Body of `POST /beacon/{index_id}/backtest`."""
+    """Body of `POST /beacon/{index_id}/backtest`.
+
+    Every field past the first five is optional, and a request without them
+    runs exactly as one with only the dates, capital and cost does.
+    """
     start: str | None = Field(
         default=None,
         description="Start date, YYYY-MM-DD. Defaults to the index base date.")
@@ -3120,6 +3338,92 @@ class BacktestRequest(BaseModel):
         default=None,
         description="Optional external benchmark. The tracked index is always "
                     "reported separately; this adds a second comparison.")
+    currency: str | None = Field(
+        default=None, pattern=r"^[A-Za-z]{3}$",
+        description="The book's currency. Null keeps it in the index's.")
+    dividends: str = Field(
+        default="reinvest",
+        description="What happens to cash distributions: 'reinvest', 'cash' "
+                    "or 'distribute'.")
+    modelling_assumptions: ModellingAssumptionsSpec | None = Field(
+        default=None,
+        description="What the run takes as given; each unset field takes the "
+                    "engine's default.")
+    strategy: StrategySpec | None = Field(
+        default=None, description="What is held; the index in full when null.")
+    implementation: ImplementationSpec | None = Field(
+        default=None,
+        description="Screens, caps, costs and execution; none beyond stale "
+                    "prices when null.")
+    flows: list[TypedSpec] = Field(
+        default_factory=list,
+        description="Money arriving and leaving, added together. Amounts are "
+                    "in the book's currency.")
+    vehicle: VehicleSpec | None = Field(
+        default=None, description="Null for a plain backtest, with no fee.")
+
+
+class VehiclePreset(BaseModel):
+    """One vehicle preset, with every setting resolved."""
+    key: str = Field(description="What `vehicle.preset` takes.")
+    name: str = Field(description="What the structure is called.")
+    archetype: str = Field(
+        description="'open_ended', 'exchange_traded' or 'generic'. A setting "
+                    "whose `applies_to` names an archetype belongs only to it.")
+    settings: dict[str, Any] = Field(
+        description="Every setting as the preset fills it in, in the shape "
+                    "`vehicle.settings` takes.")
+
+
+class BacktestOptions(BaseModel):
+    """Response of `GET /backtest/options`.
+
+    Everything a backtest form needs, from the engine itself: each family's
+    types with their fields (in the shape `/indices/rule-types` uses), the
+    vehicle presets with their resolved settings, the settings' descriptors,
+    the modelling assumptions with their defaults, and the closed choices.
+    """
+    screens: list[TypeSpec] = Field(description="For `implementation.screens`.")
+    caps: list[TypeSpec] = Field(description="For `implementation.caps`.")
+    flows: list[TypeSpec] = Field(description="For `flows`.")
+    pricing: list[TypeSpec] = Field(description="For a vehicle's `pricing`.")
+    limits: list[TypeSpec] = Field(description="For a vehicle's `limits`.")
+    replications: list[TypeSpec] = Field(description="For `strategy.replication`.")
+    signals: list[TypeSpec] = Field(description="For `strategy.signal`.")
+    constructions: list[TypeSpec] = Field(description="For `strategy.construction`.")
+    active_constraints: list[TypeSpec] = Field(
+        description="For `strategy.constraints`.")
+    presets: list[VehiclePreset] = Field(
+        description="Every preset, `generic` first: the vehicle used when "
+                    "`preset` is null.")
+    vehicle_settings: list[ParameterSpec] = Field(
+        description="What `vehicle.settings` accepts; `applies_to` marks the "
+                    "exchange-traded ones.")
+    market_settings: list[ParameterSpec] = Field(
+        description="What an ETF's `market` setting accepts.")
+    implementation_settings: list[ParameterSpec] = Field(
+        description="The implementation's plain settings: `minimum_position`, "
+                    "`impact` and `execution` fields, `redistribution`, "
+                    "`cash_buffer` and `invest_flows`.")
+    modelling_assumptions: list[ParameterSpec] = Field(
+        description="Each modelling assumption, with the engine's default as "
+                    "its `default`.")
+    choices: dict[str, list[str]] = Field(
+        description="Closed sets: 'dividends', 'strategy', 'rebalancing', "
+                    "'redistribution', 'invest_flows' and 'fx_policy'.")
+
+
+class BacktestValidation(BaseModel):
+    """Response of `POST /beacon/{index_id}/backtest/validate`."""
+    valid: bool = Field(description="False when any finding is an error.")
+    settings: dict[str, Any] | None = Field(
+        default=None,
+        description="What would run, fully resolved, in the shape a run's "
+                    "`settings` takes. Null when the request is not valid.")
+    findings: list["Finding"] = Field(
+        default_factory=list,
+        description="Every problem, each at its field's dotted path, such as "
+                    "'vehicle.settings.pricing.params.threshold'.")
 
 
 class ConcentrationPayload(BaseModel):
@@ -3474,6 +3778,65 @@ class CompareView(BaseModel):
     entries: list[CompareEntry]
 
 
+class FlowPayload(BaseModel):
+    """One day's flow, as the run dealt it."""
+    date: str = Field(description="YYYY-MM-DD.")
+    amount: float = Field(
+        description="Paid in (positive) or out (negative), in the book's "
+                    "currency.")
+    nav_per_unit: float = Field(description="The day's NAV per unit, before it.")
+    units: float = Field(description="Units created (positive) or cancelled.")
+    dealing_price: float = Field(
+        description="The price per unit dealt at, after the vehicle's pricing.")
+    adjustment: float = Field(
+        description="What the dealing investors paid into the fund through "
+                    "the price or a levy, in the book's currency.")
+    creation_units: float | None = Field(
+        default=None, description="For an ETF, the creation units; null otherwise.")
+
+
+class MarketPayload(BaseModel):
+    """An ETF's quotes on the exchange, on `level`'s dates."""
+    market_price: SeriesPayload
+    premium: SeriesPayload = Field(description="Over NAV, a fraction; negative "
+                                               "for a discount.")
+    spread: SeriesPayload = Field(description="Full bid-ask, a fraction of the price.")
+    bid: SeriesPayload
+    ask: SeriesPayload
+
+
+class ReplicationPayload(BaseModel):
+    """What a replication did at one rebalance."""
+    date: str = Field(description="YYYY-MM-DD.")
+    holdings: int = Field(description="How many names the weights hold.")
+    tracking_error: float | None = Field(
+        default=None, description="Ex-ante, annualised; null when not estimated.")
+    unmeasured: list[str] = Field(
+        default_factory=list,
+        description="Names held at their index weight for want of history.")
+    weights: dict[str, float] = Field(description="The weights traded to.")
+
+
+class ActiveStepPayload(BaseModel):
+    """What an active strategy did at one rebalance."""
+    date: str = Field(description="YYYY-MM-DD.")
+    tracking_error: float = Field(description="Ex-ante, annualised.")
+    active_share: float = Field(
+        description="Half the summed absolute differences from the benchmark.")
+    weights: dict[str, float] = Field(description="The weights traded to.")
+
+
+class RebalanceStepPayload(BaseModel):
+    """What the implementation's stages did at one rebalance."""
+    date: str = Field(description="YYYY-MM-DD.")
+    removed: dict[str, str] = Field(
+        default_factory=dict, description="Name -> the screen that removed it.")
+    capped: dict[str, float] = Field(
+        default_factory=dict, description="Name -> the weight it was capped at.")
+    cash_weight: float = Field(
+        default=0.0, description="The share of the book the weights leave in cash.")
+
+
 class BacktestRunResult(BaseModel):
     """Result payload of a completed backtest job.
 
@@ -3525,6 +3888,39 @@ class BacktestRunResult(BaseModel):
         default_factory=list, description=PRICE_GAPS_DESCRIPTION)
     rebalance_pricing: list[RebalancePricingPayload] = Field(
         default_factory=list, description=REBALANCE_PRICING_DESCRIPTION)
+    # BN-272: what ran, and what strategies, flows and vehicles produce.
+    settings: dict[str, Any] | None = Field(
+        default=None,
+        description="What ran, fully resolved: strategy, implementation, flows, "
+                    "vehicle (preset and every setting), modelling assumptions "
+                    "and dividend policy. Null on a run saved before it was "
+                    "recorded.")
+    nav_per_unit: SeriesPayload | None = Field(
+        default=None,
+        description="NAV per unit on `level`'s dates. With flows `level` is "
+                    "this series rebased, so a flow is not drawn as a gain.")
+    units: SeriesPayload | None = Field(
+        default=None, description="Units outstanding on `level`'s dates.")
+    flows: list[FlowPayload] = Field(
+        default_factory=list, description="Each flow as dealt. Empty without flows.")
+    fees_paid: float = Field(
+        default=0.0,
+        description="The vehicle's management fee paid, in the book's currency.")
+    market: MarketPayload | None = Field(
+        default=None, description="An ETF's exchange quotes. Null otherwise.")
+    replication: list[ReplicationPayload] = Field(
+        default_factory=list,
+        description="For index tracking, what the replication did at each "
+                    "rebalance. Empty otherwise.")
+    active: list[ActiveStepPayload] = Field(
+        default_factory=list,
+        description="For an active strategy, what it did at each rebalance. "
+                    "Empty otherwise.")
+    rebalance_steps: list[RebalanceStepPayload] = Field(
+        default_factory=list,
+        description="What the implementation's stages did at each rebalance.")
+    unfilled: list[UnfilledOrderPayload] = Field(
+        default_factory=list, description="Orders not filled in full.")
 
 
 ResultT = TypeVar("ResultT")

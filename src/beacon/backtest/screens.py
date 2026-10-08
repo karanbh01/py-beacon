@@ -39,6 +39,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from ..catalogue import COUNT, DAYS, MONEY, SCREEN, Display, register
 from ..data.fetcher import DataFetcher
 from ..expressions import data
 from ..expressions.core import Expression
@@ -144,6 +145,10 @@ class ThresholdScreen(Screen):
         return value >= level
 
 
+@register(SCREEN, "Market cap", fields={
+    "min_cap": Display("Minimum market cap", unit=MONEY, minimum=0.0),
+    "exit": Display("Exit level for a held name", unit=MONEY, minimum=0.0),
+})
 class MarketCapScreen(ThresholdScreen):
     """A minimum market cap, in the book's currency.
 
@@ -174,6 +179,10 @@ class MarketCapScreen(ThresholdScreen):
         return None if cap is None else float(cap)
 
 
+@register(SCREEN, "Minimum price", fields={
+    "min_price": Display("Minimum price", unit=MONEY, minimum=0.0),
+    "exit": Display("Exit level for a held name", unit=MONEY, minimum=0.0),
+})
 class MinimumPriceScreen(ThresholdScreen):
     """A minimum price, in the book's currency.
 
@@ -199,6 +208,10 @@ class MinimumPriceScreen(ThresholdScreen):
         return None if prices.empty else float(prices.iloc[-1])
 
 
+@register(SCREEN, "Liquidity", fields={
+    "min_traded_value": Display("Minimum average traded value", unit=MONEY, minimum=0.0),
+    "min_volume": Display("Minimum average volume", unit=COUNT, minimum=0.0),
+})
 class LiquidityScreen(ThresholdScreen):
     """A minimum average traded value (book currency) or volume (shares).
 
@@ -241,6 +254,9 @@ class LiquidityScreen(ThresholdScreen):
                               by_value=self.by_value)
 
 
+@register(SCREEN, "Listing age", fields={
+    "min_days": Display("Minimum days listed", unit=DAYS, minimum=0),
+})
 class ListingAgeScreen(Screen):
     """A minimum time since a name's first price in the data.
 
@@ -268,6 +284,7 @@ class ListingAgeScreen(Screen):
         return first is not None and (date - first).days >= self.min_days
 
 
+@register(SCREEN, "Exclusions")
 class ExclusionScreen(Screen):
     """Names, sectors or regions a backtest may not hold.
 
@@ -310,6 +327,7 @@ class ExclusionScreen(Screen):
                     or _any_in(record, "REGION", self.regions))
 
 
+@register(SCREEN, "Expression")
 class ExpressionScreen(Screen):
     """Names that pass an expression, resolved at each rebalance.
 

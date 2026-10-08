@@ -10,6 +10,8 @@ from the level series, or compounds the annual returns, must land back on the
 numbers the server sent; if those were computed independently they would drift
 apart at the last decimal and nobody would know which to trust.
 """
+from typing import Any
+
 import pandas as pd
 
 from ..analysis.relative import align_on_common_window, relative_metrics
@@ -19,22 +21,31 @@ from ..data.fetcher import DataFetcher
 from ..index.constructor import IndexDefinition
 from ..index.derived import AnyIndexDefinition, OptimisedIndexDefinition
 from ..index.result import IndexResult
+from ..portfolio.cash_flows import FEE
+from .backtest_settings import ACTIVE, INDEX_TRACKING, BuiltSettings
+from .backtest_settings import build as build_settings
 from .benchmarks import resolve_benchmark
 from .definitions import build_definition
+from .errors import FindingsError
 from .jobs import JobBody, ProgressReporter
 from .schemas import (
-    BacktestMetrics,
+    ActiveStepPayload,
     BacktestRequest,
     BacktestResultSummary,
     BacktestRunResult,
     BenchmarkRef,
+    FlowPayload,
     IndexDocument,
+    MarketPayload,
+    RebalanceStepPayload,
     RelativeMetricsPayload,
+    ReplicationPayload,
     SeriesPayload,
-    headline_metric,
+    metrics_from,
     price_gap_payloads,
     rebalance_pricing_payloads,
     rebalance_snapshots,
+    unfilled_payloads,
 )
 from .store import DocumentStore
 
@@ -61,6 +72,21 @@ def _drawdown(level: pd.Series) -> pd.Series:
         return level
 
     return level / level.cummax() - 1.0
+
+
+def _performance_from_start(result: BacktestResult) -> pd.Series:
+    """The performance series with its opening point: with flows a unit at
+    its launch price on the eve, otherwise the NAV from the capital."""
+    if not result.flows:
+        return _nav_from_capital(result)
+
+    eve = result.portfolio.inception
+    per_unit = result.nav_per_unit
+
+    if eve is None or per_unit.empty:
+        return per_unit
+
+    return pd.concat([pd.Series({eve: result.launch_price}), per_unit])
 
 
 def _nav_from_capital(result: BacktestResult) -> pd.Series:
@@ -104,29 +130,11 @@ def annual_returns(level: pd.Series) -> dict[str, float]:
     return returns
 
 
-def _metrics(result: BacktestResult) -> BacktestMetrics:
-    """Headline metrics, read from the library's own summary.
-
-    Through the same reader as the record payload (BN-176), which raises on a
-    missing headline key: this is the second mirror of `summary()`'s literals
-    and it had its own 0.0 fallback, so the run endpoint would have kept
-    publishing a plausible zero after the record endpoint stopped.
-    """
-    summary = result.summary()
-
-    return BacktestMetrics(total_return=headline_metric(summary, "total_return"),
-                           annualised_return=headline_metric(summary, "annualised_return"),
-                           volatility=headline_metric(summary, "volatility"),
-                           sharpe_ratio=headline_metric(summary, "sharpe_ratio"),
-                           max_drawdown=headline_metric(summary, "max_drawdown"),
-                           tracking_error=summary.get("tracking_error"),
-                           tracking_difference=summary.get("tracking_difference"))
-
-
 def assemble_result(result: BacktestResult,
                     index_result: IndexResult,
                     benchmark: RelativeMetricsPayload | None = None,
-                    cap: float | None = None) -> BacktestRunResult:
+                    cap: float | None = None,
+                    settings: dict[str, Any] | None = None) -> BacktestRunResult:
     """Build the wire payload from a completed backtest.
 
     Args:
@@ -143,8 +151,10 @@ def assemble_result(result: BacktestResult,
     # read its dates as the run's window. The other series start from the
     # initial capital (BN-246), as the metrics do, so the first day's return
     # carries the cost of the opening trades.
-    level = _rebase(result.trading_nav)
-    from_capital = _rebase(_nav_from_capital(result))
+    # With flows the performance is a unit's, so a flow is not drawn as a gain
+    # (BN-267); without, it is the NAV, as it always was.
+    level = _rebase(result.performance_levels())
+    from_capital = _rebase(_performance_from_start(result))
     opening = len(from_capital) - len(level)
     returns = from_capital.pct_change().dropna()
 
@@ -155,13 +165,15 @@ def assemble_result(result: BacktestResult,
         drawdown=SeriesPayload.from_series(_drawdown(from_capital).iloc[opening:]),
         annual_returns=annual_returns(from_capital),
         index_level=SeriesPayload.from_series(_rebase(index_result.index_levels)),
-        metrics=_metrics(result),
+        metrics=metrics_from(result.summary()),
         benchmark=benchmark,
         rebalances=rebalance_snapshots(index_result, cap),
         total_costs=_total_costs(result),
         initial_capital=result.portfolio.initial_capital,
         price_gaps=price_gap_payloads(result),
-        rebalance_pricing=rebalance_pricing_payloads(result))
+        rebalance_pricing=rebalance_pricing_payloads(result),
+        settings=settings,
+        **strategy_and_vehicle_payloads(result))
 
 
 def target_cap(definition: AnyIndexDefinition) -> float | None:
@@ -237,7 +249,8 @@ def build_backtest_job(document: IndexDocument,
                        fetcher: DataFetcher,
                        request: BacktestRequest,
                        index_store: DocumentStore,
-                       record_store: DocumentStore | None = None) -> JobBody:
+                       record_store: DocumentStore | None = None,
+                       built: BuiltSettings | None = None) -> JobBody:
     """Build the job body that runs one backtest.
 
     Returned as a closure rather than run inline: the caller submits it to the
@@ -247,10 +260,21 @@ def build_backtest_job(document: IndexDocument,
         document: The index definition to calculate and then track.
         fetcher: Data source for both the index and the simulation.
         request: Period, capital and cost settings for this run.
+        built: Its strategy, implementation, flows, vehicle and modelling
+            assumptions, already built; built here from *request* when None.
 
     Returns:
         JobBody: A coroutine function taking a progress reporter.
     """
+    if built is None:
+        built, findings = build_settings(request, fetcher)
+
+        if built is None:
+            raise FindingsError("backtest request", "its settings could not be built",
+                                findings)
+
+    settings = built
+
     async def run(report: ProgressReporter) -> dict[str, object]:
         # Either face (BN-168): a rule pipeline, or a derivation whose source
         # is resolved through the store — recursively for a chain. The rest of
@@ -269,14 +293,23 @@ def build_backtest_job(document: IndexDocument,
         # store allows it, and hands the schedule to the engine. The two
         # stage messages collapse into one; the reporter and the later
         # milestones stay.
-        await report(0.05, "Calculating the index and simulating the "
-                           "tracking portfolio.")
+        await report(0.05, _stage(settings))
 
         backtest = Backtest(initial_capital=request.initial_capital,
                             transaction_cost_bps=request.transaction_cost_bps,
-                            data_provider=fetcher).run(definition,
+                            currency=settings.currency,
+                            modelling_assumptions=settings.modelling_assumptions,
+                            dividends=settings.dividends,
+                            implementation=settings.implementation,
+                            flows=settings.flows or None,
+                            vehicle=settings.vehicle,
+                            data_provider=fetcher).run(settings.strategy(definition),
                                                        start=start,
                                                        end=end)
+        resolved = {**settings.resolved, "modelling_assumptions": (
+            backtest.modelling_assumptions.as_dict()
+            if backtest.modelling_assumptions is not None
+            else settings.resolved["modelling_assumptions"])}
 
         # The calculation the run tracked, still needed for the payload's
         # index level and rebalance snapshots. The *tracked* book, not the
@@ -301,7 +334,8 @@ def build_backtest_job(document: IndexDocument,
         # constraints made them — so the field is simply absent there.
         cap = (document.pipeline.weighting.max_weight
                if document.pipeline is not None else None)
-        payload = assemble_result(backtest, index_result, comparison, cap=cap)
+        payload = assemble_result(backtest, index_result, comparison, cap=cap,
+                                  settings=resolved)
 
         # The record is captured here or never: the library BacktestResult
         # exists only inside this job, and the run payload the job returns is
@@ -312,7 +346,8 @@ def build_backtest_job(document: IndexDocument,
         # optimised run is the parent's calculation under the parent's cap.
         if record_store is not None:
             record = BacktestResultSummary.from_result(backtest,
-                                                       cap=target_cap(definition))
+                                                       cap=target_cap(definition),
+                                                       settings=resolved)
             record_store.write(document.id, record.model_dump(mode="json"))
 
         await report(1.0, "Complete.")
@@ -320,3 +355,58 @@ def build_backtest_job(document: IndexDocument,
         return payload.model_dump()
 
     return run
+
+
+def strategy_and_vehicle_payloads(result: BacktestResult) -> dict[str, Any]:
+    """What a strategy, flows, a vehicle and the implementation's stages add
+    to the run payload; each empty or null when unused."""
+    payloads: dict[str, Any] = {
+        "flows": [FlowPayload(date=str(flow.date.date()), amount=flow.amount,
+                              nav_per_unit=flow.nav_per_unit, units=flow.units,
+                              dealing_price=flow.dealing_price,
+                              adjustment=flow.adjustment,
+                              creation_units=flow.creation_units)
+                  for flow in result.flows],
+        "fees_paid": -sum(flow.amount for flow in result.portfolio.cash_flows
+                          if flow.kind == FEE),
+        "replication": [ReplicationPayload(date=str(step.date.date()),
+                                           holdings=step.holdings,
+                                           tracking_error=step.tracking_error,
+                                           unmeasured=list(step.unmeasured),
+                                           weights=step.weights)
+                        for step in result.replication],
+        "active": [ActiveStepPayload(date=str(step.date.date()),
+                                     tracking_error=step.tracking_error,
+                                     active_share=step.active_share,
+                                     weights=step.weights)
+                   for step in result.active],
+        "rebalance_steps": [RebalanceStepPayload(date=str(step.date.date()),
+                                                 removed=step.removed,
+                                                 capped=step.capped,
+                                                 cash_weight=step.cash_weight)
+                            for step in result.rebalance_steps],
+        "unfilled": unfilled_payloads(result),
+    }
+
+    if result.flows:
+        payloads["nav_per_unit"] = SeriesPayload.from_series(result.nav_per_unit)
+        payloads["units"] = SeriesPayload.from_series(result.units_outstanding)
+
+    if not result.market.empty:
+        market = result.market
+        payloads["market"] = MarketPayload(
+            **{column: SeriesPayload.from_series(market[column])
+               for column in ("market_price", "premium", "spread", "bid", "ask")})
+
+    return payloads
+
+
+def _stage(settings: BuiltSettings) -> str:
+    """The job's message while the run is calculated and simulated."""
+    holding = {INDEX_TRACKING: "replicating the index",
+               ACTIVE: "building the active strategy"}.get(settings.strategy_type,
+                                                         "tracking the index")
+    vehicle = (f" in a {settings.vehicle.name}" if settings.vehicle is not None
+               else "")
+
+    return f"Calculating the index, {holding} and simulating it{vehicle}."

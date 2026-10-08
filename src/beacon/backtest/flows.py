@@ -36,6 +36,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from ..catalogue import FLOW, FRACTION, MONEY, RATIO, Display, register
+
 DAILY = "DAILY"
 WEEKLY = "WEEKLY"
 MONTHLY = "MONTHLY"
@@ -45,6 +47,9 @@ ANNUALLY = "ANNUALLY"
 # How many flow days a year each frequency has, to scale annual rates.
 PERIODS_PER_YEAR = {DAILY: 252, WEEKLY: 52, MONTHLY: 12, QUARTERLY: 4,
                     ANNUALLY: 1}
+
+# How the catalogue offers a scenario's frequency.
+FREQUENCY = Display("Frequency", choices=tuple(PERIODS_PER_YEAR))
 
 
 @dataclass(frozen=True)
@@ -105,6 +110,7 @@ class Flows(ABC):
         """Today's flow in the book's currency: positive in, negative out."""
 
 
+@register(FLOW, "Dated amounts")
 class DatedFlows(Flows):
     """Amounts on given dates. One dated on a day the run does not simulate
     arrives on the next simulated day.
@@ -155,6 +161,11 @@ class _Periodic(Flows, ABC):
         return PERIODS_PER_YEAR[self.frequency]
 
 
+@register(FLOW, "Periodic", fields={
+    "amount": Display("Amount", unit=MONEY),
+    "fraction": Display("Share of the assets", unit=FRACTION),
+    "frequency": FREQUENCY,
+})
 class PeriodicFlows(_Periodic):
     """A fixed amount, or a fixed share of the fund's assets, each period.
 
@@ -193,6 +204,11 @@ class PeriodicFlows(_Periodic):
         return (self.fraction or 0.0) * context.aum
 
 
+@register(FLOW, "Random", fields={
+    "drift": Display("Expected net flow a year", unit=FRACTION),
+    "volatility": Display("Volatility a year", unit=FRACTION, minimum=0.0),
+    "frequency": FREQUENCY,
+})
 class RandomFlows(_Periodic):
     """Flows drawn at random as a share of the fund's assets, seeded so a run
     repeats exactly.
@@ -244,6 +260,11 @@ class RandomFlows(_Periodic):
         return float(share * context.aum)
 
 
+@register(FLOW, "Performance chasing", fields={
+    "sensitivity": Display("Flow per unit of trailing return", unit=RATIO),
+    "base": Display("Flow whatever the return", unit=FRACTION),
+    "frequency": FREQUENCY,
+})
 class PerformanceChasingFlows(_Periodic):
     """Flows that follow the fund's trailing return, as investors chase
     performance.

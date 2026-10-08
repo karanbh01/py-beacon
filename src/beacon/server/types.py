@@ -13,8 +13,8 @@ from .. import catalogue
 from .schemas import ParameterSpec, TypeSpec
 
 
-def _parameter(parameter: catalogue.Parameter,
-               schemas: dict[str, str]) -> ParameterSpec:
+def parameter_spec(parameter: catalogue.Parameter,
+                   schemas: dict[str, str]) -> ParameterSpec:
     """One catalogue parameter as its API shape.
 
     Args:
@@ -30,6 +30,9 @@ def _parameter(parameter: catalogue.Parameter,
         order=parameter.order,
         choices=list(parameter.choices) if parameter.choices else None,
         help=parameter.help,
+        unit=parameter.unit,
+        minimum=parameter.minimum,
+        maximum=parameter.maximum,
         # Looked up by name in what the CLASS declared, which is not the same
         # as inferring a ref from the name (BN-175): a rule that takes a tree
         # says so, and a rule that happens to call a scalar `expression` does
@@ -60,7 +63,7 @@ def specs_for(kind: str) -> list[TypeSpec]:
                      label=entry.label,
                      summary=entry.summary,
                      parameters=[
-                         _parameter(parameter,
+                         parameter_spec(parameter,
                                     getattr(classes[entry.name],
                                             "PARAM_SCHEMAS", {}))
                          for parameter in entry.parameters],

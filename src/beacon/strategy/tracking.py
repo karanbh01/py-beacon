@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from ..catalogue import COUNT, REPLICATION, Display, register
 from ..expressions import data
 from ..expressions.resolve import value_of
 from ..index.derived import AnyIndexDefinition
@@ -99,6 +100,7 @@ class Replication(ABC):
         """The portfolio's weights for the index's *target* on *date*."""
 
 
+@register(REPLICATION, "Full")
 class FullReplication(Replication):
     """Every constituent at its index weight."""
 
@@ -115,6 +117,9 @@ class FullReplication(Replication):
         return "FullReplication()"
 
 
+@register(REPLICATION, "Optimised", fields={
+    "holdings": Display("Most names held", unit=COUNT, minimum=1),
+})
 class OptimisedReplication(Replication):
     """A subset weighted to minimise tracking error to the index.
 
@@ -196,6 +201,10 @@ class OptimisedReplication(Replication):
                 f"lookback_days={self.lookback_days!r})")
 
 
+@register(REPLICATION, "Sampled", fields={
+    "holdings": Display("Names held", unit=COUNT, minimum=1),
+    "size_buckets": Display("Size groups", unit=COUNT, minimum=1),
+})
 class SampledReplication(Replication):
     """The largest names in each sector and size cell, each cell at its
     index weight.

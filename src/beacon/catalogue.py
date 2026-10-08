@@ -61,6 +61,18 @@ logger = logging.getLogger(__name__)
 SELECTION = "selection"
 WEIGHTING = "weighting"
 CONSTRAINT = "constraint"
+# A backtest's parts (BN-272): the implementation's screens and caps, the
+# flows, a vehicle's pricing and limits, and a strategy's replication,
+# signal, construction and active constraints.
+SCREEN = "screen"
+CAP = "cap"
+FLOW = "flow"
+PRICING = "pricing"
+LIMIT = "limit"
+REPLICATION = "replication"
+SIGNAL = "signal"
+CONSTRUCTION = "construction"
+ACTIVE_CONSTRAINT = "active_constraint"
 
 # Display types, not Python types. A client renders a control from these, so
 # they name what the input should be rather than what the annotation says.
@@ -71,6 +83,16 @@ STRING = "string"
 JSON = "json"
 
 _SCALAR_TYPES = {bool: BOOLEAN, int: INTEGER, float: NUMBER, str: STRING}
+
+# What a parameter's value is measured in (BN-272). A fraction is shown as a
+# percentage; money is in the book's currency.
+FRACTION = "fraction"
+BPS = "bps"
+DAYS = "days"
+MONEY = "money"
+COUNT = "count"
+RATIO = "ratio"
+UNITS = (FRACTION, BPS, DAYS, MONEY, COUNT, RATIO)
 
 # Defaults are serialised into the response, so only values a client can
 # actually receive are reported. Anything else becomes None rather than a
@@ -87,11 +109,19 @@ class Display:
         order: Position in the form. Defaults to signature order.
         choices: The values this parameter accepts, when it is a closed set.
         help: One line of guidance shown with the field.
+        unit: What the value is measured in (see UNITS), so a client can show
+            0.02 as 2% or format money. Inferred from a name ending ``_bps``
+            or ``_days`` when unset.
+        minimum: The smallest value accepted, when there is one.
+        maximum: The largest value accepted, when there is one.
     """
     label: str
     order: int | None = None
     choices: tuple[str, ...] | None = None
     help: str | None = None
+    unit: str | None = None
+    minimum: float | None = None
+    maximum: float | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +135,9 @@ class Parameter:
     order: int = 0
     choices: tuple[str, ...] | None = None
     help: str | None = None
+    unit: str | None = None
+    minimum: float | None = None
+    maximum: float | None = None
 
 
 @dataclass(frozen=True)
@@ -221,7 +254,10 @@ def parameters_of(cls: type,
             order=(display.order if display and display.order is not None
                    else position),
             choices=display.choices if display else None,
-            help=display.help if display else None))
+            help=display.help if display else None,
+            unit=_unit_of(name, display),
+            minimum=display.minimum if display else None,
+            maximum=display.maximum if display else None))
 
         if optional and not has_default:
             logger.debug("%s.%s admits None but has no default.",
@@ -230,13 +266,29 @@ def parameters_of(cls: type,
     return tuple(sorted(parameters, key=lambda item: item.order))
 
 
+def _unit_of(name: str,
+             display: Display | None) -> str | None:
+    """A parameter's unit: declared, or read off a ``_bps`` or ``_days``
+    name."""
+    if display is not None and display.unit is not None:
+        return display.unit
+
+    if name.endswith("_bps"):
+        return BPS
+
+    if name.endswith("_days") or name == "days":
+        return DAYS
+
+    return None
+
+
 def register(kind: str,
              label: str,
              fields: dict[str, Display] | None = None) -> Any:
     """Register a class in the catalogue, as a decorator.
 
     Args:
-        kind: SELECTION, WEIGHTING or CONSTRAINT.
+        kind: One of the kinds above, such as SELECTION or SCREEN.
         label: Human-readable name for the type itself.
         fields: Per-parameter presentation. Anything omitted falls back to the
             signature: a derived label and signature order.
