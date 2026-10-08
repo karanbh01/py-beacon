@@ -8,30 +8,34 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-08
+
+Funds and strategies: money flowing in and out with units and fund accounting; fund vehicles with structure presets, four pricing methods, UCITS and 1940 Act limits, and ETFs with a modelled market price; a `Fund` product record; index tracking through optimised or sampled replication; active strategies built from a signal; and all of it through the server's backtest API. `IndexFund` and `ETF` are deprecated.
+
 ### Added
 
-- The backtest API carries every part of a backtest: `POST /beacon/{index_id}/backtest` takes optional `strategy` (index tracking with a replication, or an active strategy), `implementation`, `flows`, `vehicle` (a preset with settings laid over it), `modelling_assumptions`, `dividends` and `currency`. A request without them runs as before. `GET /backtest/options` lists every type and field with units and bounds, the presets with their settings and the engine's default assumptions; `POST /beacon/{index_id}/backtest/validate` answers what would run, or findings at each field's path. The result adds the resolved `settings`, NAV per unit, units, flows, an ETF's quotes, replication and active records, the implementation's stages and unfilled orders, and saved-run rows add the strategy, vehicle, preset and currency.
-- The catalogue's field descriptions carry a `unit` and `minimum` and `maximum` bounds, here and in `/indices/rule-types` and `/optimise/constraint-types`.
 - Flows in a backtest: `Backtest(flows=...)` takes money in and pays it out, as `DatedFlows`, `PeriodicFlows` (an amount or a share of the assets), `RandomFlows` (seeded) or `PerformanceChasingFlows`, or several added together. Flows create and cancel units at the day's NAV per unit, so `nav_per_unit` measures performance whatever money moved, and with flows every return metric is a unit's and the summary adds `money_weighted_return`. The result records each flow in `flows`, and `aum` and `units_outstanding` each day. Without flows every figure is unchanged.
 - `Implementation(cash_buffer=...)` keeps a share of the book in cash, which outflows draw on first, and `invest_flows` says whether an inflow buys the last rebalance's weights (the default) or the holdings pro rata.
+- `Vehicle`: what the fund itself charges and its unit price at launch. `Vehicle(management_fee_bps=...)` accrues the fee daily on net assets (ACT/365) as a liability the NAV is net of, paid from cash as it can be.
 - Pricing methods for a fund's dealing, so the investors who come or go can pay for the trading they cause: `SinglePricing` (the default), `DualPricing`, `SwingPricing` (full, or partial above a threshold) and `DilutionLevy`. A swing factor, spread or levy left unset is estimated from the run's own costs. Each flow records its `dealing_price` and the `adjustment` paid into the fund.
 - Diversification limits for a fund structure, applied with the capacity caps: `UcitsLimits` (5/10/40, or 20/35 for an index tracker) and `Act1940Limits` (the 1940 Act's diversified-fund test).
+- `OwnershipCap(free_float=False)` measures against every share outstanding rather than the free float.
 - Structure presets: `uk_oeic`, `luxembourg_sicav`, `irish_icav` and `us_mutual_fund`, each a `Vehicle` with its structure's usual pricing and limits, any setting of which can be changed. `preset(name)` and `PRESETS` list them.
 - Exchange-traded funds: `EtfVehicle`, and the `ucits_etf` (cash creations) and `us_etf` (in kind) presets. Flows are rounded to whole creation units, with the rest carried to the next day; in-kind creations move the holdings without cost, and cash ones pay a creation fee into the fund. After each close the shares are quoted on an exchange by `EtfMarket`: a premium that persists, follows creations and the NAV's return, and stays inside the arbitrage band, and a spread that follows the basket's trading cost and the NAV's volatility. `result.market` holds each day's quote and the summary adds the exchange investor's return and the average premium and spread.
+- `Fund`: a fund product, with a name, a currency, `ShareClass`es and documents, one strategy and one vehicle. `fund.backtest(share_class=...)` runs a `Backtest` of it with that class's fee and distribution policy (accumulating or distributing).
 - Strategies: `IndexTracking(index, replication=...)` holds an index in full, through an optimised subset (`OptimisedReplication`: the optimiser minimises tracking error within a holdings limit, using a covariance re-estimated at each rebalance from a year of returns, shrunk toward constant correlation), or through a stratified sample (`SampledReplication`: the largest names in each sector and size cell, each cell at its index weight). The run is measured against the index, and `result.replication` records each rebalance's weights, holdings and ex-ante tracking error. Pass it to `Backtest.run` or as a `Fund`'s strategy.
 - Active strategies: `ActiveStrategy(benchmark, signal, construction, constraints)` builds its own portfolio at each rebalance and is measured against its benchmark. Signals: `FieldSignal`, `Momentum` and `FunctionSignal`, standardised into scores. Constructions: `MaxAlpha` (the most exposure to the scores within a tracking-error budget) and `MeanVariance` (expected active return against active variance), behind one `Construction` interface. Constraints relative to the benchmark: `TrackingErrorBudget`, `ActiveShare`, `RelativeSectorBounds`, `RelativePositionBounds`, `HoldingsLimit` and `TurnoverLimit`. `result.active` records each rebalance; the summary adds the information ratio, average active share and ex-ante tracking error; `active_attribution()` splits the active return by name.
 - `BacktestResult.information_ratio()` for any run that tracks an index.
-- `Fund`: a fund product, with a name, a currency, `ShareClass`es and documents, one strategy and one vehicle. `fund.backtest(share_class=...)` runs a `Backtest` of it with that class's fee and distribution policy (accumulating or distributing).
-- `OwnershipCap(free_float=False)` measures against every share outstanding rather than the free float.
-- `Vehicle`: what the fund itself charges and its unit price at launch. `Vehicle(management_fee_bps=...)` accrues the fee daily on net assets (ACT/365) as a liability the NAV is net of, paid from cash as it can be. Structure presets come later.
-
-### Fixed
-
-- An optimisation with a holdings limit re-solves the kept names from the first answer, with the dropped names at zero, rather than from its original starting point. From there the solver could stop on weights that were not fully invested and refuse a problem it could solve.
+- The backtest API carries every part of a backtest: `POST /beacon/{index_id}/backtest` takes optional `strategy` (index tracking with a replication, or an active strategy), `implementation`, `flows`, `vehicle` (a preset with settings laid over it), `modelling_assumptions`, `dividends` and `currency`. A request without them runs as before. `GET /backtest/options` lists every type and field with units and bounds, the presets with their settings and the engine's default assumptions; `POST /beacon/{index_id}/backtest/validate` answers what would run, or findings at each field's path. The result adds the resolved `settings`, NAV per unit, units, flows, an ETF's quotes, replication and active records, the implementation's stages and unfilled orders, and saved-run rows add the strategy, vehicle, preset and currency.
+- Field descriptions in `/backtest/options`, `/indices/rule-types` and `/optimise/constraint-types` carry a `unit` (such as `fraction`, `bps` or `money`) and `minimum` and `maximum` bounds, so a form can format a value and refuse one out of range.
 
 ### Deprecated
 
 - `IndexFund` and `ETF`, to be removed in 0.6.0. Use a `Fund` with a vehicle: an open-ended preset such as `uk_oeic()` for an `IndexFund`, or `ucits_etf()` or `us_etf()` for an `ETF`. Until then they keep their own fee convention (a fee per trading day, applied to the backtest's NAV afterwards).
+
+### Fixed
+
+- An optimisation with a holdings limit re-solves the kept names from the first answer, with the dropped names at zero, rather than from its original starting point. From there the solver could stop on weights that were not fully invested and refuse a problem it could solve. Optimised indices, optimised replication and active strategies with a holdings limit can solve to slightly different weights.
 
 ## [0.4.0] - 2026-10-02
 
@@ -194,7 +198,8 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/karanbh01/py-beacon/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/karanbh01/py-beacon/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/karanbh01/py-beacon/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/karanbh01/py-beacon/compare/v0.2.0...v0.3.0
