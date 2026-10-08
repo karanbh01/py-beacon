@@ -239,6 +239,29 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
+      # The site build installs this version from PyPI, and PyPI's index can
+      # lag the upload by a few minutes. The 0.4.0 rebuild ran in that gap,
+      # could not install, and left pybeacon.dev on the previous release. So
+      # wait until pip can fetch the version, without its cache, before
+      # asking for the rebuild. Like the hook, this never fails the release.
+      - name: Wait for PyPI to serve this version
+        run: |
+          version="${{ github.event.release.tag_name }}"
+          version="${version#v}"
+
+          for attempt in $(seq 1 20); do
+            if python3 -m pip download --no-deps --no-cache-dir --quiet \
+                 --dest /tmp/frompypi --index-url https://pypi.org/simple/ \
+                 "py-beacon-kit==$version"; then
+              echo "py-beacon-kit $version is on PyPI."
+              exit 0
+            fi
+            echo "not on the index yet ($attempt of 20); waiting"
+            sleep 30
+          done
+
+          echo "::warning::py-beacon-kit $version was not on PyPI after ten minutes; the pybeacon.dev rebuild may fail and need retrying by hand."
+
       # pybeacon.dev builds its library docs from the latest release tag, so
       # a new release asks Cloudflare to rebuild it. The hook URL is the
       # CLOUDFLARE_DEPLOY_HOOK secret; anyone holding it can trigger a build,
