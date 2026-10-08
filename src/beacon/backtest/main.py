@@ -49,12 +49,14 @@ from ..index.derived import (
 )
 from ..index.result import IndexResult
 from ..optimise import OptimisationConfig
+from ..strategy.tracking import IndexTracking, ReplicationContext, ReplicationStep
 from .dividends import REINVEST
 from .engine import BacktestEngine
 from .flows import Flows
 from .implementation import Implementation
 from .result import BacktestResult
 from .rules import BacktestModifier
+from .settings import book_currency
 from .vehicle import Vehicle
 
 logger = logging.getLogger(__name__)
@@ -204,7 +206,7 @@ class Backtest:
                     "off" if self.cache is None else f"at {self.cache.root}")
 
     def run(self,
-            definition: AnyIndexDefinition,
+            definition: AnyIndexDefinition | IndexTracking,
             start: str | None = None,
             end: str | None = None,
             optimised: bool = False,
@@ -216,7 +218,10 @@ class Backtest:
                 :class:`IndexDefinition`, or a stored
                 :class:`~beacon.index.derived.OptimisedIndexDefinition`,
                 which always fills both index books: its parent's calculation
-                as ``index.target`` and its own as ``index.optimised``.
+                as ``index.target`` and its own as ``index.optimised``. Or an
+                :class:`~beacon.strategy.IndexTracking`, which holds the index
+                through a replication: the index is calculated and measured
+                against, and the replicated weights are traded.
             start: First date (YYYY-MM-DD). Defaults to the definition's
                 base date.
             end: Last date (YYYY-MM-DD). Required.
@@ -245,6 +250,17 @@ class Backtest:
         """
         if end is None:
             raise ValueError("end must be provided.")
+
+        # BN-269: a strategy holding the index through a replication.
+        strategy = definition if isinstance(definition, IndexTracking) else None
+
+        if strategy is not None and optimised:
+            raise ValueError("an IndexTracking strategy is already a way of "
+                             "holding the index; use OptimisedReplication "
+                             "rather than optimised=True.")
+
+        index_definition: AnyIndexDefinition = (
+            definition.index if isinstance(definition, IndexTracking) else definition)
         if optimised and optimisation_config is None:
             raise ValueError(
                 "optimised=True needs an optimisation_config saying what to "
@@ -264,25 +280,29 @@ class Backtest:
         fetcher = apply(assumptions, fetcher)
 
         logger.info("Backtest run for '%s' from %s to %s.",
-                    definition.index_id, start or definition.base_date.date(), end)
+                    index_definition.index_id, start or index_definition.base_date.date(), end)
 
-        derived = self._derived_definition(definition, optimised,
+        derived = self._derived_definition(index_definition, optimised,
                                            optimisation_config)
 
         if derived is None:
-            index_result = self._calculated(definition, fetcher, start, end)
+            index_result = self._calculated(index_definition, fetcher, start, end)
             target_index = None
         else:
             # The parent's calculation is cache-assisted exactly as a plain
             # run's is — and it is the same entry, so an optimised run over a
-            # warm definition solves without recalculating the parent. The
+            # warm index_definition solves without recalculating the parent. The
             # derived calculation caches too, when the whole chain keys.
             target_index = self._calculated(derived.source, fetcher, start, end)
             index_result = self._calculated(derived, fetcher, start, end,
                                             parent_result=target_index)
 
+        first = start if start is not None else str(index_definition.base_date.date())
+        steps = (self._replicated(strategy, index_result, fetcher, first, end)
+                 if strategy is not None else [])
+
         engine = BacktestEngine(
-            start_date=start if start is not None else str(definition.base_date.date()),
+            start_date=first,
             end_date=end,
             initial_capital=self.initial_capital,
             data_provider=fetcher,
@@ -298,12 +318,32 @@ class Backtest:
             modifiers=self.modifiers,
             benchmark=self.benchmark,
             target_index=target_index,
-            # The definition's own, resolved through a derivation to its
+            # The index_definition's own, resolved through a derivation to its
             # parent's: the engine needs it to tell a market holiday apart
             # from a hole in the data when a bar is missing (BN-183).
-            calendar=definition.calendar)
+            calendar=index_definition.calendar,
+            schedule=({step.date: step.weights for step in steps}
+                      if strategy is not None else None))
 
-        return engine.run()
+        result = engine.run()
+        result.replication = steps
+
+        return result
+
+    def _replicated(self,
+                    strategy: IndexTracking,
+                    index_result: IndexResult,
+                    fetcher: DataFetcher,
+                    start: str,
+                    end: str) -> list[ReplicationStep]:
+        """The strategy's replication at each rebalance inside the run."""
+        window = {date: weights
+                  for date, weights in index_result.weight_snapshots.items()
+                  if pd.Timestamp(start) <= date <= pd.Timestamp(end)}
+        context = ReplicationContext(fetcher, book_currency(self.currency,
+                                                            index_result))
+
+        return strategy.replicated(window, context)
 
     # ------------------------------------------------------------------
     # Internal helpers

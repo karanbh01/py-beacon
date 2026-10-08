@@ -107,6 +107,10 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             amount of capital.
         vehicle: The fund's fee and unit price at launch (see
             :class:`~beacon.backtest.Vehicle`). None charges no fee.
+        schedule: The weights to trade to at each rebalance, when they
+            differ from the index's own: a replication of it (see
+            :mod:`beacon.strategy`). None trades the index's snapshots. The
+            run is measured against the index either way.
         modifiers: Optional hooks that can skip rebalances or adjust trades.
         benchmark: The benchmark of record, stored on the result so every
             reader quotes excess return against the same comparator.
@@ -145,7 +149,8 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
                  target_index: IndexResult | None = None,
                  calendar: str | None = None,
                  flows: Flows | list[Flows] | None = None,
-                 vehicle: Vehicle | None = None):
+                 vehicle: Vehicle | None = None,
+                 schedule: dict[pd.Timestamp, dict[str, float]] | None = None):
         self.start_date: pd.Timestamp = pd.Timestamp(start_date)
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
         self.initial_capital: float = initial_capital
@@ -218,7 +223,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
 
         # The internal schedule representation: rebalance date -> weights.
         self._weight_schedule: dict[pd.Timestamp, dict[str, float]] = (
-            index_result.weight_snapshots)
+            schedule if schedule is not None else index_result.weight_snapshots)
 
     # ------------------------------------------------------------------
     # Internal helpers

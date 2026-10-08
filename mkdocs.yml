@@ -59,6 +59,7 @@ nav:
       - Methodology: concepts/methodology.md
       - Expressions and screens: concepts/expressions.md
       - Backtest: concepts/backtest.md
+      - Strategies: concepts/strategies.md
       - Funds and ETFs: concepts/funds.md
       - Fund vehicles and pricing: concepts/fund-vehicles.md
       - Derivatives: concepts/derivatives.md
@@ -76,6 +77,7 @@ nav:
       - Universes: reference/universe.md
       - Expressions: reference/expressions.md
       - Backtest: reference/backtest.md
+      - Strategies: reference/strategy.md
       - Modelling assumptions: reference/assumptions.md
       - Portfolio: reference/portfolio.md
       - Funds and ETFs: reference/fund.md

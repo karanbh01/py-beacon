@@ -44,6 +44,7 @@ from ..data.fetcher import DataFetcher
 from ..index.cache import IndexResultCache
 from ..index.derived import AnyIndexDefinition
 from ..index.result import IndexResult
+from ..strategy.tracking import IndexTracking
 
 ACCUMULATING = "accumulating"
 DISTRIBUTING = "distributing"
@@ -84,7 +85,8 @@ class Fund:
 
     Args:
         name: The fund's name.
-        strategy: What it holds: an index definition, tracked in full.
+        strategy: What it holds: an index definition, tracked in full, or
+            an `IndexTracking` holding one through a replication.
         vehicle: How the money is held, such as a preset from
             `beacon.backtest.presets`.
         currency: The fund's base currency. None keeps the index's.
@@ -99,7 +101,7 @@ class Fund:
 
     def __init__(self,
                  name: str,
-                 strategy: AnyIndexDefinition,
+                 strategy: AnyIndexDefinition | IndexTracking,
                  vehicle: Vehicle,
                  currency: str | None = None,
                  share_classes: Iterable[ShareClass] = (),

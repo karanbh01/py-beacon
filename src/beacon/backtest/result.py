@@ -60,6 +60,7 @@ from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult, PriceGap
 from ..plot.base import PlotAccessor
 from ..portfolio.base import Portfolio
+from ..strategy.tracking import ReplicationStep
 from .asset_view import BacktestAssetView
 from .books import Book, IndexBooks
 from .flows import FlowRecord
@@ -172,6 +173,9 @@ class BacktestResult(MetricsMixin):
         market: For an ETF, each day's quote on the exchange: NAV per share,
             premium, spread, market price, bid and ask, and the arbitrage
             band. Empty for any other vehicle.
+        replication: For an index held through `IndexTracking`, what the
+            replication did at each rebalance: the weights, the holdings and
+            the ex-ante tracking error. Empty otherwise.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -192,6 +196,7 @@ class BacktestResult(MetricsMixin):
         default_factory=lambda: pd.Series(dtype=float))
     launch_price: float = 1.0
     market: pd.DataFrame = field(default_factory=pd.DataFrame)
+    replication: list[ReplicationStep] = field(default_factory=list)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 
