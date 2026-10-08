@@ -18,15 +18,15 @@ jobs:
     name: generate baselines
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
@@ -44,7 +44,7 @@ jobs:
           pytest tests/test_plot_images.py -q --no-cov             --mpl-generate-path=tests/baseline
 
       - name: Upload baselines
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chart-baselines
           path: tests/baseline/
