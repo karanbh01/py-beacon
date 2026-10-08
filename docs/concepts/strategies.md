@@ -1,6 +1,6 @@
 ---
 title: Strategies
-description: "What a backtest holds: an index tracked in full, or through an optimised subset or a stratified sample of it."
+description: "What a backtest holds: an index tracked in full or through an optimised subset or a stratified sample, or an active strategy built from a signal against a benchmark."
 ---
 
 # Strategies
@@ -81,3 +81,82 @@ for replication in (OptimisedReplication(holdings=4), SampledReplication(holding
 
 A `Fund` can hold its index through a replication too: pass the
 `IndexTracking` as its `strategy`.
+
+## Active strategies
+
+An `ActiveStrategy` builds its own portfolio from a signal and is measured
+against a benchmark, an index calculated as any index is. At each rebalance
+(the first session of each month by default) it:
+
+1. takes the benchmark's weights in force that day;
+2. picks its candidates: its `universe` (the benchmark's constituents by
+   default), less any failing its `screen`, a condition such as
+   `data.market.market_cap > 1e9`;
+3. scores them with its signal;
+4. estimates the covariance from a year of returns, as optimised replication
+   does, holding a name too new to measure at its benchmark weight;
+5. builds the long-only, fully invested portfolio with its construction
+   method, within its constraints.
+
+**Signals.** A signal's values are standardised across the candidates,
+capped at three standard deviations, and negated when `higher_is_better` is
+False; a name with no value scores 0.
+
+| Signal | Its value for a name |
+| --- | --- |
+| `FieldSignal(field)` | A market, reference or feature field, such as `data.features.fundamentals.earnings_yield` |
+| `Momentum(lookback_days=252, skip_days=21)` | The return over the lookback, leaving out the most recent month |
+| `FunctionSignal(function)` | Whatever `function(name, date, fetcher)` returns |
+
+**Construction.** Two methods share one interface, `Construction`, so more
+can be added:
+
+- `MaxAlpha(tracking_error=0.03)` holds the most exposure to the scores that
+  a tracking-error budget allows: the budget is the target, and the active
+  bets are as large as it lets them be. It is solved through the equivalent
+  mean-variance problem, with the risk aversion found by bisection so the
+  tracking error meets the budget, or falls short of it when the other
+  constraints keep the portfolio closer to the benchmark.
+- `MeanVariance(risk_aversion=10.0, alpha_per_score=0.02)` maximises the
+  expected active return (each score times `alpha_per_score` a year) less
+  `risk_aversion` times the active variance. One setting trades return for
+  risk, and the tracking error is whatever results.
+
+**Constraints,** measured against the benchmark where it matters:
+
+| Constraint | The portfolio must |
+| --- | --- |
+| `TrackingErrorBudget(maximum)` | Have an ex-ante tracking error of at most *maximum* |
+| `ActiveShare(minimum, maximum)` | Differ from the benchmark by an active share in the range |
+| `RelativeSectorBounds(within)` | Hold each sector within *within* of its benchmark weight |
+| `RelativePositionBounds(within)` | Hold each name within *within* of its benchmark weight |
+| `HoldingsLimit(maximum)` | Hold no more than *maximum* names |
+| `TurnoverLimit(maximum)` | Trade at most *maximum* one way from the last rebalance's weights |
+
+Active share is half the summed absolute differences from the benchmark's
+weights. The turnover limit is measured from the last rebalance's target
+weights, not from the drifted holdings.
+
+**Reporting.** `result.active` records each rebalance's weights, the
+benchmark's, the ex-ante tracking error, the active share and the scores.
+The summary adds the `information_ratio` (annualised active return over
+tracking error), the average active share and the average ex-ante tracking
+error, and `result.active_attribution()` says which names produced the active
+return: each name's active weight times its return, linked over the run, with
+costs and cash in the residual.
+
+```python
+from beacon.strategy import ActiveStrategy, MaxAlpha, Momentum, RelativeSectorBounds
+
+momentum = ActiveStrategy(
+    benchmark=definition, signal=Momentum(),
+    construction=MaxAlpha(tracking_error=0.03),
+    constraints=[RelativeSectorBounds(within=0.10)])
+
+active = backtest.run(momentum, start="2024-01-02", end="2025-12-31")
+summary = active.summary()
+print(round(summary["information_ratio"], 3),
+      round(summary["average_active_share"], 3))
+print(active.active_attribution().contributions[0])
+```
+

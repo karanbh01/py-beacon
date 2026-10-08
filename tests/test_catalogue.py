@@ -246,8 +246,11 @@ class TestCompleteness:
         (Constraint, catalogue.CONSTRAINT),
     ])
     def test_every_library_class_is_registered(self, base, kind):
+        # A private class is not something to offer: BN-280's active
+        # constraints build one per solve, from that rebalance's benchmark.
         missing = {cls.__name__ for cls in subclasses_of(base)
-                   if not inspect.isabstract(cls)} - catalogue.registered_names(kind)
+                   if not inspect.isabstract(cls)
+                   and not cls.__name__.startswith("_")} - catalogue.registered_names(kind)
 
         assert not missing, (
             f"{', '.join(sorted(missing))} exist but are not in the catalogue, "

@@ -9,9 +9,12 @@ money-weighted return. Mixed into `BacktestResult`.
 import numpy as np
 import pandas as pd
 
+from ..analysis.attribution import AttributionResult, attribute
 from ..assumptions import DEFAULT_PERIODS_PER_YEAR, ModellingAssumptions
+from ..exceptions import CalculationError
 from ..portfolio.base import Portfolio
 from ..portfolio.cash_flows import DISTRIBUTION, REDEMPTION, SUBSCRIPTION
+from ..strategy.active import ActiveStep
 from .books import IndexBooks
 from .flows import FlowRecord, money_weighted_return
 
@@ -28,6 +31,8 @@ class MetricsMixin:
     fees_payable: pd.Series
     launch_price: float
     market: pd.DataFrame
+    active: list[ActiveStep]
+    currency: str
 
     @property
     def trading_nav(self) -> pd.Series:
@@ -360,7 +365,74 @@ class MetricsMixin:
         if not self.market.empty:
             result.update(self.market_summary())
 
+        if self.active:
+            result.update(self.active_summary())
+
         return result
+
+    def information_ratio(self) -> float | None:
+        """Annualised active return over annualised tracking error, against
+        the tracked index. None without an index, or with no active risk."""
+        tracked = self.index.tracked
+
+        if tracked is None:
+            return None
+
+        active = (self.get_returns() - _from_start(tracked.levels)).dropna()
+        spread = float(active.std())
+
+        if len(active) < 2 or spread == 0.0:
+            return None
+
+        return float(active.mean() / spread * np.sqrt(self._periods_per_year()))
+
+    def active_share(self) -> pd.Series:
+        """An active strategy's active share at each rebalance."""
+        return pd.Series({step.date: step.active_share for step in self.active},
+                         dtype=float)
+
+    def active_summary(self) -> dict[str, float | None]:
+        """An active strategy's figures: its information ratio, average
+        active share and average ex-ante tracking error."""
+        return {"information_ratio": self.information_ratio(),
+                "average_active_share": float(np.mean([step.active_share
+                                                       for step in self.active])),
+                "average_ex_ante_tracking_error": float(np.mean(
+                    [step.tracking_error for step in self.active]))}
+
+    def active_attribution(self) -> AttributionResult:
+        """Which names produced the active return: each name's active weight
+        (the portfolio's less the index's, as both drift) times its return,
+        linked over the run. Costs, cash and fees are in the residual.
+
+        Raises:
+            CalculationError: If the run has no index to compare with, or
+                the weights and returns share no dates.
+        """
+        tracked = self.index.tracked
+
+        if tracked is None or tracked.weights.empty:
+            raise CalculationError("Attribution", "the run tracked no index, so "
+                                   "there is no active return to attribute.")
+
+        held = self.portfolio.weights.fillna(0.0)
+        index = tracked.weights.reindex(held.index).ffill().fillna(0.0)
+        names = sorted(set(held.columns) | set(index.columns))
+        active_weights = (held.reindex(columns=names, fill_value=0.0)
+                          - index.reindex(columns=names, fill_value=0.0))
+        prices = self.portfolio.source.fetch_prices(
+            names, str(held.index[0].date()), str(held.index[-1].date()),
+            currency=self.currency) if self.portfolio.source is not None else None
+
+        if prices is None or prices.empty:
+            raise CalculationError("Attribution", "no prices to measure the "
+                                   "names' returns with.")
+
+        active_returns = (self.get_returns()
+                          - _from_start(tracked.levels)).dropna()
+
+        return attribute(active_returns, active_weights,
+                         prices.ffill().pct_change(fill_method=None))
 
     def market_return(self) -> float | None:
         """An exchange investor's return on an ETF: bought at the ask on the

@@ -42,35 +42,24 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from ..data.fetcher import DataFetcher
 from ..expressions import data
 from ..expressions.resolve import value_of
 from ..index.derived import AnyIndexDefinition
 from ..optimise.constraints import Cardinality, Constraint, FullInvestment, PositionBounds
 from ..optimise.solver import minimise_tracking_error
-from ..risk.model import CONSTANT_CORRELATION, estimate_risk_model
+from .base import (
+    DEFAULT_LOOKBACK_DAYS,
+    MINIMUM_OBSERVATIONS,
+    StrategyContext,
+    estimated_risk,
+    measured,
+    trailing_returns,
+)
 
 logger = logging.getLogger(__name__)
 
-# Trading days a year of covariance is estimated over, and the fewest a name
-# needs to be measured at all.
-DEFAULT_LOOKBACK_DAYS = 252
-MINIMUM_OBSERVATIONS = 126
-
 # What a name with no classification is grouped under.
 UNCLASSIFIED = "Unclassified"
-
-
-@dataclass(frozen=True)
-class ReplicationContext:
-    """What a replication may read at a rebalance.
-
-    Attributes:
-        fetcher: The run's data.
-        currency: The book's currency, which returns are measured in.
-    """
-    fetcher: DataFetcher
-    currency: str
 
 
 @dataclass(frozen=True)
@@ -106,7 +95,7 @@ class Replication(ABC):
     def replicate(self,
                   target: dict[str, float],
                   date: pd.Timestamp,
-                  context: ReplicationContext) -> ReplicationStep:
+                  context: StrategyContext) -> ReplicationStep:
         """The portfolio's weights for the index's *target* on *date*."""
 
 
@@ -116,7 +105,7 @@ class FullReplication(Replication):
     def replicate(self,
                   target: dict[str, float],
                   date: pd.Timestamp,
-                  context: ReplicationContext) -> ReplicationStep:
+                  context: StrategyContext) -> ReplicationStep:
         held = {name: weight for name, weight in target.items() if weight > 0}
 
         return ReplicationStep(date=date, weights=held, holdings=len(held),
@@ -162,25 +151,22 @@ class OptimisedReplication(Replication):
     def replicate(self,
                   target: dict[str, float],
                   date: pd.Timestamp,
-                  context: ReplicationContext) -> ReplicationStep:
+                  context: StrategyContext) -> ReplicationStep:
         target = {name: weight for name, weight in target.items() if weight > 0}
-        returns = _trailing_returns(list(target), date, context, self.lookback_days)
-        measured = [name for name in target
-                    if name in returns and returns[name].count() >= self.minimum_observations]
-        unmeasured = {name: target[name] for name in target if name not in measured}
+        returns = trailing_returns(list(target), date, context, self.lookback_days)
+        known = measured(list(target), returns, self.minimum_observations)
+        unmeasured = {name: target[name] for name in target if name not in known}
 
-        if len(measured) < 2:
+        if len(known) < 2:
             logger.warning("[%s] Too few names with enough history to optimise; "
                            "the index is held in full.", date.date())
 
             return FullReplication().replicate(target, date, context)
 
-        panel = returns[measured].dropna()
-        risk = estimate_risk_model(panel, target=CONSTANT_CORRELATION)
-        solved = minimise_tracking_error({name: target[name] for name in measured},
-                                         constraints=self._constraints(target, measured,
+        solved = minimise_tracking_error({name: target[name] for name in known},
+                                         constraints=self._constraints(target, known,
                                                                        unmeasured),
-                                         risk_model=risk)
+                                         risk_model=estimated_risk(returns, known))
         weights = {**{name: float(weight) for name, weight in solved.weights.items()
                       if weight > 1e-9},
                    **unmeasured}
@@ -239,7 +225,7 @@ class SampledReplication(Replication):
     def replicate(self,
                   target: dict[str, float],
                   date: pd.Timestamp,
-                  context: ReplicationContext) -> ReplicationStep:
+                  context: StrategyContext) -> ReplicationStep:
         target = {name: weight for name, weight in target.items() if weight > 0}
 
         if self.holdings >= len(target):
@@ -265,7 +251,7 @@ class SampledReplication(Replication):
     def _cells(self,
                target: dict[str, float],
                date: pd.Timestamp,
-               context: ReplicationContext) -> dict[tuple[str, int], list[str]]:
+               context: StrategyContext) -> dict[tuple[str, int], list[str]]:
         """The constituents by sector and size bucket."""
         names = list(target)
         sectors = context.fetcher.fetch_classifications(names, date, self.scheme)
@@ -305,7 +291,7 @@ class IndexTracking:
 
     def replicated(self,
                    snapshots: dict[pd.Timestamp, dict[str, float]],
-                   context: ReplicationContext) -> list[ReplicationStep]:
+                   context: StrategyContext) -> list[ReplicationStep]:
         """The replication at each of the index's rebalances, in date order."""
         return [self.replication.replicate(dict(weights), date, context)
                 for date, weights in sorted(snapshots.items())]
@@ -313,24 +299,6 @@ class IndexTracking:
     def __repr__(self) -> str:
         return (f"IndexTracking(index={self.index.index_id!r}, "
                 f"replication={self.replication!r})")
-
-
-def _trailing_returns(names: list[str],
-                      date: pd.Timestamp,
-                      context: ReplicationContext,
-                      lookback_days: int) -> pd.DataFrame:
-    """Daily returns in the book's currency over the trading days before and
-    including *date*, one column per name."""
-    start = date - pd.Timedelta(days=int(lookback_days * 1.6) + 10)
-    prices = context.fetcher.fetch_prices(names, start.strftime("%Y-%m-%d"),
-                                          date.strftime("%Y-%m-%d"),
-                                          currency=context.currency)
-
-    if prices.empty:
-        return pd.DataFrame()
-
-    # A missed bar carries the last close rather than ending a name's history.
-    return prices.ffill().pct_change(fill_method=None).iloc[1:].tail(lookback_days)
 
 
 def _quotas(weights: dict[tuple[str, int], float],

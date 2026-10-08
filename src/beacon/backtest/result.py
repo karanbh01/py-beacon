@@ -60,6 +60,7 @@ from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult, PriceGap
 from ..plot.base import PlotAccessor
 from ..portfolio.base import Portfolio
+from ..strategy.active import ActiveStep
 from ..strategy.tracking import ReplicationStep
 from .asset_view import BacktestAssetView
 from .books import Book, IndexBooks
@@ -176,6 +177,9 @@ class BacktestResult(MetricsMixin):
         replication: For an index held through `IndexTracking`, what the
             replication did at each rebalance: the weights, the holdings and
             the ex-ante tracking error. Empty otherwise.
+        active: For an `ActiveStrategy`, what it did at each rebalance: the
+            weights, the benchmark's, the ex-ante tracking error, the active
+            share and the scores. Empty otherwise.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -197,6 +201,7 @@ class BacktestResult(MetricsMixin):
     launch_price: float = 1.0
     market: pd.DataFrame = field(default_factory=pd.DataFrame)
     replication: list[ReplicationStep] = field(default_factory=list)
+    active: list[ActiveStep] = field(default_factory=list)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 

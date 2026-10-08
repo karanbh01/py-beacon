@@ -514,11 +514,34 @@ def _solve_with_cardinality(objective: Callable[[Vector], float],
         f"Cardinality limit of {limit} bound: re-solving with "
         f"{len(dropped)} name(s) pinned at zero.")
 
-    second = _solve(objective, gradient, rules, assets, hint,
+    # Started from the first answer with the dropped names zeroed and the
+    # rest scaled back up, inside the restricted box (BN-280). The original
+    # hint still held the dropped names, and from there SLSQP could end on a
+    # point that broke full investment.
+    second = _solve(objective, gradient, rules, assets,
+                    _restricted_start(outcome.x, dropped, restricted_lows,
+                                      restricted_highs),
                     restricted_lows, restricted_highs)
     _reject_infeasible_restriction(rules, assets, second.x, limit)
 
     return second.x, second, True
+
+
+def _restricted_start(weights: Vector,
+                      dropped: list[int],
+                      lows: Vector,
+                      highs: Vector) -> Vector:
+    """*weights* with the *dropped* positions at zero and the rest scaled to
+    the same total, held inside the box."""
+    start = weights.copy()
+    total = float(start.sum())
+    start[dropped] = 0.0
+    kept = float(start.sum())
+
+    if kept > 0.0:
+        start = start * total / kept
+
+    return np.asarray(np.clip(start, lows, highs), dtype=np.float64)
 
 
 def _reject_infeasible_restriction(rules: Sequence[Constraint],

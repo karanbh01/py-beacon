@@ -49,7 +49,9 @@ from ..index.derived import (
 )
 from ..index.result import IndexResult
 from ..optimise import OptimisationConfig
-from ..strategy.tracking import IndexTracking, ReplicationContext, ReplicationStep
+from ..strategy.active import ActiveStep, ActiveStrategy
+from ..strategy.base import StrategyContext
+from ..strategy.tracking import IndexTracking, ReplicationStep
 from .dividends import REINVEST
 from .engine import BacktestEngine
 from .flows import Flows
@@ -251,16 +253,19 @@ class Backtest:
         if end is None:
             raise ValueError("end must be provided.")
 
-        # BN-269: a strategy holding the index through a replication.
-        strategy = definition if isinstance(definition, IndexTracking) else None
+        # BN-269 and BN-280: a strategy holds the index through a
+        # replication, or builds its own portfolio against it as a benchmark.
+        strategy = (definition if isinstance(definition, IndexTracking | ActiveStrategy)
+                    else None)
 
         if strategy is not None and optimised:
-            raise ValueError("an IndexTracking strategy is already a way of "
-                             "holding the index; use OptimisedReplication "
-                             "rather than optimised=True.")
+            raise ValueError("a strategy is already a way of holding the index; "
+                             "use OptimisedReplication rather than "
+                             "optimised=True.")
 
         index_definition: AnyIndexDefinition = (
-            definition.index if isinstance(definition, IndexTracking) else definition)
+            definition.index if isinstance(definition, IndexTracking | ActiveStrategy)
+            else definition)
         if optimised and optimisation_config is None:
             raise ValueError(
                 "optimised=True needs an optimisation_config saying what to "
@@ -298,8 +303,13 @@ class Backtest:
                                             parent_result=target_index)
 
         first = start if start is not None else str(index_definition.base_date.date())
-        steps = (self._replicated(strategy, index_result, fetcher, first, end)
-                 if strategy is not None else [])
+        context = StrategyContext(fetcher, book_currency(self.currency, index_result))
+        replication: list[ReplicationStep] = (
+            self._replicated(strategy, index_result, context, first, end)
+            if isinstance(strategy, IndexTracking) else [])
+        active: list[ActiveStep] = (strategy.steps(index_result, first, end, context)
+                                    if isinstance(strategy, ActiveStrategy) else [])
+        steps: list[ReplicationStep] | list[ActiveStep] = replication or active
 
         engine = BacktestEngine(
             start_date=first,
@@ -318,7 +328,7 @@ class Backtest:
             modifiers=self.modifiers,
             benchmark=self.benchmark,
             target_index=target_index,
-            # The index_definition's own, resolved through a derivation to its
+            # The definition's own, resolved through a derivation to its
             # parent's: the engine needs it to tell a market holiday apart
             # from a hole in the data when a bar is missing (BN-183).
             calendar=index_definition.calendar,
@@ -326,22 +336,21 @@ class Backtest:
                       if strategy is not None else None))
 
         result = engine.run()
-        result.replication = steps
+        result.replication = replication
+        result.active = active
 
         return result
 
-    def _replicated(self,
-                    strategy: IndexTracking,
+    @staticmethod
+    def _replicated(strategy: IndexTracking,
                     index_result: IndexResult,
-                    fetcher: DataFetcher,
+                    context: StrategyContext,
                     start: str,
                     end: str) -> list[ReplicationStep]:
         """The strategy's replication at each rebalance inside the run."""
         window = {date: weights
                   for date, weights in index_result.weight_snapshots.items()
                   if pd.Timestamp(start) <= date <= pd.Timestamp(end)}
-        context = ReplicationContext(fetcher, book_currency(self.currency,
-                                                            index_result))
 
         return strategy.replicated(window, context)
 
