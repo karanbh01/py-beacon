@@ -31,11 +31,14 @@ adds.
 ## Quickstart
 
 Define an index, calculate it, and backtest a portfolio that tracks it. The
-example builds its own small dataset, so it runs as it is:
+example builds its own small dataset, so it runs as it is. Each block is a
+cell, as in a notebook, and the charts need the `plot` extra
+(`pip install "py-beacon-kit[plot]"`).
 
 ```python
 import logging
 
+import numpy as np
 import pandas as pd
 
 from beacon.backtest import Backtest
@@ -44,45 +47,127 @@ from beacon.index import EqualWeighted, IndexDefinition
 from beacon.index.schedule import sessions
 
 logging.getLogger("beacon").setLevel(logging.ERROR)  # keep the output short
+```
 
-# 1. Data: two stocks priced on every New York Stock Exchange session.
-days = sessions(pd.Timestamp("2024-01-02"), pd.Timestamp("2024-03-28"), "XNYS")
-growth = {"AAA": 0.10, "BBB": 0.20}  # each stock's rise over the period
+**Data.** Four stocks priced on every New York Stock Exchange session in
+2024, from a seeded random walk, and the reference data that lists them.
 
-market = MarketData.from_dataframe(pd.DataFrame([
-    {"IDENTIFIER": name, "DATE": day, "SHARES_OUTSTANDING": 1_000,
-     "CLOSE": 100 * (1 + rise) ** (step / (len(days) - 1))}
-    for name, rise in growth.items()
-    for step, day in enumerate(days)
-]))
-reference = ReferenceData.from_dataframe(pd.DataFrame([
-    {"IDENTIFIER": name, "NAME": name, "CURRENCY": "USD",
-     "EXCHANGE": "XNYS", "DATE_FROM": "2020-01-01"}
-    for name in growth
-]))
-data = DataFetcher(market, reference)
+```python
+days = sessions(pd.Timestamp("2024-01-02"), pd.Timestamp("2024-12-31"), "XNYS")
+names = ["AAA", "BBB", "CCC", "DDD"]
 
-# 2. The index: equal weight, rebalanced monthly on the NYSE calendar.
-definition = IndexDefinition(
-    index_id="DEMO", index_name="Demo Equal-Weight Index",
-    base_date="2024-01-02", base_value=1000.0, currency="USD",
-    eligibility_rules=[], weighting_scheme=EqualWeighted(),
-    rebalancing_frequency="MONTHLY", calendar="XNYS",
-    universe_identifiers=list(growth),
-)
+rng = np.random.default_rng(28)
+returns = rng.normal(0.0004, 0.015, size=(len(days), len(names)))
+closes = pd.DataFrame(100 * np.exp(returns.cumsum(axis=0)),
+                      index=days,
+                      columns=names)
 
-# 3. Calculate the index, then simulate a portfolio trading to its weights,
-#    paying 5 basis points on every trade.
-backtest = Backtest(initial_capital=1_000_000.0,
+prices = [{"IDENTIFIER": name,
+           "DATE": day,
+           "CLOSE": closes.at[day, name],
+           "SHARES_OUTSTANDING": 1_000_000}
+          for day in days
+          for name in names]
+listings = [{"IDENTIFIER": name,
+             "NAME": name,
+             "CURRENCY": "USD",
+             "EXCHANGE": "XNYS",
+             "DATE_FROM": "2020-01-01"}
+            for name in names]
+
+data = DataFetcher(MarketData.from_dataframe(pd.DataFrame(prices)),
+                   ReferenceData.from_dataframe(pd.DataFrame(listings)))
+```
+
+**The index.** Equal weight across the four, rebalanced monthly on the NYSE
+calendar.
+
+```python
+definition = IndexDefinition(index_id="DEMO",
+                             index_name="Demo Equal-Weight Index",
+                             base_date="2024-01-02",
+                             base_value=1000.0,
+                             currency="USD",
+                             eligibility_rules=[],
+                             weighting_scheme=EqualWeighted(),
+                             rebalancing_frequency="MONTHLY",
+                             calendar="XNYS",
+                             universe_identifiers=names)
+```
+
+**The backtest.** Calculate the index, then simulate a portfolio trading to
+its weights, paying 5 basis points on every trade.
+
+```python
+backtest = Backtest(initial_capital=100_000.0,
                     transaction_cost_bps=5.0,
                     data_provider=data)
 result = backtest.run(definition,
-                      end="2024-03-28")
-
-print("Final index level:", round(result.index.target.levels.iloc[-1], 2))
-print("Final NAV:        ", round(result.portfolio.nav.iloc[-1], 2))
-print("Tracking error:   ", round(result.summary()["tracking_error"], 6))
+                      end="2024-12-31")
 ```
+
+**Results.** The index level and the portfolio's NAV each day, and the
+portfolio's summary metrics against the index.
+
+```python
+daily = pd.DataFrame({"Index level": result.index.target.levels,
+                      "Portfolio NAV": result.portfolio.nav})
+daily.tail().round(2)
+```
+
+| | Index level | Portfolio NAV |
+|---|---:|---:|
+| 2024-12-24 | 1088.28 | 108747.08 |
+| 2024-12-26 | 1091.06 | 109025.21 |
+| 2024-12-27 | 1097.57 | 109675.70 |
+| 2024-12-30 | 1119.11 | 111828.46 |
+| 2024-12-31 | 1133.80 | 113295.48 |
+
+```python
+pd.DataFrame({"Portfolio": result.summary()}).round(4)
+```
+
+| | Portfolio |
+|---|---:|
+| total_return | 0.1330 |
+| annualised_return | 0.1330 |
+| volatility | 0.1214 |
+| sharpe_ratio | 1.0950 |
+| max_drawdown | -0.1148 |
+| tracking_error | 0.0005 |
+| tracking_difference | -0.0008 |
+
+**Charts.** The index against its four stocks, then the portfolio's growth
+and drawdown.
+
+```python
+from beacon.plot import use
+
+use("light")  # the beacon chart style
+
+rebased = closes.assign(Index=result.index.target.levels)
+rebased = rebased / rebased.iloc[0] * 100
+
+ax = rebased[names].plot(alpha=0.45,
+                         title="The index and its stocks, rebased to 100")
+rebased["Index"].plot(ax=ax,
+                      linewidth=2.5,
+                      legend=True)
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karanbh01/py-beacon/main/docs/images/quickstart-stocks.dark.png">
+  <img alt="The four stocks and the equal-weight index, each rebased to 100 over 2024. The index ends at 113.4." src="https://raw.githubusercontent.com/karanbh01/py-beacon/main/docs/images/quickstart-stocks.light.png" width="720">
+</picture>
+
+```python
+result.plot.performance()
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karanbh01/py-beacon/main/docs/images/quickstart-performance.dark.png">
+  <img alt="The portfolio's growth of 100 over 2024, ending at 113.4, with its drawdown beneath, deepest at about 11 percent." src="https://raw.githubusercontent.com/karanbh01/py-beacon/main/docs/images/quickstart-performance.light.png" width="720">
+</picture>
 
 `result.index.target` holds the index the run aimed at, and
 `result.portfolio` holds the simulated portfolio: its NAV, positions, cash and
