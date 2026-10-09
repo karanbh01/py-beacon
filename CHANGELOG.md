@@ -8,6 +8,21 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Added
+
+- Charts that create their own figure are framed as Beacon desktop frames them: a title in Inter Tight and a subtitle in Playfair Display italic beside a thin accent bar, one italic notes line saying where the data came from and the dates it covers, and the beta mark at the bottom right. Every chart method and `compare` takes `title=`, `subtitle=` and `notes=` to replace them, or an empty string to leave one out, and `beacon.plot.frame_text(ax, part)` reads them back. The fonts ship with py-beacon under the SIL Open Font License.
+
+### Changed
+
+- The level charts (`level`, `performance` and `compare`) have no gridlines and draw one line at 100 instead. Ticks point inwards on every chart, and the axis lines are darker and slightly heavier.
+- `compare` no longer prints a metrics table under the chart. Its notes say how many shared observations the comparison rests on.
+- A chart's notes, and the `"At ..."` date on a weights chart, moved from the axes to the figure's notes line. Read them with `frame_text(ax, "notes")` rather than `ax.texts`. A chart drawn into axes you pass with `ax=` keeps its notes under the axes.
+
+### Fixed
+
+- A dark chart saved after switching back to the light style was saved on the light background. A saved chart now keeps its own background.
+- The last value marked at the end of a level chart's line was cut off at the right edge.
+
 ## [0.5.0] - 2026-10-08
 
 Funds and strategies: money flowing in and out with units and fund accounting; fund vehicles with structure presets, four pricing methods, UCITS and 1940 Act limits, and ETFs with a modelled market price; a `Fund` product record; index tracking through optimised or sampled replication; active strategies built from a signal; and all of it through the server's backtest API. `IndexFund` and `ETF` are deprecated.

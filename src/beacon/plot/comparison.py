@@ -27,20 +27,13 @@ import pandas as pd
 
 from .._optional import require
 from . import style as beacon_style
+from .frame import REFERENCE_ID, finish, ink, new_figure
 
 require("matplotlib", "Charting")
 
-import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.axes import Axes  # noqa: E402
 
 logger = logging.getLogger(__name__)
-
-# Metrics shown beneath the lines. Total return and volatility are what a
-# comparison is usually about; the shared observation count is there because a
-# reader should be able to see how much history the comparison actually rests
-# on.
-METRIC_LABELS = ("Total return", "Volatility", "Max drawdown")
-
 
 def _level_of(result: Any) -> pd.Series:
     """The level series a result carries, whichever kind it is: a
@@ -81,14 +74,21 @@ def _label_of(result: Any,
 
 def compare(*results: Any,
             labels: list[str] | None = None,
-            ax: Axes | None = None) -> Axes:
-    """Plot several results on one rebased axis, with a metrics table.
+            ax: Axes | None = None,
+            title: str | None = None,
+            subtitle: str | None = None,
+            notes: str | None = None) -> Axes:
+    """Plot several results on one rebased axis.
 
     Args:
         *results: Two or more `IndexResult` or `BacktestResult` objects.
         labels: Display names. Defaults to each result's own identifier
             (its index id or portfolio id), or "Series N" when it has none.
         ax: Axes to draw on. A new figure is created when absent.
+        title: The heading. Defaults to "Comparison".
+        subtitle: Beneath the heading. Defaults to what the lines are.
+        notes: The notes line, after "Notes:". Defaults to how many shared
+            observations the comparison rests on.
 
     Returns:
         Axes: What was drawn on.
@@ -118,49 +118,25 @@ def compare(*results: Any,
     window = window.sort_values()
 
     if ax is None:
-        _, ax = plt.subplots(figsize=beacon_style.FIGSIZE["compare"])
+        ax = new_figure(beacon_style.FIGSIZE["compare"]).add_subplot()
 
-    rows = []
     for name, values in zip(names, series, strict=True):
         clipped = values.loc[window]
         rebased = clipped / float(clipped.iloc[0]) * 100.0
 
         ax.plot(rebased.index, rebased.to_numpy(), linewidth=1.5, label=name)
-        rows.append((name, _metrics(rebased)))
 
+    # A level chart's one line, at the shared start, in place of gridlines.
+    ax.grid(visible=False)
+    ax.axhline(100.0, color=ink(ax, "border"),
+               linewidth=beacon_style.REFERENCE_WIDTH, zorder=1, gid=REFERENCE_ID)
     ax.legend(loc="upper left")
-    ax.set_title("Comparison", loc="left", pad=12)
-    ax.set_ylabel("Level")
 
-    _annotate(ax, rows, len(window))
+    shared = (f"Aligned on {len(window)} shared observations, rebased to 100 on "
+              f"the first.")
 
-    return ax
-
-
-def _metrics(level: pd.Series) -> tuple[float, float, float]:
-    """Total return, annualised volatility and maximum drawdown."""
-    returns = level.pct_change().dropna()
-
-    total = float(level.iloc[-1] / level.iloc[0] - 1.0)
-    volatility = float(returns.std() * (252 ** 0.5)) if len(returns) > 1 else 0.0
-    drawdown = float((level / level.cummax() - 1.0).min())
-
-    return total, volatility, drawdown
-
-
-def _annotate(ax: Axes,
-              rows: list[tuple[str, tuple[float, float, float]]],
-              observations: int) -> None:
-    """Write the metrics table beneath the chart."""
-    header = f"{'':<16}" + "".join(f"{label:>16}" for label in METRIC_LABELS)
-    lines = [header]
-
-    for name, (total, volatility, drawdown) in rows:
-        lines.append(f"{name[:16]:<16}{total:>15.2%} {volatility:>15.2%} "
-                     f"{drawdown:>15.2%}")
-
-    lines.append(f"Aligned on {observations} shared observations.")
-
-    ax.text(0.0, -0.16, "\n".join(lines), transform=ax.transAxes,
-            fontsize=7, family="monospace", va="top",
-            color=ax.yaxis.label.get_color())
+    return finish(ax,
+                  "Comparison" if title is None else title,
+                  "Each result rebased to 100" if subtitle is None else subtitle,
+                  "Level",
+                  shared if notes is None else notes)

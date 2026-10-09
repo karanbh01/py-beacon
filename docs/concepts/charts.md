@@ -29,16 +29,17 @@ Pictures of every chart, in both styles, are in the [Gallery](../gallery.md).
 | `IndexResult` | `weights(date=None, ax=None)` | Constituent weights at a rebalance (the latest by default), with the weight cap marked |
 | `BacktestResult` | `performance(ax=None)` | Growth of 100 with a linked drawdown panel beneath |
 | `BacktestResult` | `annual_returns(ax=None)` | Calendar-year returns as green and red bars, each year from the previous year's close and the first from the initial capital (the same figures as `get_annual_returns()`) |
-| `AttributionResult` | `contributions(ax=None)` | Each constituent's contribution to return, with the cap and cost drags in the footnote |
+| `AttributionResult` | `contributions(ax=None)` | Each constituent's contribution to return, with the cap and cost drags in the notes |
 | `OptimisationResult` | `exposures(ax=None)` | Active weights (optimal minus target), with tracking error and turnover |
 | `OptimisationResult` | `frontier(frontier, risk_free_rate=None, ax=None)` | An efficient frontier, its minimum-variance and tangency points and the capital market line |
 | `RiskModel` | `correlation(ax=None)` | The correlation matrix as a heatmap |
 
-Typing `result.plot` at a prompt lists the methods, and
-`result.plot.methods()` returns their names.
+Every method, and `compare`, also takes `title=`, `subtitle=` and `notes=`,
+described [below](#titles-notes-and-the-mark). Typing `result.plot` at a
+prompt lists the methods, and `result.plot.methods()` returns their names.
 
 Bar charts of weights, contributions and exposures show at most 25 bars, the
-largest by size, and say in the footnote how many were left out.
+largest by size, and say in the notes how many were left out.
 
 ## Drawing and saving
 
@@ -101,6 +102,46 @@ time series, taller for bar charts of names. The styles save with a standard
 bounding box rather than a tight one, so a saved image's pixel size depends
 only on the figure size and `dpi`.
 
+## Titles, notes and the mark
+
+A chart that creates its own figure is framed the way Beacon desktop frames
+one:
+
+- **A title and a subtitle** at the top left: the title in Inter Tight and the
+  subtitle beneath it in Playfair Display italic, with a thin accent bar down
+  their left, level with the y axis.
+- **Notes** at the bottom left, starting under the y axis: one italic line
+  beginning "Notes:" that says where the data came from, the dates it covers,
+  and anything the chart needs said, such as what its drawdown measures or
+  how many bars it left out. The source is named when the data recorded it,
+  as a data store does, for example "Source: Synthetic data, backtest dated
+  from 03/01/2023 to 31/12/2024."
+- **The beta mark** at the bottom right, its right edge where the x axis ends
+  (on the correlation chart, under the colour bar's label).
+
+Each chart has its own title and subtitle. Pass `title=`, `subtitle=` or
+`notes=` to replace them, or an empty string to leave one out.
+`beacon.plot.frame_text(ax, part)` reads one back, with `part` one of
+`"title"`, `"subtitle"` or `"notes"`:
+
+```python
+from beacon.plot import frame_text
+
+ax = backtest.plot.performance(subtitle="The CANON tracker, 10 bps a trade",
+                               notes="Sample data. Costs of 10 bps on every trade.")
+
+print(frame_text(ax, "subtitle"))
+print(frame_text(ax, "notes"))
+plt.close("all")
+```
+
+The level charts (`level`, `performance` and `compare`) have no gridlines.
+They draw one line at 100, where every series starts, so a glance says
+whether it has gained or lost. The ticks on every chart point inwards.
+
+The fonts ship with py-beacon under the SIL Open Font License, so a chart
+looks the same on every machine without installing anything.
+
 ## Composing figures
 
 Pass `ax=` to draw into a figure you laid out yourself:
@@ -116,6 +157,9 @@ figure.savefig("index-overview.png", dpi=110)
 backtest_axes.figure.savefig("annual-returns.png", dpi=110)
 plt.close("all")
 ```
+
+A chart drawn into your own axes gets a plain title and its notes under the
+axes rather than the frame, because one figure can hold several charts.
 
 `performance()` is the exception. It always creates its own two-panel figure,
 because the drawdown panel shares the level panel's dates, and it logs a
@@ -173,9 +217,9 @@ for filename, draw in charts.items():
 A few details worth knowing:
 
 - **`contributions`** adds up the bars it actually drew for the total in its
-  footnote, and prints the residual as `0` when the attribution reconciles.
-  The cap and cost drags appear in the footnote, not as bars, because they
-  are not terms in the decomposition.
+  notes, and prints the residual as `0` when the attribution reconciles. The
+  cap and cost drags appear in the notes, not as bars, because they are not
+  terms in the decomposition.
 - **`frontier`** takes an `EfficientFrontier` built over the same universe.
   The capital market line starts at the rate the frontier was traced at, so
   it is tangent at the tangency portfolio. Pass `risk_free_rate` only to draw
@@ -187,7 +231,8 @@ A few details worth knowing:
 ## Comparing results
 
 `beacon.plot.compare(*results, labels=None, ax=None)` draws two or more
-`IndexResult` or `BacktestResult` objects on one axis:
+`IndexResult` or `BacktestResult` objects on one axis, and takes `title=`,
+`subtitle=` and `notes=` like the chart methods:
 
 ```python
 from beacon.plot import compare
@@ -199,9 +244,8 @@ plt.close("all")
 
 Every series is cut to the dates they all share and rebased to 100 on the
 first shared date, so the lines start together and differences in history
-length do not distort the comparison. Beneath the chart a table gives each
-series' total return, annualised volatility (252 days a year) and maximum
-drawdown over that window, and how many shared observations it rests on.
+length do not distort the comparison. The notes say how many shared
+observations the comparison rests on.
 
 Labels default to each result's index id or portfolio id. `compare` raises
 `ValueError` for fewer than two results or when they share no dates.

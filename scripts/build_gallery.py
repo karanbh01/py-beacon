@@ -64,7 +64,7 @@ CAPTIONS = {
     "annual_returns": "Calendar-year returns, green for gains and red for "
                       "losses.",
     "contributions": "Each constituent's contribution to return, with the cap "
-                     "and cost drags in the footnote.",
+                     "and cost drags in the notes.",
     "compare": "Several results on one axis, rebased to 100 on the dates they "
                "share.",
     "exposures": "Active weights against the target, coloured by sign.",

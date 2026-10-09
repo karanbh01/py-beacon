@@ -55,7 +55,11 @@ CORRELATION_DOMAIN = (0.2, 1.0)
 SERIES_WIDTH = 1.5
 BENCHMARK_WIDTH = 1.1
 GRID_WIDTH = 0.6
-SPINE_WIDTH = 0.8
+SPINE_WIDTH = 1.0
+
+# The lines a chart is read against: a level chart's line at 100, a bar
+# chart's zero. Lighter than the axes, so they read as guides, not frame.
+REFERENCE_WIDTH = 0.8
 
 # Per-kind figure sizes, in inches. A level chart is wide because time is the
 # long axis; a weights chart is tall because names stack.
@@ -107,24 +111,27 @@ def style_dict(mode: str = LIGHT) -> dict[str, Any]:
         "figure.facecolor": ink["canvas"],
         "figure.edgecolor": ink["canvas"],
         "figure.dpi": 100,
-        "savefig.facecolor": ink["canvas"],
-        "savefig.edgecolor": ink["canvas"],
+        "savefig.facecolor": "auto",
+        "savefig.edgecolor": "auto",
         # Deliberately NOT "tight". A tight bounding box crops to the actual
         # text extents, which depend on the platform's font rasteriser, so the
         # saved image changes size between operating systems — and an image
         # comparison that cannot agree on dimensions cannot compare anything.
-        # Room for the footnotes is reserved in the layout instead, below.
+        # Room for the notes is reserved in the layout instead, below.
         "savefig.bbox": "standard",
 
-        # Space for the title above and the footnote below, so both sit inside
+        # Space for the title above and the notes below, so both sit inside
         # a canvas whose size is fixed by figsize alone.
         "figure.subplot.top": 0.90,
         "figure.subplot.bottom": 0.18,
         "figure.subplot.left": 0.10,
-        "figure.subplot.right": 0.96,
+        # Room on the right for the last value marked beside a line's end.
+        "figure.subplot.right": 0.92,
 
         "axes.facecolor": ink["canvas"],
-        "axes.edgecolor": ink["border"],
+        # The axis lines in the muted text colour rather than the border, so
+        # the frame of the plot reads clearly against the canvas.
+        "axes.edgecolor": ink["text-muted"],
         "axes.labelcolor": ink["text-muted"],
         "axes.titlecolor": ink["text-primary"],
         "axes.linewidth": SPINE_WIDTH,
@@ -150,8 +157,23 @@ def style_dict(mode: str = LIGHT) -> dict[str, Any]:
         "ytick.color": ink["text-muted"],
         "xtick.labelsize": 8,
         "ytick.labelsize": 8,
-        "xtick.direction": "out",
-        "ytick.direction": "out",
+        # Inward, and on the bottom and left only. Pinned rather than left to
+        # matplotlib's defaults, which another style (pytest-mpl applies
+        # "classic") can turn on for all four sides.
+        "xtick.direction": "in",
+        "ytick.direction": "in",
+        "xtick.top": False,
+        "ytick.right": False,
+        "xtick.major.width": SPINE_WIDTH,
+        "ytick.major.width": SPINE_WIDTH,
+
+        # Pinned for the same reason as the ticks: "classic" outlines every
+        # bar in black, doubles a legend's markers and blurs a heatmap.
+        "patch.force_edgecolor": False,
+        "patch.linewidth": 0.0,
+        "image.interpolation": "nearest",
+        "legend.numpoints": 1,
+        "legend.scatterpoints": 1,
 
         "legend.frameon": False,
         "legend.fontsize": 8,

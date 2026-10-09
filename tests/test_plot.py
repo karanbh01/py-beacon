@@ -196,7 +196,7 @@ class TestStyle:
             from matplotlib.colors import to_hex
 
             assert to_hex(figure.get_facecolor()) == colour("canvas", LIGHT)
-            assert to_hex(ax.get_lines()[0].get_color()) == colour("accent", LIGHT)
+            assert to_hex(data_lines(ax)[0].get_color()) == colour("accent", LIGHT)
 
     def test_the_dark_style_uses_the_dark_tokens(self):
         style.register()
@@ -257,6 +257,27 @@ class TestStyle:
         use(LIGHT)
 
 
+def data_lines(ax) -> list:
+    """The lines a chart drew from data, without a level chart's reference
+    line at 100."""
+    from beacon.plot.frame import REFERENCE_ID
+
+    return [line for line in ax.get_lines() if line.get_gid() != REFERENCE_ID]
+
+
+def panels(figure) -> list:
+    """A figure's chart axes, without the one holding the mark."""
+    from beacon.plot.frame import MARK_LABEL
+
+    return [axes for axes in figure.get_axes() if axes.get_label() != MARK_LABEL]
+
+
+def notes(ax) -> str:
+    from beacon.plot import frame_text
+
+    return frame_text(ax, "notes")
+
+
 class TestCoreCharts:
     """BN-78."""
 
@@ -264,8 +285,10 @@ class TestCoreCharts:
                                    index_result):
         ax = index_result.plot.level()
 
-        assert len(ax.get_lines()) >= 1
-        assert ax.get_title(loc="left") == "Index level"
+        from beacon.plot import frame_text
+
+        assert len(data_lines(ax)) >= 1
+        assert frame_text(ax, "title") == "Index level"
 
     def test_level_rebases_to_one_hundred(self,
                                           index_result):
@@ -281,7 +304,7 @@ class TestCoreCharts:
         use(LIGHT)
         ax = index_result.plot.level()
 
-        assert to_hex(ax.get_lines()[0].get_color()) == colour("accent", LIGHT)
+        assert to_hex(data_lines(ax)[0].get_color()) == colour("accent", LIGHT)
 
     def test_level_draws_a_benchmark_subordinate(self,
                                                  index_result):
@@ -292,7 +315,7 @@ class TestCoreCharts:
         benchmark = dataset.prices()["CCC"].loc[:END]
         ax = index_result.plot.level(benchmark=benchmark)
 
-        lines = ax.get_lines()
+        lines = data_lines(ax)
         benchmark_line = next(line for line in lines
                               if to_hex(line.get_color())
                               == colour("text-secondary", LIGHT))
@@ -325,15 +348,15 @@ class TestCoreCharts:
         first = min(index_result.weight_snapshots)
         ax = index_result.plot.weights(date=first)
 
-        assert str(first.date()) in ax.texts[-1].get_text()
+        assert f"{first:%d/%m/%Y}" in notes(ax)
 
     def test_performance_draws_two_linked_panels(self,
                                                  backtest):
         ax = backtest.plot.performance()
         figure = ax.get_figure()
 
-        assert len(figure.get_axes()) == 2
-        assert figure.get_axes()[1].get_ylabel() == "Drawdown"
+        assert len(panels(figure)) == 2
+        assert panels(figure)[1].get_ylabel() == "Drawdown"
 
     def test_the_drawdown_panel_is_never_positive(self,
                                                   backtest):
@@ -347,7 +370,7 @@ class TestCoreCharts:
                                         backtest):
         """A drawdown is only meaningful against the path that produced it."""
         ax = backtest.plot.performance()
-        upper, lower = ax.get_figure().get_axes()
+        upper, lower = panels(ax.get_figure())
 
         assert upper.get_xlim() == lower.get_xlim()
 
@@ -415,8 +438,7 @@ class TestAttributionChart:
         ax = attribution.plot.contributions()
         drawn = sum(patch.get_width() for patch in ax.patches)
 
-        note = ax.texts[-1].get_text()
-        stated = float(note.split("sum to ")[1].split("%")[0]) / 100.0
+        stated = float(notes(ax).split("sum to ")[1].split("%")[0]) / 100.0
 
         assert stated == pytest.approx(drawn, abs=5e-5)
 
@@ -427,7 +449,7 @@ class TestAttributionChart:
         on its last digit (BN-222)."""
         assert attribution.reconciles()
 
-        note = attribution.plot.contributions().texts[-1].get_text()
+        note = notes(attribution.plot.contributions())
 
         assert "residual 0." in note
         assert "e-1" not in note
@@ -443,7 +465,7 @@ class TestAttributionChart:
                                                       attribution):
         """Comparisons against a counterfactual, not terms in the
         decomposition."""
-        note = attribution.plot.contributions().texts[-1].get_text()
+        note = notes(attribution.plot.contributions())
 
         assert "Cap drag" in note
         assert "Cost drag" in note
@@ -469,7 +491,7 @@ class TestCompare:
                                         backtest):
         ax = compare(index_result, backtest)
 
-        assert len(ax.get_lines()) == 2
+        assert len(data_lines(ax)) == 2
 
     def test_every_line_starts_at_one_hundred(self,
                                               index_result,
@@ -478,27 +500,26 @@ class TestCompare:
         comparison is of shape rather than of span."""
         ax = compare(index_result, backtest)
 
-        for line in ax.get_lines():
+        for line in data_lines(ax):
             assert line.get_ydata()[0] == pytest.approx(100.0, abs=1e-9)
 
     def test_the_lines_cover_the_same_dates(self,
                                             index_result,
                                             backtest):
         ax = compare(index_result, backtest)
-        first, second = (line.get_xdata() for line in ax.get_lines())
+        first, second = (line.get_xdata() for line in data_lines(ax))
 
         assert len(first) == len(second)
         assert first[0] == second[0]
         assert first[-1] == second[-1]
 
-    def test_it_annotates_the_metrics(self,
-                                      index_result,
-                                      backtest):
+    def test_the_notes_say_how_much_history_it_rests_on(self,
+                                                        index_result,
+                                                        backtest):
         ax = compare(index_result, backtest)
-        note = ax.texts[-1].get_text()
 
-        assert "Total return" in note
-        assert "shared observations" in note
+        assert "shared observations" in notes(ax)
+        assert not ax.texts, "the metrics table was removed"
 
     def test_labels_can_be_supplied(self,
                                     index_result,
@@ -777,7 +798,7 @@ class TestBothStyles:
         with plt.style.context(style.BEACON_DARK):
             ax = index_result.plot.level()
 
-            assert to_hex(ax.get_lines()[0].get_color()) == colour("accent", DARK)
+            assert to_hex(data_lines(ax)[0].get_color()) == colour("accent", DARK)
 
 
 class TestTruncation:
@@ -801,7 +822,7 @@ class TestTruncation:
         ax = wide.plot.exposures()
 
         assert len(ax.patches) == MAX_BARS
-        assert "10 smaller tilt(s) not shown" in ax.texts[-1].get_text()
+        assert "10 smaller tilt(s) not shown" in notes(ax)
 
     def test_truncation_keeps_the_largest_by_magnitude(self):
         """The names worth seeing are the extremes, in either direction."""
@@ -836,7 +857,7 @@ class TestTruncation:
         ax = crowded.plot.weights()
 
         assert len(ax.patches) == MAX_BARS
-        assert "4 smaller holding(s) not shown" in ax.texts[-1].get_text()
+        assert "4 smaller holding(s) not shown" in notes(ax)
 
 
 class TestDegenerateSeries:

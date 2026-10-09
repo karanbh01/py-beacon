@@ -34,6 +34,7 @@ __all__ = [
     "ChartMethods",
     "PlotAccessor",
     "compare",
+    "frame_text",
     "palette",
     "style",
     "use",
@@ -55,6 +56,9 @@ def __getattr__(name: str) -> object:
 
     if name == "compare":
         return importlib.import_module(".comparison", __name__).compare
+
+    if name == "frame_text":
+        return importlib.import_module(".frame", __name__).frame_text
 
     if name in ("style", "use", "palette"):
         module = importlib.import_module(".style", __name__)

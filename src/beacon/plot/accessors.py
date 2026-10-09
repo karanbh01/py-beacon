@@ -22,157 +22,38 @@ total that does not match the bars beside it is worse than no annotation, and
 the only way to be sure is to add up what is on the page.
 """
 import logging
-from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from .._optional import require
-from ..tokens import DARK, LIGHT, colour
 from . import style as beacon_style
 from .base import ChartMethods
+from .drawing import (
+    MAX_BARS,
+    MINIMUM_BAR,
+    _axes,
+    _finish,
+    _given,
+    _ink,
+    _mark_last,
+    _rebase,
+    _reference_at,
+    _series,
+    _signed_colours,
+    _truncate,
+)
+from .frame import new_figure, provenance, sentences
 
 require("matplotlib", "Charting")
 
-import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.axes import Axes  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-# Bars thinner than this are invisible; a near-zero contribution still needs to
-# show that it exists and which way it points.
-MINIMUM_BAR = 1e-4
-
-# How many names a weights or contributions chart shows before it stops being
-# readable. Beyond this the labels collide and the chart says less than a table.
-MAX_BARS = 25
-
-
-def _axes(ax: Axes | None,
-          kind: str) -> Axes:
-    """The axes to draw on, creating a figure only when one is not supplied."""
-    beacon_style.register()
-
-    if ax is not None:
-        return ax
-
-    _, created = plt.subplots(figsize=beacon_style.FIGSIZE.get(kind, (8.0, 5.0)))
-
-    return created
-
-
-def _mode_of(ax: Axes) -> str:
-    """Which style an axes is drawn in, read off its own background.
-
-    Charts need a colour the style does not carry — a marker, a sign — and
-    hard-coding one would break in the other mode. Asking the axes is more
-    reliable than tracking global state, because a caller may have applied a
-    style to this figure alone.
-    """
-    from matplotlib.colors import to_rgb
-
-    figure = ax.get_figure()
-
-    if figure is None:
-        return LIGHT
-
-    # Dark only when the background is. Matching the light canvas exactly
-    # read matplotlib's own white, before `beacon.plot.use()`, as dark
-    # (BN-259).
-    red, green, blue = to_rgb(figure.get_facecolor())
-    luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
-
-    return DARK if luminance < 0.5 else LIGHT
-
-
-def _ink(ax: Axes,
-         name: str) -> str:
-    """One token colour, in whichever mode this axes is drawn in."""
-    return colour(name, _mode_of(ax))
-
-
-def _finish(ax: Axes,
-            title: str,
-            ylabel: str = "",
-            note: str = "",
-            note_offset: float = -0.14) -> Axes:
-    """Apply the shared furniture: title, labels and an optional footnote.
-
-    The note sits in axes coordinates, so how far below the axis it needs to be
-    depends on how tall that axis is. A short panel — the drawdown strip is a
-    quarter of its figure — needs a larger offset or the note lands on top of
-    the tick labels.
-    """
-    ax.set_title(title, loc="left", pad=12)
-
-    if ylabel:
-        ax.set_ylabel(ylabel)
-
-    if note:
-        ax.text(0.0, note_offset, note, transform=ax.transAxes,
-                fontsize=7, color=_ink(ax, "text-muted"), va="top")
-
-    return ax
-
-
-def _series(payload: pd.Series) -> pd.Series:
-    """A result's series as floats."""
-    return payload.astype(float)
-
-
-def _rebase(series: pd.Series,
-            base: float = 100.0) -> pd.Series:
-    """A level series rescaled to start at *base*."""
-    first = float(series.iloc[0])
-
-    return series / first * base if first else series
-
-
-def _mark_last(ax: Axes,
-               series: pd.Series,
-               colour_name: str = "accent") -> None:
-    """Dot and label the final value.
-
-    The number a reader actually wants from a level chart is where it ended,
-    and making them read it off an axis is a small tax on every glance.
-    """
-    if series.empty:
-        return
-
-    ink = _ink(ax, colour_name)
-    ax.plot([series.index[-1]], [series.iloc[-1]], marker="o", markersize=4.5,
-            color=ink, zorder=5)
-    ax.annotate(f"{series.iloc[-1]:,.1f}",
-                xy=(series.index[-1], series.iloc[-1]),
-                xytext=(6, 0), textcoords="offset points",
-                va="center", fontsize=8, color=ink, fontweight="bold")
-
-
-def _signed_colours(ax: Axes,
-                    values: Any) -> list[str]:
-    """Green for positive, red for negative — the application's own signs."""
-    up, down = _ink(ax, "success"), _ink(ax, "danger")
-
-    return [up if float(value) >= 0 else down for value in values]
-
-
-def _truncate(labels: list[str],
-              values: list[float],
-              limit: int = MAX_BARS) -> tuple[list[str], list[float], int]:
-    """Keep the largest *limit* entries by magnitude, reporting what was cut.
-
-    Silently dropping the tail would make a chart of thirty names look like a
-    chart of twenty-five. The count comes back so the caller can say so on the
-    page.
-    """
-    if len(labels) <= limit:
-        return labels, values, 0
-
-    order = sorted(range(len(values)), key=lambda i: abs(values[i]), reverse=True)
-    kept = sorted(order[:limit], key=lambda i: values[i], reverse=True)
-
-    return ([labels[i] for i in kept], [values[i] for i in kept],
-            len(labels) - limit)
+# Imported by name elsewhere (the tests read MAX_BARS and the helpers here).
+__all__ = ["MAX_BARS", "MINIMUM_BAR", "AttributionPlots", "BacktestPlots",
+           "IndexPlots", "OptimisationPlots", "RiskPlots", "_ink", "_mark_last",
+           "_truncate"]
 
 
 class IndexPlots(ChartMethods):
@@ -181,23 +62,32 @@ class IndexPlots(ChartMethods):
     def level(self,
               benchmark: pd.Series | None = None,
               ax: Axes | None = None,
-              label: str = "Index") -> Axes:
+              label: str = "Index",
+              title: str | None = None,
+              subtitle: str | None = None,
+              notes: str | None = None) -> Axes:
         """The index level over time, rebased to 100.
 
         Args:
             benchmark: Optional comparison series, drawn subordinate.
             ax: Axes to draw on. A new figure is created when absent.
             label: Legend label for the index.
+            title: The heading. Defaults to the chart's own.
+            subtitle: Beneath the heading. Defaults to what the chart shows.
+            notes: The notes line, after "Notes:". Defaults to the data's
+                source and dates and what the chart needs said.
 
         Returns:
             Axes: What was drawn on.
         """
         ax = _axes(ax, "level")
-        levels = _rebase(_series(self._result.index_levels))
+        result = self._result
+        levels = _rebase(_series(result.index_levels))
 
         ax.plot(levels.index, levels.to_numpy(), color=_ink(ax, "accent"),
                 linewidth=beacon_style.SERIES_WIDTH, label=label)
         _mark_last(ax, levels)
+        _reference_at(ax, 100.0)
 
         if benchmark is not None and len(benchmark):
             rebased = _rebase(_series(benchmark))
@@ -206,17 +96,29 @@ class IndexPlots(ChartMethods):
                     linewidth=beacon_style.BENCHMARK_WIDTH, label="Benchmark")
             ax.legend(loc="upper left")
 
-        return _finish(ax, "Index level", "Level",
-                       "Rebased to 100 at the first observation.")
+        return _finish(ax,
+                       _given(title, "Index level"),
+                       _given(subtitle, f"{result.index_id}, rebased to 100"),
+                       "Level",
+                       _given(notes, sentences(
+                           provenance(result, "index", levels.index),
+                           "Rebased to 100 at the first observation.")))
 
     def weights(self,
                 date: pd.Timestamp | None = None,
-                ax: Axes | None = None) -> Axes:
+                ax: Axes | None = None,
+                title: str | None = None,
+                subtitle: str | None = None,
+                notes: str | None = None) -> Axes:
         """Constituent weights at a rebalance, with cap markers.
 
         Args:
             date: Which rebalance. Defaults to the latest.
             ax: Axes to draw on.
+            title: The heading. Defaults to the chart's own.
+            subtitle: Beneath the heading. Defaults to what the chart shows.
+            notes: The notes line, after "Notes:". Defaults to the data's
+                source and dates and what the chart needs said.
 
         Returns:
             Axes: What was drawn on.
@@ -246,18 +148,25 @@ class IndexPlots(ChartMethods):
         ax.grid(axis="x")
         ax.grid(axis="y", visible=False)
 
-        note = f"At {pd.Timestamp(when).date()}."
-        if dropped:
-            note += f" {dropped} smaller holding(s) not shown."
+        note = sentences(provenance(self._result, "weights", pd.Index([when])),
+                         f"{dropped} smaller holding(s) not shown." if dropped else "")
 
-        return _finish(ax, "Constituent weights", "", note)
+        return _finish(ax,
+                       _given(title, "Constituent weights"),
+                       _given(subtitle, f"{self._result.index_id} at its "
+                                        f"{pd.Timestamp(when):%d %B %Y} rebalance"),
+                       "",
+                       _given(notes, note))
 
 
 class BacktestPlots(ChartMethods):
     """Charts for a `BacktestResult`."""
 
     def performance(self,
-                    ax: Axes | None = None) -> Axes:
+                    ax: Axes | None = None,
+                    title: str | None = None,
+                    subtitle: str | None = None,
+                    notes: str | None = None) -> Axes:
         """Growth of 100 with a drawdown panel beneath it.
 
         The two share an x axis and sit in one gridspec, because a drawdown is
@@ -267,6 +176,10 @@ class BacktestPlots(ChartMethods):
         Args:
             ax: Ignored for this chart, which owns a two-panel figure. Accepted
                 so every method has the same signature.
+            title: The heading. Defaults to the chart's own.
+            subtitle: Beneath the heading. Defaults to what the chart shows.
+            notes: The notes line, after "Notes:". Defaults to the data's
+                source and dates and what the chart needs said.
 
         Returns:
             Axes: The upper (level) panel.
@@ -278,7 +191,7 @@ class BacktestPlots(ChartMethods):
                 "performance() draws two linked panels and creates its own "
                 "figure; the supplied ax is ignored.")
 
-        figure = plt.figure(figsize=beacon_style.FIGSIZE["performance"])
+        figure = new_figure(beacon_style.FIGSIZE["performance"])
         grid = figure.add_gridspec(2, 1, height_ratios=(3, 1), hspace=0.12)
 
         upper = figure.add_subplot(grid[0])
@@ -290,6 +203,7 @@ class BacktestPlots(ChartMethods):
         upper.plot(levels.index, levels.to_numpy(), color=_ink(upper, "accent"),
                    linewidth=beacon_style.SERIES_WIDTH)
         _mark_last(upper, levels)
+        _reference_at(upper, 100.0)
         upper.tick_params(labelbottom=False)
 
         drawdown = levels / levels.cummax() - 1.0
@@ -299,20 +213,29 @@ class BacktestPlots(ChartMethods):
                    color=_ink(lower, "danger"), linewidth=1.0)
         lower.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
         lower.set_ylabel("Drawdown")
+        lower.grid(visible=False)
 
-        _finish(upper, "Growth of 100", "Level")
-        _finish(lower, "", "Drawdown",
-                "Drawdown is the level against its running peak.",
-                note_offset=-0.42)
-
-        return upper
+        return _finish(upper,
+                       _given(title, "Growth of 100"),
+                       _given(subtitle, "The portfolio, with its drawdown"),
+                       "Level",
+                       _given(notes, sentences(
+                           provenance(self._result, "backtest", levels.index),
+                           "Drawdown is the level against its running peak.")))
 
     def annual_returns(self,
-                       ax: Axes | None = None) -> Axes:
+                       ax: Axes | None = None,
+                       title: str | None = None,
+                       subtitle: str | None = None,
+                       notes: str | None = None) -> Axes:
         """Calendar-year returns as signed bars.
 
         Args:
             ax: Axes to draw on.
+            title: The heading. Defaults to the chart's own.
+            subtitle: Beneath the heading. Defaults to what the chart shows.
+            notes: The notes line, after "Notes:". Defaults to the data's
+                source and dates and what the chart needs said.
 
         Returns:
             Axes: What was drawn on.
@@ -327,19 +250,28 @@ class BacktestPlots(ChartMethods):
         values = returns.to_numpy(dtype=float)
 
         ax.bar(labels, values, color=_signed_colours(ax, values), width=0.62)
-        ax.axhline(0.0, color=_ink(ax, "border"), linewidth=beacon_style.SPINE_WIDTH)
+        ax.axhline(0.0, color=_ink(ax, "border"), linewidth=beacon_style.REFERENCE_WIDTH)
         ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
 
-        return _finish(ax, "Annual returns", "Return",
-                       "Calendar years, each from the previous year's close "
-                       "and the first from the initial capital.")
+        return _finish(ax,
+                       _given(title, "Annual returns"),
+                       _given(subtitle, "The portfolio's return in each calendar year"),
+                       "Return",
+                       _given(notes, sentences(
+                           provenance(self._result, "backtest",
+                                      _series(self._result.performance_levels()).index),
+                           "Each year runs from the previous year's close, and "
+                           "the first from the initial capital.")))
 
 
 class AttributionPlots(ChartMethods):
     """Charts for an `AttributionResult`."""
 
     def contributions(self,
-                      ax: Axes | None = None) -> Axes:
+                      ax: Axes | None = None,
+                      title: str | None = None,
+                      subtitle: str | None = None,
+                      notes: str | None = None) -> Axes:
         """Per-constituent contributions as diverging bars.
 
         The drags are stated in the chart's note rather than drawn as bars,
@@ -353,6 +285,10 @@ class AttributionPlots(ChartMethods):
 
         Args:
             ax: Axes to draw on.
+            title: The heading. Defaults to the chart's own.
+            subtitle: Beneath the heading. Defaults to what the chart shows.
+            notes: The notes line, after "Notes:". Defaults to the data's
+                source and dates and what the chart needs said.
 
         Returns:
             Axes: What was drawn on.
@@ -366,7 +302,7 @@ class AttributionPlots(ChartMethods):
 
         ax.barh(labels, values, color=_signed_colours(ax, values), height=0.68)
         ax.axvline(0.0, color=_ink(ax, "border"),
-                   linewidth=beacon_style.SPINE_WIDTH)
+                   linewidth=beacon_style.REFERENCE_WIDTH)
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:.1%}")
         ax.grid(axis="x")
         ax.grid(axis="y", visible=False)
@@ -392,152 +328,13 @@ class AttributionPlots(ChartMethods):
             note += ("  " + "  ".join(f"{name} {value:.2%}"
                                       for name, value in drags))
 
-        return _finish(ax, "Contribution to return", "", note)
+        return _finish(ax,
+                       _given(title, "Contribution to return"),
+                       _given(subtitle, "Each constituent's share of the return"),
+                       "",
+                       _given(notes, note))
 
 
-class OptimisationPlots(ChartMethods):
-    """Charts for an `OptimisationResult`."""
-
-    def exposures(self,
-                  ax: Axes | None = None) -> Axes:
-        """Active weights as sign-coloured tilts against the index.
-
-        Args:
-            ax: Axes to draw on.
-
-        Returns:
-            Axes: What was drawn on.
-        """
-        ax = _axes(ax, "exposures")
-
-        active = self._result.active_weights.sort_values()
-        labels, values, dropped = _truncate([str(name) for name in active.index],
-                                            [float(value) for value in active])
-
-        ax.barh(labels, values, color=_signed_colours(ax, values), height=0.68)
-        ax.axvline(0.0, color=_ink(ax, "border"),
-                   linewidth=beacon_style.SPINE_WIDTH)
-        ax.xaxis.set_major_formatter(lambda value, _: f"{value:+.1%}")
-        ax.grid(axis="x")
-        ax.grid(axis="y", visible=False)
-
-        note = (f"Optimal minus index. Tracking error "
-                f"{self._result.tracking_error():.2%}, turnover "
-                f"{self._result.turnover():.1%}.")
-        if dropped:
-            note += f" {dropped} smaller tilt(s) not shown."
-
-        return _finish(ax, "Active weights", "", note)
-
-    def frontier(self,
-                 frontier: Any,
-                 risk_free_rate: float | None = None,
-                 ax: Axes | None = None) -> Axes:
-        """The efficient frontier, with the named points and the capital line.
-
-        Args:
-            frontier: An `EfficientFrontier` over the same universe.
-            risk_free_rate: Where the capital market line starts. None uses
-                the rate the frontier was traced at, which is the one its
-                tangency portfolio is tangent from.
-            ax: Axes to draw on.
-
-        Returns:
-            Axes: What was drawn on.
-        """
-        ax = _axes(ax, "frontier")
-
-        # BN-259: defaulted to 0.0, so a frontier traced at another rate got a
-        # line that was not tangent to it.
-        if risk_free_rate is None:
-            risk_free_rate = float(getattr(frontier, "risk_free_rate", 0.0))
-
-        volatilities = [point.volatility for point in frontier.points]
-        returns = [point.expected_return or 0.0 for point in frontier.points]
-
-        ax.plot(volatilities, returns, color=_ink(ax, "accent"),
-                linewidth=beacon_style.SERIES_WIDTH, zorder=3, label="Frontier")
-
-        tangency = frontier.tangency
-        minimum = frontier.minimum_variance
-
-        # The capital market line: from the risk-free rate through the tangency
-        # portfolio and a little beyond, which is what makes the tangency point
-        # look like a tangency rather than an arbitrary dot.
-        #
-        # The slope is the tangency Sharpe ratio, and the excess return is
-        # computed on its own line on purpose. Written inline as
-        # `tangency.expected_return or 0.0 - risk_free_rate`, `or` binds looser
-        # than `-` and the expression silently becomes the raw return — a line
-        # that still looks plausible and is not tangent to anything.
-        if tangency.volatility > 0:
-            reach = max(volatilities) * 1.05
-            excess = (tangency.expected_return or 0.0) - risk_free_rate
-            slope = excess / tangency.volatility
-
-            ax.plot([0.0, reach], [risk_free_rate, risk_free_rate + slope * reach],
-                    color=_ink(ax, "text-muted"), linewidth=1.0, linestyle="--",
-                    zorder=2, label="Capital market line")
-
-        for point, name, ink in ((minimum, "Minimum variance", "series-2"),
-                                 (tangency, "Tangency", "series-3")):
-            ax.plot([point.volatility], [point.expected_return or 0.0],
-                    marker="o", markersize=7, color=_ink(ax, ink), zorder=5,
-                    label=name)
-
-        if tangency.sharpe_ratio is not None:
-            ax.annotate(f"Sharpe {tangency.sharpe_ratio:.2f}",
-                        xy=(tangency.volatility, tangency.expected_return or 0.0),
-                        xytext=(8, -10), textcoords="offset points",
-                        fontsize=8, color=_ink(ax, "series-3"), fontweight="bold")
-
-        ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
-        ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
-        ax.legend(loc="lower right")
-
-        return _finish(ax, "Efficient frontier", "Expected return",
-                       "Volatility on the horizontal axis, both annualised.")
-
-
-class RiskPlots(ChartMethods):
-    """Charts for a `RiskModel`."""
-
-    def correlation(self,
-                    ax: Axes | None = None) -> Axes:
-        """The correlation matrix as a heatmap.
-
-        Args:
-            ax: Axes to draw on.
-
-        Returns:
-            Axes: What was drawn on.
-        """
-        ax = _axes(ax, "correlation")
-
-        matrix = self._result.correlation
-        values = matrix.to_numpy(dtype=float)
-        names = [str(label) for label in matrix.index]
-
-        low, high = beacon_style.CORRELATION_DOMAIN
-        image = ax.imshow(values, cmap=beacon_style.CORRELATION_COLORMAP,
-                          vmin=low, vmax=high, aspect="equal")
-
-        ax.set_xticks(np.arange(len(names)), names, rotation=45, ha="right")
-        ax.set_yticks(np.arange(len(names)), names)
-        ax.grid(visible=False)
-
-        figure = ax.get_figure()
-        assert figure is not None  # _axes() always attaches one
-
-        bar = figure.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
-        bar.set_label("less correlated        more correlated", fontsize=7)
-        # matplotlib's stubs type `outline` loosely enough that strict mypy
-        # cannot see the method; the attribute is a Spine at runtime.
-        outline: Any = bar.outline
-        if outline is not None:
-            outline.set_visible(False)
-        bar.ax.tick_params(labelsize=7, color=_ink(ax, "text-muted"))
-
-        return _finish(ax, "Correlation", "",
-                       f"Shaded from {low:.0%}; below that the differences are "
-                       f"noise on any real estimate.")
+# The optimiser and risk charts live in their own module; the lazy accessor
+# looks every chart class up here.
+from .analysis_charts import OptimisationPlots, RiskPlots  # noqa: E402
