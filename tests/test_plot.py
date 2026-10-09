@@ -154,7 +154,8 @@ class TestLazyAccessor:
     def test_the_accessor_lists_its_charts(self,
                                            index_result):
         """A caller who types `result.plot` should be told what they can do."""
-        assert repr(index_result.plot) == "<IndexPlots: level(), weights()>"
+        assert repr(index_result.plot) == (
+            "<IndexPlots: constituents(), level(), weights()>")
 
     def test_each_result_gets_its_own_accessor(self,
                                                index_result,
@@ -419,6 +420,64 @@ class TestCoreCharts:
                  / backtest.portfolio.initial_capital - 1.0)
 
         assert (1.0 + yearly).prod() - 1.0 == pytest.approx(whole)
+
+
+class TestConstituentsChart:
+    """BN-290: the index among its constituents."""
+
+    def test_it_draws_each_constituent_and_the_index_over_them(self,
+                                                              index_result):
+        from matplotlib.colors import to_hex
+
+        use(LIGHT)
+        ax = index_result.plot.constituents()
+        named = {text.get_text() for text in ax.texts}
+        index_line = next(line for line in data_lines(ax)
+                          if line.get_label() == "Index")
+
+        assert set(dataset.UNIVERSE) <= named
+        assert to_hex(index_line.get_color()) == colour("accent", LIGHT)
+        assert index_line.get_linewidth() == max(
+            line.get_linewidth() for line in data_lines(ax))
+
+    def test_every_line_starts_at_one_hundred(self,
+                                              index_result):
+        ax = index_result.plot.constituents()
+        series = [line for line in data_lines(ax) if len(line.get_ydata()) > 1]
+
+        assert len(series) == len(dataset.UNIVERSE) + 1
+        for line in series:
+            assert line.get_ydata()[0] == pytest.approx(100.0, abs=1e-9)
+
+    def test_a_limit_keeps_the_largest_and_says_so(self,
+                                                   index_result):
+        latest = index_result.weight_snapshots[max(index_result.weight_snapshots)]
+        largest = sorted(latest, key=lambda name: latest[name], reverse=True)[:3]
+
+        ax = index_result.plot.constituents(limit=3)
+        named = {text.get_text() for text in ax.texts} & set(dataset.UNIVERSE)
+
+        assert named == set(largest)
+        assert f"{len(latest) - 3} smaller constituent(s) not shown" in notes(ax)
+
+    def test_a_backtest_draws_the_index_it_tracked(self,
+                                                   backtest):
+        from beacon.plot import frame_text
+
+        ax = backtest.plot.constituents()
+
+        assert frame_text(ax, "title") == "The index and its constituents"
+        assert "CANON" in frame_text(ax, "subtitle")
+
+    def test_it_needs_the_data_the_index_came_from(self,
+                                                   index_result):
+        import copy
+
+        unbound = copy.copy(index_result)
+        unbound._data_fetcher = None
+
+        with pytest.raises(ValueError, match="with_data"):
+            unbound.plot.constituents()
 
 
 class TestAttributionChart:

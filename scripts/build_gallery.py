@@ -60,6 +60,7 @@ DPI = 110
 CAPTIONS = {
     "level": "The index level, rebased to 100, against an optional benchmark.",
     "weights": "Constituent weights at a rebalance, with the weight cap marked.",
+    "constituents": "The index among its constituents, each rebased to 100.",
     "performance": "Growth of 100, with a drawdown panel on the same dates.",
     "annual_returns": "Calendar-year returns, green for gains and red for "
                       "losses.",
@@ -131,6 +132,7 @@ def chart_calls(results: dict[str, object]) -> dict[str, object]:
     return {
         "level": lambda: index.plot.level(benchmark=results["benchmark"]),
         "weights": lambda: index.plot.weights(),
+        "constituents": lambda: index.plot.constituents(),
         "performance": lambda: backtest.plot.performance(),
         "annual_returns": lambda: backtest.plot.annual_returns(),
         "contributions": lambda: results["attribution"].plot.contributions(),

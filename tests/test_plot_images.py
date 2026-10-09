@@ -105,6 +105,7 @@ def charts():
     return {
         "level": lambda: index_result.plot.level(benchmark=prices["CCC"]),
         "weights": lambda: index_result.plot.weights(),
+        "constituents": lambda: index_result.plot.constituents(),
         "performance": lambda: backtest.plot.performance(),
         "annual_returns": lambda: backtest.plot.annual_returns(),
         "contributions": lambda: attribution.plot.contributions(),
@@ -138,6 +139,10 @@ class TestChartImages:
     @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
     def test_level(self, charts, mode):
         return _draw(charts, "level", mode)
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_constituents(self, charts, mode):
+        return _draw(charts, "constituents", mode)
 
     @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
     def test_weights(self, charts, mode):
@@ -195,8 +200,8 @@ class TestGalleryScript:
         names = module.render_all(tmp_path)
         images = sorted(path.name for path in tmp_path.glob("*.png"))
 
-        assert len(names) == 9
-        assert len(images) == 18
+        assert len(names) == 10
+        assert len(images) == 20
 
     def test_every_chart_has_a_caption(self):
         """A gallery of unlabelled pictures says less than a list of names."""

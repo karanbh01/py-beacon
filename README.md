@@ -137,27 +137,20 @@ pd.DataFrame({"Portfolio": result.summary()}).round(4)
 | tracking_error | 0.0005 |
 | tracking_difference | -0.0008 |
 
-**Charts.** The index against its four stocks, then the portfolio's growth
-and drawdown.
+**Charts.** The index among its four stocks, then the portfolio's growth and
+drawdown.
 
 ```python
 from beacon.plot import use
 
 use("light")  # the beacon chart style
 
-rebased = closes.assign(Index=result.index.target.levels)
-rebased = rebased / rebased.iloc[0] * 100
-
-ax = rebased[names].plot(alpha=0.45,
-                         title="The index and its stocks, rebased to 100")
-rebased["Index"].plot(ax=ax,
-                      linewidth=2.5,
-                      legend=True)
+result.plot.constituents()
 ```
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karanbh01/py-beacon/main/docs/images/quickstart-stocks.dark.png">
-  <img alt="The four stocks and the equal-weight index, each rebased to 100 over 2024. The index ends at 113.4." src="https://raw.githubusercontent.com/karanbh01/py-beacon/main/docs/images/quickstart-stocks.light.png" width="720">
+  <img alt="The equal-weight index drawn over its four stocks, each rebased to 100 over 2024. The index ends at 113.4." src="https://raw.githubusercontent.com/karanbh01/py-beacon/main/docs/images/quickstart-stocks.light.png" width="720">
 </picture>
 
 ```python

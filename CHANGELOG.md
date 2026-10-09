@@ -11,6 +11,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 ### Added
 
 - Charts that create their own figure are framed as Beacon desktop frames them: a title in Inter Tight and a subtitle in Playfair Display italic beside a thin accent bar, one italic notes line saying where the data came from and the dates it covers, and the beta mark at the bottom right. Every chart method and `compare` takes `title=`, `subtitle=` and `notes=` to replace them, or an empty string to leave one out, and `beacon.plot.frame_text(ax, part)` reads them back. The fonts ship with py-beacon under the SIL Open Font License.
+- `constituents()` on an index or a backtest result: the index drawn over its constituents' closes, all rebased to 100, each named at the end of its line. It draws the eight largest by weight unless given another `limit`, and the notes say how many it left out. The quickstart's first chart now uses it.
 
 ### Changed
 

@@ -30,6 +30,7 @@ from . import style as beacon_style
 from .base import ChartMethods
 from .drawing import (
     MAX_BARS,
+    MAX_LINES,
     MINIMUM_BAR,
     _axes,
     _finish,
@@ -103,6 +104,92 @@ class IndexPlots(ChartMethods):
                        _given(notes, sentences(
                            provenance(result, "index", levels.index),
                            "Rebased to 100 at the first observation.")))
+
+    def constituents(self,
+                     limit: int = MAX_LINES,
+                     ax: Axes | None = None,
+                     title: str | None = None,
+                     subtitle: str | None = None,
+                     notes: str | None = None) -> Axes:
+        """The index among its constituents, each rebased to 100.
+
+        The constituents are the names held at the latest rebalance, each
+        drawn from its close in the data the index was calculated from and
+        named at the end of its line. The index is drawn over them.
+
+        Args:
+            limit: How many constituents to draw, the largest by weight at
+                the latest rebalance. The notes say how many were left out.
+            ax: Axes to draw on.
+            title: The heading. Defaults to the chart's own.
+            subtitle: Beneath the heading. Defaults to what the chart shows.
+            notes: The notes line, after "Notes:". Defaults to the data's
+                source and dates and what the chart needs said.
+
+        Returns:
+            Axes: What was drawn on.
+
+        Raises:
+            ValueError: If the result is bound to no data to read the
+                constituents' prices from.
+        """
+        result = self._result
+        fetcher = result._data_fetcher
+
+        if fetcher is None:
+            raise ValueError(
+                "the constituents' prices come from the data the index was "
+                "calculated from, and this result has none bound; call "
+                "result.with_data(fetcher) first.")
+
+        ax = _axes(ax, "constituents")
+        levels = _rebase(_series(result.index_levels))
+        start, end = levels.index[0], levels.index[-1]
+
+        latest = result.weight_snapshots[max(result.weight_snapshots)]
+        names = sorted(latest, key=lambda name: latest[name], reverse=True)
+        drawn = names[:limit]
+
+        for name in drawn:
+            closes = fetcher.fetch_market_data(name, start, end)["CLOSE"]
+            closes = _series(closes).reindex(levels.index).dropna()
+
+            if closes.empty:
+                logger.warning("No closes for %s between %s and %s; it is "
+                               "left off the constituents chart.",
+                               name, start.date(), end.date())
+                continue
+
+            rebased = _rebase(closes)
+            ax.plot(rebased.index, rebased.to_numpy(),
+                    color=_ink(ax, "text-muted"),
+                    linewidth=beacon_style.BENCHMARK_WIDTH, alpha=0.7)
+            ax.annotate(name, xy=(rebased.index[-1], rebased.iloc[-1]),
+                        xytext=(4, 0), textcoords="offset points",
+                        va="center", fontsize=7, color=_ink(ax, "text-muted"))
+
+        ax.plot(levels.index, levels.to_numpy(), color=_ink(ax, "accent"),
+                linewidth=beacon_style.SERIES_WIDTH * 1.6, label="Index",
+                zorder=4)
+        _mark_last(ax, levels)
+        _reference_at(ax, 100.0)
+
+        left_out = len(names) - len(drawn)
+        note = sentences(
+            provenance(result, "index", levels.index),
+            "Each constituent's close, rebased to 100 on the index's first day.",
+            f"{left_out} smaller constituent(s) not shown." if left_out else "")
+
+        return _finish(ax,
+                       _given(title, "The index and its constituents"),
+                       _given(subtitle, f"{result.index_id} among its "
+                                        f"{len(drawn)} largest constituents, "
+                                        f"rebased to 100"
+                              if left_out else
+                              f"{result.index_id} among its constituents, "
+                              f"rebased to 100"),
+                       "Level",
+                       _given(notes, note))
 
     def weights(self,
                 date: pd.Timestamp | None = None,
@@ -222,6 +309,44 @@ class BacktestPlots(ChartMethods):
                        _given(notes, sentences(
                            provenance(self._result, "backtest", levels.index),
                            "Drawdown is the level against its running peak.")))
+
+    def constituents(self,
+                     limit: int = MAX_LINES,
+                     ax: Axes | None = None,
+                     title: str | None = None,
+                     subtitle: str | None = None,
+                     notes: str | None = None) -> Axes:
+        """The index the backtest tracked, among its constituents.
+
+        The same chart as `IndexResult.plot.constituents()`, for the index
+        the run aimed at.
+
+        Args:
+            limit: How many constituents to draw, the largest by weight.
+            ax: Axes to draw on.
+            title: The heading. Defaults to the chart's own.
+            subtitle: Beneath the heading. Defaults to what the chart shows.
+            notes: The notes line, after "Notes:". Defaults to the data's
+                source and dates and what the chart needs said.
+
+        Returns:
+            Axes: What was drawn on.
+
+        Raises:
+            ValueError: If the run tracked weights rather than an index.
+        """
+        source = self._result.index.target.source
+
+        if source is None:
+            raise ValueError(
+                "this backtest tracked weights rather than a calculated "
+                "index, so it has no constituents to draw.")
+
+        return IndexPlots(source).constituents(limit=limit,
+                                               ax=ax,
+                                               title=title,
+                                               subtitle=subtitle,
+                                               notes=notes)
 
     def annual_returns(self,
                        ax: Axes | None = None,

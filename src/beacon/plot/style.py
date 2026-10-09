@@ -65,6 +65,7 @@ REFERENCE_WIDTH = 0.8
 # long axis; a weights chart is tall because names stack.
 FIGSIZE = {
     "level": (9.0, 4.5),
+    "constituents": (9.0, 4.5),
     "performance": (9.0, 6.0),
     "annual_returns": (9.0, 4.0),
     "weights": (7.5, 5.5),

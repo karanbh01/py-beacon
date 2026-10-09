@@ -26,8 +26,10 @@ Pictures of every chart, in both styles, are in the [Gallery](../gallery.md).
 | Result | Method | Draws |
 | --- | --- | --- |
 | `IndexResult` | `level(benchmark=None, ax=None, label="Index")` | The index level rebased to 100, with an optional benchmark series |
+| `IndexResult` | `constituents(limit=8, ax=None)` | The index drawn over its constituents' closes, all rebased to 100, each constituent named at its line's end; the largest `limit` by weight |
 | `IndexResult` | `weights(date=None, ax=None)` | Constituent weights at a rebalance (the latest by default), with the weight cap marked |
 | `BacktestResult` | `performance(ax=None)` | Growth of 100 with a linked drawdown panel beneath |
+| `BacktestResult` | `constituents(limit=8, ax=None)` | The same chart for the index the run tracked |
 | `BacktestResult` | `annual_returns(ax=None)` | Calendar-year returns as green and red bars, each year from the previous year's close and the first from the initial capital (the same figures as `get_annual_returns()`) |
 | `AttributionResult` | `contributions(ax=None)` | Each constituent's contribution to return, with the cap and cost drags in the notes |
 | `OptimisationResult` | `exposures(ax=None)` | Active weights (optimal minus target), with tracking error and turnover |

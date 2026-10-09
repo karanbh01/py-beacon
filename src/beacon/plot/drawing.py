@@ -28,6 +28,10 @@ MINIMUM_BAR = 1e-4
 # readable. Beyond this the labels collide and the chart says less than a table.
 MAX_BARS = 25
 
+# How many constituents a constituents chart draws. More lines than this are a
+# tangle in which no one line can be followed.
+MAX_LINES = 8
+
 # Short names, as the methods below used them before the frame moved out.
 _ink = ink
 _finish = finish
