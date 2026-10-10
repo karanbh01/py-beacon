@@ -1,5 +1,5 @@
 # tests/test_fund_record.py
-"""BN-268: Fund, the product record, and the deprecation of IndexFund and ETF.
+"""BN-268: Fund, the product record.
 
 A fund over test_backtest_flows' two names, as an index definition so
 `fund.backtest` runs the whole Backtest path: GROW rises and FLAT does not,
@@ -12,11 +12,9 @@ import pytest
 from beacon.backtest import Backtest, PeriodicFlows, uk_oeic, us_etf
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
-from beacon.fund import ETF, Fund, IndexFund, ShareClass
-from beacon.index.calculation import IndexCalculator
+from beacon.fund import Fund, ShareClass
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
-from beacon.portfolio.base import Portfolio
 from test_backtest_flows import DAYS, fetcher
 
 END = str(DAYS[-1].date())
@@ -130,27 +128,3 @@ class TestBacktestingAClass:
                                  data_provider=with_shares(), cache=False)
 
         assert not result.market.empty
-
-
-class TestTheOldFundsAreDeprecated:
-
-    def build(self,
-              fund_class,
-              **extra):
-        data = with_shares()
-
-        return fund_class("OLD", target_index_definition=definition(),
-                          index_agent=IndexCalculator(definition(), data),
-                          portfolio=Portfolio("seed", initial_cash=CAPITAL),
-                          data_provider=data, **extra)
-
-    def test_an_index_fund_warns(self):
-        with pytest.warns(DeprecationWarning, match="0.6.0"):
-            self.build(IndexFund)
-
-    def test_an_etf_warns_once(self):
-        with pytest.warns(DeprecationWarning) as caught:
-            self.build(ETF, etf_ticker="OLD")
-
-        assert len([w for w in caught if w.category is DeprecationWarning]) == 1
-        assert "ucits_etf" in str(caught[0].message)

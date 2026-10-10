@@ -553,7 +553,7 @@ print(in_gbp.get_tracking_error() < in_usd.get_tracking_error())   # True
 ```
 
 An index that does not record its currency, such as one built by hand, gets
-a book in USD. An `IndexFund` follows the same rule.
+a book in USD.
 
 ## Modelling assumptions
 

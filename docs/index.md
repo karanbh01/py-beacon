@@ -236,7 +236,7 @@ these results. [Concepts](concepts/overview.md) walks through each part.
 | `beacon.index` | `IndexDefinition`, eligibility rules, weighting schemes, capping, `IndexCalculator` and `IndexResult`, and optimised indices derived from another index | [Methodology](concepts/methodology.md) |
 | `beacon.backtest` | `Backtest`, `BacktestEngine`, modifiers that skip or adjust a rebalance, and `BacktestResult` | [Backtest](concepts/backtest.md) |
 | `beacon.portfolio` | The `Portfolio` ledger (holdings, cash, transactions, NAV) and Excel reporting | [Reference](reference/portfolio.md) |
-| `beacon.fund` | `Fund`, a fund product with share classes, a strategy and a vehicle; the deprecated `IndexFund` and `ETF` | [Funds](concepts/funds.md) |
+| `beacon.fund` | `Fund`, a fund product with share classes, a strategy and a vehicle | [Funds](concepts/funds.md) |
 | `beacon.derivatives` | `IndexFuture`, `ETFFuture` and `TotalReturnSwap`, rate curves, futures term structures and pricing functions | [Derivatives](concepts/derivatives.md) |
 | `beacon.optimise` | Constraints and solvers: tracking-error minimisation, minimum variance, efficient frontiers | [Optimiser](concepts/optimiser.md) |
 | `beacon.risk` | Covariance estimation with shrinkage, factor models and risk contributions | [Risk model](concepts/risk-model.md) |

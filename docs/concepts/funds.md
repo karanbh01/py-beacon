@@ -1,6 +1,6 @@
 ---
 title: Funds and ETFs
-description: "Index funds and ETFs: seed capital, the management fee, the market price and tracking."
+description: "Fund, a fund product with share classes, one strategy and one vehicle, and tracking it against its index."
 ---
 
 # Funds and ETFs
@@ -53,179 +53,22 @@ fund once for that class. A real fund's classes share one pool of assets, so
 their flows trade one book and share its capacity and costs; a run per class
 leaves that out.
 
-## IndexFund and ETF
+## Tracking a fund against its index
 
-!!! warning "Deprecated"
-    `IndexFund` and `ETF` will be removed in 0.6.0. Use a `Fund` with a
-    vehicle: `uk_oeic()` or another open-ended preset in place of
-    `IndexFund`, and `ucits_etf()` or `us_etf()` in place of `ETF`, which
-    model creations and the market price's premium, discount and spread.
-    They charge their management fee as below, not as a vehicle does.
-
-`IndexFund` runs a [backtest](backtest.md) of its index and reports a NAV net
-of a management fee. `ETF` is an `IndexFund` with a ticker, a creation unit
-size and a simulated market price. Tracking analytics for either live in
-`beacon.analysis`.
-
-## What a fund is made of
-
-A fund holds no trading logic. Its `run_backtest()` builds a `Backtest` and
-runs it on the fund's index definition: the index is calculated (or reused
-from the cache) and a portfolio is simulated trading to it, exactly as
-described in [Backtest](backtest.md). Rebalancing, costs, partial fills,
-delistings and price gaps all behave as they do there.
-
-```python
-import logging
-
-import pandas as pd
-
-from beacon.fund import ETF
-from beacon.index.calculation import IndexCalculator
-from beacon.index.constructor import IndexDefinition
-from beacon.index.methodology import MarketCapWeighted
-from beacon.portfolio.base import Portfolio
-from beacon.testing import dataset
-
-logging.getLogger("beacon").setLevel(logging.ERROR)  # keep the output short
-
-fetcher = dataset.data_fetcher()  # frozen sample data, held in memory
-
-definition = IndexDefinition(
-    index_id="SAMPLE", index_name="Sample Market-Cap Index",
-    base_date="2023-01-03", base_value=1000.0, currency="USD",
-    eligibility_rules=[], weighting_scheme=MarketCapWeighted(),
-    rebalancing_frequency="QUARTERLY", calendar="XNYS",
-    universe_identifiers=["AAA", "BBB", "CCC", "DDD", "EEE"],
-)
-
-etf = ETF(fund_id="SAMPLE-FUND",
-          etf_ticker="SMPL",
-          target_index_definition=definition,
-          index_agent=IndexCalculator(definition, fetcher),
-          portfolio=Portfolio("seed", initial_cash=10_000_000.0),
-          data_provider=fetcher,
-          management_fee_bps=20)
-
-result = etf.run_backtest(end_date="2024-12-31", transaction_cost_bps=2.0)
-print(result.summary()["total_return"])
-```
-
-The constructor arguments, and what the fund does with each:
-
-- **`portfolio`** is seed capital only. Its cash balance becomes the
-  backtest's initial capital; the fund never trades in it or changes it. The
-  simulated holdings are in `result.portfolio`.
-- **`index_agent`** is an `IndexCalculator` for the index, of which only
-  `price_column` is read. The backtest calculates the index itself from
-  `target_index_definition`.
-- **`data_provider`** feeds both the calculation and the simulation.
-- **`management_fee_bps`** is the annual fee in basis points (20 is 0.20%). It
-  must not be negative.
-
-`run_backtest(start_date=None, end_date=..., transaction_cost_bps=0.0)` runs
-from the index's base date unless told otherwise, and requires `end_date`.
-The trading cost is separate from the management fee. The result is kept on
-the fund as `backtest_result`, and the index calculation it tracked as
-`index_result`. When `calculate_nav` or `rebalance_to_index` asks for a date
-the stored run does not reach, the fund runs again to that date with the
-start date and trading cost of its last run (from the base date at no cost if
-it has not run yet).
-
-The fund passes these keyword-only settings to the `Backtest` it builds,
-each with that class's default when unset: `currency`,
-`modelling_assumptions`, `dividends`, `implementation`, `modifiers`,
-`benchmark` and `cache` (`cache=False` turns caching off). What each does is
-in [Backtest](backtest.md).
-
-```python
-from beacon.backtest import Implementation, WeightCap
-
-capped = ETF(fund_id="CAPPED-FUND", etf_ticker="CAPD",
-             target_index_definition=definition,
-             index_agent=IndexCalculator(definition, fetcher),
-             portfolio=Portfolio("seed", initial_cash=10_000_000.0),
-             data_provider=fetcher, management_fee_bps=20,
-             implementation=Implementation(caps=[WeightCap(0.25)]),
-             cache=False)
-
-capped_result = capped.run_backtest(end_date="2024-12-31")
-print(max(capped_result.rebalance_steps[0].weights.values()) <= 0.25)  # True
-```
-
-## NAV and the management fee
-
-`calculate_nav(date)` returns the fund's NAV on a date, net of the management
-fee:
-
-1. The **gross NAV** is the backtest's `trading_nav` on the last day on or
-   before `date`.
-2. The **fee** accrues daily at the annual rate divided by 252, compounded
-   over the number of NAV-series days elapsed since the first:
-
-    `net = gross * (1 - fee_bps / 10_000 / 252) ** n`
-
-    where `n` is 0 on the first simulated day, 1 on the next, and so on. `n`
-    counts rows of the NAV series (trading sessions), not calendar days.
-
-Before the simulation starts, `calculate_nav` returns the seed cash.
-
-The fee is applied to the NAV when it is read. It is never taken out of the
-simulated portfolio, so the backtest result stays gross of it.
-
-```python
-last_day = result.trading_nav.index[-1]
-days = len(result.trading_nav) - 1
-
-gross = result.trading_nav.iloc[-1]
-net = etf.calculate_nav(last_day)
-
-print(round(gross, 2), round(net, 2))
-print(round(net / gross, 6), round((1 - 0.0020 / 252) ** days, 6))
-```
-
-If `date` is later than the last day of the existing run, `calculate_nav`
-runs the backtest again from the index's base date through `date`, and that
-run uses **no transaction cost**, whatever the earlier `run_backtest` call
-used. It replaces the stored result. Call `run_backtest` with an `end_date`
-that covers every date you will ask about to keep your cost assumption.
-`rebalance_to_index(date)` does the same extension and nothing else.
-
-## ETF market price
-
-`simulate_market_price(date)` sets `etf.market_price` and returns it. It is
-the fee-adjusted NAV from `calculate_nav(date)`: no premium, discount or
-bid-ask spread is modelled, and `market_factors` is ignored. It is the whole
-fund's value, not a price per share, since the fund does not track shares in
-issue. `creation_unit_size` (default 50,000) is stored on the ETF but no
-calculation uses it.
-
-```python
-price = etf.simulate_market_price(last_day)
-print(price == net)
-```
-
-## Tracking difference and tracking error
-
-**Tracking difference** is the fund's cumulative return minus the index's
-over the period. It is not annualised. **Tracking error** is the annualised
+A fund's backtest is measured against the index it tracked.
+`get_tracking_difference()` is the run's cumulative return minus the index's
+over the period, not annualised. `get_tracking_error()` is the annualised
 standard deviation of the daily return differences, which measures how
 consistently the fund follows the index rather than how far it falls behind.
 
-`etf.get_tracking_performance(result)` returns both as a dict, taken from the
-result's `get_tracking_difference()` and `get_tracking_error()`. These compare
-the backtest's **gross** NAV with the index, so they include trading costs
-and partial fills but not the management fee. They start from the initial
-capital, so the opening trade's cost is in them (see
-[Reading the result](backtest.md#reading-the-result)). A result that tracked
-no index gives `{"error": ...}` instead.
-
 ```python
-print(etf.get_tracking_performance(result))
+print("Tracking difference:", round(result.get_tracking_difference(), 6))
+print("Tracking error:", f"{result.get_tracking_error():.2e}")
 ```
 
-To measure the fund as an investor holds it, net of the fee, build the net NAV
-series and use the functions in `beacon.analysis`:
+The functions in `beacon.analysis` measure any pair of return series, such as
+the fund's NAV per unit, which is net of its fees and costs, against the
+index, and an exchange-traded fund's market price against its NAV:
 
 ```python
 from beacon.analysis import (
@@ -234,11 +77,10 @@ from beacon.analysis import (
     calculate_tracking_error,
 )
 
-net_nav = pd.Series({day: etf.calculate_nav(day)
-                     for day in result.trading_nav.index})
-index_levels = result.index.target.levels.reindex(net_nav.index)
+nav = result.nav_per_unit
+index_levels = result.index.target.levels.reindex(nav.index)
 
-fund_returns = net_nav.pct_change().dropna()
+fund_returns = nav.pct_change().dropna()
 index_returns = index_levels.pct_change().dropna()
 
 print("Tracking difference:",
@@ -246,14 +88,9 @@ print("Tracking difference:",
 print("Tracking error:",
       f"{calculate_tracking_error(fund_returns, index_returns):.2e}")
 print("Premium or discount:",
-      calculate_premium_discount(etf.market_price, net))
+      round(calculate_premium_discount(result.market["market_price"].iloc[-1],
+                                       nav.iloc[-1]), 6))
 ```
-
-Over these two years the fee takes about 0.4% off the NAV. The tracking
-difference is larger, about 0.58 percentage points, because it compares
-cumulative returns and the fee comes off a NAV that has grown by about 45%.
-The tracking error barely changes from the gross figure: a steady fee shifts
-every day's return by the same small amount.
 
 The functions and their rules:
 
