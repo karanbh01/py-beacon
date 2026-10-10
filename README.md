@@ -138,12 +138,15 @@ pd.DataFrame({"Portfolio": result.summary()}).round(4)
 | tracking_difference | -0.0008 |
 
 **Charts.** The index among its four stocks, then the portfolio's growth and
-drawdown.
+drawdown. The charts here have no background of their own:
+`transparent-dark-axes` is for a light page and `transparent-light-axes` for
+a dark one, and these are shown in whichever matches yours. `use("light")`
+and `use("dark")` draw on Beacon's own canvas.
 
 ```python
 from beacon.plot import use
 
-use("light")  # the beacon chart style
+use("transparent-dark-axes")  # no background, for a light page
 
 result.plot.constituents()
 ```
