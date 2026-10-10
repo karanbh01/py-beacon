@@ -142,7 +142,7 @@ class OptimisationPlots(ChartMethods):
             ax.annotate(f"Sharpe {tangency.sharpe_ratio:.2f}",
                         xy=(tangency.volatility, tangency.expected_return or 0.0),
                         xytext=(beacon_style.scaled(8), beacon_style.scaled(-10)),
-                        textcoords="offset points", fontsize=beacon_style.TICK_LABEL_SIZE,
+                        textcoords="offset points", fontsize=beacon_style.LINE_LABEL_SIZE,
                         color=tangency_ink, fontweight="bold")
 
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")

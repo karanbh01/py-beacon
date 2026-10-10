@@ -99,7 +99,7 @@ def _mark_last(ax: Axes,
     ax.annotate(f"{series.iloc[-1]:,.1f}",
                 xy=(series.index[-1], series.iloc[-1]),
                 xytext=(beacon_style.scaled(6), 0), textcoords="offset points",
-                va="center", fontsize=beacon_style.TICK_LABEL_SIZE, color=ink,
+                va="center", fontsize=beacon_style.LINE_LABEL_SIZE, color=ink,
                 fontweight="bold")
 
 

@@ -11,6 +11,10 @@ bar and the mark's own axes are left as they are.
 Where both axes of a chart measure, their first ticks meet at the corner, and
 the lowest label on the y axis would sit on top of the first on the x axis,
 so that one label is left blank.
+
+A framed chart's side margins widen to fit what it draws, so wide tick
+labels, an axis title or a value marked at a line's end stay inside the
+figure.
 """
 import math
 from typing import Any
@@ -138,3 +142,44 @@ def _has(ticks: list[float],
          value: float) -> bool:
     """Whether *value* is one of *ticks*."""
     return any(math.isclose(tick, value, rel_tol=0, abs_tol=1e-6) for tick in ticks)
+
+
+def fit_sides(figure: Any,
+              margin: float) -> bool:
+    """Widen the figure's side margins until nothing a chart draws (tick
+    labels, axis titles, a value marked at a line's end, a colour bar's
+    labels) runs past *margin* inches from either edge.
+
+    Measured with the figure's renderer, which every raster backend has; a
+    canvas that cannot give one keeps the style's margins.
+
+    Returns:
+        bool: Whether the margins moved.
+    """
+    get_renderer = getattr(figure.canvas, "get_renderer", None)
+
+    if get_renderer is None:
+        return False
+
+    renderer = get_renderer()
+    width = float(figure.get_size_inches()[0]) * float(figure.dpi)
+    panels = [axes for axes in figure.get_axes() if axes.get_label() != MARK_LABEL]
+    boxes = [box for box in (axes.get_tightbbox(renderer) for axes in panels)
+             if box is not None]
+
+    if not boxes:
+        return False
+
+    edge = margin * float(figure.dpi)
+    left_over = edge - min(box.x0 for box in boxes)
+    right_over = max(box.x1 for box in boxes) - (width - edge)
+    params = figure.subplotpars
+    left = params.left + max(left_over, 0.0) / width
+    right = params.right - max(right_over, 0.0) / width
+
+    if math.isclose(left, params.left) and math.isclose(right, params.right):
+        return False
+
+    figure.subplots_adjust(left=left, right=right)
+
+    return True

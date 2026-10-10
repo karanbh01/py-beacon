@@ -17,7 +17,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Changed
 
-- Charts are designed 6in wide and drawn at 80% of their size, with fixed small text: 5.5pt axis titles, 5.3pt tick labels, legends and line labels, and 4.5pt notes. The time series are 3:2.
+- Charts are designed 6in wide and drawn at 80% of their size, with fixed text sizes: 8pt axis titles, 7.8pt tick labels, 5.5pt legends and labels on lines, and 4.5pt notes, all in the title's colour. The time series are 3:2. Date axes label the year at each January and the month between, and a chart's side margins widen to fit its labels.
 - Every axis that measures something ends on its outermost ticks, and where both axes measure, the lowest y label is left blank so it does not sit on the first x label.
 - The level charts (`level`, `constituents`, `performance` and `compare`) have no gridlines and draw one line at 100. The bar charts and the frontier have no gridlines either, with a line at zero where a bar can fall below it. Ticks point inwards, and the axes are thinner and in the title's colour.
 - The frontier's x axis is labelled, and its tangency point is a deep blue rather than orange. The correlation heatmap has no tick marks, and its colour bar is labelled at each end.

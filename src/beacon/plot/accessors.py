@@ -168,7 +168,7 @@ class IndexPlots(ChartMethods):
             ax.annotate(name, xy=(rebased.index[-1], rebased.iloc[-1]),
                         xytext=(beacon_style.scaled(4), 0),
                         textcoords="offset points", va="center",
-                        fontsize=beacon_style.TICK_LABEL_SIZE,
+                        fontsize=beacon_style.LINE_LABEL_SIZE,
                         color=_ink(ax, "text-muted"))
 
         ax.plot(levels.index, levels.to_numpy(), color=_ink(ax, "accent"),
@@ -234,7 +234,7 @@ class IndexPlots(ChartMethods):
             ax.annotate(f"cap {cap:.1%}", xy=(cap, len(labels) - 0.5),
                         xytext=(beacon_style.scaled(4), 0),
                         textcoords="offset points",
-                        fontsize=beacon_style.TICK_LABEL_SIZE, color=_ink(ax, "danger"),
+                        fontsize=beacon_style.LINE_LABEL_SIZE, color=_ink(ax, "danger"),
                         va="top")
 
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
@@ -307,6 +307,9 @@ class BacktestPlots(ChartMethods):
         # 2.5% step to "-2%" and "-8%".
         lower.yaxis.set_major_formatter(PercentFormatter(1.0))
         lower.set_ylabel("Drawdown")
+        # The two panels' axis titles in one column, whatever their labels'
+        # widths.
+        figure.align_ylabels([upper, lower])
         lower.grid(visible=False)
 
         return _finish(upper,

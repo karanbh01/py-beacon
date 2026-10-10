@@ -67,8 +67,13 @@ def scaled(value: float) -> float:
 # The chart's small text, in points as drawn rather than scaled, so it stays
 # readable whatever SCALE is: the axis titles, and the tick labels and legend
 # entries, which share a size.
-AXIS_TITLE_SIZE = 5.5
-TICK_LABEL_SIZE = 5.3
+AXIS_TITLE_SIZE = 8.0
+TICK_LABEL_SIZE = 7.8
+
+# Labels drawn on the chart itself (the value at a line's end, the names at
+# the constituents' ends, the cap, the Sharpe ratio) and the legend's, smaller
+# than the axes' so they annotate rather than compete.
+LINE_LABEL_SIZE = 5.5
 
 # Line weights, in points. The primary series is deliberately heavier than the
 # grid and the benchmark so the eye lands on it first.
@@ -222,11 +227,16 @@ def style_dict(theme: str = LIGHT) -> dict[str, Any]:
         "legend.scatterpoints": 1,
 
         "legend.frameon": False,
-        "legend.fontsize": TICK_LABEL_SIZE,
+        "legend.fontsize": LINE_LABEL_SIZE,
         "legend.labelcolor": ink["text-primary"],
 
         # No padding beyond the data: each measuring axis is then ended on its
         # outermost ticks (beacon.plot.frame.end_on_ticks).
+        # Dates as the year at each January and the month between, so a
+        # two-year axis reads "2023, Apr, Jul, Oct, 2024" rather than
+        # crowding nine full dates.
+        "date.converter": "concise",
+
         "axes.xmargin": 0.0,
         "axes.ymargin": 0.0,
 

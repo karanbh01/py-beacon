@@ -49,7 +49,7 @@ from .legend import LegendPlan, text_width  # noqa: E402
 from .legend import place as place_legend  # noqa: E402
 from .legend import plan as legend_plan  # noqa: E402
 from .mark import beta_outline  # noqa: E402
-from .scales import MARK_LABEL, end_on_ticks  # noqa: E402
+from .scales import MARK_LABEL, end_on_ticks, fit_sides  # noqa: E402
 from .style import SCALE  # noqa: E402
 from .themes import Theme, for_background, of_figure, remember, theme_named  # noqa: E402
 
@@ -254,7 +254,7 @@ def finish(ax: Axes,
 
     if notes:
         ax.text(0.0, note_offset, notes, transform=ax.transAxes,
-                fontsize=7 * SCALE, color=ink(ax, "text-muted"), va="top",
+                fontsize=7 * SCALE, color=ink(ax, "text-primary"), va="top",
                 gid="beacon-notes")
 
     return ax
@@ -339,6 +339,7 @@ def frame(ax: Axes,
         floor = MARGIN_INCHES + len(lines) * NOTES_SIZE * NOTES_LINE_HEIGHT / 72.0
         figure.subplots_adjust(top=(band - PLOT_GAP_INCHES) / height,
                                bottom=(floor + NOTES_GAP_INCHES + bottom_room) / height)
+        fit_sides(figure, MARGIN_INCHES)
         left, right = _plot_edges(ax, width)
 
         if notes:
@@ -385,7 +386,7 @@ def frame(ax: Axes,
         figure.text(left / width, floor / height,
                     "\n".join(lines), fontfamily=NOTES_FONT, fontsize=NOTES_SIZE,
                     fontstyle="italic", fontweight=CHART_WEIGHT,
-                    color=theme.colour("text-muted"),
+                    color=theme.colour("text-primary"),
                     ha="left", va="top", linespacing=NOTES_LINE_HEIGHT,
                     gid="beacon-notes")
 

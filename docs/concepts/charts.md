@@ -155,7 +155,10 @@ the first label of the x axis. The level charts (`level`, `constituents`,
 where every series starts, so a glance says whether it has gained or lost;
 the bar charts and the frontier have no gridlines either, with a line at zero
 where a bar can fall below it. The ticks point inwards, and the axes, their
-labels and the legend are in the title's colour.
+labels, the legend and the notes are in the title's colour. Date axes label
+the year at each January and the month between ("2023, Apr, Jul, Oct,
+2024"), and a chart's side margins widen to fit its labels, so nothing runs
+off its edges.
 
 The fonts (Inter Tight and Source Serif 4) ship with py-beacon under the SIL
 Open Font License, so a chart looks the same on every machine without

@@ -275,3 +275,49 @@ class TestCorrelationShading:
 
         assert all(tick.tick1line.get_markersize() == 0
                    for tick in ax.xaxis.get_major_ticks())
+
+
+class TestReadableText:
+    """BN-295."""
+
+    def test_dates_are_the_year_and_the_month(self,
+                                              index_result):
+        ax = index_result.plot.level()
+        ax.figure.canvas.draw()
+        labels = [label.get_text() for label in ax.get_xticklabels()]
+
+        assert labels[0] == "2023"
+        assert "Apr" in labels
+
+    @pytest.mark.parametrize("chart", ["performance", "correlation", "level"])
+    def test_nothing_runs_past_the_figure(self,
+                                          chart,
+                                          index_result,
+                                          backtest,
+                                          risk_model):
+        draw = {"performance": backtest.plot.performance,
+                "correlation": risk_model.plot.correlation,
+                "level": index_result.plot.level}[chart]
+        figure = draw().figure
+        figure.canvas.draw()
+        renderer = figure.canvas.get_renderer()
+
+        for axes in figure.get_axes():
+            box = axes.get_tightbbox(renderer)
+            assert box.x0 >= 0
+            assert box.x1 <= figure.bbox.width
+
+    def test_the_notes_are_in_the_labels_colour(self,
+                                                index_result):
+        notes = text_with(index_result.plot.level().figure, "beacon-notes")
+
+        assert to_hex(notes.get_color()) == colour("text-primary", LIGHT)
+
+    def test_the_legend_and_line_labels_share_a_size(self,
+                                                     index_result):
+        ax = index_result.plot.level(benchmark=dataset.prices()["CCC"].loc[:END])
+        sizes = {text.get_fontsize() for text in ax.get_legend().get_texts()}
+        value = next(text for text in ax.texts if text.get_text().replace(".", "").isdigit())
+
+        assert sizes == {style.LINE_LABEL_SIZE}
+        assert value.get_fontsize() == style.LINE_LABEL_SIZE
