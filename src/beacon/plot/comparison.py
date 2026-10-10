@@ -118,13 +118,14 @@ def compare(*results: Any,
     window = window.sort_values()
 
     if ax is None:
-        ax = new_figure(beacon_style.FIGSIZE["compare"]).add_subplot()
+        ax = new_figure(beacon_style.figure_size("compare")).add_subplot()
 
     for name, values in zip(names, series, strict=True):
         clipped = values.loc[window]
         rebased = clipped / float(clipped.iloc[0]) * 100.0
 
-        ax.plot(rebased.index, rebased.to_numpy(), linewidth=1.5, label=name)
+        ax.plot(rebased.index, rebased.to_numpy(),
+                linewidth=beacon_style.SERIES_WIDTH, label=name)
 
     # A level chart's one line, at the shared start, in place of gridlines.
     ax.grid(visible=False)

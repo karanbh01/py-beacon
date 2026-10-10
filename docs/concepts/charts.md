@@ -34,7 +34,7 @@ Pictures of every chart, in both styles, are in the [Gallery](../gallery.md).
 | `AttributionResult` | `contributions(ax=None)` | Each constituent's contribution to return, with the cap and cost drags in the notes |
 | `OptimisationResult` | `exposures(ax=None)` | Active weights (optimal minus target), with tracking error and turnover |
 | `OptimisationResult` | `frontier(frontier, risk_free_rate=None, ax=None)` | An efficient frontier, its minimum-variance and tangency points and the capital market line |
-| `RiskModel` | `correlation(ax=None)` | The correlation matrix as a heatmap |
+| `RiskModel` | `correlation(shading="squares", ax=None)` | The correlation matrix as a heatmap, each pair a square or, with `shading="blended"`, the colours blended from cell to cell |
 
 Every method, and `compare`, also takes `title=`, `subtitle=` and `notes=`,
 described [below](#titles-notes-and-the-mark). Typing `result.plot` at a
@@ -99,10 +99,16 @@ Every method returns an `Axes`, so save through `ax.figure.savefig(...)` or
 `plt.savefig(...)`. Close figures you are done with (`plt.close("all")`),
 since matplotlib keeps each one in memory until then.
 
-When a method creates the figure, its size is fixed per chart kind: wide for
-time series, taller for bar charts of names. The styles save with a standard
-bounding box rather than a tight one, so a saved image's pixel size depends
-only on the figure size and `dpi`.
+When a method creates the figure, its size is fixed per chart kind. Every
+chart is designed 6in wide: 6 by 4.5 for the time series, annual returns and
+the bar charts of names, and 6 by 5.5 for the frontier and the correlation
+heatmap. The performance chart is taller, so its upper panel matches the
+level chart's plot with the drawdown panel beneath. Charts are drawn at 80%
+of these sizes (`beacon.plot.style.SCALE`), lines and spacing with them;
+the heading and the small text keep their own sizes, so they stay readable.
+The styles save with a standard bounding box rather than a tight one, so a
+saved image's pixel size depends only on the figure size and `dpi`; save at
+`dpi=300` for a sharp image on a high-density screen.
 
 ## Titles, notes and the mark
 
@@ -110,16 +116,20 @@ A chart that creates its own figure is framed the way Beacon desktop frames
 one:
 
 - **A title and a subtitle** at the top left: the title in Inter Tight and the
-  subtitle beneath it in Playfair Display italic, with a thin accent bar down
+  subtitle beneath it in Source Serif 4 italic, with a thin accent bar down
   their left, level with the y axis.
+- **The beta mark**, the glyph Beacon desktop shows in its menu bar, just left
+  of the accent bar.
+- **The legend**, when the chart has one, at the right of the heading, ending
+  where the x axis does and level with the subtitle. It takes as many columns
+  as fit beside the title and subtitle and wraps onto more rows when they do
+  not; a legend too wide to sit beside the heading goes under it.
 - **Notes** at the bottom left, starting under the y axis: one italic line
   beginning "Notes:" that says where the data came from, the dates it covers,
   and anything the chart needs said, such as what its drawdown measures or
   how many bars it left out. The source is named when the data recorded it,
   as a data store does, for example "Source: Synthetic data, backtest dated
   from 03/01/2023 to 31/12/2024."
-- **The beta mark** at the bottom right, its right edge where the x axis ends
-  (on the correlation chart, under the colour bar's label).
 
 Each chart has its own title and subtitle. Pass `title=`, `subtitle=` or
 `notes=` to replace them, or an empty string to leave one out.
@@ -137,12 +147,19 @@ print(frame_text(ax, "notes"))
 plt.close("all")
 ```
 
-The level charts (`level`, `performance` and `compare`) have no gridlines.
-They draw one line at 100, where every series starts, so a glance says
-whether it has gained or lost. The ticks on every chart point inwards.
+Every axis that measures something (a level, a return, a date) ends on its
+outermost ticks, so its line stops where its scale does. Where both axes
+measure, the lowest label on the y axis is left blank, since it would sit on
+the first label of the x axis. The level charts (`level`, `constituents`,
+`performance` and `compare`) have no gridlines and draw one line at 100,
+where every series starts, so a glance says whether it has gained or lost;
+the bar charts and the frontier have no gridlines either, with a line at zero
+where a bar can fall below it. The ticks point inwards, and the axes, their
+labels and the legend are in the title's colour.
 
-The fonts ship with py-beacon under the SIL Open Font License, so a chart
-looks the same on every machine without installing anything.
+The fonts (Inter Tight and Source Serif 4) ship with py-beacon under the SIL
+Open Font License, so a chart looks the same on every machine without
+installing anything.
 
 ## Composing figures
 
@@ -227,8 +244,10 @@ A few details worth knowing:
   it is tangent at the tangency portfolio. Pass `risk_free_rate` only to draw
   it from another rate.
 - **`correlation`** shades from 0.2 to 1.0 on the `beacon_corr` colour map.
-  Correlations below 0.2 all get the lowest colour. The map is the same in
-  both styles.
+  Correlations below 0.2 all get the lowest colour, and the map is the same
+  in every theme. `shading="squares"` (the default) draws each pair as its
+  own cell; `shading="blended"` runs the colours smoothly from cell to cell,
+  which shows the matrix's shape rather than each value.
 
 ## Comparing results
 
@@ -252,31 +271,43 @@ observations the comparison rests on.
 Labels default to each result's index id or portfolio id. `compare` raises
 `ValueError` for fewer than two results or when they share no dates.
 
-## Light and dark styles
+## Themes
 
-`beacon.plot.use("light")` or `beacon.plot.use("dark")` applies a style to
-every chart drawn afterwards. The colours come from the same design tokens as
-Beacon desktop, so a chart matches the screen it sits on.
+`beacon.plot.use(theme)` applies a theme to every chart drawn afterwards:
+
+| Theme | Background | Text and axes |
+| --- | --- | --- |
+| `beacon-light` (or `light`) | Beacon's light canvas | dark |
+| `beacon-dark` (or `dark`) | Beacon's dark canvas | light |
+| `github-dark` | GitHub's dark page | GitHub's light greys |
+| `white` | white | dark |
+| `transparent-dark-axes` | none, for a light page | dark |
+| `transparent-light-axes` | none, for a dark page | light |
 
 ```python
-beacon.plot.use("dark")
+beacon.plot.use("transparent-dark-axes")
 ax = index.plot.level()
-ax.figure.savefig("level-dark.png", dpi=110)
+ax.figure.savefig("level-for-a-light-page.png", dpi=110)
 plt.close("all")
 
 beacon.plot.use("light")
 ```
 
-Call `use()` before drawing to get the beacon look. The chart methods
-choose some colours (the series accent, green and red for signs, the cap
-marker) by reading the figure's background: a dark background gets the dark
-colours and a light one the light colours, so a chart drawn on matplotlib's
-white default still gets colours meant for a light page.
+Every theme draws in Beacon's accent, series and sign colours, which come
+from the same design tokens as Beacon desktop, so a chart matches the screen
+it sits on; only the background and the text change. A chart records the
+theme it was drawn in, so its own colours (the series accent, green and red
+for signs, the cap marker, the frame) follow that theme even on a transparent
+background. A chart drawn on a figure py-beacon did not make reads the theme
+off the figure's background, so one drawn on matplotlib's white default still
+gets colours meant for a light page.
 
-Once any chart method, `use()` or `compare()` has run, the styles are
-registered with matplotlib as `beacon` and `beacon-dark`, and the colour map
-as `beacon_corr`. They work on charts py-beacon did not draw, and
-`beacon.plot.palette(mode)` returns the named colours for your own series:
+Once any chart method, `use()` or `compare()` has run, each theme is
+registered with matplotlib as a style (`beacon` and `beacon-dark` for the
+Beacon canvases, `beacon-github-dark`, `beacon-white`,
+`beacon-transparent-dark-axes` and `beacon-transparent-light-axes`), and the
+colour map as `beacon_corr`. They work on charts py-beacon did not draw, and
+`beacon.plot.palette(theme)` returns the named colours for your own series:
 
 ```python
 colours = beacon.plot.palette("light")
@@ -291,7 +322,8 @@ with plt.style.context("beacon"):
 plt.close("all")
 ```
 
-`palette` returns `canvas`, `surface`, `border`, `divider`, `text-primary`,
+`palette` returns `canvas` (`"none"` for a transparent theme), `surface`,
+`border`, `divider`, `text-primary`,
 `text-secondary`, `text-muted`, `accent`, `success`, `danger`, `series-2` and
 `series-3`. The series colour cycle is accent, `series-2`, `series-3`, then
 `text-secondary`. Green and red are left out of it because they mean up and

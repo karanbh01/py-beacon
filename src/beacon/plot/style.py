@@ -33,11 +33,13 @@ import logging
 from typing import Any
 
 from .._optional import require
-from ..tokens import DARK, LIGHT, MODES, colour, raw_colours
+from ..tokens import DARK, LIGHT, raw_colours
+from .themes import THEMES, set_current, theme_named
 
 logger = logging.getLogger(__name__)
 
-# Style names registered with matplotlib.
+# Style names registered with matplotlib: one per theme (beacon.plot.themes),
+# of which these two are the Beacon light and dark canvases.
 BEACON = "beacon"
 BEACON_DARK = "beacon-dark"
 STYLE_FOR_MODE = {LIGHT: BEACON, DARK: BEACON_DARK}
@@ -50,63 +52,94 @@ CORRELATION_COLORMAP = "beacon_corr"
 # colour range implies a precision the number does not have.
 CORRELATION_DOMAIN = (0.2, 1.0)
 
+# Every chart but its heading is drawn at this share of its designed size:
+# the figure, its text, its lines, its marks and its footer. The heading
+# (title, subtitle, accent bar and mark) keeps its own size, so it reads the
+# same on every chart.
+SCALE = 0.8
+
+
+def scaled(value: float) -> float:
+    """A designed size at the scale charts are drawn at."""
+    return value * SCALE
+
+
+# The chart's small text, in points as drawn rather than scaled, so it stays
+# readable whatever SCALE is: the axis titles, and the tick labels and legend
+# entries, which share a size.
+AXIS_TITLE_SIZE = 5.5
+TICK_LABEL_SIZE = 5.3
+
 # Line weights, in points. The primary series is deliberately heavier than the
 # grid and the benchmark so the eye lands on it first.
-SERIES_WIDTH = 1.5
-BENCHMARK_WIDTH = 1.1
-GRID_WIDTH = 0.6
-SPINE_WIDTH = 1.0
+SERIES_WIDTH = scaled(1.5)
+BENCHMARK_WIDTH = scaled(1.1)
+GRID_WIDTH = scaled(0.6)
+SPINE_WIDTH = scaled(0.6)
 
 # The lines a chart is read against: a level chart's line at 100, a bar
 # chart's zero. Lighter than the axes, so they read as guides, not frame.
-REFERENCE_WIDTH = 0.8
+REFERENCE_WIDTH = scaled(0.5)
 
-# Per-kind figure sizes, in inches. A level chart is wide because time is the
-# long axis; a weights chart is tall because names stack.
+# Designed figure sizes, in inches, before SCALE. Every chart 6in wide; the
+# time series, annual returns and the bar charts of names at 6 by 4.5. The
+# performance chart's upper panel matches the level chart's plot, and its
+# extra height carries the drawdown panel. The frontier and the correlation
+# heatmap are taller, for their square-ish shapes.
 FIGSIZE = {
-    "level": (9.0, 4.5),
-    "constituents": (9.0, 4.5),
-    "performance": (9.0, 6.0),
-    "annual_returns": (9.0, 4.0),
-    "weights": (7.5, 5.5),
-    "contributions": (8.0, 5.5),
-    "compare": (9.0, 5.0),
-    "frontier": (7.5, 5.5),
-    "exposures": (7.5, 4.5),
-    "correlation": (6.5, 5.5),
+    "level": (6.0, 4.5),
+    "constituents": (6.0, 4.5),
+    "performance": (6.0, 5.75),
+    "annual_returns": (6.0, 4.5),
+    "weights": (6.0, 4.5),
+    "contributions": (6.0, 4.5),
+    "compare": (6.0, 4.5),
+    "frontier": (6.0, 5.5),
+    "exposures": (6.0, 4.5),
+    "correlation": (6.0, 5.5),
 }
 
 
-def palette(mode: str = LIGHT) -> dict[str, str]:
-    """The colours a chart draws with, in one mode.
+def figure_size(kind: str) -> tuple[float, float]:
+    """The size a chart of *kind* is drawn at, in inches."""
+    width, height = FIGSIZE.get(kind, (6.0, 4.5))
+
+    return scaled(width), scaled(height)
+
+
+def palette(theme: str = LIGHT) -> dict[str, str]:
+    """The colours a chart draws with, in one theme.
 
     Args:
-        mode: LIGHT or DARK.
+        theme: A theme's name, or LIGHT or DARK for the Beacon canvases.
 
     Returns:
         dict: The token names this module uses, so a caller composing a custom
         chart can reach the same values rather than sampling them off a figure.
+        A transparent theme's canvas is "none".
     """
-    return {name: colour(name, mode)
+    chosen = theme_named(theme)
+
+    return {name: chosen.colour(name)
             for name in ("canvas", "surface", "border", "divider", "text-primary",
                          "text-secondary", "text-muted", "accent", "success",
                          "danger", "series-2", "series-3")}
 
 
-def style_dict(mode: str = LIGHT) -> dict[str, Any]:
-    """The rcParams for one mode.
+def style_dict(theme: str = LIGHT) -> dict[str, Any]:
+    """The rcParams for one theme.
 
     Built as a mapping rather than written to an `.mplstyle` file so the values
     stay derived from the tokens. A generated file would be a second copy to
     keep in step, which is the thing this module exists to avoid.
 
     Args:
-        mode: LIGHT or DARK.
+        theme: A theme's name, or LIGHT or DARK for the Beacon canvases.
 
     Returns:
         dict: matplotlib rcParams names to values.
     """
-    ink = palette(mode)
+    ink = palette(theme)
 
     return {
         "figure.facecolor": ink["canvas"],
@@ -132,8 +165,12 @@ def style_dict(mode: str = LIGHT) -> dict[str, Any]:
         "axes.facecolor": ink["canvas"],
         # The axis lines in the muted text colour rather than the border, so
         # the frame of the plot reads clearly against the canvas.
-        "axes.edgecolor": ink["text-muted"],
-        "axes.labelcolor": ink["text-muted"],
+        "axes.edgecolor": ink["text-primary"],
+        # The chart's own words (axis titles, tick labels, legends) in the
+        # title's colour and a light weight; the tick marks and axis lines
+        # stay muted.
+        "axes.labelcolor": ink["text-primary"],
+        "axes.labelweight": "light",
         "axes.titlecolor": ink["text-primary"],
         "axes.linewidth": SPINE_WIDTH,
         "axes.grid": True,
@@ -143,7 +180,7 @@ def style_dict(mode: str = LIGHT) -> dict[str, Any]:
         "axes.spines.right": False,
         "axes.titlesize": 12,
         "axes.titleweight": "bold",
-        "axes.labelsize": 9,
+        "axes.labelsize": AXIS_TITLE_SIZE,
         "axes.prop_cycle": _cycler(ink),
 
         "grid.color": ink["divider"],
@@ -154,10 +191,18 @@ def style_dict(mode: str = LIGHT) -> dict[str, Any]:
         "lines.solid_capstyle": "round",
 
         "text.color": ink["text-primary"],
-        "xtick.color": ink["text-muted"],
-        "ytick.color": ink["text-muted"],
-        "xtick.labelsize": 8,
-        "ytick.labelsize": 8,
+        "xtick.color": ink["text-primary"],
+        "ytick.color": ink["text-primary"],
+        "xtick.labelcolor": ink["text-primary"],
+        "ytick.labelcolor": ink["text-primary"],
+        "xtick.labelsize": TICK_LABEL_SIZE,
+        "ytick.labelsize": TICK_LABEL_SIZE,
+        "xtick.major.size": scaled(3.5),
+        "ytick.major.size": scaled(3.5),
+        "xtick.major.pad": scaled(3.5),
+        "ytick.major.pad": scaled(3.5),
+        "axes.labelpad": scaled(4.0),
+        "lines.markersize": scaled(6.0),
         # Inward, and on the bottom and left only. Pinned rather than left to
         # matplotlib's defaults, which another style (pytest-mpl applies
         # "classic") can turn on for all four sides.
@@ -177,15 +222,22 @@ def style_dict(mode: str = LIGHT) -> dict[str, Any]:
         "legend.scatterpoints": 1,
 
         "legend.frameon": False,
-        "legend.fontsize": 8,
-        "legend.labelcolor": ink["text-secondary"],
+        "legend.fontsize": TICK_LABEL_SIZE,
+        "legend.labelcolor": ink["text-primary"],
 
-        "font.size": 9,
+        # No padding beyond the data: each measuring axis is then ended on its
+        # outermost ticks (beacon.plot.frame.end_on_ticks).
+        "axes.xmargin": 0.0,
+        "axes.ymargin": 0.0,
+
+        "font.size": scaled(9),
         "font.family": "sans-serif",
-        # DejaVu ships with matplotlib, so a chart looks the same on a machine
-        # with no fonts installed as on a designer's. Falling through to
-        # whatever the system has would make image regression meaningless.
-        "font.sans-serif": ["DejaVu Sans"],
+        "font.weight": "light",
+        # Inter Tight ships with py-beacon (beacon/plot/fonts), so a chart
+        # looks the same on every machine and image regression can compare
+        # it; DejaVu, which ships with matplotlib, is the fallback for a glyph
+        # Inter Tight lacks.
+        "font.sans-serif": ["Inter Tight", "DejaVu Sans"],
     }
 
 
@@ -235,6 +287,10 @@ def register() -> None:
     """
     require("matplotlib", "Charting")
 
+    from .frame import register_fonts
+
+    register_fonts()
+
     # The submodule is imported explicitly, which also binds `matplotlib`
     # itself. Importing the package alone does not bind `matplotlib.style`; it
     # is merely present once pyplot has pulled it in, which made an earlier
@@ -246,8 +302,8 @@ def register() -> None:
     # declaration honest without pretending to build an RcParams here.
     library: dict[str, Any] = matplotlib.style.library
 
-    for mode in MODES:
-        library[STYLE_FOR_MODE[mode]] = style_dict(mode)
+    for theme in THEMES.values():
+        library[theme.style] = style_dict(theme.name)
 
     # `available` is a cached list rather than a view over the library, so it
     # needs rebuilding or `plt.style.available` reports the styles missing
@@ -261,14 +317,21 @@ def register() -> None:
     logger.debug("Registered the beacon styles and the correlation colormap.")
 
 
-def use(mode: str = LIGHT) -> None:
-    """Apply a beacon style globally.
+def use(theme: str = LIGHT) -> None:
+    """Apply a beacon theme to every chart drawn afterwards.
 
     Args:
-        mode: LIGHT or DARK.
+        theme: "beacon-light" (or LIGHT), "beacon-dark" (or DARK),
+            "github-dark", "white", "transparent-dark-axes" or
+            "transparent-light-axes".
+
+    Raises:
+        ValueError: If there is no such theme.
     """
+    chosen = theme_named(theme)
     register()
 
     import matplotlib.pyplot as plt
 
-    plt.style.use(STYLE_FOR_MODE[mode])
+    plt.style.use(chosen.style)
+    set_current(chosen.name)

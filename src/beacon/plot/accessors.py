@@ -8,7 +8,7 @@ own. That is also what keeps the signatures backend-agnostic: nothing here
 returns a matplotlib-specific wrapper, so an interactive backend can offer the
 same names later without the call sites changing.
 
-Sizes come from `style.FIGSIZE` per kind (a level chart is wide because time
+Sizes come from `style.figure_size()` per kind (a level chart is wide because time
 is the long axis, a weights chart tall because names stack) and only apply
 when this module creates the figure. A caller passing `ax=` has already decided.
 
@@ -48,6 +48,7 @@ from .frame import new_figure, provenance, sentences
 require("matplotlib", "Charting")
 
 from matplotlib.axes import Axes  # noqa: E402
+from matplotlib.ticker import PercentFormatter  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -165,8 +166,10 @@ class IndexPlots(ChartMethods):
                     color=_ink(ax, "text-muted"),
                     linewidth=beacon_style.BENCHMARK_WIDTH, alpha=0.7)
             ax.annotate(name, xy=(rebased.index[-1], rebased.iloc[-1]),
-                        xytext=(4, 0), textcoords="offset points",
-                        va="center", fontsize=7, color=_ink(ax, "text-muted"))
+                        xytext=(beacon_style.scaled(4), 0),
+                        textcoords="offset points", va="center",
+                        fontsize=beacon_style.TICK_LABEL_SIZE,
+                        color=_ink(ax, "text-muted"))
 
         ax.plot(levels.index, levels.to_numpy(), color=_ink(ax, "accent"),
                 linewidth=beacon_style.SERIES_WIDTH * 1.6, label="Index",
@@ -225,15 +228,17 @@ class IndexPlots(ChartMethods):
         report = self._result.cap_reports.get(when)
         cap = report.cap if report else None
         if cap is not None:
-            ax.axvline(cap, color=_ink(ax, "danger"), linewidth=1.0,
+            ax.axvline(cap, color=_ink(ax, "danger"),
+                       linewidth=beacon_style.scaled(1.0),
                        linestyle="--", zorder=4)
             ax.annotate(f"cap {cap:.1%}", xy=(cap, len(labels) - 0.5),
-                        xytext=(4, 0), textcoords="offset points",
-                        fontsize=7, color=_ink(ax, "danger"), va="top")
+                        xytext=(beacon_style.scaled(4), 0),
+                        textcoords="offset points",
+                        fontsize=beacon_style.TICK_LABEL_SIZE, color=_ink(ax, "danger"),
+                        va="top")
 
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
-        ax.grid(axis="x")
-        ax.grid(axis="y", visible=False)
+        ax.grid(visible=False)
 
         note = sentences(provenance(self._result, "weights", pd.Index([when])),
                          f"{dropped} smaller holding(s) not shown." if dropped else "")
@@ -278,7 +283,7 @@ class BacktestPlots(ChartMethods):
                 "performance() draws two linked panels and creates its own "
                 "figure; the supplied ax is ignored.")
 
-        figure = new_figure(beacon_style.FIGSIZE["performance"])
+        figure = new_figure(beacon_style.figure_size("performance"))
         grid = figure.add_gridspec(2, 1, height_ratios=(3, 1), hspace=0.12)
 
         upper = figure.add_subplot(grid[0])
@@ -297,8 +302,10 @@ class BacktestPlots(ChartMethods):
         lower.fill_between(drawdown.index, drawdown.to_numpy(), 0.0,
                            color=_ink(lower, "danger"), alpha=0.28, linewidth=0)
         lower.plot(drawdown.index, drawdown.to_numpy(),
-                   color=_ink(lower, "danger"), linewidth=1.0)
-        lower.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
+                   color=_ink(lower, "danger"), linewidth=beacon_style.scaled(1.0))
+        # As many decimals as the tick step needs: whole percents rounded a
+        # 2.5% step to "-2%" and "-8%".
+        lower.yaxis.set_major_formatter(PercentFormatter(1.0))
         lower.set_ylabel("Drawdown")
         lower.grid(visible=False)
 
@@ -375,7 +382,13 @@ class BacktestPlots(ChartMethods):
         values = returns.to_numpy(dtype=float)
 
         ax.bar(labels, values, color=_signed_colours(ax, values), width=0.62)
-        ax.axhline(0.0, color=_ink(ax, "border"), linewidth=beacon_style.REFERENCE_WIDTH)
+        ax.grid(visible=False)
+
+        # A zero line only when a year falls below it; otherwise it would sit
+        # on the axis itself.
+        if (values < 0).any():
+            ax.axhline(0.0, color=_ink(ax, "border"),
+                       linewidth=beacon_style.REFERENCE_WIDTH)
         ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
 
         return _finish(ax,
@@ -429,8 +442,7 @@ class AttributionPlots(ChartMethods):
         ax.axvline(0.0, color=_ink(ax, "border"),
                    linewidth=beacon_style.REFERENCE_WIDTH)
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:.1%}")
-        ax.grid(axis="x")
-        ax.grid(axis="y", visible=False)
+        ax.grid(visible=False)
 
         # A residual inside the result's own reconciliation tolerance is
         # rounding, and printed as a number it was noise that changed with the

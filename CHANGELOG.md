@@ -10,19 +10,25 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Added
 
-- Charts that create their own figure are framed as Beacon desktop frames them: a title in Inter Tight and a subtitle in Playfair Display italic beside a thin accent bar, one italic notes line saying where the data came from and the dates it covers, and the beta mark at the bottom right. Every chart method and `compare` takes `title=`, `subtitle=` and `notes=` to replace them, or an empty string to leave one out, and `beacon.plot.frame_text(ax, part)` reads them back. The fonts ship with py-beacon under the SIL Open Font License.
+- Charts that create their own figure are framed as Beacon desktop frames them: the beta mark, then a thin accent bar beside a title in Inter Tight and a subtitle in Source Serif 4 italic; the legend, when there is one, at the right of the heading; and one italic notes line saying where the data came from and the dates it covers. Every chart method and `compare` takes `title=`, `subtitle=` and `notes=` to replace them, or an empty string to leave one out, and `beacon.plot.frame_text(ax, part)` reads them back. The fonts ship with py-beacon under the SIL Open Font License.
+- Themes: `beacon.plot.use()` takes `beacon-light` (or `light`), `beacon-dark` (or `dark`), `github-dark`, `white`, `transparent-dark-axes` and `transparent-light-axes`, each also a matplotlib style, and `palette()` takes a theme. A chart keeps the theme it was drawn in, so its own colours follow it on a transparent background.
 - `constituents()` on an index or a backtest result: the index drawn over its constituents' closes, all rebased to 100, each named at the end of its line. It draws the eight largest by weight unless given another `limit`, and the notes say how many it left out. The quickstart's first chart now uses it.
+- `correlation(shading="blended")` blends the heatmap's colours from cell to cell; `"squares"` is the default.
 
 ### Changed
 
-- The level charts (`level`, `performance` and `compare`) have no gridlines and draw one line at 100 instead. Ticks point inwards on every chart, and the axis lines are darker and slightly heavier.
+- Charts are designed 6in wide and drawn at 80% of their size, with fixed small text: 5.5pt axis titles, 5.3pt tick labels, legends and line labels, and 4.5pt notes. The time series are 3:2.
+- Every axis that measures something ends on its outermost ticks, and where both axes measure, the lowest y label is left blank so it does not sit on the first x label.
+- The level charts (`level`, `constituents`, `performance` and `compare`) have no gridlines and draw one line at 100. The bar charts and the frontier have no gridlines either, with a line at zero where a bar can fall below it. Ticks point inwards, and the axes are thinner and in the title's colour.
+- The frontier's x axis is labelled, and its tangency point is a deep blue rather than orange. The correlation heatmap has no tick marks, and its colour bar is labelled at each end.
 - `compare` no longer prints a metrics table under the chart. Its notes say how many shared observations the comparison rests on.
-- A chart's notes, and the `"At ..."` date on a weights chart, moved from the axes to the figure's notes line. Read them with `frame_text(ax, "notes")` rather than `ax.texts`. A chart drawn into axes you pass with `ax=` keeps its notes under the axes.
+- A chart's notes, and the `"At ..."` date on a weights chart, moved from the axes to the figure's notes line. Read them with `frame_text(ax, "notes")` rather than `ax.texts`. A chart drawn into axes you pass with `ax=` keeps its notes and legend in the axes.
 
 ### Fixed
 
 - A dark chart saved after switching back to the light style was saved on the light background. A saved chart now keeps its own background.
-- The last value marked at the end of a level chart's line was cut off at the right edge.
+- The last value marked at the end of a level chart's line was cut off at the right edge, and its dot was cut in half where the axis ends.
+- The drawdown axis rounded a 2.5% step to whole percents, labelling -2.5% as -2% and -7.5% as -8%.
 
 ## [0.5.0] - 2026-10-08
 

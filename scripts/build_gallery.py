@@ -50,9 +50,9 @@ END = "2024-12-31"
 CAP = 0.20
 RISK_FREE = 0.02
 
-# Screen resolution rather than print: these are viewed in a browser, and a
-# 300dpi page would be four times the bytes for no visible gain.
-DPI = 110
+# Print resolution, so the charts stay sharp on a high-density display and
+# when zoomed.
+DPI = 300
 
 # Chart id -> what it is for, shown as the caption. Written here rather than
 # scraped from docstrings because a caption and an API docstring answer

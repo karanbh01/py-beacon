@@ -17,7 +17,14 @@ require("matplotlib", "Charting")
 from matplotlib.axes import Axes  # noqa: E402
 
 # Inches kept under a heatmap for its slanted asset names.
-SLANTED_LABEL_ROOM = 0.5
+SLANTED_LABEL_ROOM = beacon_style.scaled(0.5)
+
+# How much of the accent's brightness the tangency point keeps, per style.
+DEEP_ACCENT = {"light": 0.6, "dark": 0.7}
+
+# How a correlation heatmap is shaded: each pair its own square, or the
+# colours blended from cell to cell.
+SHADINGS = {"squares": "nearest", "blended": "bicubic"}
 
 
 class OptimisationPlots(ChartMethods):
@@ -50,8 +57,7 @@ class OptimisationPlots(ChartMethods):
         ax.axvline(0.0, color=_ink(ax, "border"),
                    linewidth=beacon_style.REFERENCE_WIDTH)
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:+.1%}")
-        ax.grid(axis="x")
-        ax.grid(axis="y", visible=False)
+        ax.grid(visible=False)
 
         note = (f"Optimal minus index. Tracking error "
                 f"{self._result.tracking_error():.2%}, turnover "
@@ -119,37 +125,60 @@ class OptimisationPlots(ChartMethods):
             slope = excess / tangency.volatility
 
             ax.plot([0.0, reach], [risk_free_rate, risk_free_rate + slope * reach],
-                    color=_ink(ax, "text-muted"), linewidth=1.0, linestyle="--",
+                    color=_ink(ax, "text-muted"),
+                    linewidth=beacon_style.scaled(1.0), linestyle="--",
                     zorder=2, label="Capital market line")
 
-        for point, name, ink in ((minimum, "Minimum variance", "series-2"),
-                                 (tangency, "Tangency", "series-3")):
+        tangency_ink = _deep_accent(ax)
+
+        for point, name, ink in ((minimum, "Minimum variance", _ink(ax, "series-2")),
+                                 (tangency, "Tangency", tangency_ink)):
             ax.plot([point.volatility], [point.expected_return or 0.0],
-                    marker="o", markersize=7, color=_ink(ax, ink), zorder=5,
+                    marker="o", markersize=beacon_style.scaled(5),
+                    color=ink, zorder=5,
                     label=name)
 
         if tangency.sharpe_ratio is not None:
             ax.annotate(f"Sharpe {tangency.sharpe_ratio:.2f}",
                         xy=(tangency.volatility, tangency.expected_return or 0.0),
-                        xytext=(8, -10), textcoords="offset points",
-                        fontsize=8, color=_ink(ax, "series-3"), fontweight="bold")
+                        xytext=(beacon_style.scaled(8), beacon_style.scaled(-10)),
+                        textcoords="offset points", fontsize=beacon_style.TICK_LABEL_SIZE,
+                        color=tangency_ink, fontweight="bold")
 
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
         ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
+        ax.set_xlabel("Volatility")
+        ax.grid(visible=False)
         ax.legend(loc="lower right")
 
         return _finish(ax,
                        _given(title, "Efficient frontier"),
                        _given(subtitle, "Expected return against volatility"),
                        "Expected return",
-                       _given(notes, "Volatility on the horizontal axis, both "
+                       _given(notes, "Expected return and volatility, both "
                                      "annualised."))
+
+
+def _deep_accent(ax: Axes) -> str:
+    """The accent blue, deepened: the tangency point's colour, set apart from
+    the frontier's line in the same family rather than in a colour the theme
+    does not use. Less deep in the dark style, so it still shows on the dark
+    ground."""
+    from matplotlib.colors import to_hex, to_rgb
+
+    from .frame import mode_of
+
+    depth = DEEP_ACCENT[mode_of(ax)]
+    red, green, blue = to_rgb(_ink(ax, "accent"))
+
+    return str(to_hex((red * depth, green * depth, blue * depth)))
 
 
 class RiskPlots(ChartMethods):
     """Charts for a `RiskModel`."""
 
     def correlation(self,
+                    shading: str = "squares",
                     ax: Axes | None = None,
                     title: str | None = None,
                     subtitle: str | None = None,
@@ -157,6 +186,9 @@ class RiskPlots(ChartMethods):
         """The correlation matrix as a heatmap.
 
         Args:
+            shading: "squares" draws each pair as its own cell; "blended"
+                runs the colours smoothly from cell to cell, which shows the
+                shape of the matrix rather than each value.
             ax: Axes to draw on.
             title: The heading. Defaults to the chart's own.
             subtitle: Beneath the heading. Defaults to what the chart shows.
@@ -165,7 +197,14 @@ class RiskPlots(ChartMethods):
 
         Returns:
             Axes: What was drawn on.
+
+        Raises:
+            ValueError: If *shading* is not "squares" or "blended".
         """
+        if shading not in SHADINGS:
+            raise ValueError(f"shading must be one of {', '.join(SHADINGS)}, "
+                             f"not {shading!r}")
+
         ax = _axes(ax, "correlation")
 
         matrix = self._result.correlation
@@ -174,23 +213,34 @@ class RiskPlots(ChartMethods):
 
         low, high = beacon_style.CORRELATION_DOMAIN
         image = ax.imshow(values, cmap=beacon_style.CORRELATION_COLORMAP,
-                          vmin=low, vmax=high, aspect="equal")
+                          vmin=low, vmax=high, aspect="equal",
+                          interpolation=SHADINGS[shading])
 
         ax.set_xticks(np.arange(len(names)), names, rotation=45, ha="right")
         ax.set_yticks(np.arange(len(names)), names)
+        ax.tick_params(length=0)
         ax.grid(visible=False)
 
         figure = ax.get_figure()
         assert figure is not None  # _axes() always attaches one
 
         bar = figure.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
-        bar.set_label("less correlated        more correlated", fontsize=7)
         # matplotlib's stubs type `outline` loosely enough that strict mypy
         # cannot see the method; the attribute is a Spine at runtime.
         outline: Any = bar.outline
         if outline is not None:
             outline.set_visible(False)
-        bar.ax.tick_params(labelsize=7, color=_ink(ax, "text-muted"))
+        bar.ax.tick_params(labelsize=beacon_style.TICK_LABEL_SIZE, length=0)
+
+        # What the two ends of the scale mean, each at its own end of the bar
+        # and reading up it, beyond the numbers.
+        for end, words, align in ((0.0, "less correlated", "bottom"),
+                                  (1.0, "more correlated", "top")):
+            bar.ax.annotate(words, xy=(1.0, end), xycoords="axes fraction",
+                            xytext=(beacon_style.scaled(20), 0),
+                            textcoords="offset points", rotation=90, ha="left",
+                            va=align, fontsize=beacon_style.scaled(7),
+                            color=_ink(ax, "text-muted"))
 
         return _finish(ax,
                        _given(title, "Correlation"),
@@ -200,7 +250,5 @@ class RiskPlots(ChartMethods):
                                      f"differences are noise on any real "
                                      f"estimate."),
                        # The asset names are slanted, so they hang lower than
-                       # a row of dates does; and the colour bar's label is the
-                       # chart's right edge, where the mark ends.
-                       bottom_room=SLANTED_LABEL_ROOM,
-                       reach=bar.ax)
+                       # a row of dates does.
+                       bottom_room=SLANTED_LABEL_ROOM)

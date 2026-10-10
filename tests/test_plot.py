@@ -240,7 +240,7 @@ class TestStyle:
     def test_the_font_is_pinned(self):
         """Falling through to whatever the system has would make image
         regression meaningless."""
-        assert style.style_dict(LIGHT)["font.sans-serif"] == ["DejaVu Sans"]
+        assert style.style_dict(LIGHT)["font.sans-serif"] == ["Inter Tight", "DejaVu Sans"]
 
     def test_registering_twice_is_harmless(self):
         style.register()
@@ -766,8 +766,10 @@ class TestCorrelationChart:
         ax = risk_model.plot.correlation()
         bar_axes = [axis for axis in ax.get_figure().get_axes() if axis is not ax]
 
+        words = {text.get_text() for text in bar_axes[0].texts}
+
         assert bar_axes
-        assert "correlated" in bar_axes[0].get_ylabel()
+        assert {"less correlated", "more correlated"} <= words
 
 
 class TestComposition:

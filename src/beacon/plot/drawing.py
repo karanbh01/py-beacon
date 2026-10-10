@@ -45,7 +45,7 @@ def _axes(ax: Axes | None,
     if ax is not None:
         return ax
 
-    figure = new_figure(beacon_style.FIGSIZE.get(kind, (8.0, 5.0)))
+    figure = new_figure(beacon_style.figure_size(kind))
 
     return figure.add_subplot()
 
@@ -91,12 +91,16 @@ def _mark_last(ax: Axes,
         return
 
     ink = _ink(ax, colour_name)
-    ax.plot([series.index[-1]], [series.iloc[-1]], marker="o", markersize=4.5,
-            color=ink, zorder=5)
+    # Unclipped: the last value sits on the axis's end, and clipped there the
+    # dot would be cut in half.
+    ax.plot([series.index[-1]], [series.iloc[-1]], marker="o",
+            markersize=beacon_style.scaled(3.0),
+            color=ink, zorder=5, clip_on=False)
     ax.annotate(f"{series.iloc[-1]:,.1f}",
                 xy=(series.index[-1], series.iloc[-1]),
-                xytext=(6, 0), textcoords="offset points",
-                va="center", fontsize=8, color=ink, fontweight="bold")
+                xytext=(beacon_style.scaled(6), 0), textcoords="offset points",
+                va="center", fontsize=beacon_style.TICK_LABEL_SIZE, color=ink,
+                fontweight="bold")
 
 
 def _signed_colours(ax: Axes,
