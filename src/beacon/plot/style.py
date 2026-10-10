@@ -30,6 +30,7 @@ theme the surrounding application is wearing, or two screenshots of the same
 matrix disagree.
 """
 import logging
+import warnings
 from typing import Any
 
 from .._optional import require
@@ -112,18 +113,22 @@ def figure_size(kind: str) -> tuple[float, float]:
     return scaled(width), scaled(height)
 
 
-def palette(theme: str = LIGHT) -> dict[str, str]:
+def palette(theme: str | None = None,
+            mode: str | None = None) -> dict[str, str]:
     """The colours a chart draws with, in one theme.
 
     Args:
         theme: A theme's name, or LIGHT or DARK for the Beacon canvases.
+            Defaults to LIGHT.
+        mode: Deprecated: the parameter's name before themes, which still
+            works and warns. Use `theme`.
 
     Returns:
         dict: The token names this module uses, so a caller composing a custom
         chart can reach the same values rather than sampling them off a figure.
         A transparent theme's canvas is "none".
     """
-    chosen = theme_named(theme)
+    chosen = theme_named(_theme_argument(theme, mode, "palette"))
 
     return {name: chosen.colour(name)
             for name in ("canvas", "surface", "border", "divider", "text-primary",
@@ -131,7 +136,8 @@ def palette(theme: str = LIGHT) -> dict[str, str]:
                          "danger", "series-2", "series-3")}
 
 
-def style_dict(theme: str = LIGHT) -> dict[str, Any]:
+def style_dict(theme: str | None = None,
+               mode: str | None = None) -> dict[str, Any]:
     """The rcParams for one theme.
 
     Built as a mapping rather than written to an `.mplstyle` file so the values
@@ -140,11 +146,14 @@ def style_dict(theme: str = LIGHT) -> dict[str, Any]:
 
     Args:
         theme: A theme's name, or LIGHT or DARK for the Beacon canvases.
+            Defaults to LIGHT.
+        mode: Deprecated: the parameter's name before themes, which still
+            works and warns. Use `theme`.
 
     Returns:
         dict: matplotlib rcParams names to values.
     """
-    ink = palette(theme)
+    ink = palette(_theme_argument(theme, mode, "style_dict"))
 
     return {
         "figure.facecolor": ink["canvas"],
@@ -327,21 +336,46 @@ def register() -> None:
     logger.debug("Registered the beacon styles and the correlation colormap.")
 
 
-def use(theme: str = LIGHT) -> None:
+def use(theme: str | None = None,
+        mode: str | None = None) -> None:
     """Apply a beacon theme to every chart drawn afterwards.
 
     Args:
-        theme: "beacon-light" (or LIGHT), "beacon-dark" (or DARK),
-            "github-dark", "white", "transparent-dark-axes" or
+        theme: "beacon-light" (or LIGHT, the default), "beacon-dark" (or
+            DARK), "github-dark", "white", "transparent-dark-axes" or
             "transparent-light-axes".
+        mode: Deprecated: the parameter's name before themes, which still
+            works and warns. Use `theme`.
 
     Raises:
         ValueError: If there is no such theme.
+        TypeError: If both `theme` and `mode` are given.
     """
-    chosen = theme_named(theme)
+    chosen = theme_named(_theme_argument(theme, mode, "use"))
     register()
 
     import matplotlib.pyplot as plt
 
     plt.style.use(chosen.style)
     set_current(chosen.name)
+
+
+def _theme_argument(theme: str | None,
+                    mode: str | None,
+                    function: str) -> str:
+    """The theme asked for, by its own name or by the deprecated `mode`."""
+    # BN-296: `mode` was the parameter's name until themes (BN-289) replaced
+    # the light and dark modes; it keeps working, with a warning, so code
+    # that named it is not broken by the rename.
+    if mode is None:
+        return LIGHT if theme is None else theme
+
+    if theme is not None:
+        raise TypeError(f"{function}() takes theme or mode, not both; mode is "
+                        f"the deprecated name of theme")
+
+    warnings.warn(f"{function}(mode=...) is deprecated; use "
+                  f"{function}(theme=...), which also takes the new themes.",
+                  DeprecationWarning, stacklevel=3)
+
+    return mode

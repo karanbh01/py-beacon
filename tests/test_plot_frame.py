@@ -321,3 +321,36 @@ class TestReadableText:
 
         assert sizes == {style.LINE_LABEL_SIZE}
         assert value.get_fontsize() == style.LINE_LABEL_SIZE
+
+
+class TestTheOldModeKeyword:
+    """BN-296: `mode=` still works, with a warning."""
+
+    def test_use_by_mode_warns_and_applies_the_theme(self,
+                                                     index_result):
+        with pytest.warns(DeprecationWarning, match=r"use\(theme=...\)"):
+            use(mode=DARK)
+
+        ax = index_result.plot.level()
+
+        assert to_hex(text_with(ax.figure, "beacon-title").get_color()) == (
+            colour("text-primary", DARK))
+
+    def test_palette_and_style_by_mode(self):
+        with pytest.warns(DeprecationWarning):
+            assert style.palette(mode=DARK) == style.palette(DARK)
+
+        with pytest.warns(DeprecationWarning):
+            assert style.style_dict(mode=DARK) == style.style_dict(DARK)
+
+    def test_theme_and_mode_together_are_refused(self):
+        with pytest.raises(TypeError, match="not both"):
+            use("light", mode="dark")
+
+    def test_by_position_nothing_warns(self):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            use(DARK)
+            style.palette(LIGHT)
