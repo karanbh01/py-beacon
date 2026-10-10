@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-10
+
+Charts: every chart framed as Beacon desktop frames it, with the beta mark, a heading and legend, and a notes line; six themes, including GitHub's dark page and transparent backgrounds; a constituents chart; axes that end on their ticks; and readable, consistently sized text. `IndexFund` and `ETF`, deprecated in 0.5.0, are removed.
+
 ### Added
 
 - Charts that create their own figure are framed as Beacon desktop frames them: the beta mark, then a thin accent bar beside a title in Inter Tight and a subtitle in Source Serif 4 italic; the legend, when there is one, at the right of the heading; and one italic notes line saying where the data came from and the dates it covers. Every chart method and `compare` takes `title=`, `subtitle=` and `notes=` to replace them, or an empty string to leave one out, and `beacon.plot.frame_text(ax, part)` reads them back. The fonts ship with py-beacon under the SIL Open Font License.
@@ -23,6 +27,14 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - The frontier's x axis is labelled, and its tangency point is a deep blue rather than orange. The correlation heatmap has no tick marks, and its colour bar is labelled at each end.
 - `compare` no longer prints a metrics table under the chart. Its notes say how many shared observations the comparison rests on.
 - A chart's notes, and the `"At ..."` date on a weights chart, moved from the axes to the figure's notes line. Read them with `frame_text(ax, "notes")` rather than `ax.texts`. A chart drawn into axes you pass with `ax=` keeps its notes and legend in the axes.
+
+### Deprecated
+
+- `beacon.plot.use()`, `palette()` and `style_dict()` name their parameter `theme`; `mode=` still works, with a `DeprecationWarning`, and a call by position is unchanged.
+
+### Removed
+
+- `beacon.fund.IndexFund` and `beacon.fund.ETF`, as their deprecation in 0.5.0 said. Use a `Fund` with a vehicle: an open-ended preset such as `uk_oeic()` for an `IndexFund`, or `ucits_etf()` or `us_etf()` for an `ETF`.
 
 ### Fixed
 
@@ -220,7 +232,8 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/karanbh01/py-beacon/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/karanbh01/py-beacon/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/karanbh01/py-beacon/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/karanbh01/py-beacon/compare/v0.3.0...v0.3.1
