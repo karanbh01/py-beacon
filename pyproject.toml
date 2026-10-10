@@ -94,6 +94,10 @@ Source = "https://github.com/karanbh01/py-beacon"
 Changelog = "https://pybeacon.dev/changelog/"
 
 [tool.pytest.ini_options]
+# The image regression tests start from matplotlib's defaults, as a user's
+# session does, not from the "classic" style pytest-mpl otherwise applies:
+# keys the beacon style leaves alone would differ from what users see.
+mpl-default-style = "default"
 markers = [
     "slow: multi-minute tests (the example notebooks); routine local runs deselect with -m 'not slow', CI runs everything",
 ]

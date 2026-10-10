@@ -48,9 +48,12 @@ from .frame import new_figure, provenance, sentences
 require("matplotlib", "Charting")
 
 from matplotlib.axes import Axes  # noqa: E402
-from matplotlib.ticker import PercentFormatter  # noqa: E402
+from matplotlib.ticker import MaxNLocator, PercentFormatter  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+# The tick steps a drawdown panel may use, as multiples of a power of ten.
+DRAWDOWN_STEPS = [1, 2, 2.5, 5, 10]
 
 # Imported by name elsewhere (the tests read MAX_BARS and the helpers here).
 __all__ = ["MAX_BARS", "MINIMUM_BAR", "AttributionPlots", "BacktestPlots",
@@ -306,6 +309,9 @@ class BacktestPlots(ChartMethods):
         # As many decimals as the tick step needs: whole percents rounded a
         # 2.5% step to "-2%" and "-8%".
         lower.yaxis.set_major_formatter(PercentFormatter(1.0))
+        # A short panel has room for few ticks; steps of 2.5% and 5% as well
+        # as 10% keep it from rounding a 10% drawdown out to 20%.
+        lower.yaxis.set_major_locator(MaxNLocator(nbins=4, steps=DRAWDOWN_STEPS))
         lower.set_ylabel("Drawdown")
         # The two panels' axis titles in one column, whatever their labels'
         # widths.

@@ -44,6 +44,12 @@ def end_on_ticks(ax: Axes) -> None:
     if ax.get_label() == MARK_LABEL or hasattr(ax, "_colorbar"):
         return
 
+    # Idempotent: an axes ended before has its blanking formatter unwrapped,
+    # so ending it again (after the plot is resized) blanks the new corner.
+    formatter = ax.yaxis.get_major_formatter()
+    if isinstance(formatter, SkipFirst):
+        ax.yaxis.set_major_formatter(formatter.inner)
+
     x_ended = _end(ax.xaxis, ax.get_xlim, ax.set_xlim)
     y_ended = _end(ax.yaxis, ax.get_ylim, ax.set_ylim)
 

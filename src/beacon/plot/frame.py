@@ -235,9 +235,6 @@ def finish(ax: Axes,
     figure = ax.get_figure()
 
     if isinstance(figure, Figure) and owns(figure):
-        for panel in figure.get_axes():
-            end_on_ticks(panel)
-
         frame(ax,
               title,
               subtitle,
@@ -339,6 +336,12 @@ def frame(ax: Axes,
         floor = MARGIN_INCHES + len(lines) * NOTES_SIZE * NOTES_LINE_HEIGHT / 72.0
         figure.subplots_adjust(top=(band - PLOT_GAP_INCHES) / height,
                                bottom=(floor + NOTES_GAP_INCHES + bottom_room) / height)
+        # The axes are ended on their ticks at the size the plot has in this
+        # pass: matplotlib picks its tick step from the plot's size, so ends
+        # chosen for a taller plot can fall between the ticks of a shorter one.
+        for panel in figure.get_axes():
+            end_on_ticks(panel)
+
         fit_sides(figure, MARGIN_INCHES)
         left, right = _plot_edges(ax, width)
 
