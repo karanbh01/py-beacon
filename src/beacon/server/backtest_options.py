@@ -42,6 +42,10 @@ VEHICLE_DISPLAYS = {
     "pricing": Display("Pricing method", help="One of `pricing`, as {type, params}."),
     "limits": Display("Diversification limits", help="Any of `limits`, as {type, params}."),
     "name": Display("Name"),
+    "domicile": Display("Domicile", help="A two-letter country code, such as 'IE'. "
+                        "It sets the withholding tax on the fund's dividends."),
+    "withholding_rates": Display("Withholding rates", help="The fund's own rates by "
+                                 "the dividend's source country, such as {\"US\": 0.15}."),
 }
 
 ETF_DISPLAYS = {

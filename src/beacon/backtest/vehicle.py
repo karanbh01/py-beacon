@@ -16,10 +16,11 @@ that the NAV is net of and paid from cash as soon as there is cash to pay it.
 """
 # BN-267: the minimal vehicle phase 5 needs for the fee. Pricing and
 # diversification limits are BN-268, with the presets.
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from .dealing import Pricing, SinglePricing
 from .limits import DiversificationLimit
+from .withholding import checked_rates
 
 # NAV per unit at launch when the run sets none.
 DEFAULT_LAUNCH_PRICE = 1.0
@@ -39,9 +40,18 @@ class Vehicle:
             `beacon.backtest.limits`), applied at each rebalance with the
             capacity caps.
         name: What the vehicle is called, such as a preset's name.
+        domicile: Where the fund is domiciled, as a two-letter country code
+            such as ``"IE"``. It sets the withholding tax the fund suffers on
+            each market's dividends (see `beacon.backtest.withholding`). None
+            applies the run's flat rate to every dividend.
+        withholding_rates: The fund's own withholding rates by the dividend's
+            source country, such as ``{"US": 0.15}``, used before the
+            built-in table for its domicile.
 
     Raises:
-        ValueError: If the fee is negative or the launch price not positive.
+        ValueError: If the fee is negative, the launch price not positive,
+            the domicile not a two-letter code, or a withholding rate not a
+            share from 0 up to 1.
     """
 
     def __init__(self,
@@ -49,7 +59,9 @@ class Vehicle:
                  launch_price: float = DEFAULT_LAUNCH_PRICE,
                  pricing: Pricing | None = None,
                  limits: Iterable[DiversificationLimit] = (),
-                 name: str = "Vehicle"):
+                 name: str = "Vehicle",
+                 domicile: str | None = None,
+                 withholding_rates: Mapping[str, float] | None = None):
         if management_fee_bps < 0:
             raise ValueError(f"management_fee_bps cannot be negative, got "
                              f"{management_fee_bps!r}.")
@@ -63,6 +75,13 @@ class Vehicle:
         self.pricing: Pricing = pricing if pricing is not None else SinglePricing()
         self.limits: tuple[DiversificationLimit, ...] = tuple(limits)
         self.name = name
+
+        if domicile is not None and (len(domicile) != 2 or not domicile.isalpha()):
+            raise ValueError(f"domicile is a two-letter country code, such as 'IE', "
+                             f"got {domicile!r}.")
+
+        self.domicile = domicile.upper() if domicile is not None else None
+        self.withholding_rates = checked_rates(withholding_rates)
 
     def daily_fee(self,
                   net_assets: float,

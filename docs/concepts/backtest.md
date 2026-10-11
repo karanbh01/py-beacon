@@ -175,7 +175,10 @@ no threshold (the default) nothing is removed.
 A holding is entitled to a cash distribution if it is held at the start of
 the ex-date, before that day's trades. The cash arrives on the pay date (the
 ex-date when the data gives none), converted into the book's currency that
-day and net of `withholding_tax_rate` from the
+day and net of withholding tax: by the fund's domicile and the dividend's
+source country when the vehicle has a domicile (see
+[withholding tax](fund-vehicles.md#structures-and-presets)), otherwise at
+`withholding_tax_rate` from the
 [modelling assumptions](#modelling-assumptions). A holding sold before the
 pay date is still paid. Cancelled distributions are ignored, and the price
 data must already show the ex-date drop, as an unadjusted feed does.

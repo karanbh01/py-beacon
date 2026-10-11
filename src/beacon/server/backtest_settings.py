@@ -222,6 +222,8 @@ def vehicle_settings(vehicle: Vehicle) -> dict[str, Any]:
         "launch_price": vehicle.launch_price,
         "pricing": typed_payload(catalogue.PRICING, vehicle.pricing),
         "limits": [typed_payload(catalogue.LIMIT, limit) for limit in vehicle.limits],
+        "domicile": vehicle.domicile,
+        "withholding_rates": vehicle.withholding_rates,
     }
 
     if isinstance(vehicle, EtfVehicle):

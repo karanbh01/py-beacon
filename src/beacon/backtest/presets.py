@@ -11,18 +11,20 @@ can be changed by passing it, so a preset is a starting point, not a rule:
 
     uk_oeic(pricing=DilutionLevy(threshold=0.05))
 
-| Preset | Pricing | Diversification limits |
-| --- | --- | --- |
-| `uk_oeic` | Full swing pricing | UCITS |
-| `luxembourg_sicav` | Partial swing pricing, above 2% of the fund | UCITS |
-| `irish_icav` | Anti-dilution levy, above 2% of the fund | UCITS |
-| `us_mutual_fund` | Single pricing, with an optional redemption fee | 1940 Act |
-| `ucits_etf` | Cash creations with a creation fee; an exchange price | UCITS |
-| `us_etf` | In-kind creations; an exchange price | 1940 Act |
+| Preset | Pricing | Diversification limits | Domicile |
+| --- | --- | --- | --- |
+| `uk_oeic` | Full swing pricing | UCITS | United Kingdom |
+| `luxembourg_sicav` | Partial swing pricing, above 2% of the fund | UCITS | Luxembourg |
+| `irish_icav` | Anti-dilution levy, above 2% of the fund | UCITS | Ireland |
+| `us_mutual_fund` | Single pricing, with an optional redemption fee | 1940 Act | United States |
+| `ucits_etf` | Cash creations with a creation fee; an exchange price | UCITS | Ireland |
+| `us_etf` | In-kind creations; an exchange price | 1940 Act | United States |
 
 Swing factors and levies are estimated from the run's cost model unless set.
 The UCITS limits are those for a fund replicating an index (20% in one
-issuer, 35% in the largest), since a backtest tracks an index.
+issuer, 35% in the largest), since a backtest tracks an index. The domicile
+sets the withholding tax on the fund's dividends (see
+`beacon.backtest.withholding`); a UCITS ETF is Irish by default, as most are.
 """
 # BN-268, phase 6 of decisions/0006. See docs/concepts/fund-vehicles.md for
 # the reasoning behind each.
@@ -34,6 +36,7 @@ from .dealing import OUT, DilutionLevy, SwingPricing
 from .etf import EtfVehicle
 from .limits import Act1940Limits, UcitsLimits
 from .vehicle import Vehicle
+from .withholding import IRELAND, LUXEMBOURG, UNITED_KINGDOM, UNITED_STATES
 
 # The threshold above which a partial swing or a levy applies, as a share of
 # the fund: a common choice, and only a default.
@@ -44,7 +47,7 @@ def uk_oeic(**settings: Any) -> Vehicle:
     """A UK open-ended investment company: daily dealing, a full swinging
     single price, and the UCITS limits."""
     return _built("UK OEIC", settings, pricing=SwingPricing(),
-                  limits=[UcitsLimits()])
+                  limits=[UcitsLimits()], domicile=UNITED_KINGDOM)
 
 
 def luxembourg_sicav(**settings: Any) -> Vehicle:
@@ -52,7 +55,7 @@ def luxembourg_sicav(**settings: Any) -> Vehicle:
     and the UCITS limits."""
     return _built("Luxembourg SICAV", settings,
                   pricing=SwingPricing(threshold=LARGE_DEAL),
-                  limits=[UcitsLimits()])
+                  limits=[UcitsLimits()], domicile=LUXEMBOURG)
 
 
 def irish_icav(**settings: Any) -> Vehicle:
@@ -60,7 +63,7 @@ def irish_icav(**settings: Any) -> Vehicle:
     the fund, and the UCITS limits."""
     return _built("Irish ICAV", settings,
                   pricing=DilutionLevy(threshold=LARGE_DEAL),
-                  limits=[UcitsLimits()])
+                  limits=[UcitsLimits()], domicile=IRELAND)
 
 
 def us_mutual_fund(redemption_fee_bps: float = 0.0,
@@ -78,7 +81,7 @@ def us_mutual_fund(redemption_fee_bps: float = 0.0,
                if redemption_fee_bps > 0 else None)
 
     return _built("US mutual fund", settings, pricing=pricing,
-                  limits=[Act1940Limits()])
+                  limits=[Act1940Limits()], domicile=UNITED_STATES)
 
 
 def ucits_etf(**settings: Any) -> EtfVehicle:
@@ -86,6 +89,7 @@ def ucits_etf(**settings: Any) -> EtfVehicle:
     basket's trading cost, and the UCITS limits."""
     settings.setdefault("name", "UCITS ETF")
     settings.setdefault("limits", [UcitsLimits()])
+    settings.setdefault("domicile", IRELAND)
 
     return EtfVehicle(**settings)
 
@@ -96,6 +100,7 @@ def us_etf(**settings: Any) -> EtfVehicle:
     settings.setdefault("name", "US ETF")
     settings.setdefault("in_kind", True)
     settings.setdefault("limits", [Act1940Limits()])
+    settings.setdefault("domicile", UNITED_STATES)
 
     return EtfVehicle(**settings)
 

@@ -14,6 +14,11 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - Futures-based replication: `IndexTracking(index, FuturesReplication(roll_days=5, roll_cost_bps=..., dividend_yield=None))` holds cash, earning the run's cash rate, and long index futures sized to its net assets. Contracts are priced at fair value from the index level, the cash rate and the index's dividend yield, expire on the third Friday of each quarter and roll a set number of sessions before expiry at a cost in basis points. A price index's dividend yield is estimated at each roll from its constituents' trailing twelve months; a total return index's is zero. Profit and loss is settled in cash every day as a `"FUTURES"` cash flow.
 - `Implementation(equitise=IndexFutures(...))` holds the same futures on a physical fund's uninvested cash, so its buffer earns the index's return. The server's backtest request takes `implementation.equitise`.
 - `result.futures_notional`, `futures_rolls` and `futures_exposure` record a fund's index futures.
+- Withholding tax by fund domicile: `Vehicle(domicile=..., withholding_rates=...)`. Each preset carries its domicile (UK OEIC the United Kingdom, Luxembourg SICAV Luxembourg, Irish ICAV and UCITS ETF Ireland, the US presets the United States). A dividend is withheld at the vehicle's own rate for its source country, then a built-in table for the domicile (on US dividends: Ireland 15%, Luxembourg 30%, the United Kingdom 15%, the United States nothing; nothing on UK dividends; nothing on Irish dividends to an Irish fund), then the run's flat rate. The source country is the company's `COUNTRY_DOMICILE` or `COUNTRY`, otherwise its listing exchange's country.
+
+### Changed
+
+- A backtest with a preset vehicle now withholds dividends by its domicile instead of the flat `withholding_tax_rate`, so its dividends, NAV and tracking difference change. Pass `domicile=None` to keep the flat rate.
 
 ## [0.6.0] - 2026-10-10
 

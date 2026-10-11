@@ -5,8 +5,10 @@ Cash distributions: what a backtest's holdings are paid, and what happens to it.
 A holding is entitled to a cash distribution if it is held at the start of the
 ex-date, before that day's trades. The cash arrives on the pay date, or on the
 ex-date when the data gives none, converted into the book's currency on the
-day it arrives and net of the withholding rate in the run's modelling
-assumptions. A holding sold between the two dates is still paid.
+day it arrives and net of withholding tax: by the fund's domicile and the
+dividend's source country when the vehicle has a domicile (see
+`beacon.backtest.withholding`), otherwise at the flat rate in the run's
+modelling assumptions. A holding sold between the two dates is still paid.
 
 What happens to the cash is the run's dividend policy:
 
@@ -41,6 +43,8 @@ from ..data.corporate_actions import CASH, PAY_DATE_COLUMN, kind_of, without_can
 from ..data.fetcher import DataFetcher
 from ..portfolio.base import Portfolio, TradeInstruction
 from ..portfolio.cash_flows import DISTRIBUTION, DIVIDEND
+from .vehicle import Vehicle
+from .withholding import source_country, withholding_rate
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +107,7 @@ class DividendsMixin:
     dividends: str
     modelling_assumptions: ModellingAssumptions
     transaction_cost_bps: float
+    vehicle: Vehicle | None
 
     def _rate_for(self,
                   asset_id: str,
@@ -121,6 +126,7 @@ class DividendsMixin:
         """Read the distributions once and clear what a previous run owed."""
         self._cash_events = cash_events(self.data_provider)
         self._owed: list[Entitlement] = []
+        self._withheld: dict[str, float] = {}
 
     def _record_entitlements(self,
                              portfolio: Portfolio,
@@ -148,12 +154,12 @@ class DividendsMixin:
             return
 
         self._owed = [owed for owed in self._owed if owed.event.pay_date > date]
-        kept = 1.0 - (self.modelling_assumptions.withholding_tax_rate or 0.0)
         rates: dict[str, float] = {}
         total = 0.0
 
         for owed in due:
             event = owed.event
+            kept = 1.0 - self._withholding(event.asset_id, date)
             amount = (owed.shares * event.per_share
                       * self._rate_for(event.asset_id, date, rates) * kept)
             portfolio.receive_cash(amount, date, DIVIDEND, event.asset_id)
@@ -163,6 +169,25 @@ class DividendsMixin:
             portfolio.receive_cash(-total, date, DISTRIBUTION)
         elif self.dividends == REINVEST:
             self._reinvest(portfolio, total, date)
+
+    def _withholding(self,
+                     asset_id: str,
+                     date: pd.Timestamp) -> float:
+        """The share of *asset_id*'s dividends withheld from this fund: by
+        its domicile and the source country when the vehicle sets either,
+        otherwise the run's flat rate. Looked up once per name per run."""
+        flat = self.modelling_assumptions.withholding_tax_rate or 0.0
+        vehicle = self.vehicle
+
+        if vehicle is None or (vehicle.domicile is None and not vehicle.withholding_rates):
+            return flat
+
+        if asset_id not in self._withheld:
+            source = source_country(self.data_provider, asset_id, date)
+            self._withheld[asset_id] = withholding_rate(vehicle.domicile, source,
+                                                        vehicle.withholding_rates, flat)
+
+        return self._withheld[asset_id]
 
     def _reinvest(self,
                   portfolio: Portfolio,

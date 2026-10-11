@@ -36,14 +36,14 @@ deals, how it prices, its diversification limits and how it handles
 distributions. A preset is a starting point, and any setting can be changed.
 The first six presets cover the first two archetypes:
 
-| Preset | Dealing | Pricing | Diversification limits |
-| --- | --- | --- | --- |
-| UK OEIC | Daily, at the next valuation point | Swing pricing | UCITS |
-| Luxembourg SICAV (UCITS) | Daily, at the next valuation point | Partial swing pricing | UCITS |
-| Irish ICAV (UCITS) | Daily, at the next valuation point | Anti-dilution levy | UCITS |
-| UCITS ETF | Creation units, cash by default | ETF market price | UCITS |
-| US mutual fund | Daily, at the next NAV | Single pricing, with an optional redemption fee | 1940 Act diversified |
-| US ETF | Creation units, in kind by default | ETF market price | 1940 Act diversified |
+| Preset | Dealing | Pricing | Diversification limits | Domicile |
+| --- | --- | --- | --- | --- |
+| UK OEIC | Daily, at the next valuation point | Swing pricing | UCITS | United Kingdom |
+| Luxembourg SICAV (UCITS) | Daily, at the next valuation point | Partial swing pricing | UCITS | Luxembourg |
+| Irish ICAV (UCITS) | Daily, at the next valuation point | Anti-dilution levy | UCITS | Ireland |
+| UCITS ETF | Creation units, cash by default | ETF market price | UCITS | Ireland |
+| US mutual fund | Daily, at the next NAV | Single pricing, with an optional redemption fee | 1940 Act diversified | United States |
+| US ETF | Creation units, in kind by default | ETF market price | 1940 Act diversified | United States |
 
 The pricing each preset starts with is a common choice for that wrapper, not
 a rule of it: most of these wrappers allow several methods.
@@ -67,6 +67,33 @@ fund near a limit holds less of a name rather than breaking it:
 **Distributions** follow the run's dividend policy: reinvested by default,
 as an accumulating share class does, or paid out, as a distributing class
 does.
+
+**Withholding tax** depends on the domicile. Treaties are between countries,
+and not every fund can claim them, so a fund suffers a different tax on each
+market's dividends depending on where it is domiciled. A net total return
+index assumes one rate for everyone, so the difference is part of the fund's
+tracking difference against it. The rate on each dividend is the vehicle's
+own `withholding_rates` for the dividend's source country, then the table
+below for its domicile, then the run's flat `withholding_tax_rate`:
+
+| Dividend from | Ireland | Luxembourg | United Kingdom | United States |
+| --- | --- | --- | --- | --- |
+| United States | 15% | 30% | 15% | 0% |
+| United Kingdom | 0% | 0% | 0% | 0% |
+| Ireland | 0% | | | |
+
+A Luxembourg SICAV pays the full 30% on US dividends because the treaty's
+limitation on benefits keeps most from its 15% rate. The United Kingdom
+withholds nothing on dividends, and an Irish fund is exempt from Irish
+dividend withholding tax. The table holds only rates that are well
+established for funds: elsewhere a fund's rate depends on whether it can
+claim the treaty and on what it reclaims, so set those with
+`withholding_rates`, such as `irish_icav(withholding_rates={"CH": 0.15})`.
+
+A dividend's source country is the company's own: a `COUNTRY_DOMICILE` or
+`COUNTRY` reference column when the data has one, otherwise the country of
+the exchange it lists on. `domicile=` changes a preset's domicile, and a
+`Vehicle` with none applies the flat rate to every dividend, as before.
 
 ### Using a preset
 
