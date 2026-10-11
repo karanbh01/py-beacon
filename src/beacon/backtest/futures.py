@@ -1,0 +1,244 @@
+# src/beacon/backtest/futures.py
+"""
+Index futures held beside the books: for a futures-based fund, its whole
+exposure; for a physical fund, the cash buffer it equitises.
+
+The position's profit and loss is settled in cash every day, as variation
+margin is, so the fund's net assets need nothing added for it: the futures
+are worth nothing after each day's settlement, and what they made or lost is
+already in the cash. What is recorded is the notional they carried, the rolls
+and what each cost.
+
+Each contract is priced at fair value, ``F = S x exp((r - q) x T)``: S the
+tracked index's level, r the run's cash rate, q the index's dividend yield
+and T the time to expiry over calendar days (ACT/365). See
+`beacon.strategy.futures`.
+
+The position opens at the first rebalance, rolls to the next contract the set
+number of sessions before expiry (paying the roll cost on its notional), and
+is resized to its target at each rebalance, each roll and on any day money
+flows in or out: the fund's net assets for a futures-based fund, its
+uninvested cash for one equitising a buffer. Between those days its exposure
+drifts with the market, as a real position's does.
+"""
+# BN-305. Variation margin rather than a valued position: the cash already
+# moves with the futures, so the NAV needs no second term (unlike the swap of
+# BN-270, which settles only at resets).
+import logging
+from dataclasses import dataclass
+
+import pandas as pd
+
+from ..assumptions import ModellingAssumptions
+from ..data.fetcher import DataFetcher
+from ..derivatives.pricing import cost_of_carry_fair_value
+from ..index.result import IndexResult
+from ..portfolio.base import Portfolio
+from ..portfolio.cash_flows import FUTURES
+from ..strategy.futures import IndexFutures, expiries
+from .implementation import Implementation
+
+logger = logging.getLogger(__name__)
+
+# Calendar days in the year the time to expiry is measured over.
+DAYS_A_YEAR = 365.0
+
+
+@dataclass(frozen=True)
+class FuturesRoll:
+    """One roll of a fund's index futures to the next contract.
+
+    Attributes:
+        date: The day it rolled.
+        expiry: The expiry of the contract rolled into.
+        notional: The exposure carried into the new contract.
+        cost: What the roll cost, paid from cash.
+        dividend_yield: The dividend yield the new contract is priced with.
+    """
+    date: pd.Timestamp
+    expiry: pd.Timestamp
+    notional: float
+    cost: float
+    dividend_yield: float
+
+
+class FuturesMixin:
+    """Marks, rolls and sizes a fund's index futures."""
+
+    # The engine's own, which BacktestEngine and its other mixins declare.
+    futures: IndexFutures | None
+    implementation: Implementation
+    index_result: IndexResult
+    data_provider: DataFetcher
+    modelling_assumptions: ModellingAssumptions
+    start_date: pd.Timestamp
+    end_date: pd.Timestamp
+    _fees_payable: float
+
+    # Last in BacktestEngine's bases, so these declarations never shadow the
+    # AccountingMixin methods they stand for.
+    def _net_value(self,
+                   portfolio: Portfolio) -> float:
+        """Provided by AccountingMixin; declared so this one type-checks."""
+        raise NotImplementedError
+
+    def _sell_pro_rata(self,
+                       portfolio: Portfolio,
+                       amount: float,
+                       date: pd.Timestamp,
+                       free: bool = False) -> bool:
+        """Provided by AccountingMixin; declared so this one type-checks."""
+        raise NotImplementedError
+
+    @property
+    def _futures_terms(self) -> IndexFutures | None:
+        """The futures this run holds: a futures-based fund's, or the ones
+        equitising a buffer."""
+        return self.futures or self.implementation.equitise
+
+    def _start_futures(self) -> None:
+        """Forget any earlier run's position; none is held until the first
+        rebalance."""
+        self._futures_open = False
+        self._contracts = 0.0
+        self._futures_price = 0.0
+        self._futures_yield = 0.0
+        self._expiry = pd.Timestamp(self.start_date)
+        self._futures_notional: dict[pd.Timestamp, float] = {}
+        self._futures_rolls: list[FuturesRoll] = []
+        self._expiries = expiries(self.start_date, self.end_date)
+        self._futures_levels = self.index_result.index_levels.sort_index()
+
+    def _mark_futures(self,
+                      portfolio: Portfolio,
+                      date: pd.Timestamp) -> None:
+        """Settle the day's profit or loss on the position in cash."""
+        if not self._futures_open:
+            return
+
+        price = self._fair_value(date, self._expiry)
+        self._settle_margin(portfolio, self._contracts * (price - self._futures_price), date)
+        self._futures_price = price
+
+    def _adjust_futures(self,
+                        portfolio: Portfolio,
+                        date: pd.Timestamp,
+                        rebalancing: bool,
+                        flowed: bool) -> None:
+        """Open, roll or resize the position, after the day's trades."""
+        terms = self._futures_terms
+
+        if terms is None or not (self._futures_open or rebalancing):
+            return
+
+        rolling = self._futures_open and date >= self._roll_date(self._expiry, terms)
+
+        if not self._futures_open or rolling:
+            self._expiry = next(expiry for expiry in self._expiries
+                                if self._roll_date(expiry, terms) > date)
+            self._futures_yield = self._dividend_yield(terms, date)
+            self._futures_price = self._fair_value(date, self._expiry)
+            self._futures_open = True
+
+        # A roll's cost is paid before the new contracts are sized, so they
+        # carry what the fund has left after paying it.
+        cost = (self._futures_target(portfolio) * terms.roll_cost_bps / 10_000.0
+                if rolling else 0.0)
+
+        if cost > 0.0:
+            self._settle_margin(portfolio, -cost, date)
+
+        if rolling or rebalancing or flowed or self._contracts == 0.0:
+            target = self._futures_target(portfolio)
+            self._contracts = target / self._futures_price if self._futures_price > 0.0 else 0.0
+
+        if rolling:
+            notional = self._contracts * self._futures_price
+            self._futures_rolls.append(FuturesRoll(date=date, expiry=self._expiry,
+                                                   notional=notional, cost=cost,
+                                                   dividend_yield=self._futures_yield))
+            logger.debug("[%s] Futures rolled to %s: notional %.2f, cost %.2f.",
+                         date.date(), self._expiry.date(), notional, cost)
+
+    def _record_futures(self,
+                        date: pd.Timestamp) -> None:
+        """Record the notional the position carried at the close."""
+        if self._futures_terms is not None:
+            self._futures_notional[date] = self._contracts * self._futures_price
+
+    def _futures_target(self,
+                        portfolio: Portfolio) -> float:
+        """What the position should carry: the fund's net assets for a
+        futures-based fund, its uninvested cash for one equitising."""
+        if self.futures is not None:
+            return max(self._net_value(portfolio), 0.0)
+
+        return max(portfolio.cash_balance - self._fees_payable, 0.0)
+
+    def _settle_margin(self,
+                       portfolio: Portfolio,
+                       amount: float,
+                       date: pd.Timestamp) -> None:
+        """Receive or pay variation margin, selling holdings pro rata for a
+        payment the cash does not cover."""
+        if amount >= 0.0:
+            portfolio.receive_cash(amount, date, FUTURES)
+            return
+
+        short = -amount - (portfolio.cash_balance - self._fees_payable)
+
+        if short > 0.0:
+            self._sell_pro_rata(portfolio, short, date)
+
+        paid = min(-amount, portfolio.cash_balance)
+
+        if paid < -amount:
+            logger.warning("[%s] Futures margin of %.2f could not be paid in full; "
+                           "%.2f went unpaid.", date.date(), -amount, -amount - paid)
+
+        portfolio.receive_cash(-paid, date, FUTURES)
+
+    def _fair_value(self,
+                    date: pd.Timestamp,
+                    expiry: pd.Timestamp) -> float:
+        """A contract's fair value on *date*."""
+        level = self._futures_levels.asof(date)
+
+        if pd.isna(level):
+            level = self._futures_levels.iloc[0]
+
+        return cost_of_carry_fair_value(
+            spot=float(level),
+            risk_free_rate=self.modelling_assumptions.cash_rate or 0.0,
+            dividend_yield=self._futures_yield,
+            time_to_expiry_years=max((expiry - date).days, 0) / DAYS_A_YEAR)
+
+    @staticmethod
+    def _roll_date(expiry: pd.Timestamp,
+                   terms: IndexFutures) -> pd.Timestamp:
+        """The day a position in the contract expiring on *expiry* rolls."""
+        return pd.Timestamp(expiry - pd.offsets.BDay(terms.roll_days))
+
+    def _dividend_yield(self,
+                        terms: IndexFutures,
+                        date: pd.Timestamp) -> float:
+        """The dividend yield a new contract is priced with: the one given,
+        or the index constituents' trailing twelve months at their weights."""
+        if terms.dividend_yield is not None:
+            return terms.dividend_yield
+
+        snapshots = {day: weights for day, weights in self.index_result.weight_snapshots.items()
+                     if day <= date}
+        trailing = getattr(self.data_provider, "fetch_trailing_dividend_yield", None)
+
+        if not snapshots or trailing is None:
+            return 0.0
+
+        weights = snapshots[max(snapshots)]
+        total = sum(weights.values())
+
+        if total <= 0.0:
+            return 0.0
+
+        return sum(weight * (trailing(name, date) or 0.0)
+                   for name, weight in weights.items()) / total

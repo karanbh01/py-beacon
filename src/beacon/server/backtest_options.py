@@ -24,6 +24,7 @@ from ..catalogue import BPS, COUNT, DAYS, FRACTION, MONEY, RATIO, Display
 from ..data.fetcher import DEFAULT_FX_POLICY, FX_POLICIES
 from ..data.free_float import DEFAULT_FREE_FLOAT_BACKFILL_DAYS
 from ..strategy.active import FREQUENCIES
+from ..strategy.futures import IndexFutures
 from .backtest_settings import (
     EXCHANGE_TRADED,
     STRATEGY_TYPES,
@@ -75,6 +76,11 @@ IMPLEMENTATION_DISPLAYS = {
                                        minimum=0.0, maximum=1.0),
     "execution.days": Display("Days per order", unit=DAYS, minimum=1),
     "execution.lookback_days": Display("Average volume window", unit=DAYS, minimum=1),
+    "equitise.roll_days": Display("Futures roll, days before expiry", unit=COUNT,
+                                  minimum=0),
+    "equitise.roll_cost_bps": Display("Cost of each futures roll", unit=BPS, minimum=0.0),
+    "equitise.dividend_yield": Display("Index dividend yield", unit=FRACTION, minimum=0.0,
+                                       help="Leave blank to estimate it."),
 }
 
 ASSUMPTION_DISPLAYS = {
@@ -145,7 +151,8 @@ def _implementation_settings() -> list[ParameterSpec]:
     """The implementation's plain settings."""
     specs = [*_described(MinimumPosition, IMPLEMENTATION_DISPLAYS, "minimum_position."),
              *_described(MarketImpact, IMPLEMENTATION_DISPLAYS, "impact."),
-             *_described(ExecutionLimit, IMPLEMENTATION_DISPLAYS, "execution.")]
+             *_described(ExecutionLimit, IMPLEMENTATION_DISPLAYS, "execution."),
+             *_described(IndexFutures, IMPLEMENTATION_DISPLAYS, "equitise.")]
 
     return [*specs,
             ParameterSpec(name="redistribution", type=catalogue.STRING, required=False,

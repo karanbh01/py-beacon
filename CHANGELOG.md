@@ -11,6 +11,9 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 ### Added
 
 - Synthetic replication: `IndexTracking(index, SyntheticReplication(basket, spread_bps=..., exposure_limit=0.10))` holds a substitute basket and a total return swap that pays the fund the index's return for the basket's, less a spread. The basket is required: an index definition, calculated over the run and held at its weights, or fixed weights. The swap is valued every day and included in the NAV, and is reset (settled in cash, its notional set back to net assets) when its value owed to the fund reaches the exposure limit (10% of net assets by default, the UCITS limit), at each of the index's rebalances, and on any day money flows in or out. `result.swap_value`, `result.swap_resets` and `result.counterparty_exposure` record it. A swap's settlement is a `"SWAP"` cash flow.
+- Futures-based replication: `IndexTracking(index, FuturesReplication(roll_days=5, roll_cost_bps=..., dividend_yield=None))` holds cash, earning the run's cash rate, and long index futures sized to its net assets. Contracts are priced at fair value from the index level, the cash rate and the index's dividend yield, expire on the third Friday of each quarter and roll a set number of sessions before expiry at a cost in basis points. A price index's dividend yield is estimated at each roll from its constituents' trailing twelve months; a total return index's is zero. Profit and loss is settled in cash every day as a `"FUTURES"` cash flow.
+- `Implementation(equitise=IndexFutures(...))` holds the same futures on a physical fund's uninvested cash, so its buffer earns the index's return. The server's backtest request takes `implementation.equitise`.
+- `result.futures_notional`, `futures_rolls` and `futures_exposure` record a fund's index futures.
 
 ## [0.6.0] - 2026-10-10
 

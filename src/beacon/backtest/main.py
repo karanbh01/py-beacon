@@ -30,6 +30,7 @@ the front door works on the core install exactly as it does on a full one.
 # The fused daily loop is recorded (decision 20) as the shape of a future
 # walk-forward mode, not built here. Optimised runs are BN-167; `beacon.optimise`
 # has imported scipy-free since BN-166.
+import copy
 import logging
 from typing import Any, Literal
 
@@ -42,6 +43,7 @@ from ..exceptions import CalculationError, MissingDependencyError
 from ..index import cache as index_cache
 from ..index.cache import IndexResultCache
 from ..index.calculation import IndexCalculator
+from ..index.calculation.total_return import REINVESTING
 from ..index.derived import (
     AnyIndexDefinition,
     OptimisedIndexDefinition,
@@ -51,6 +53,7 @@ from ..index.result import IndexResult
 from ..optimise import OptimisationConfig
 from ..strategy.active import ActiveStep, ActiveStrategy
 from ..strategy.base import StrategyContext
+from ..strategy.futures import FuturesReplication, IndexFutures
 from ..strategy.synthetic import SyntheticReplication
 from ..strategy.tracking import IndexTracking, ReplicationStep
 from .dividends import REINVEST
@@ -325,7 +328,7 @@ class Backtest:
             currency=self.currency,
             modelling_assumptions=assumptions,
             dividends=self.dividends,
-            implementation=self.implementation,
+            implementation=self._implementation_for(index_definition),
             flows=self.flows,
             vehicle=self.vehicle,
             transaction_cost_bps=self.transaction_cost_bps,
@@ -341,7 +344,11 @@ class Backtest:
             swap=(strategy.replication.terms
                   if isinstance(strategy, IndexTracking)
                   and isinstance(strategy.replication, SyntheticReplication)
-                  else None))
+                  else None),
+            futures=(self._priced(strategy.replication.futures, index_definition)
+                     if isinstance(strategy, IndexTracking)
+                     and isinstance(strategy.replication, FuturesReplication)
+                     else None))
 
         result = engine.run()
         result.replication = replication
@@ -365,6 +372,34 @@ class Backtest:
         basket = self._calculated(strategy.replication.basket_index, fetcher, start, end)
 
         return IndexTracking(strategy.index, strategy.replication.with_basket(basket))
+
+    def _implementation_for(self,
+                            definition: AnyIndexDefinition) -> Implementation | None:
+        """This backtest's implementation, with any futures equitising its
+        buffer priced for *definition* (a copy; the object given is left as
+        it is)."""
+        implementation = self.implementation
+
+        if implementation is None or implementation.equitise is None:
+            return implementation
+
+        priced = copy.copy(implementation)
+        priced.equitise = self._priced(implementation.equitise, definition)
+
+        return priced
+
+    @staticmethod
+    def _priced(futures: IndexFutures,
+                definition: AnyIndexDefinition) -> IndexFutures:
+        """*futures* with no dividend yield on an index that reinvests its
+        dividends, whose level already counts them; as given otherwise."""
+        reinvesting = getattr(definition, "return_type", None) in REINVESTING
+
+        if futures.dividend_yield is None and reinvesting:
+            return IndexFutures(roll_days=futures.roll_days,
+                                roll_cost_bps=futures.roll_cost_bps, dividend_yield=0.0)
+
+        return futures
 
     @staticmethod
     def _replicated(strategy: IndexTracking,

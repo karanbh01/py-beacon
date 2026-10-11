@@ -4,8 +4,9 @@ Strategies: what a backtest holds, whatever the vehicle that holds it.
 
 A bare index definition passed to `Backtest.run` is tracked in full.
 `IndexTracking` holds an index another way: through an optimised subset or a
-stratified sample (see `beacon.strategy.tracking`), or synthetically, through
-a substitute basket and a total return swap (see `beacon.strategy.synthetic`).
+stratified sample (see `beacon.strategy.tracking`), synthetically, through a
+substitute basket and a total return swap (see `beacon.strategy.synthetic`),
+or through cash and rolled index futures (see `beacon.strategy.futures`).
 `ActiveStrategy` builds its own portfolio from a signal, against a benchmark
 (see `beacon.strategy.active`).
 """
@@ -21,6 +22,7 @@ from .constraints import (
     TrackingErrorBudget,
     TurnoverLimit,
 )
+from .futures import FuturesReplication, IndexFutures
 from .signals import FieldSignal, FunctionSignal, Momentum, Signal
 from .synthetic import UCITS_EXPOSURE_LIMIT, SwapTerms, SyntheticReplication
 from .tracking import (
@@ -43,7 +45,9 @@ __all__ = [
     "FieldSignal",
     "FullReplication",
     "FunctionSignal",
+    "FuturesReplication",
     "HoldingsLimit",
+    "IndexFutures",
     "IndexTracking",
     "MaxAlpha",
     "MeanVariance",

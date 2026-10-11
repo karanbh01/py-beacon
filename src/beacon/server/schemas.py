@@ -3265,6 +3265,12 @@ class ImplementationSpec(BaseModel):
         default="target",
         description="What money arriving between rebalances buys: 'target' "
                     "(the last rebalance's weights) or 'holdings'.")
+    equitise: dict[str, float | None] | None = Field(
+        default=None,
+        description="Index futures held on the uninvested cash, so the buffer "
+                    "earns the index's return: `roll_days`, `roll_cost_bps` and "
+                    "`dividend_yield` (null to estimate it). Null leaves the cash "
+                    "as cash.")
 
 
 class VehicleSpec(BaseModel):

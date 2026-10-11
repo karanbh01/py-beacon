@@ -375,7 +375,11 @@ fund is cut to the fund. The trading costs of a flow are borne by the fund.
 
 **Cash buffer.** `Implementation(cash_buffer=0.02)` keeps 2% of the book in
 cash: each rebalance invests the rest, an inflow tops the buffer up before
-buying, and an outflow draws on it first.
+buying, and an outflow draws on it first. Add `equitise=IndexFutures()` and
+the fund holds index futures on the cash it keeps uninvested, so the buffer
+earns the index's return rather than cash's (see
+[futures-based replication](strategies.md#futures-based-replication) for how
+they are priced and rolled).
 
 **The vehicle and its fee.** `Vehicle(management_fee_bps=20)` charges 0.20% a
 year, accrued every calendar day on the net assets (ACT/365). It is owed as a
@@ -450,6 +454,7 @@ fields. Each comparator is a `Book` with the same surface: `levels`,
 | `result.flows` | Each flow as dealt: `date`, `amount`, `nav_per_unit` and the `units` created or cancelled |
 | `result.fees_payable` | The management fee owed and not yet paid at the end of each day |
 | `result.swap_value`, `result.swap_resets`, `result.counterparty_exposure` | For a [synthetic fund](strategies.md#synthetic-replication): its swap's value each day, each reset, and what it would lose if the counterparty failed, as a share of NAV. Empty otherwise. |
+| `result.futures_notional`, `result.futures_rolls`, `result.futures_exposure` | For a fund holding [index futures](strategies.md#futures-based-replication), futures-based or equitising its buffer: the exposure they carried each day, each roll and its cost, and the exposure as a share of NAV. Empty otherwise. |
 | `result.index.target` | The calculated index being aimed at. Its `source` is the `IndexResult`. |
 | `result.index.optimised` | The optimised index's own calculation, on an optimised run; otherwise `None` |
 | `result.index.tracked` | The book the engine traded toward: `optimised` if present, else `target` |

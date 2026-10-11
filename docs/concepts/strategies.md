@@ -1,6 +1,6 @@
 ---
 title: Strategies
-description: "What a backtest holds: an index tracked in full, through an optimised subset or a stratified sample, or synthetically through a swap, or an active strategy built from a signal against a benchmark."
+description: "What a backtest holds: an index tracked in full, through an optimised subset or a stratified sample, synthetically through a swap, or through index futures, or an active strategy built from a signal against a benchmark."
 ---
 
 # Strategies
@@ -15,6 +15,7 @@ The strategy is what a [backtest](backtest.md) holds, whatever the
 | `OptimisedReplication(holdings=50)` | A subset weighted by the optimiser to minimise tracking error to the index |
 | `SampledReplication(holdings=50)` | The largest names in each sector and size cell, each cell at its index weight |
 | `SyntheticReplication(basket=...)` | A substitute basket, its return swapped for the index's through a total return swap |
+| `FuturesReplication()` | Cash, with the index held through rolled index futures |
 
 The index itself is still calculated, and the run is measured against it:
 tracking error and difference compare the portfolio with the index, not with
@@ -127,6 +128,58 @@ synthetic = backtest.run(
 print("tracking difference", round(synthetic.get_tracking_difference(), 4))
 print(len(synthetic.swap_resets), "resets, most exposure",
       round(synthetic.counterparty_exposure.max(), 4))
+```
+
+## Futures-based replication
+
+A futures-based fund holds no securities. Its cash earns the run's cash rate
+(`ModellingAssumptions(cash_rate=...)`), and a long position in the index's
+futures, sized to its net assets, carries the index's return. Profit and loss
+is settled in cash every day, as variation margin is, so the NAV is the cash.
+
+Each contract is priced at fair value from the index level S, the cash rate
+r and the index's dividend yield q, with T the time to expiry over calendar
+days (ACT/365):
+
+```text
+F = S x exp((r - q) x T)
+```
+
+The futures give up the cash rate the cash earns and are paid the dividend
+yield, so the fund earns about the index's price return plus its dividend
+yield, less the cost of rolling.
+
+- **Contracts** expire quarterly, on the third Friday of March, June,
+  September and December. The position rolls to the next one `roll_days`
+  sessions before expiry (5 by default), paying `roll_cost_bps` on its
+  notional each time, for the richness real rolls pay over fair value.
+- **The dividend yield.** None for a total return or net total return index,
+  whose level already counts its dividends. For a price index it is estimated
+  at each roll from the constituents' dividends over the trailing twelve
+  months, at their index weights, unless `dividend_yield` gives one.
+- **Sizing.** The position is sized to the fund's net assets when it opens,
+  at each rebalance and roll, and on any day money flows in or out, and
+  drifts with the market between. Contracts are fractional, and initial
+  margin is not modelled, since it is the fund's own cash.
+
+`result.futures_notional`, `result.futures_rolls` and
+`result.futures_exposure` record the position. The same futures can
+equitise a physical fund's cash buffer: `Implementation(cash_buffer=0.03,
+equitise=IndexFutures())`.
+
+```python
+from beacon.assumptions import ModellingAssumptions
+from beacon.strategy import FuturesReplication
+
+with_cash_rate = Backtest(initial_capital=10_000_000.0, data_provider=fetcher,
+                          modelling_assumptions=ModellingAssumptions(cash_rate=0.04))
+futures = with_cash_rate.run(
+    IndexTracking(definition, FuturesReplication(roll_cost_bps=2.0)),
+    start="2024-01-02", end="2025-12-31")
+
+print("tracking difference", round(futures.get_tracking_difference(), 4))
+print(len(futures.futures_rolls), "rolls, costing",
+      round(sum(roll.cost for roll in futures.futures_rolls), 2))
 ```
 
 ## Active strategies

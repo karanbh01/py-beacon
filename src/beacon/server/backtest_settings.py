@@ -41,6 +41,7 @@ from ..expressions.core import from_dict
 from ..index.derived import AnyIndexDefinition
 from ..optimise.config import constraint_from_payload
 from ..strategy.active import FREQUENCIES, ActiveStrategy, MaxAlpha
+from ..strategy.futures import IndexFutures
 from ..strategy.tracking import FullReplication, IndexTracking
 from .schemas import BacktestRequest, Finding, TypedSpec, VehicleSpec
 
@@ -449,7 +450,7 @@ def _implementation(request: BacktestRequest,
     parts: dict[str, Any] = {}
 
     for name, cls in (("minimum_position", MinimumPosition), ("impact", MarketImpact),
-                      ("execution", ExecutionLimit)):
+                      ("execution", ExecutionLimit), ("equitise", IndexFutures)):
         settings = getattr(spec, name)
 
         if settings is None:

@@ -50,6 +50,7 @@ from .flows import (
     PeriodicFlows,
     RandomFlows,
 )
+from .futures import FuturesRoll
 from .implementation import Implementation, RebalanceStep
 from .limits import Act1940Limits, DiversificationLimit, UcitsLimits
 from .main import Backtest
@@ -103,6 +104,7 @@ __all__ = [
     "FlowContext",
     "FlowRecord",
     "Flows",
+    "FuturesRoll",
     "Implementation",
     "LiquidityCap",
     "LiquidityScreen",

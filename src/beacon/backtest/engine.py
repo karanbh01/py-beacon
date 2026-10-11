@@ -20,6 +20,7 @@ from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 # it moved to execution.py (BN-266).
 from ..portfolio.base import Portfolio
 from ..portfolio.base import TradeInstruction as TradeInstruction  # noqa: PLC0414
+from ..strategy.futures import IndexFutures
 from ..strategy.synthetic import SwapTerms
 from .accounting import AccountingMixin
 from .books import benchmark_book, index_books
@@ -28,6 +29,7 @@ from .dividends import DIVIDEND_POLICIES, REINVEST, DividendsMixin
 from .etf import Quote, quotes_frame
 from .execution import ExecutionMixin
 from .flows import FlowRecord, Flows
+from .futures import FuturesMixin
 from .implementation import Implementation, RebalanceStep, plan
 from .listings import ListingsMixin
 from .pricing import PricingMixin
@@ -60,10 +62,10 @@ logger = logging.getLogger(__name__)
 # BN-167. The calendar has been carried by every definition since BN-180; it
 # decides which days the run steps onto (BN-186) and how a missing bar is read
 # (BN-183).
-# SwapMixin is last: it declares AccountingMixin methods it calls, and a
-# declaration earlier in the bases would shadow the real method.
+# SwapMixin and FuturesMixin are last: they declare AccountingMixin methods
+# they call, and a declaration earlier in the bases would shadow the real one.
 class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
-                     AccountingMixin, ListingsMixin, SwapMixin):
+                     AccountingMixin, ListingsMixin, SwapMixin, FuturesMixin):
     """Simulates portfolio execution against a target weight schedule.
 
     The engine consumes target weights from an ``IndexResult`` and simulates
@@ -119,6 +121,11 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             schedule's basket's return for the index's (see
             :class:`~beacon.strategy.SyntheticReplication`). None for a fund
             that holds what it tracks.
+        futures: For a futures-based fund, the index futures that carry its
+            whole exposure while its assets stay in cash (see
+            :class:`~beacon.strategy.FuturesReplication`). None otherwise; a
+            physical fund equitises its cash buffer through
+            `Implementation(equitise=...)` instead.
         modifiers: Optional hooks that can skip rebalances or adjust trades.
         benchmark: The benchmark of record, stored on the result so every
             reader quotes excess return against the same comparator.
@@ -159,7 +166,8 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
                  flows: Flows | list[Flows] | None = None,
                  vehicle: Vehicle | None = None,
                  schedule: dict[pd.Timestamp, dict[str, float]] | None = None,
-                 swap: SwapTerms | None = None):
+                 swap: SwapTerms | None = None,
+                 futures: IndexFutures | None = None):
         self.start_date: pd.Timestamp = pd.Timestamp(start_date)
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
         self.initial_capital: float = initial_capital
@@ -233,6 +241,9 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
         # BN-270: a synthetic fund's swap, valued beside the portfolio.
         self.swap: SwapTerms | None = swap
         self._swap_value = 0.0
+
+        # BN-305: index futures, for a futures-based fund or a buffer.
+        self.futures: IndexFutures | None = futures
 
         # The internal schedule representation: rebalance date -> weights.
         self._weight_schedule: dict[pd.Timestamp, dict[str, float]] = (
@@ -408,6 +419,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
 
         self._start_dividends()
         self._start_swap()
+        self._start_futures()
 
         # The traded index's own sessions (BN-186), from the calendar BN-183
         # already wired in for the price read -- one source of truth, so the
@@ -475,6 +487,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             # 1a. The swap's value at today's prices, before flows are dealt
             # at a NAV per unit that includes it.
             self._mark_swap(portfolio, last, date)
+            self._mark_futures(portfolio, date)
 
             # 1b. Settle anything that stopped being listed. This has to
             # happen before the rebalance, because a delisted holding cannot
@@ -535,9 +548,15 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             if reset is not None:
                 self._open_swap(portfolio, date, reset, settled)
 
+            # 2b'. Index futures opened, rolled or resized once the day's
+            # trading is done (BN-305).
+            self._adjust_futures(portfolio, date, target_w is not None,
+                                 len(self._flow_records) > dealt)
+
             # 2c. Pay what fee the cash allows; record the day's units and the
             # swap's value.
             self._record_swap(portfolio, date)
+            self._record_futures(date)
             self._close_books(portfolio, date)
 
             # 3. End-of-day state is already in the books: the dated mark
@@ -591,4 +610,6 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             market=quotes_frame(self._quotes),
             swap_value=pd.Series(self._swap_history, dtype=float),
             swap_resets=list(self._swap_resets),
+            futures_notional=pd.Series(self._futures_notional, dtype=float),
+            futures_rolls=list(self._futures_rolls),
         ).with_data(self.data_provider)

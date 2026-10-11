@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from ..strategy.futures import IndexFutures
 from .capacity import CapacityCap, MinimumPosition
 from .costs import ExecutionLimit, MarketImpact
 from .limits import DiversificationLimit
@@ -88,6 +89,9 @@ class Implementation:
         invest_flows: What money arriving between rebalances buys: the last
             rebalance's weights (``"target"``, the default) or the holdings
             in proportion to their value (``"holdings"``).
+        equitise: Index futures held on the cash the fund keeps uninvested,
+            so its buffer earns the index's return, or None to leave the cash
+            as cash. See :mod:`beacon.strategy.futures`.
 
     Raises:
         ValueError: If *redistribution* or *invest_flows* is not one of its
@@ -102,7 +106,8 @@ class Implementation:
                  execution: ExecutionLimit | None = None,
                  redistribution: str = PRO_RATA,
                  cash_buffer: float = 0.0,
-                 invest_flows: str = TARGET):
+                 invest_flows: str = TARGET,
+                 equitise: IndexFutures | None = None):
         if redistribution not in REDISTRIBUTIONS:
             raise ValueError(f"Unknown redistribution {redistribution!r}. "
                              f"Supported: {', '.join(REDISTRIBUTIONS)}.")
@@ -123,6 +128,7 @@ class Implementation:
         self.redistribution = redistribution
         self.cash_buffer = cash_buffer
         self.invest_flows = invest_flows
+        self.equitise = equitise
 
     def __repr__(self) -> str:
         screens = ", ".join(screen.name for screen in self.screens)

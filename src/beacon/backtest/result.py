@@ -65,6 +65,7 @@ from ..strategy.tracking import ReplicationStep
 from .asset_view import BacktestAssetView
 from .books import Book, IndexBooks
 from .flows import FlowRecord
+from .futures import FuturesRoll
 from .implementation import RebalanceStep
 from .metrics import MetricsMixin
 from .swap import SwapReset
@@ -186,6 +187,13 @@ class BacktestResult(MetricsMixin):
             includes it. Empty for any other fund.
         swap_resets: For a synthetic fund, each reset of its swap: the day,
             the value settled, why, and the notional it was reset to.
+        futures_notional: For a fund holding index futures (futures-based, or
+            equitising its cash buffer), the exposure they carried at the end
+            of each day. Their profit and loss is already in the cash. Empty
+            for any other fund.
+        futures_rolls: Each roll of those futures to the next contract: the
+            day, the new expiry, the notional, the cost and the dividend
+            yield it was priced with.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -210,6 +218,8 @@ class BacktestResult(MetricsMixin):
     active: list[ActiveStep] = field(default_factory=list)
     swap_value: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     swap_resets: list[SwapReset] = field(default_factory=list)
+    futures_notional: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    futures_rolls: list[FuturesRoll] = field(default_factory=list)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 
@@ -243,6 +253,18 @@ class BacktestResult(MetricsMixin):
 
         return (self.swap_value.clip(lower=0.0).reindex(nav.index).fillna(0.0)
                 / nav).rename("counterparty_exposure")
+
+    @property
+    def futures_exposure(self) -> pd.Series:
+        """For a fund holding index futures, the exposure they carried as a
+        share of NAV at the end of each day. Empty for any other fund."""
+        if self.futures_notional.empty:
+            return pd.Series(dtype=float)
+
+        nav = self.trading_nav
+
+        return (self.futures_notional.reindex(nav.index).fillna(0.0)
+                / nav).rename("futures_exposure")
 
     @property
     def total_unfilled_value(self) -> float:

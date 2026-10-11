@@ -235,6 +235,22 @@ class TestRunning:
         assert result["rebalance_steps"][0]["capped"]
         assert result["rebalance_steps"][0]["cash_weight"] > 0.0
 
+    def test_futures_can_equitise_the_cash_buffer(self,
+                                                  client):
+        result = run_backtest(client, implementation={
+            "cash_buffer": 0.05, "equitise": {"roll_days": 3, "roll_cost_bps": 1.0}})
+
+        assert result["settings"]["implementation"]["equitise"] == {
+            "roll_days": 3, "roll_cost_bps": 1.0}
+
+    def test_a_futures_based_replication(self,
+                                         client):
+        result = run_backtest(client, strategy={
+            "type": "index_tracking",
+            "replication": {"type": "FuturesReplication", "params": {"roll_cost_bps": 2.0}}})
+
+        assert all(step["holdings"] == 0 for step in result["replication"])
+
     def test_the_saved_run_lists_what_ran(self,
                                           client):
         run_backtest(client, vehicle=UK_OEIC)
