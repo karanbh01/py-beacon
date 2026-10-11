@@ -51,6 +51,7 @@ from ..index.result import IndexResult
 from ..optimise import OptimisationConfig
 from ..strategy.active import ActiveStep, ActiveStrategy
 from ..strategy.base import StrategyContext
+from ..strategy.synthetic import SyntheticReplication
 from ..strategy.tracking import IndexTracking, ReplicationStep
 from .dividends import REINVEST
 from .engine import BacktestEngine
@@ -306,6 +307,7 @@ class Backtest:
 
         first = start if start is not None else str(index_definition.base_date.date())
         context = StrategyContext(fetcher, book_currency(self.currency, index_result))
+        strategy = self._with_basket(strategy, fetcher, start, end)
         replication: list[ReplicationStep] = (
             self._replicated(strategy, index_result, context, first, end)
             if isinstance(strategy, IndexTracking) else [])
@@ -335,13 +337,34 @@ class Backtest:
             # from a hole in the data when a bar is missing (BN-183).
             calendar=index_definition.calendar,
             schedule=({step.date: step.weights for step in steps}
-                      if strategy is not None else None))
+                      if strategy is not None else None),
+            swap=(strategy.replication.terms
+                  if isinstance(strategy, IndexTracking)
+                  and isinstance(strategy.replication, SyntheticReplication)
+                  else None))
 
         result = engine.run()
         result.replication = replication
         result.active = active
 
         return result
+
+    def _with_basket(self,
+                     strategy: IndexTracking | ActiveStrategy | None,
+                     fetcher: DataFetcher,
+                     start: str | None,
+                     end: str) -> IndexTracking | ActiveStrategy | None:
+        """A synthetic replication whose basket is an index, with the basket
+        calculated over the run (and cached like any index); any other
+        strategy as it is."""
+        if not (isinstance(strategy, IndexTracking)
+                and isinstance(strategy.replication, SyntheticReplication)
+                and strategy.replication.basket_index is not None):
+            return strategy
+
+        basket = self._calculated(strategy.replication.basket_index, fetcher, start, end)
+
+        return IndexTracking(strategy.index, strategy.replication.with_basket(basket))
 
     @staticmethod
     def _replicated(strategy: IndexTracking,

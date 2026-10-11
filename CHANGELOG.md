@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Added
+
+- Synthetic replication: `IndexTracking(index, SyntheticReplication(basket, spread_bps=..., exposure_limit=0.10))` holds a substitute basket and a total return swap that pays the fund the index's return for the basket's, less a spread. The basket is required: an index definition, calculated over the run and held at its weights, or fixed weights. The swap is valued every day and included in the NAV, and is reset (settled in cash, its notional set back to net assets) when its value owed to the fund reaches the exposure limit (10% of net assets by default, the UCITS limit), at each of the index's rebalances, and on any day money flows in or out. `result.swap_value`, `result.swap_resets` and `result.counterparty_exposure` record it. A swap's settlement is a `"SWAP"` cash flow.
+
 ## [0.6.0] - 2026-10-10
 
 Charts: every chart framed as Beacon desktop frames it, with the beta mark, a heading and legend, and a notes line; six themes, including GitHub's dark page and transparent backgrounds; a constituents chart; axes that end on their ticks; and readable, consistently sized text. `IndexFund` and `ETF`, deprecated in 0.5.0, are removed.

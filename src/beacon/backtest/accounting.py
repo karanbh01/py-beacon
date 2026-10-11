@@ -88,6 +88,7 @@ class AccountingMixin:
     _rebalance_steps: list[RebalanceStep]
     _working: list[WorkingOrder]
     _fees_payable: float
+    _swap_value: float
 
     def _fetch_price(self,
                      asset_id: str,
@@ -157,8 +158,9 @@ class AccountingMixin:
 
     def _net_value(self,
                    portfolio: Portfolio) -> float:
-        """The fund's net assets: what it holds, less the fee it owes."""
-        return portfolio.get_total_value() - self._fees_payable
+        """The fund's net assets: what it holds, less the fee it owes, plus
+        a synthetic fund's swap (zero for any other)."""
+        return portfolio.get_total_value() - self._fees_payable + self._swap_value
 
     def _nav_per_unit(self,
                       portfolio: Portfolio) -> float:

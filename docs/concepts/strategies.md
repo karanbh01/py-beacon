@@ -1,6 +1,6 @@
 ---
 title: Strategies
-description: "What a backtest holds: an index tracked in full or through an optimised subset or a stratified sample, or an active strategy built from a signal against a benchmark."
+description: "What a backtest holds: an index tracked in full, through an optimised subset or a stratified sample, or synthetically through a swap, or an active strategy built from a signal against a benchmark."
 ---
 
 # Strategies
@@ -14,6 +14,7 @@ The strategy is what a [backtest](backtest.md) holds, whatever the
 | `FullReplication()` | Every constituent at its index weight (the default) |
 | `OptimisedReplication(holdings=50)` | A subset weighted by the optimiser to minimise tracking error to the index |
 | `SampledReplication(holdings=50)` | The largest names in each sector and size cell, each cell at its index weight |
+| `SyntheticReplication(basket=...)` | A substitute basket, its return swapped for the index's through a total return swap |
 
 The index itself is still calculated, and the run is measured against it:
 tracking error and difference compare the portfolio with the index, not with
@@ -81,6 +82,52 @@ for replication in (OptimisedReplication(holdings=4), SampledReplication(holding
 
 A `Fund` can hold its index through a replication too: pass the
 `IndexTracking` as its `strategy`.
+
+## Synthetic replication
+
+A synthetic fund holds a basket of securities that need not be the index's,
+and a total return swap with a counterparty. On the swap's notional the fund
+pays the basket's return and a spread, and is paid the index's return, so
+whatever the basket earns goes out again and the fund earns the index's
+return less the spread. Real swap-based funds hold whatever liquid basket the
+counterparty proposes within their collateral rules, so the basket is
+required: an index definition, calculated over the run and held at its
+weights, or fixed weights by identifier.
+
+The basket still shapes the result:
+
+- **Resets.** Between resets the swap is worth the index's performance less
+  the basket's. The swap is reset, its value settled in cash and its notional
+  set back to the fund's net assets, when its value owed to the fund reaches
+  `exposure_limit` of net assets (0.10, the UCITS limit, by default), at each
+  of the index's rebalances, and on any day money flows in or out. A basket
+  unlike the index reaches the limit sooner, and each reset trades the basket.
+- **Counterparty exposure.** What the fund would lose if the counterparty
+  failed: the swap's value when it is owed to the fund.
+  `result.counterparty_exposure` is that as a share of NAV each day.
+- **Dividend tax.** The fund passes on the basket's dividends as it received
+  them, after its own withholding, while the swap pays the index's return as
+  the index measures it: price, total or net total return.
+- **Costs.** The basket is traded at the run's costs, and the spread
+  (`spread_bps`, a year) accrues on the notional every calendar day
+  (ACT/360).
+
+The NAV includes the swap's value, and `result.swap_value` and
+`result.swap_resets` record it and each reset: the day, the value settled,
+why, and the new notional.
+
+```python
+from beacon.strategy import SyntheticReplication
+
+basket = {name: 1.0 for name in list(dataset.UNIVERSE)[:3]}
+synthetic = backtest.run(
+    IndexTracking(definition, SyntheticReplication(basket, spread_bps=15.0)),
+    start="2024-01-02", end="2025-12-31")
+
+print("tracking difference", round(synthetic.get_tracking_difference(), 4))
+print(len(synthetic.swap_resets), "resets, most exposure",
+      round(synthetic.counterparty_exposure.max(), 4))
+```
 
 ## Active strategies
 

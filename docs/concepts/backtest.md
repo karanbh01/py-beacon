@@ -444,11 +444,12 @@ fields. Each comparator is a `Book` with the same surface: `levels`,
 | Attribute | What it holds |
 |---|---|
 | `result.portfolio` | The simulated `Portfolio`, frozen: `nav`, `cash`, `positions`, `weights`, `transactions`, `initial_capital` |
-| `result.trading_nav` | `portfolio.nav` without its opening row (initial capital on the eve of the first trading day), net of any fee owed: one row per simulated day. Also `result.aum`. |
+| `result.trading_nav` | `portfolio.nav` without its opening row (initial capital on the eve of the first trading day), net of any fee owed and including a synthetic fund's swap: one row per simulated day. Also `result.aum`. |
 | `result.nav_per_unit` | The NAV over the units outstanding: a unit's performance, whatever money flowed |
 | `result.units_outstanding` | Units outstanding each simulated day |
 | `result.flows` | Each flow as dealt: `date`, `amount`, `nav_per_unit` and the `units` created or cancelled |
 | `result.fees_payable` | The management fee owed and not yet paid at the end of each day |
+| `result.swap_value`, `result.swap_resets`, `result.counterparty_exposure` | For a [synthetic fund](strategies.md#synthetic-replication): its swap's value each day, each reset, and what it would lose if the counterparty failed, as a share of NAV. Empty otherwise. |
 | `result.index.target` | The calculated index being aimed at. Its `source` is the `IndexResult`. |
 | `result.index.optimised` | The optimised index's own calculation, on an optimised run; otherwise `None` |
 | `result.index.tracked` | The book the engine traded toward: `optimised` if present, else `target` |

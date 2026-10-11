@@ -67,6 +67,7 @@ from .books import Book, IndexBooks
 from .flows import FlowRecord
 from .implementation import RebalanceStep
 from .metrics import MetricsMixin
+from .swap import SwapReset
 
 # Why an order went unfilled (BN-252, BN-266).
 CASH_SHORT = "cash"
@@ -180,6 +181,11 @@ class BacktestResult(MetricsMixin):
         active: For an `ActiveStrategy`, what it did at each rebalance: the
             weights, the benchmark's, the ex-ante tracking error, the active
             share and the scores. Empty otherwise.
+        swap_value: For a synthetic fund, its swap's value at the end of each
+            day: owed to the fund when positive, by it when negative. The NAV
+            includes it. Empty for any other fund.
+        swap_resets: For a synthetic fund, each reset of its swap: the day,
+            the value settled, why, and the notional it was reset to.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -202,6 +208,8 @@ class BacktestResult(MetricsMixin):
     market: pd.DataFrame = field(default_factory=pd.DataFrame)
     replication: list[ReplicationStep] = field(default_factory=list)
     active: list[ActiveStep] = field(default_factory=list)
+    swap_value: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    swap_resets: list[SwapReset] = field(default_factory=list)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 
@@ -222,6 +230,19 @@ class BacktestResult(MetricsMixin):
             return nav.iloc[1:]
 
         return nav
+
+    @property
+    def counterparty_exposure(self) -> pd.Series:
+        """For a synthetic fund, what it would lose if its swap counterparty
+        failed, as a share of NAV at the end of each day: the swap's value
+        when owed to the fund, otherwise zero. Empty for any other fund."""
+        if self.swap_value.empty:
+            return pd.Series(dtype=float)
+
+        nav = self.trading_nav
+
+        return (self.swap_value.clip(lower=0.0).reindex(nav.index).fillna(0.0)
+                / nav).rename("counterparty_exposure")
 
     @property
     def total_unfilled_value(self) -> float:

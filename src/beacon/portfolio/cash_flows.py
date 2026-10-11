@@ -21,6 +21,9 @@ SUBSCRIPTION = "SUBSCRIPTION"
 REDEMPTION = "REDEMPTION"
 # The fund's own charges paid from cash, recorded as a negative amount.
 FEE = "FEE"
+# A total return swap's value settled in cash at a reset: received when the
+# swap was worth something to the fund, paid when it owed (BN-270).
+SWAP = "SWAP"
 
 
 @dataclass(frozen=True)
@@ -33,7 +36,8 @@ class CashFlow:
         kind: What it was: ``"INTEREST"``, ``"DIVIDEND"`` (received from a
             holding), ``"DISTRIBUTION"`` (paid out to investors),
             ``"SUBSCRIPTION"`` or ``"REDEMPTION"`` (money investors put in
-            or took out) or ``"FEE"`` (the fund's charges).
+            or took out), ``"FEE"`` (the fund's charges) or ``"SWAP"`` (a
+            swap's value settled at a reset).
         asset_id: The holding it came from, for a dividend. None for interest.
     """
     date: pd.Timestamp
