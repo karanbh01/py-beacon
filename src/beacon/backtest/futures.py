@@ -192,7 +192,7 @@ class FuturesMixin:
 
         paid = min(-amount, portfolio.cash_balance)
 
-        if paid < -amount:
+        if paid < -amount - 1e-6:
             logger.warning("[%s] Futures margin of %.2f could not be paid in full; "
                            "%.2f went unpaid.", date.date(), -amount, -amount - paid)
 

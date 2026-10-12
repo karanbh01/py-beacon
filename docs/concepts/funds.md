@@ -71,6 +71,42 @@ result itself is the whole fund's.
 The same works without a `Fund`: pass `share_classes=` to `Backtest`, with
 `initial_capital` and `flows` by class name.
 
+### Classes in another currency, hedged or not
+
+A class can be denominated in another currency from the fund's book:
+`ShareClass("EUR", currency="EUR")`. Its capital, flows, fees and distributions
+are in its own currency, converted at each day's rate, and its NAV per unit
+moves with the book's return and the exchange rate together. Its
+`book_net_assets` gives its net assets in the book's currency, so the classes
+still add up to the fund.
+
+A hedged class takes the currency move out:
+`ShareClass("EUR H", currency="EUR", hedged=True)`. It sells the book's currency
+forward for its own, in the amount of its net assets times `hedge_ratio` (1 by
+default):
+
+- **Pricing.** Each forward is priced at covered interest parity from the
+  day's spot rate and the two currencies' short rates, each on its own day
+  count. A currency's short rate comes from the data (see
+  [Short rates](data.md#short-rates)); without one, the run's cash rate is used
+  and a warning says so.
+- **Rolls.** A one-month forward is opened at the first session and rolled on
+  the first business day of each month. Between rolls it is resized when its
+  size leaves the hedge ratio by more than `hedge_band` (3% by default; `None`
+  turns resizing off).
+- **Settlement.** A roll or resize settles the old forward in cash, as a
+  `"HEDGE"` cash flow. A loss is paid by selling across the book and a gain is
+  invested across it, so the other classes are not left holding the hedged
+  class's cash.
+
+The forward's gains and losses are the hedged class's alone, and its open
+value is part of its net assets and of the fund's NAV
+(`result.hedge_value`). A hedged class earns the book's return plus the
+interest rate differential: a euro class hedged out of dollars at 3% against
+5% gives up about 2% a year. `share_classes[name].hedges` lists each trade
+with its reason (`"open"`, `"roll"` or `"band"`), and `hedge_value` its daily
+value. A class hedged into the book's own currency is refused.
+
 ## Tracking a fund against its index
 
 A fund's backtest is measured against the index it tracked.

@@ -31,6 +31,7 @@ from .etf import Quote, quotes_frame
 from .execution import ExecutionMixin
 from .flows import FlowRecord, Flows
 from .futures import FuturesMixin
+from .hedging import HedgingMixin
 from .implementation import Implementation, RebalanceStep, plan
 from .listings import ListingsMixin
 from .pricing import PricingMixin
@@ -69,7 +70,8 @@ logger = logging.getLogger(__name__)
 # ShareClassesMixin comes before AccountingMixin and DividendsMixin, which
 # declare the methods it provides.
 class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionMixin,
-                     AccountingMixin, ListingsMixin, SwapMixin, FuturesMixin):
+                     AccountingMixin, ListingsMixin, SwapMixin, FuturesMixin,
+                     HedgingMixin):
     """Simulates portfolio execution against a target weight schedule.
 
     The engine consumes target weights from an ``IndexResult`` and simulates
@@ -267,6 +269,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
         # BN-270: a synthetic fund's swap, valued beside the portfolio.
         self.swap: SwapTerms | None = swap
         self._swap_value = 0.0
+        self._hedge_value = 0.0
 
         # BN-305: index futures, for a futures-based fund or a buffer.
         self.futures: IndexFutures | None = futures
@@ -446,6 +449,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
         self._start_dividends()
         self._start_swap()
         self._start_futures()
+        self._start_hedges()
 
         # The traded index's own sessions (BN-186), from the calendar BN-183
         # already wired in for the price read -- one source of truth, so the
@@ -469,6 +473,11 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
         # day would be overwritten by that day's close mark, and the record
         # of what the run started with would be gone (decision 11).
         eve = trading_days[0] - pd.tseries.offsets.BDay(1)
+
+        # Share classes' capital is given in each class's currency; the book
+        # is funded with it in its own (BN-307).
+        if self._ledgers:
+            self.initial_capital = self._book_capital(trading_days[0])
         portfolio = Portfolio(portfolio_id="backtest_portfolio",
                               initial_cash=self.initial_capital,
                               inception=eve,
@@ -488,7 +497,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
         for idx, date in enumerate(trading_days):
             # The day's split between share classes: their net assets at the
             # previous close (BN-279).
-            self._begin_class_day()
+            self._begin_class_day(date)
 
             # 0. Splits and stock dividends change the share count before the
             # day is marked: the stored close has already moved by the ratio,
@@ -518,6 +527,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             # at a NAV per unit that includes it.
             self._mark_swap(portfolio, last, date)
             self._mark_futures(portfolio, date)
+            self._mark_hedges(date)
 
             # 1b. Settle anything that stopped being listed. This has to
             # happen before the rebalance, because a delisted holding cannot
@@ -583,11 +593,16 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             self._adjust_futures(portfolio, date, target_w is not None,
                                  len(self._flow_records) > dealt)
 
+            # 2b''. Hedged share classes' forwards opened, rolled or resized
+            # (BN-307).
+            self._adjust_hedges(portfolio, date)
+
             # 2c. Pay what fee the cash allows; record the day's units and the
             # swap's value.
             self._record_swap(portfolio, date)
             self._record_futures(date)
             self._close_classes(portfolio, date)
+            self._record_hedges(date)
             self._close_books(portfolio, date)
 
             # 3. End-of-day state is already in the books: the dated mark
@@ -643,5 +658,6 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             swap_resets=list(self._swap_resets),
             futures_notional=pd.Series(self._futures_notional, dtype=float),
             futures_rolls=list(self._futures_rolls),
+            hedge_value=pd.Series(self._hedge_history, dtype=float),
             share_classes=self._class_books(),
         ).with_data(self.data_provider)

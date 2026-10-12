@@ -32,6 +32,7 @@ class MetricsMixin:
     launch_price: float
     market: pd.DataFrame
     swap_value: pd.Series
+    hedge_value: pd.Series
     active: list[ActiveStep]
     currency: str
 
@@ -64,7 +65,7 @@ class MetricsMixin:
 
     def _net_nav(self) -> pd.Series:
         """The portfolio's NAV less the fee owed each day, plus a synthetic
-        fund's swap."""
+        fund's swap and hedged share classes' forwards."""
         nav = self.portfolio.nav
 
         if nav.empty:
@@ -75,6 +76,9 @@ class MetricsMixin:
 
         if not self.swap_value.empty:
             nav = nav + self.swap_value.reindex(nav.index).ffill().fillna(0.0)
+
+        if not self.hedge_value.empty:
+            nav = nav + self.hedge_value.reindex(nav.index).ffill().fillna(0.0)
 
         return nav
 

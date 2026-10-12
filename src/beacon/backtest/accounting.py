@@ -90,10 +90,12 @@ class AccountingMixin:
     _working: list[WorkingOrder]
     _fees_payable: float
     _swap_value: float
+    _hedge_value: float
     _ledgers: list[Any]
 
     def _start_classes(self,
                        eve: pd.Timestamp,
+                       first_day: pd.Timestamp,
                        launch_price: float) -> None:
         """Provided by ShareClassesMixin; declared so this one type-checks."""
         raise NotImplementedError
@@ -192,13 +194,15 @@ class AccountingMixin:
             scenario.start(first_day)
 
         # BN-279: each share class's own register, beside the fund's.
-        self._start_classes(eve, self.launch_price)
+        self._start_classes(eve, first_day, self.launch_price)
 
     def _net_value(self,
                    portfolio: Portfolio) -> float:
         """The fund's net assets: what it holds, less the fee it owes, plus
-        a synthetic fund's swap (zero for any other)."""
-        return portfolio.get_total_value() - self._fees_payable + self._swap_value
+        a synthetic fund's swap and hedged share classes' forwards (zero for
+        any other)."""
+        return (portfolio.get_total_value() - self._fees_payable + self._swap_value
+                + self._hedge_value)
 
     def _nav_per_unit(self,
                       portfolio: Portfolio) -> float:

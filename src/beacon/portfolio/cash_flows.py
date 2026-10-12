@@ -27,6 +27,8 @@ SWAP = "SWAP"
 # Index futures' variation margin, settled every day, and the cost of each
 # roll (BN-305).
 FUTURES = "FUTURES"
+# A hedged share class's currency forward settled in cash (BN-307).
+HEDGE = "HEDGE"
 
 
 @dataclass(frozen=True)
@@ -40,8 +42,9 @@ class CashFlow:
             holding), ``"DISTRIBUTION"`` (paid out to investors),
             ``"SUBSCRIPTION"`` or ``"REDEMPTION"`` (money investors put in
             or took out), ``"FEE"`` (the fund's charges), ``"SWAP"`` (a
-            swap's value settled at a reset) or ``"FUTURES"`` (index futures'
-            daily margin and roll costs).
+            swap's value settled at a reset), ``"FUTURES"`` (index futures'
+            daily margin and roll costs) or ``"HEDGE"`` (a hedged share
+            class's currency forward settled).
         asset_id: The holding it came from, for a dividend. None for interest.
     """
     date: pd.Timestamp
