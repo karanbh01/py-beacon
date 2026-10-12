@@ -51,12 +51,17 @@ class ActiveProblem:
         covariance: Their annualised covariance.
         sectors: Each name's sector, for sector bounds.
         previous: The last rebalance's weights, for a turnover limit.
+        holdable: The names that may be held; every name when empty.
+        inputs: Anything else the construction asked to be read, by what it
+            is and then by name, such as a factor's exposures.
     """
     assets: list[str]
     benchmark: np.ndarray
     covariance: np.ndarray
     sectors: dict[str, str] = field(default_factory=dict)
     previous: dict[str, float] = field(default_factory=dict)
+    holdable: tuple[str, ...] = ()
+    inputs: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def active(self,
                weights: np.ndarray) -> np.ndarray:

@@ -20,6 +20,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 - Share classes that share one pool of assets: `Backtest(share_classes=[...], initial_capital={...}, flows={...})` runs every class in one book, so capacity caps, market impact and execution limits see the whole fund. Each day the book's gains, losses and income are split by the classes' net assets at the previous close; each class's own fee, flows (dealt at its own NAV per unit) and distributions reach it alone. `result.share_classes` holds each class's net assets, units, NAV per unit, fees, distributions and flows. `ShareClass` moved to `beacon.backtest`; `beacon.fund` still exports it.
 
+- More ways to build an active portfolio: `MinimumVariance`, `MaximumDiversification`, `RiskParity(budgets)`, `MaximumSharpe(base_return, alpha_per_score)`, `BlackLitterman(risk_aversion, tau, alpha_per_score, confidence)`, `FactorTilts(factors, targets)` (each factor a signal) and `TopN(n, weighting)`, all long-only within the strategy's constraints. The first three and factor tilts need no signal, so `ActiveStrategy`'s `signal` is now optional for them. Each rebalance in `result.active` records every holding's share of the risk (`risk_contributions`) and what the construction reports (`exposures`), and the server's backtest results carry both.
+
 ### Changed
 
 - `fund.backtest()` runs every share class together, with `initial_capital` and `flows` given by class name (one number for a fund of one class), and returns the fund's result with each class in `result.share_classes`. It no longer takes `share_class=`, and `Fund.vehicle_for()` is gone: a class's fee now reaches it inside the pooled run.

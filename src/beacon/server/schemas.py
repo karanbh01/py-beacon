@@ -3836,6 +3836,14 @@ class ActiveStepPayload(BaseModel):
     active_share: float = Field(
         description="Half the summed absolute differences from the benchmark.")
     weights: dict[str, float] = Field(description="The weights traded to.")
+    risk_contributions: dict[str, float] = Field(
+        default_factory=dict,
+        description="Each holding's share of the portfolio's variance, adding up "
+                    "to one over the names the construction placed.")
+    exposures: dict[str, float] = Field(
+        default_factory=dict,
+        description="What the construction reports, such as a factor tilt's "
+                    "active exposure to each factor. Empty for most.")
 
 
 class RebalanceStepPayload(BaseModel):

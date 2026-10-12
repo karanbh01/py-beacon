@@ -10,7 +10,14 @@ or through cash and rolled index futures (see `beacon.strategy.futures`).
 `ActiveStrategy` builds its own portfolio from a signal, against a benchmark
 (see `beacon.strategy.active`).
 """
-from .active import ActiveStep, ActiveStrategy, Construction, MaxAlpha, MeanVariance
+from .active import ActiveStep, ActiveStrategy
+from .allocations import (
+    BlackLitterman,
+    MaximumDiversification,
+    MaximumSharpe,
+    MinimumVariance,
+    RiskParity,
+)
 from .base import StrategyContext
 from .constraints import (
     ActiveConstraint,
@@ -22,6 +29,7 @@ from .constraints import (
     TrackingErrorBudget,
     TurnoverLimit,
 )
+from .constructions import Construction, FactorTilts, MaxAlpha, MeanVariance, TopN
 from .futures import FuturesReplication, IndexFutures
 from .signals import FieldSignal, FunctionSignal, Momentum, Signal
 from .synthetic import UCITS_EXPOSURE_LIMIT, SwapTerms, SyntheticReplication
@@ -41,7 +49,9 @@ __all__ = [
     "ActiveShare",
     "ActiveStep",
     "ActiveStrategy",
+    "BlackLitterman",
     "Construction",
+    "FactorTilts",
     "FieldSignal",
     "FullReplication",
     "FunctionSignal",
@@ -50,18 +60,23 @@ __all__ = [
     "IndexFutures",
     "IndexTracking",
     "MaxAlpha",
+    "MaximumDiversification",
+    "MaximumSharpe",
     "MeanVariance",
+    "MinimumVariance",
     "Momentum",
     "OptimisedReplication",
     "RelativePositionBounds",
     "RelativeSectorBounds",
     "Replication",
     "ReplicationStep",
+    "RiskParity",
     "SampledReplication",
     "Signal",
     "StrategyContext",
     "SwapTerms",
     "SyntheticReplication",
+    "TopN",
     "TrackingErrorBudget",
     "TurnoverLimit",
 ]

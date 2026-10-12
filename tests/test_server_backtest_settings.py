@@ -226,6 +226,42 @@ class TestRunning:
         assert result["metrics"]["information_ratio"] is not None
         assert result["settings"]["strategy"]["construction"]["type"] == "MeanVariance"
 
+    def test_a_construction_without_a_signal(self,
+                                             client):
+        result = run_backtest(client, strategy={
+            "type": "active", "construction": {"type": "MinimumVariance", "params": {}},
+            "lookback_days": 40, "minimum_observations": 20})
+
+        # The first rebalances may have too little history to solve, and hold
+        # the benchmark, as the other active tests allow for.
+        assert any(step["risk_contributions"] for step in result["active"])
+
+    def test_factor_tilts_take_signals_as_factors(self,
+                                                  client):
+        factor = {"type": "FieldSignal", "params": {
+            "field": {"node": "field", "namespace": "market", "name": "close"}}}
+        result = run_backtest(client, strategy={
+            "type": "active",
+            "construction": {"type": "FactorTilts", "params": {
+                "factors": {"price": factor}, "targets": {"price": 0.2}}},
+            "lookback_days": 40, "minimum_observations": 20})
+
+        assert any("price" in step["exposures"] for step in result["active"])
+        assert result["settings"]["strategy"]["construction"]["params"]["factors"] == {
+            "price": {"type": "FieldSignal", "params": {
+                "field": factor["params"]["field"], "higher_is_better": True}}}
+
+    def test_a_scored_construction_still_needs_a_signal(self,
+                                                        client):
+        response = client.post("/beacon/BT/backtest", json={
+            "start": "2024-01-02", "end": "2024-03-28",
+            "strategy": {"type": "active", "construction": {"type": "TopN",
+                                                            "params": {"n": 2}}}},
+            headers=auth())
+
+        assert response.status_code == 422
+        assert "signal" in response.text
+
     def test_the_implementation_reaches_the_run(self,
                                                 client):
         result = run_backtest(client, implementation={

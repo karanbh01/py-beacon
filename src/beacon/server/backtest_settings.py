@@ -37,11 +37,12 @@ from ..backtest.presets import PRESETS
 from ..backtest.vehicle import Vehicle
 from ..data.fetcher import DataFetcher
 from ..exceptions import BeaconError
-from ..expressions.core import from_dict
+from ..expressions.core import Expression, from_dict
 from ..index.derived import AnyIndexDefinition
 from ..optimise.config import constraint_from_payload
 from ..strategy.active import FREQUENCIES, ActiveStrategy, MaxAlpha
 from ..strategy.futures import IndexFutures
+from ..strategy.signals import Signal
 from ..strategy.tracking import FullReplication, IndexTracking
 from .schemas import BacktestRequest, Finding, TypedSpec, VehicleSpec
 
@@ -69,7 +70,32 @@ STRUCTURED: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("ExpressionScreen", "expression"): from_dict,
     ("OptimisedReplication", "constraints"): lambda rows: [constraint_from_payload(row)
                                                            for row in rows],
+    # BN-281: a factor tilt's factors are signals, each a {type, params}.
+    ("FactorTilts", "factors"): lambda factors: {name: _built(catalogue.SIGNAL, payload)
+                                                 for name, payload in factors.items()},
 }
+
+
+def _built(kind: str,
+           payload: dict[str, Any]) -> Any:
+    """An object of *kind* from its `{type, params}` form, its structured
+    parameters read as `typed` reads them.
+
+    Raises:
+        ValueError: If the type is unknown or the form is not an object.
+    """
+    if not isinstance(payload, dict) or "type" not in payload:
+        raise ValueError(f"expected a {kind} as {{type, params}}, got {payload!r}.")
+
+    cls = catalogue.classes(kind).get(payload["type"])
+
+    if cls is None:
+        raise ValueError(f"Unknown {kind} type {payload['type']!r}.")
+
+    params = {name: STRUCTURED.get((payload["type"], name), _same)(value)
+              for name, value in (payload.get("params") or {}).items()}
+
+    return cls(**params)
 
 Strategy = AnyIndexDefinition | IndexTracking | ActiveStrategy
 
@@ -210,8 +236,27 @@ def typed_payload(kind: str,
     names = [parameter.name for parameter in entry.parameters] if entry else []
 
     return {"type": type(value).__name__,
-            "params": {name: getattr(value, name) for name in names
+            "params": {name: _plain(getattr(value, name)) for name in names
                        if hasattr(value, name)}}
+
+
+def _plain(value: Any) -> Any:
+    """A parameter's value as JSON can carry it: a signal as its `{type,
+    params}` form and an expression as its own, inside lists and mappings
+    too (BN-281: a factor tilt's factors are signals)."""
+    if isinstance(value, Signal):
+        return typed_payload(catalogue.SIGNAL, value)
+
+    if isinstance(value, Expression):
+        return value.to_dict()
+
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items()}
+
+    if isinstance(value, list | tuple):
+        return [_plain(item) for item in value]
+
+    return value
 
 
 def vehicle_settings(vehicle: Vehicle) -> dict[str, Any]:
@@ -391,10 +436,6 @@ def _active(spec: Any,
             findings: Findings) -> tuple[Callable[[AnyIndexDefinition], Strategy],
                                          dict[str, Any]]:
     """An active strategy's builder and resolved settings."""
-    if spec.signal is None:
-        findings.add("strategy.signal", "missing_parameter",
-                     "An active strategy needs a signal.")
-
     if spec.rebalancing not in FREQUENCIES:
         findings.add("strategy.rebalancing", "invalid_value",
                      f"Unknown rebalancing '{spec.rebalancing}'. Known: "
@@ -405,6 +446,12 @@ def _active(spec: Any,
     construction = (typed(catalogue.CONSTRUCTION, spec.construction,
                           "strategy.construction", findings)
                     if spec.construction is not None else MaxAlpha())
+
+    # BN-281: only a construction that builds from scores needs a signal.
+    if spec.signal is None and (construction is None or construction.uses_scores):
+        findings.add("strategy.signal", "missing_parameter",
+                     "This construction builds from a signal's scores; give the "
+                     "strategy a signal.")
     constraints = [typed(catalogue.ACTIVE_CONSTRAINT, constraint,
                          f"strategy.constraints.{position}", findings)
                    for position, constraint in enumerate(spec.constraints)]
@@ -417,9 +464,8 @@ def _active(spec: Any,
             findings.add("strategy.screen", "invalid_value", str(error))
 
     def built(definition: AnyIndexDefinition) -> Strategy:
-        # Only called once the request has no findings, so the signal exists.
-        assert signal is not None
-
+        # Only called once the request has no findings, so a signal exists
+        # wherever the construction needs one.
         windows = {name: value for name, value in
                    (("lookback_days", spec.lookback_days),
                     ("minimum_observations", spec.minimum_observations))

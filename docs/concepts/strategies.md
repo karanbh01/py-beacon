@@ -208,8 +208,9 @@ False; a name with no value scores 0.
 | `Momentum(lookback_days=252, skip_days=21)` | The return over the lookback, leaving out the most recent month |
 | `FunctionSignal(function)` | Whatever `function(name, date, fetcher)` returns |
 
-**Construction.** Two methods share one interface, `Construction`, so more
-can be added:
+**Construction.** Every method shares one interface, `Construction`, so
+more can be added. Each is long-only and fully invested, within the
+strategy's constraints. Two are built around the benchmark and the scores:
 
 - `MaxAlpha(tracking_error=0.03)` holds the most exposure to the scores that
   a tracking-error budget allows: the budget is the target, and the active
@@ -221,6 +222,43 @@ can be added:
   expected active return (each score times `alpha_per_score` a year) less
   `risk_aversion` times the active variance. One setting trades return for
   risk, and the tracking error is whatever results.
+
+Three ignore the benchmark's weights and need no signal (the run is still
+measured against the benchmark):
+
+- `MinimumVariance()` holds the least risky portfolio the constraints allow.
+- `MaximumDiversification()` holds the highest diversification ratio: the
+  holdings' weighted average volatility over the portfolio's own.
+- `RiskParity(budgets=None)` has each name contribute a set share of the
+  portfolio's variance, equal shares by default. A name's contribution is
+  its weight times its covariance with the portfolio, over the variance.
+  `budgets` sets the shares by name, scaled to add up to one.
+
+Two build from expected returns:
+
+- `MaximumSharpe(base_return=0.05, alpha_per_score=0.02)` holds the highest
+  expected excess return per unit of risk, with each name expected to earn
+  `base_return` over cash plus its score times `alpha_per_score`.
+- `BlackLitterman(risk_aversion=2.5, tau=0.05, alpha_per_score=0.02,
+  confidence=1.0)` starts from the returns the benchmark implies (the
+  returns that make it the best portfolio at that risk aversion), takes each
+  scored name as a view that it will earn its implied return plus its score
+  times `alpha_per_score`, blends the two, and holds the best trade-off of
+  the blended returns against variance. With no scores it holds the
+  benchmark; `confidence` moves the blend toward the views.
+
+And two more:
+
+- `FactorTilts(factors, targets, strength=1.0)` aims at target active
+  exposures to factors while staying close to the benchmark. Each factor is
+  a signal, whose scores are the names' exposures, such as
+  `FactorTilts({"value": FieldSignal(data.features.fundamentals.earnings_yield)},
+  {"value": 0.3})`. It minimises the active variance plus `strength` times
+  the squared misses from the targets, and needs no signal of its own.
+- `TopN(n=20, weighting="equal")` holds the top `n` names by score, equally
+  or in proportion to their scores (`weighting="signal"`): a simple rule the
+  optimised methods can be judged against. Its weights are moved only as far
+  as the constraints require.
 
 **Constraints,** measured against the benchmark where it matters:
 
@@ -238,7 +276,10 @@ weights. The turnover limit is measured from the last rebalance's target
 weights, not from the drifted holdings.
 
 **Reporting.** `result.active` records each rebalance's weights, the
-benchmark's, the ex-ante tracking error, the active share and the scores.
+benchmark's, the ex-ante tracking error, the active share, the scores, each
+holding's share of the portfolio's variance (`risk_contributions`) and what
+the construction reports (`exposures`, a factor tilt's active exposure to
+each factor).
 The summary adds the `information_ratio` (annualised active return over
 tracking error), the average active share and the average ex-ante tracking
 error, and `result.active_attribution()` says which names produced the active
@@ -258,5 +299,15 @@ summary = active.summary()
 print(round(summary["information_ratio"], 3),
       round(summary["average_active_share"], 3))
 print(active.active_attribution().contributions[0])
+```
+
+```python
+from beacon.strategy import RiskParity
+
+balanced = backtest.run(ActiveStrategy(benchmark=definition, construction=RiskParity(),
+                                       rebalancing="QUARTERLY"),
+                        start="2024-01-02", end="2025-12-31")
+shares = balanced.active[0].risk_contributions
+print(round(min(shares.values()), 3), round(max(shares.values()), 3))
 ```
 

@@ -378,7 +378,9 @@ def strategy_and_vehicle_payloads(result: BacktestResult) -> dict[str, Any]:
         "active": [ActiveStepPayload(date=str(step.date.date()),
                                      tracking_error=step.tracking_error,
                                      active_share=step.active_share,
-                                     weights=step.weights)
+                                     weights=step.weights,
+                                     risk_contributions=step.risk_contributions,
+                                     exposures=step.exposures)
                    for step in result.active],
         "rebalance_steps": [RebalanceStepPayload(date=str(step.date.date()),
                                                  removed=step.removed,
