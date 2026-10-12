@@ -4,26 +4,34 @@ and FX rates — the single home for these series, sourced from market data."""
 import pandas as pd
 import pytest
 
-from beacon.data.base import MarketData
+from beacon.data import pair_reference
+from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 
 
 def _make_fetcher(include_aux=True):
     rows = [
         {"IDENTIFIER": "AAA", "DATE": "2024-01-02", "CLOSE": 100.0,
-         "SHARES_OUTSTANDING": 1000.0, "FREE_FLOAT": 0.8, "RATE": float("nan")},
+         "SHARES_OUTSTANDING": 1000.0, "FREE_FLOAT": 0.8},
         {"IDENTIFIER": "AAA", "DATE": "2024-01-03", "CLOSE": 101.0,
-         "SHARES_OUTSTANDING": 1000.0, "FREE_FLOAT": 0.8, "RATE": float("nan")},
-        # FX pair stored as its own identifier
-        {"IDENTIFIER": "GBPUSD", "DATE": "2024-01-02", "CLOSE": float("nan"),
-         "SHARES_OUTSTANDING": float("nan"), "FREE_FLOAT": float("nan"), "RATE": 1.25},
-        {"IDENTIFIER": "GBPUSD", "DATE": "2024-01-03", "CLOSE": float("nan"),
-         "SHARES_OUTSTANDING": float("nan"), "FREE_FLOAT": float("nan"), "RATE": 1.26},
+         "SHARES_OUTSTANDING": 1000.0, "FREE_FLOAT": 0.8},
+        # FX pair stored as its own identifier, its rate in CLOSE (BN-308)
+        {"IDENTIFIER": "GBPUSD", "DATE": "2024-01-02", "CLOSE": 1.25,
+         "SHARES_OUTSTANDING": float("nan"), "FREE_FLOAT": float("nan")},
+        {"IDENTIFIER": "GBPUSD", "DATE": "2024-01-03", "CLOSE": 1.26,
+         "SHARES_OUTSTANDING": float("nan"), "FREE_FLOAT": float("nan")},
     ]
     df = pd.DataFrame(rows)
     if not include_aux:
         df = df[["IDENTIFIER", "DATE", "CLOSE"]]
-    return DataFetcher(MarketData.from_dataframe(df))
+
+    # Reference data is what makes GBPUSD a pair.
+    reference = pd.DataFrame([{"IDENTIFIER": "AAA", "NAME": "AAA", "CURRENCY": "USD",
+                               "EXCHANGE": "XNYS", "DATE_FROM": "1900-01-01"},
+                              pair_reference("GBPUSD")])
+
+    return DataFetcher(MarketData.from_dataframe(df),
+                       ReferenceData.from_dataframe(reference))
 
 
 class TestSharesOutstanding:

@@ -161,9 +161,9 @@ class TestFieldCount:
 
     def test_market_counts_its_columns(self, coverage):
         """OHLCV, shares outstanding and free float."""
-        # Eight since BN-128: the seven equity columns plus RATE, which the
-        # FX pairs carry and equity rows leave empty.
-        assert dataset_of(coverage, MARKET_DATASET)["field_count"] == 8
+        # Seven since BN-308. BN-128 made it eight with RATE, which the FX
+        # pairs carried; a pair's rate is now its CLOSE.
+        assert dataset_of(coverage, MARKET_DATASET)["field_count"] == 7
 
     def test_reference_excludes_the_validity_keys(self, coverage, stored):
         """DATE_FROM and DATE_TO are keys, not fields. Counting them would make

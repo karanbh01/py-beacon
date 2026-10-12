@@ -12,6 +12,7 @@ import pytest
 
 from beacon import ModellingAssumptions
 from beacon.backtest import BacktestEngine
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.corporate_actions import CorporateActions
 from beacon.data.fetcher import DataFetcher
@@ -58,7 +59,7 @@ def fetcher(flat: bool = False,
 
     if currency != "USD":
         rows += [{"IDENTIFIER": f"{currency}USD", "DATE": day,
-                  "RATE": 1.25 + 0.001 * step}
+                  "CLOSE": 1.25 + 0.001 * step}
                  for step, day in enumerate(DAYS)]
 
     action = {"IDENTIFIER": "AAA", "EX_DATE": EX, "TYPE": "DIVIDEND",
@@ -73,6 +74,11 @@ def fetcher(flat: bool = False,
          "CURRENCY": currency, "EXCHANGE": "XNYS"},
         {"IDENTIFIER": "BBB", "DATE_FROM": "2020-01-01", "NAME": "B",
          "CURRENCY": "USD", "EXCHANGE": "XNYS"}])
+
+    if currency != "USD":
+        reference = pd.concat([reference,
+                               pd.DataFrame([pair_reference(f"{currency}USD")])],
+                              ignore_index=True)
 
     return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
                        ReferenceData.from_dataframe(reference),

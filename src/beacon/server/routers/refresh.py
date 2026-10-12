@@ -207,8 +207,11 @@ def download_into(path: Path,
     source = data_store.read_manifest(path).source
     _, last = fetcher.date_range
 
-    instruments = (fetcher.reference.identifiers
-                   if fetcher.reference is not None else fetcher.identifiers)
+    # Pairs and short rates are not priced by an instrument download (BN-308).
+    instruments = [name for name in (fetcher.reference.identifiers
+                                     if fetcher.reference is not None
+                                     else fetcher.identifiers)
+                   if fetcher.is_tradable(name)]
     start = (last + timedelta(days=1)).date().isoformat() if last else None
 
     result = ingest_market_data(list(instruments), downloader,

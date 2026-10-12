@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 
 from beacon.asset.base import Asset
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.corporate_actions import CorporateActions
 from beacon.data.fetcher import DataFetcher
@@ -436,12 +437,13 @@ def two_currency_fetcher(with_rates: bool = True) -> DataFetcher:
 
         if with_rates:
             rows.append({"IDENTIFIER": "JPYUSD", "DATE": date,
-                         "RATE": 1.0 / JPY_PER_USD})
+                         "CLOSE": 1.0 / JPY_PER_USD})
 
     reference = ReferenceData.from_dataframe(pd.DataFrame([
         {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
          "CURRENCY": currencies[name], "EXCHANGE": "XNYS"}
-        for name in prices]))
+        for name in prices]
+        + ([pair_reference("JPYUSD")] if with_rates else [])))
 
     actions = CorporateActions.from_dataframe(pd.DataFrame([
         {"IDENTIFIER": "JPCO", "EX_DATE": EX_DATE, "TYPE": "DIVIDEND",

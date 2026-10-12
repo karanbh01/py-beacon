@@ -333,8 +333,7 @@ def seed_global_universe(store: DocumentStore,
     Returns:
         bool: Whether anything was written.
     """
-    identifiers = sorted(set(fetcher.reference_identifiers
-                             or fetcher.identifiers))
+    identifiers = sorted(set(fetcher.tradable_identifiers))
 
     if not identifiers:
         return False

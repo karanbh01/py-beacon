@@ -373,9 +373,10 @@ pairs are market identifiers, so they are counted under `market` too; the
 `cache_size_bytes`, because its rows live in the market file.
 
 **A currency pair is an ordinary identifier.** `EURUSD` answers on
-`/data/prices` and appears in `/data/identifiers`. It has no reference data.
-`RATE` is filled on a pair and null on every instrument, which is how to tell
-them apart.
+`/data/prices`, its rate in `CLOSE`, and appears in `/data/identifiers`. Its
+reference row says what it is: `ASSET_CLASS` `Currency` and `SECURITY_TYPE`
+`Spot`, as a short rate's says `Fixed Income` and `Short Rate`. Neither is
+tradable, so neither is offered as a universe member.
 
 **`null` means unknown, not zero.** A missing `pay_date`, `adv_3m` or
 `risk_contribution` is null rather than a placeholder, so a client can leave

@@ -23,6 +23,7 @@ import pandas as pd
 import pytest
 
 from beacon.asset.equity import Equity
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import (
     DEFAULT_FX_POLICY,
@@ -81,13 +82,13 @@ def build_fetcher(with_rates: bool = True,
 
         if with_rates:
             rows.append({"IDENTIFIER": "JPYUSD", "DATE": date,
-                         "RATE": 1.0 / JPY_PER_USD})
+                         "CLOSE": 1.0 / JPY_PER_USD})
 
     reference = pd.DataFrame([
         {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
          "CURRENCY": CURRENCY[name], "EXCHANGE": "XXXX"}
         for name in PRICE
-    ])
+    ] + ([pair_reference("JPYUSD")] if with_rates else []))
 
     return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
                        ReferenceData.from_dataframe(reference))
@@ -132,10 +133,11 @@ class TestTheWeightingConverts:
         it here keeps anyone from "fixing" this by hard-coding USD, which would
         leave a EUR index with dollars in its weights and euros on its levels.
         """
-        rows = [{"IDENTIFIER": "USDJPY", "DATE": date, "RATE": JPY_PER_USD}
+        rows = [{"IDENTIFIER": "USDJPY", "DATE": date, "CLOSE": JPY_PER_USD}
                 for date in DATES]
         fetcher = build_fetcher(with_rates=False)
         fetcher.merge_market_data(pd.DataFrame(rows))
+        fetcher.merge_reference_data(pd.DataFrame([pair_reference("USDJPY")]))
 
         weights = weights_by_ticker(MarketCapWeighted(), fetcher,
                                     IndexContext(currency="JPY"))
@@ -378,7 +380,7 @@ class TestOneRateLookup:
             1.0 / JPY_PER_USD)
 
         restated = pd.DataFrame([{"IDENTIFIER": "JPYUSD", "DATE": date,
-                                  "RATE": 1.0 / 100.0}
+                                  "CLOSE": 1.0 / 100.0}
                                  for date in DATES])
         fetcher.merge_market_data(restated)
 
@@ -599,13 +601,13 @@ def moving_rate_fetcher(first_rate_date: str) -> DataFetcher:
 
         if date >= pd.Timestamp(first_rate_date):
             rows.append({"IDENTIFIER": "JPYUSD", "DATE": date,
-                         "RATE": (1.0 / JPY_PER_USD) + index * 1e-5})
+                         "CLOSE": (1.0 / JPY_PER_USD) + index * 1e-5})
 
     reference = pd.DataFrame([
         {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
          "CURRENCY": CURRENCY[name], "EXCHANGE": "XXXX"}
         for name in PRICE
-    ])
+    ] + [pair_reference("JPYUSD")])
 
     return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
                        ReferenceData.from_dataframe(reference))
@@ -690,13 +692,13 @@ def gapped_rate_fetcher(gap: pd.Timestamp,
 
         if date != gap:
             rows.append({"IDENTIFIER": "JPYUSD", "DATE": date,
-                         "RATE": 1.0 / JPY_PER_USD})
+                         "CLOSE": 1.0 / JPY_PER_USD})
 
     reference = pd.DataFrame([
         {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
          "CURRENCY": CURRENCY[name], "EXCHANGE": "XXXX"}
         for name in PRICE
-    ])
+    ] + [pair_reference("JPYUSD")])
 
     return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
                        ReferenceData.from_dataframe(reference),

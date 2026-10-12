@@ -44,13 +44,14 @@ def client():
 def known():
     """The instruments a universe may contain.
 
-    Reference identifiers, not market ones. Since BN-128 the market data also
-    carries a row set per FX pair -- `GBPUSD` and friends -- because that is
-    how `fetch_fx_rates` finds them. They are not companies and cannot be
-    index constituents, so a universe built from `fetcher.identifiers` would
-    offer somebody a currency pair to select.
+    The tradable identifiers. The data also carries a series per FX pair,
+    `GBPUSD` here, with a reference row that says it is a pair. A pair is not
+    a company and cannot be an index constituent, so a universe built from
+    every identifier would offer somebody a currency pair to select.
     """
-    return dataset.data_fetcher().reference_identifiers
+    # BN-308: the pair has a reference row now, so reference identifiers
+    # alone no longer leave it out.
+    return dataset.data_fetcher().tradable_identifiers
 
 
 def findings(response) -> list[dict]:
@@ -80,14 +81,13 @@ class TestTheSeededGlobalUniverse:
 
     def test_it_holds_no_currency_pairs(self,
                                         client):
-        """The reason the seed reads reference data rather than market data:
-        an FX pair is a row set, not an instrument anybody can hold."""
+        """The seed reads the tradable identifiers: an FX pair is a rate
+        series, not an instrument anybody can hold."""
         universe = client.get(f"/universes/{GLOBAL_ID}", headers=HEADERS).json()
-        market_only = (set(dataset.data_fetcher().identifiers)
-                       - set(dataset.data_fetcher().reference_identifiers))
+        pairs = set(dataset.data_fetcher().fx_pairs)
 
-        assert market_only, "the fixture has no FX pairs, so this proves nothing"
-        assert not market_only & set(universe["identifiers"])
+        assert pairs, "the fixture has no FX pairs, so this proves nothing"
+        assert not pairs & set(universe["identifiers"])
 
     def test_its_members_are_deterministic(self,
                                            known):

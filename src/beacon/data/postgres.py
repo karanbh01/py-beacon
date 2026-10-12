@@ -2,7 +2,7 @@
 """Read data from a Postgres database, in the layout `beacon.data.layout` sets out.
 
 A Postgres store is tables or views named after the layout's sheets (`market`,
-`reference`, and optionally `fx`, `corporate_actions`, `features`), with the
+`reference`, and optionally `corporate_actions`, `features`), with the
 same columns, in one schema. To use data you already hold, create views with
 those names and columns over your own tables.
 
@@ -130,11 +130,14 @@ def read(source: PostgresSource,
     sheets: dict[str, pd.DataFrame] = {}
     problems: list[layout.Problem] = []
 
+    # A retired table is read too, so that one still there is refused by
+    # `layout.check` rather than ignored (BN-308).
+    names = [*(sheet.name for sheet in layout.SHEETS), *layout.RETIRED_SHEETS]
+
     with closing(connection):
-        for sheet in layout.SHEETS:
+        for name in names:
             try:
-                sheets[sheet.name] = _read_table(connection, source.schema,
-                                                 sheet.name)
+                sheets[name] = _read_table(connection, source.schema, name)
             except Exception as error:
                 # A failed statement ends the transaction in Postgres; the
                 # next table needs a fresh one.
@@ -142,8 +145,8 @@ def read(source: PostgresSource,
 
                 if not _is_missing_table(error):
                     problems.append(layout.Problem(
-                        sheet.name, None, None, "UNREADABLE_TABLE",
-                        f"{source.schema}.{sheet.name} cannot be read: "
+                        name, None, None, "UNREADABLE_TABLE",
+                        f"{source.schema}.{name} cannot be read: "
                         f"{error}".strip()))
 
     return sheets, problems

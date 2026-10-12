@@ -54,6 +54,18 @@ def client(panel):
     return TestClient(app, raise_server_exceptions=False)
 
 
+def companies(panel):
+    """The company rows of a panel's reference data.
+
+    Each FX pair has a reference row too, which says it is a pair. It has no
+    listing, domicile or market cap, so these questions are about companies.
+    """
+    # BN-308 gave the pairs reference rows.
+    reference = panel.reference.data
+
+    return reference[reference.index.isin(panel.universe.index)]
+
+
 def fields_for(client,
                identifier,
                names):
@@ -75,7 +87,7 @@ class TestCountryIsSeparateFromRegion:
 
     def test_the_codes_are_iso_alpha_2(self,
                                        panel):
-        reference = panel.reference.data
+        reference = companies(panel)
 
         for column in ("COUNTRY_LISTING", "COUNTRY_DOMICILE"):
             values = reference[column].unique()
@@ -90,7 +102,7 @@ class TestCountryIsSeparateFromRegion:
         row of the region table."""
         expected = {region.exchange: region.country
                     for region in regions_module.REGIONS}
-        reference = panel.reference.data
+        reference = companies(panel)
 
         for exchange, country in zip(reference["EXCHANGE"],
                                      reference["COUNTRY_LISTING"],
@@ -101,7 +113,7 @@ class TestCountryIsSeparateFromRegion:
                                                           panel):
         """Europe is one region covering more than one country, which is why
         collapsing them would be wrong."""
-        reference = panel.reference.data
+        reference = companies(panel)
 
         assert reference["REGION"].nunique() > 1
         assert reference["COUNTRY_LISTING"].nunique() > 1
@@ -112,7 +124,7 @@ class TestDomicileDivergesFromListing:
 
     def test_some_names_are_domiciled_elsewhere(self,
                                                 panel):
-        reference = panel.reference.data
+        reference = companies(panel)
         foreign = reference["COUNTRY_LISTING"] != reference["COUNTRY_DOMICILE"]
 
         assert foreign.any(), "domicile never differs, so the column says nothing"
@@ -121,7 +133,7 @@ class TestDomicileDivergesFromListing:
                                                       panel):
         """Guards the test above: making every name foreign would pass it and
         describe no real market."""
-        reference = panel.reference.data
+        reference = companies(panel)
         foreign = reference["COUNTRY_LISTING"] != reference["COUNTRY_DOMICILE"]
 
         assert 0.05 < foreign.mean() < 0.35, (
@@ -132,7 +144,7 @@ class TestDomicileDivergesFromListing:
         """Drawn from the destinations a venue actually uses, not uniformly:
         a uniform draw produces Japanese companies incorporated in Jersey,
         which is not a thing."""
-        reference = panel.reference.data
+        reference = companies(panel)
 
         for listing, domicile in zip(reference["COUNTRY_LISTING"],
                                      reference["COUNTRY_DOMICILE"],
@@ -168,7 +180,7 @@ class TestMarketCapIsDerivedAndConverted:
     def test_it_is_returned_when_named(self,
                                        client,
                                        panel):
-        identifier = panel.reference.data.index[0]
+        identifier = companies(panel).index[0]
         fields = fields_for(client, identifier, "market_cap")
 
         assert fields["market_cap"] > 0
@@ -178,7 +190,7 @@ class TestMarketCapIsDerivedAndConverted:
                                        panel):
         """Derived for the same reason `adv_3m` is: a market-data join that
         changes daily, which a client should have to ask to pay for."""
-        identifier = panel.reference.data.index[0]
+        identifier = companies(panel).index[0]
         fields = fields_for(client, identifier, "NAME")
 
         assert "market_cap" not in fields
@@ -194,7 +206,7 @@ class TestMarketCapIsDerivedAndConverted:
         class of defect as the dividend conversion BN-128 found, and it
         announces itself just as little.
         """
-        reference = panel.reference.data
+        reference = companies(panel)
         japanese = reference.index[reference["CURRENCY"] == "JPY"]
 
         if not len(japanese):
@@ -218,7 +230,7 @@ class TestMarketCapIsDerivedAndConverted:
                                     panel):
         """A number whose unit a client has to assume is one it will
         eventually assume wrongly."""
-        identifier = panel.reference.data.index[0]
+        identifier = companies(panel).index[0]
         fields = fields_for(client, identifier, "market_cap")
 
         assert fields["market_cap_currency"] == DEFAULT_CURRENCY
@@ -226,7 +238,7 @@ class TestMarketCapIsDerivedAndConverted:
     def test_free_float_is_the_smaller_number(self,
                                               client,
                                               panel):
-        identifier = panel.reference.data.index[0]
+        identifier = companies(panel).index[0]
         fields = fields_for(client, identifier,
                             "market_cap,free_float_market_cap")
 
@@ -242,7 +254,7 @@ class TestMarketCapIsDerivedAndConverted:
         rather than the size of the company, and every yen-quoted name
         outranks every dollar-quoted one.
         """
-        reference = panel.reference.data
+        reference = companies(panel)
         sample = reference.index[:60].tolist()
 
         response = client.get("/data/reference", headers=HEADERS,
@@ -289,7 +301,7 @@ class TestTheSurface:
                                                     panel):
         """Naming no stored column returns them all, which is how the client
         discovers what it can filter on."""
-        identifier = panel.reference.data.index[0]
+        identifier = companies(panel).index[0]
         response = client.get(f"/data/reference/{identifier}", headers=HEADERS)
         fields = response.json()["fields"]
 

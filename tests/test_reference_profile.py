@@ -67,7 +67,12 @@ def panel():
 
 @pytest.fixture(scope="module")
 def reference(panel):
-    return panel.reference.data
+    """The companies' reference rows. Each FX pair has one too, which says
+    it is a pair and carries none of a company's profile."""
+    # BN-308 gave the pairs reference rows.
+    data = panel.reference.data
+
+    return data[data.index.isin(panel.universe.index)]
 
 
 @pytest.fixture

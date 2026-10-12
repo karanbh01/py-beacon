@@ -5,6 +5,7 @@ import inspect
 import pandas as pd
 import pytest
 
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.corporate_actions import (
     CASH_ACTIONS,
@@ -393,13 +394,14 @@ class TestTheDividendConversionObeysTheFxPolicy:
 
             if date != self.GAP:
                 rows.append({"IDENTIFIER": "GBPUSD", "DATE": date,
-                             "RATE": 1.25})
+                             "CLOSE": 1.25})
 
         reference = pd.DataFrame([{"IDENTIFIER": "UKCO",
                                    "DATE_FROM": "2020-01-01",
                                    "NAME": "UKCO",
                                    "CURRENCY": "GBP",
-                                   "EXCHANGE": "XLON"}])
+                                   "EXCHANGE": "XLON"},
+                                  pair_reference("GBPUSD")])
 
         return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
                            ReferenceData.from_dataframe(reference),

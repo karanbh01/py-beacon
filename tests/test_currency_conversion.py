@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from beacon.asset.equity import Equity
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 from beacon.exceptions import CalculationError
@@ -38,14 +39,17 @@ def build_fetcher(with_rate: bool = True) -> DataFetcher:
         rows.append({"IDENTIFIER": "VOD", "DATE": day, "CLOSE": 2.0,
                      "VOLUME": 1_000_000.0, "SHARES_OUTSTANDING": 1e9})
         if with_rate:
-            rows.append({"IDENTIFIER": "GBPUSD", "DATE": day, "CLOSE": rate,
-                         "RATE": rate})
+            rows.append({"IDENTIFIER": "GBPUSD", "DATE": day, "CLOSE": rate})
 
     reference = pd.DataFrame([
         {"IDENTIFIER": "AAA", "DATE_FROM": "2020-01-01", "NAME": "A",
          "CURRENCY": "USD", "EXCHANGE": "XNYS"},
         {"IDENTIFIER": "VOD", "DATE_FROM": "2020-01-01", "NAME": "V",
          "CURRENCY": "GBP", "EXCHANGE": "XLON"}])
+
+    if with_rate:
+        reference = pd.concat([reference, pd.DataFrame([pair_reference("GBPUSD")])],
+                              ignore_index=True)
 
     return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
                        ReferenceData.from_dataframe(reference))

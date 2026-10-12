@@ -68,8 +68,7 @@ class Fetcher:
                        from_currency,
                        to_currency,
                        start_date=None,
-                       end_date=None,
-                       column="RATE"):
+                       end_date=None):
         if self.rates is None:
             return pd.Series(dtype=float)
 

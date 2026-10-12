@@ -29,6 +29,7 @@ import pytest
 
 from beacon.backtest.engine import BacktestEngine
 from beacon.backtest.result import BacktestResult
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 from beacon.exceptions import CalculationError
@@ -524,14 +525,15 @@ class TestTheEngineUsesTheLibrarysOneConversion:
 
         if fx_from is not None:
             rows += [{"IDENTIFIER": "GBPUSD", "DATE": date,
-                      "CLOSE": 1.50 + index * 0.01, "RATE": 1.50 + index * 0.01}
+                      "CLOSE": 1.50 + index * 0.01}
                      for index, date in enumerate(pd.bdate_range(fx_from, END))]
 
         reference = pd.DataFrame([{"IDENTIFIER": "UKCO",
                                    "DATE_FROM": "2020-01-01",
                                    "NAME": "UKCO",
                                    "CURRENCY": "GBP",
-                                   "EXCHANGE": "XLON"}])
+                                   "EXCHANGE": "XLON"},
+                                  pair_reference("GBPUSD")])
 
         return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
                            ReferenceData.from_dataframe(reference))

@@ -2,11 +2,12 @@
 """
 Exchange rates, generated as market data so the FX paths are actually exercised.
 
-`DataFetcher.fetch_fx_rates` looks a pair up as an ordinary market-data
-identifier named ``f"{from}{to}"``: `EURUSD` converts euros into dollars.
-Nothing special: a currency pair is a row set like any other, which is why the
-calculator and the corporate-action handler can convert without knowing where
-the rate came from.
+A pair is an ordinary market series, its rate in ``CLOSE``, and a reference
+row says what it is: ``ASSET_CLASS`` ``Currency``, ``SECURITY_TYPE`` ``Spot``
+and its two currencies (see `beacon.data.kinds`). `EURUSD` converts euros
+into dollars. Nothing else is special about it, which is why the calculator
+and the corporate-action handler can convert without knowing where the rate
+came from.
 
 ## Why a rate is not a price
 
@@ -53,11 +54,7 @@ FLIGHT_TO_QUALITY = 0.18
 # move it in.
 PEG_VOLATILITY = 0.01
 
-# The column `fetch_fx_rates` reads by default.
-RATE_COLUMN = "RATE"
-
-# And the one every price view reads. A pair carries its rate in both: see
-# `build` for why it is duplicated rather than moved.
+# A pair's rate is its close, like any other series (BN-308).
 CLOSE_COLUMN = "CLOSE"
 
 
@@ -76,14 +73,13 @@ def build(dates: pd.DatetimeIndex,
             from where it stopped rather than from the pair's usual level.
 
     Returns:
-        pd.DataFrame: Long-form, with IDENTIFIER/DATE and the rate in both
-        RATE and CLOSE, ready to be concatenated onto the equity market data.
+        pd.DataFrame: Long-form, with IDENTIFIER/DATE and the rate in CLOSE,
+        ready to be concatenated onto the equity market data.
     """
     pairs = regions.pairs()
 
     if not pairs:
-        return pd.DataFrame(columns=["DATE", "IDENTIFIER", RATE_COLUMN,
-                                     CLOSE_COLUMN])
+        return pd.DataFrame(columns=["DATE", "IDENTIFIER", CLOSE_COLUMN])
 
     _scale, _drift, lift = market_multipliers(dates, regimes)
     steps = len(dates)
@@ -93,28 +89,30 @@ def build(dates: pd.DatetimeIndex,
         rate = _path(rng, steps, volatility, lift,
                      (start_from or {}).get(identifier, initial))
 
-        # Written into CLOSE as well as RATE, so a pair charts like any other
-        # identifier (BN-145).
-        #
-        # A client reading `/data/prices/EURUSD` gets the same column it gets
-        # for an equity, rather than 261 rows of nulls and a rate hiding in a
-        # column no price view looks at -- which is how this was reported as
-        # "pairs are not addressable" when they always were.
-        #
-        # Duplicated rather than moved: RATE is what `fetch_fx_rates` reads by
-        # default and what the calculator, the action handler and the
-        # expression resolver all convert through. Renaming it would touch
-        # every conversion path to fix a presentation problem. Six identifiers
-        # carry one extra column; a test asserts the two never diverge.
         frames.append(pd.DataFrame({"DATE": dates,
                                     "IDENTIFIER": identifier,
-                                    RATE_COLUMN: rate,
                                     CLOSE_COLUMN: rate}))
 
     logger.info("Generated %d FX pair(s): %s.",
                 len(frames), ", ".join(pair for pair, _, _ in pairs))
 
     return pd.concat(frames, ignore_index=True)
+
+
+def reference(valid_from: str) -> pd.DataFrame:
+    """A reference row for each pair `build` generates, valid from
+    *valid_from*: what makes the series a currency pair."""
+    rows = [{"IDENTIFIER": identifier,
+             "DATE_FROM": pd.Timestamp(valid_from),
+             "NAME": f"{base}/{quote}",
+             "CURRENCY": quote,
+             "ASSET_CLASS": "Currency",
+             "SECURITY_TYPE": "Spot",
+             "BASE_CURRENCY": base,
+             "QUOTE_CURRENCY": quote}
+            for identifier, base, quote in regions.pair_currencies()]
+
+    return pd.DataFrame(rows)
 
 
 def _path(rng: np.random.Generator,

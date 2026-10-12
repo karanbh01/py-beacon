@@ -16,6 +16,11 @@ from beacon.data import importing, layout
 MARKET = "IDENTIFIER,DATE,CLOSE\nAAA,2024-01-02,100\nAAA,2024-01-03,101\n"
 REFERENCE = ("IDENTIFIER,NAME,CURRENCY,EXCHANGE,DATE_FROM\n"
              "AAA,Alpha,USD,XNYS,2020-01-01\n")
+# An equity and a currency pair: the pair's row is what makes it one (BN-308).
+WITH_PAIR = ("IDENTIFIER,NAME,CURRENCY,EXCHANGE,DATE_FROM,"
+             "ASSET_CLASS,SECURITY_TYPE,BASE_CURRENCY,QUOTE_CURRENCY\n"
+             "AAA,Alpha,USD,XNYS,2020-01-01,,,,\n"
+             "GBPUSD,GBP/USD,USD,,2020-01-01,Currency,Spot,GBP,USD\n")
 
 
 def files(folder,
@@ -71,13 +76,17 @@ class TestLoading:
         assert list(stored["TYPE"]) == ["DIVIDEND"]
         assert list(stored["STATUS"]) == ["paid"]
 
-    def test_fx_pairs_become_rates_the_engine_converts_with(self,
-                                                            tmp_path):
+    def test_a_described_pair_is_a_rate_the_engine_converts_with(self,
+                                                                 tmp_path):
+        """Its rate is a market row's CLOSE and its reference row says it is
+        a pair, so it converts and is not offered as something to hold."""
         data = importing.load_files(files(
-            tmp_path, market=MARKET, reference=REFERENCE,
-            fx="PAIR,DATE,RATE\ngbpusd,2024-01-02,1.27\n"))
+            tmp_path, market=MARKET + "GBPUSD,2024-01-02,1.27\n",
+            reference=WITH_PAIR))
 
         assert data.fx_rate_on("GBP", "USD", "2024-01-02") == pytest.approx(1.27)
+        assert data.fx_pairs == ["GBPUSD"]
+        assert not data.is_tradable("GBPUSD")
 
     def test_a_feature_without_a_type_is_imported(self,
                                                   tmp_path):
@@ -127,13 +136,35 @@ class TestTheTemplate:
 
         assert "AAA" in data.identifiers
 
-    def test_every_sheet_has_its_columns_and_an_example_row(self):
+    def test_every_sheet_has_its_columns_and_its_example_rows(self):
         workbook = pd.read_excel(io.BytesIO(importing.template("xlsx")),
                                  sheet_name=None)
 
         for sheet in layout.SHEETS:
             assert set(sheet.required) <= set(workbook[sheet.name].columns)
-            assert len(workbook[sheet.name]) == 1
+            assert len(workbook[sheet.name]) == len(importing.EXAMPLES[sheet.name])
+
+    def test_it_shows_an_equity_a_pair_and_a_short_rate(self):
+        """Market and reference each carry one of every kind of series, so
+        the template shows how a pair and a short rate are described."""
+        workbook = pd.read_excel(io.BytesIO(importing.template("xlsx")),
+                                 sheet_name=None)
+
+        assert list(workbook["market"]["IDENTIFIER"]) == ["AAA", "GBPUSD", "USD SOFR"]
+        assert list(workbook["reference"]["ASSET_CLASS"]) == [
+            "Equity", "Currency", "Fixed Income"]
+        assert "fx" not in workbook
+
+    def test_the_loaded_template_knows_its_pair_and_short_rate(self,
+                                                               tmp_path):
+        workbook = tmp_path / "template.xlsx"
+        workbook.write_bytes(importing.template("xlsx"))
+
+        data = importing.load_files([workbook])
+
+        assert data.fx_pairs == ["GBPUSD"]
+        assert data.short_rate("USD") is not None
+        assert data.tradable_identifiers == ["AAA"]
 
     def test_an_unknown_format_is_refused(self):
         with pytest.raises(ValueError, match="template format"):
@@ -216,12 +247,43 @@ class TestEveryProblemIsNamed:
 
         assert codes(found) == [("reference", 2, "DATE_TO", "OUT_OF_RANGE")]
 
-    def test_a_pair_that_is_not_two_currencies(self,
+    def test_an_fx_sheet_is_refused_as_retired(self,
                                                tmp_path):
+        """Refused rather than ignored, which would drop its rates without a
+        word, and told where the rates go now."""
+        # BN-308 retired the fx sheet.
         found = problems(tmp_path, market=MARKET, reference=REFERENCE,
-                         fx="PAIR,DATE,RATE\nGBP-USD,2024-01-02,1.27\n")
+                         fx="PAIR,DATE,RATE\nGBPUSD,2024-01-02,1.27\n")
 
-        assert codes(found) == [("fx", 2, "PAIR", "BAD_PAIR")]
+        assert codes(found) == [("fx", None, None, "RETIRED_SHEET")]
+        assert "CLOSE" in found[0].message
+
+    def test_a_rate_column_in_the_market_sheet_is_refused(self,
+                                                          tmp_path):
+        market = ("IDENTIFIER,DATE,CLOSE,RATE\n"
+                  "AAA,2024-01-02,100,\n"
+                  "GBPUSD,2024-01-02,1.27,1.27\n")
+        found = problems(tmp_path, market=market, reference=WITH_PAIR)
+
+        assert codes(found) == [("market", None, "RATE", "RETIRED_COLUMN")]
+        assert "CLOSE" in found[0].message
+
+    def test_a_pair_without_its_currencies(self,
+                                           tmp_path):
+        reference = WITH_PAIR.replace("Spot,GBP,USD", "Spot,GBP,")
+        found = problems(tmp_path, market=MARKET + "GBPUSD,2024-01-02,1.27\n",
+                         reference=reference)
+
+        assert codes(found) == [("reference", 3, None, "BAD_KIND")]
+        assert "QUOTE_CURRENCY" in found[0].message
+
+    def test_an_equity_without_an_exchange(self,
+                                           tmp_path):
+        """Only an equity needs one: the pair row leaves it blank."""
+        reference = WITH_PAIR.replace("XNYS", "")
+        found = problems(tmp_path, market=MARKET, reference=reference)
+
+        assert codes(found) == [("reference", 2, "EXCHANGE", "BAD_KIND")]
 
     def test_an_unknown_action_type(self,
                                     tmp_path):

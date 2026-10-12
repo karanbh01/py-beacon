@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from beacon.analysis.liquidity import average_daily_volume
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 from beacon.server import ServerConfig, create_app
@@ -602,12 +603,13 @@ class TestTheBatchIsReadOnce:
             [{"IDENTIFIER": name, "DATE": date, "CLOSE": 10.0,
               "SHARES_OUTSTANDING": 1e6}
              for name in CAP_CURRENCY for date in DATES]
-            + [{"IDENTIFIER": "GBPUSD", "DATE": date, "RATE": 1.25}
+            + [{"IDENTIFIER": "GBPUSD", "DATE": date, "CLOSE": 1.25}
                for date in DATES])
         reference = pd.DataFrame([
             {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
              "CURRENCY": currency}
-            for name, currency in CAP_CURRENCY.items()])
+            for name, currency in CAP_CURRENCY.items()]
+            + [pair_reference("GBPUSD")])
 
         return DataFetcher(MarketData.from_dataframe(market),
                            ReferenceData.from_dataframe(reference))

@@ -9,7 +9,8 @@ refused for want of a rate it effectively had.
 import pandas as pd
 import pytest
 
-from beacon.data.base import MarketData
+from beacon.data import pair_reference
+from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import FX_EXACT_DAY, DataFetcher
 from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
@@ -27,12 +28,15 @@ EUR_GAP = pd.Timestamp("2024-01-17")
 
 def fetcher(policy: str = "CARRY_FORWARD",
             extra: list[dict] | None = None) -> DataFetcher:
-    rows = [{"IDENTIFIER": "GBPUSD", "DATE": day, "RATE": GBPUSD} for day in DAYS]
-    rows += [{"IDENTIFIER": "EURUSD", "DATE": day, "RATE": EURUSD}
+    rows = [{"IDENTIFIER": "GBPUSD", "DATE": day, "CLOSE": GBPUSD} for day in DAYS]
+    rows += [{"IDENTIFIER": "EURUSD", "DATE": day, "CLOSE": EURUSD}
              for day in DAYS if day >= EUR_FROM and day != EUR_GAP]
     rows += extra or []
+    # Every series here is a pair, and reference data is what says so.
+    pairs = [pair_reference(name) for name in sorted({row["IDENTIFIER"] for row in rows})]
 
     return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                       ReferenceData.from_dataframe(pd.DataFrame(pairs)),
                        fx_policy=policy)
 
 
@@ -59,7 +63,7 @@ class TestTheRoute:
 
     def test_a_stored_pair_wins_over_a_derived_one(self):
         """A quoted rate is the better number when one exists."""
-        quoted = [{"IDENTIFIER": "USDGBP", "DATE": day, "RATE": 0.79}
+        quoted = [{"IDENTIFIER": "USDGBP", "DATE": day, "CLOSE": 0.79}
                   for day in DAYS]
         data = fetcher(extra=quoted)
 
@@ -103,7 +107,7 @@ class TestTheSettingsKeepTheirMeaning:
         assert fetcher().fx_rate_on("USD", "EUR", EUR_GAP) == pytest.approx(1 / EURUSD)
 
     def test_a_rate_of_zero_has_no_inverse(self):
-        zero = [{"IDENTIFIER": "JPYUSD", "DATE": DAYS[0], "RATE": 0.0}]
+        zero = [{"IDENTIFIER": "JPYUSD", "DATE": DAYS[0], "CLOSE": 0.0}]
 
         assert fetcher(extra=zero).fx_rate_on("USD", "JPY", DAYS[0]) is None
 
@@ -136,7 +140,11 @@ class TestOneRuleForBothLookups:
         assert data.fx_route("USD", "GBP") == "inverse"
 
         data.merge_market_data(pd.DataFrame(
-            [{"IDENTIFIER": "USDGBP", "DATE": day, "RATE": 0.79} for day in DAYS]))
+            [{"IDENTIFIER": "USDGBP", "DATE": day, "CLOSE": 0.79} for day in DAYS]))
+        assert data.fx_route("USD", "GBP") == "inverse"
+
+        # Its rates alone do not make it a pair: its reference row does.
+        data.merge_reference_data(pd.DataFrame([pair_reference("USDGBP")]))
 
         assert data.fx_route("USD", "GBP") == "direct"
 

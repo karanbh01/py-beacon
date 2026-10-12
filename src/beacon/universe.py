@@ -174,11 +174,11 @@ def resolve_document(document: dict[str, Any],
 def _all_names(fetcher: DataFetcher) -> list[str]:
     """Every instrument the store covers.
 
-    Reference identifiers where there are any, because a universe is a set of
-    *instruments* and the market data also carries an identifier per FX pair --
-    which would otherwise be offered as a universe member.
+    Reference identifiers where there are any, less the series reference data
+    marks as not tradable, such as currency pairs and short rates: a universe
+    is a set of *instruments*.
     """
-    return list(fetcher.reference_identifiers or fetcher.identifiers)
+    return fetcher.tradable_identifiers
 
 
 def _standing_date(fetcher: DataFetcher,

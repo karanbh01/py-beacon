@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from beacon.backtest.engine import BacktestEngine
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 from beacon.index.cache import IndexResultCache
@@ -31,12 +32,12 @@ def fetcher() -> DataFetcher:
     for day, rate in zip(DAYS, RATES, strict=True):
         rows.append({"IDENTIFIER": "VOD", "DATE": day, "CLOSE": 2.0,
                      "VOLUME": 1e6, "SHARES_OUTSTANDING": 1e9})
-        rows.append({"IDENTIFIER": "GBPUSD", "DATE": day, "CLOSE": rate,
-                     "RATE": rate})
+        rows.append({"IDENTIFIER": "GBPUSD", "DATE": day, "CLOSE": rate})
 
     reference = pd.DataFrame([{"IDENTIFIER": "VOD", "DATE_FROM": "2020-01-01",
                                "NAME": "V", "CURRENCY": "GBP",
-                               "EXCHANGE": "XLON"}])
+                               "EXCHANGE": "XLON"},
+                              pair_reference("GBPUSD")])
 
     return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
                        ReferenceData.from_dataframe(reference))

@@ -70,16 +70,48 @@ class TestReading:
     def test_a_view_over_your_own_tables_works(self,
                                                tmp_path):
         """The intended use: views with the layout's names and columns over
-        tables that have their own."""
-        path = database(tmp_path / "db.sqlite",
-                        "CREATE TABLE my_rates (pair TEXT, day TEXT, px REAL)",
-                        "INSERT INTO my_rates VALUES ('GBPUSD', '2024-01-02', 1.27)",
-                        "CREATE VIEW fx AS SELECT pair, day AS date, px AS rate "
-                        "FROM my_rates")
+        tables that have their own. A currency pair is priced with the rest
+        and described in reference (BN-308)."""
+        path = tmp_path / "db.sqlite"
+        sqlite3.connect(path).executescript("""
+            CREATE TABLE my_prices (ticker TEXT, day TEXT, px REAL);
+            INSERT INTO my_prices VALUES ('AAA', '2024-01-02', 100),
+                                         ('GBPUSD', '2024-01-02', 1.27);
+            CREATE TABLE my_securities (ticker TEXT, title TEXT, ccy TEXT, mic TEXT,
+                                        since TEXT, kind TEXT, sub TEXT, base TEXT,
+                                        quote TEXT);
+            INSERT INTO my_securities VALUES
+                ('AAA', 'Alpha', 'USD', 'XNYS', '2020-01-01', 'Equity', NULL, NULL, NULL),
+                ('GBPUSD', 'GBP/USD', 'USD', NULL, '2020-01-01', 'Currency', 'Spot',
+                 'GBP', 'USD');
+            CREATE VIEW market AS
+                SELECT ticker AS identifier, day AS date, px AS close FROM my_prices;
+            CREATE VIEW reference AS
+                SELECT ticker AS identifier, title AS name, ccy AS currency,
+                       mic AS exchange, since AS date_from, kind AS asset_class,
+                       sub AS security_type, base AS base_currency,
+                       quote AS quote_currency
+                FROM my_securities;
+        """)
 
-        data = postgres.load(source(), connector=sqlite_connector(path))
+        data = postgres.load(source(), connector=sqlite_connector(str(path)))
 
         assert data.fx_rate_on("GBP", "USD", "2024-01-02") == pytest.approx(1.27)
+        assert data.tradable_identifiers == ["AAA"]
+
+    def test_an_fx_table_is_refused_rather_than_ignored(self,
+                                                        tmp_path):
+        """The fx sheet is retired: a table still there would otherwise be
+        skipped, and every conversion would fail for want of a rate."""
+        path = database(tmp_path / "db.sqlite",
+                        "CREATE TABLE fx (pair TEXT, date TEXT, rate REAL)",
+                        "INSERT INTO fx VALUES ('GBPUSD', '2024-01-02', 1.27)")
+
+        with pytest.raises(layout.DataImportError) as raised:
+            postgres.load(source(), connector=sqlite_connector(path))
+
+        assert [(problem.sheet, problem.code)
+                for problem in raised.value.problems] == [("fx", "RETIRED_SHEET")]
 
     def test_a_missing_required_table_is_named(self,
                                                tmp_path):

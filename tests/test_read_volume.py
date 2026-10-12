@@ -22,6 +22,7 @@ import pandas as pd
 import pytest
 
 from beacon.backtest.engine import BacktestEngine
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 from beacon.index.calculation import IndexCalculator
@@ -281,13 +282,14 @@ def two_currency_book(names: int = 20) -> tuple[CountingCalls, object]:
              "VOLUME": 1e6, "SHARES_OUTSTANDING": 1e6}
             for name in identifiers
             for day, date in enumerate(dates)]
-    rows += [{"IDENTIFIER": "GBPUSD", "DATE": date, "RATE": 1.25 + day / 1000}
+    rows += [{"IDENTIFIER": "GBPUSD", "DATE": date, "CLOSE": 1.25 + day / 1000}
              for day, date in enumerate(dates)]
     reference = pd.DataFrame([{"IDENTIFIER": name, "DATE_FROM": "2020-01-01",
                                "NAME": name,
                                "CURRENCY": "GBP" if index % 2 else "USD",
                                "EXCHANGE": "XNYS"}
-                              for index, name in enumerate(identifiers)])
+                              for index, name in enumerate(identifiers)]
+                             + [pair_reference("GBPUSD")])
     fetcher = CountingCalls(MarketData.from_dataframe(pd.DataFrame(rows)),
                             ReferenceData.from_dataframe(reference))
     result = IndexCalculator(definition(identifiers), fetcher).run(end_date=END)

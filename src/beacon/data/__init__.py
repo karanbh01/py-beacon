@@ -7,6 +7,7 @@ from typing import Any
 
 from .base import MarketData, ReferenceData
 from .fetcher import DataFetcher
+from .kinds import pair_reference, short_rate_reference
 from .loader import load_data
 
 __all__ = [
@@ -14,6 +15,8 @@ __all__ = [
     "MarketData",
     "ReferenceData",
     "load_data",
+    "pair_reference",
+    "short_rate_reference",
 ]
 
 # The expression root is spelled `data` too, and `from beacon import data`

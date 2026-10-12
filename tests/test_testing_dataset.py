@@ -278,6 +278,18 @@ class TestHelpers:
     def test_trading_days_match_the_price_index(self):
         pd.testing.assert_index_equal(dataset.trading_days(), dataset.prices().index)
 
-    def test_reference_frame_covers_every_constituent(self):
+    def test_reference_frame_covers_every_constituent_and_the_pair(self):
+        """The pair's row is what makes GBPUSD a pair."""
         assert sorted(dataset.reference_frame()["IDENTIFIER"]) == sorted(
-            dataset.UNIVERSE)
+            [*dataset.UNIVERSE, dataset.FX_PAIR])
+
+    def test_the_pair_is_described_as_one(self):
+        frame = dataset.reference_frame().set_index("IDENTIFIER")
+        pair = frame.loc[dataset.FX_PAIR]
+
+        assert (pair["ASSET_CLASS"], pair["SECURITY_TYPE"]) == ("Currency", "Spot")
+        assert (pair["BASE_CURRENCY"], pair["QUOTE_CURRENCY"]) == ("GBP", "USD")
+
+    def test_the_market_data_carries_no_rate_column(self):
+        """Its rate is its CLOSE, like every other series (BN-308)."""
+        assert "RATE" not in dataset.market_frame().columns

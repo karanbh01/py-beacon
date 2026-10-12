@@ -29,9 +29,12 @@ checks its required columns when it is built. Column names are upper case.
 ### Market data
 
 Long form: one row per identifier per date, with `IDENTIFIER` and `DATE`
-columns. `CLOSE` is the price every calculation reads unless it is told
-otherwise (the index calculator and the backtest engine both take a
-`price_column`). The other known columns are optional:
+columns. Every series has the same shape, whatever it is: an equity's price, a
+currency pair's exchange rate and a short-term interest rate are all in
+`CLOSE`, and reference data says which is which (see
+[What a series is](#what-a-series-is)). `CLOSE` is the price every calculation
+reads unless it is told otherwise (the index calculator and the backtest engine
+both take a `price_column`). The other known columns are optional:
 
 | Column | Meaning |
 | --- | --- |
@@ -39,7 +42,6 @@ otherwise (the index calculator and the backtest engine both take a
 | `VOLUME` | Shares traded, used by liquidity rules and `adv_3m` |
 | `SHARES_OUTSTANDING` | Used for market caps and market-cap weighting |
 | `FREE_FLOAT` | The investable fraction of the shares, between 0 and 1 |
-| `RATE` | An exchange rate, on an FX pair's rows only (see [Currencies](#currencies-and-fx-pairs)) |
 
 Any other column is kept, and can be read with `fetch_market_data` or named as
 a `price_column`. A date with no row for a name means it did not trade that
@@ -52,10 +54,44 @@ from `DATE_FROM` to `DATE_TO`, both inclusive. A blank or missing `DATE_TO`
 means the row is still current. A name that changes sector has two rows, and a
 question about a date gets the row in force on that date.
 
-`NAME`, `CURRENCY` and `EXCHANGE` are the columns every name needs: an index
-builds each universe member from them. Anything else (`SECTOR`, `REGION`,
-`COUNTRY_LISTING`, `ISIN` and so on) is kept and can be screened on. A name
-whose every row has a `DATE_TO` is treated as delisted after the latest one.
+`NAME` and `CURRENCY` are the columns every series needs, and an equity also
+needs its `EXCHANGE`: an index builds each universe member from them. Anything
+else (`SECTOR`, `REGION`, `COUNTRY_LISTING`, `ISIN` and so on) is kept and can
+be screened on. A name whose every row has a `DATE_TO` is treated as delisted
+after the latest one.
+
+#### What a series is
+
+These columns say what each series is, and so how its `CLOSE` is read. Values
+are matched in any case.
+
+| Column | Meaning |
+| --- | --- |
+| `ASSET_CLASS` | `Equity`, `Currency` or `Fixed Income`. Blank, or no column at all, is `Equity`. Any other value is kept and read like an equity. |
+| `SECURITY_TYPE` | For a currency or fixed income series, required: `Spot` for a currency pair, `Short Rate` for a short-term interest rate. Optional for an equity (`Common Stock`, `ETF`, ...). |
+| `BASE_CURRENCY`, `QUOTE_CURRENCY` | A spot pair's two currencies. `CLOSE` is units of the quote currency per unit of the base, so a `GBP`/`USD` pair at 1.27 means one pound buys 1.27 dollars. Its `CURRENCY` must be the quote currency. |
+| `TENOR` | A short rate's tenor, such as `ON`, `1M` or `3M`. Optional. |
+| `DAY_COUNT` | A short rate's day count: `ACT/360` (the default) or `ACT/365`. |
+| `TRADABLE` | Whether a fund can hold the series: yes or no (`TRUE`/`FALSE`, `Y`/`N` and 1/0 also work). |
+
+A short rate's `CURRENCY` is the currency it is for, and its `CLOSE` is an
+annual decimal: 0.0525 for 5.25%. A rate above 1 is refused as probably a
+percent; a negative rate is fine.
+
+Currency pairs and short rates are references, not holdings, so they are not
+tradable unless `TRADABLE` says so. A series that is not tradable is never
+offered as a universe member: `instrument_identifiers` and
+`tradable_identifiers` leave it out, and `is_tradable` says which a series is.
+
+`pair_reference` and `short_rate_reference` build these rows:
+
+```python
+from beacon.data import pair_reference, short_rate_reference
+
+pair_reference("GBPUSD")                       # GBP quoted in USD, read from the name
+pair_reference("Cable", base="GBP", quote="USD")
+short_rate_reference("SONIA", "GBP", tenor="ON", day_count="ACT/365")
+```
 
 ### Corporate actions
 
@@ -123,7 +159,7 @@ import logging
 
 import pandas as pd
 
-from beacon.data import DataFetcher, MarketData, ReferenceData
+from beacon.data import DataFetcher, MarketData, ReferenceData, pair_reference
 
 logging.getLogger("beacon").setLevel(logging.ERROR)  # keep the output short
 
@@ -132,21 +168,21 @@ days = ["2024-01-02", "2024-01-03", "2024-01-04"]
 market = MarketData.from_dataframe(pd.DataFrame({
     "IDENTIFIER": ["AAA"] * 3 + ["BBB"] * 3 + ["GBPUSD"] * 2 + ["EURUSD"] * 2,
     "DATE": days + days + [days[0], days[2]] * 2,
-    "CLOSE": [100.0, 101.0, 102.0, 50.0, 50.5, 51.0, None, None, None, None],
+    "CLOSE": [100.0, 101.0, 102.0, 50.0, 50.5, 51.0, 1.27, 1.26, 1.09, 1.10],
     "SHARES_OUTSTANDING": [1e6] * 3 + [2e6] * 3 + [None] * 4,
     "FREE_FLOAT": [0.9, None, None, 0.8, 0.8, 0.8, None, None, None, None],
-    "RATE": [None] * 6 + [1.27, 1.26, 1.09, 1.10],
 }))
 
-reference = ReferenceData.from_dataframe(pd.DataFrame({
-    "IDENTIFIER": ["AAA", "BBB", "BBB"],
-    "NAME": ["Alpha plc", "Beta Inc", "Beta Inc"],
-    "CURRENCY": ["GBP", "USD", "USD"],
-    "EXCHANGE": ["XLON", "XNYS", "XNYS"],
-    "SECTOR": ["Energy", "Technology", "Financials"],
-    "DATE_FROM": ["2020-01-01", "2020-01-01", "2024-01-04"],
-    "DATE_TO": [None, "2024-01-03", None],
-}))
+reference = ReferenceData.from_dataframe(pd.DataFrame([
+    {"IDENTIFIER": "AAA", "NAME": "Alpha plc", "CURRENCY": "GBP", "EXCHANGE": "XLON",
+     "SECTOR": "Energy", "DATE_FROM": "2020-01-01"},
+    {"IDENTIFIER": "BBB", "NAME": "Beta Inc", "CURRENCY": "USD", "EXCHANGE": "XNYS",
+     "SECTOR": "Technology", "DATE_FROM": "2020-01-01", "DATE_TO": "2024-01-03"},
+    {"IDENTIFIER": "BBB", "NAME": "Beta Inc", "CURRENCY": "USD", "EXCHANGE": "XNYS",
+     "SECTOR": "Financials", "DATE_FROM": "2024-01-04"},
+    pair_reference("GBPUSD", date_from="2020-01-01"),
+    pair_reference("EURUSD", date_from="2020-01-01"),
+]))
 
 fetcher = DataFetcher(market, reference)
 
@@ -281,14 +317,16 @@ print(no_backfill.fetch_free_float_factor("AAA", "2024-01-04"))   # None
 
 ## Currencies and FX pairs
 
-An FX pair is stored in the market data as an identifier of its own, named
-`FROMTO` in upper case, with the rate in `RATE`. `GBPUSD` at 1.27 means one
-pound buys 1.27 dollars. The `RATE` column is what marks a pair:
-`fx_pairs` lists the identifiers that have a `RATE` value, and
-`instrument_identifiers` lists everything else. A pair may also carry its rate
-in `CLOSE`, so that it can be charted like any other identifier. A pair with no
-`RATE` values is still read for conversions, from its first data column, but
-is not listed as a pair and logs a warning; give it a `RATE`.
+An FX pair is a market series of its own, its rate in `CLOSE`, with a reference
+row that gives it `ASSET_CLASS` `Currency`, `SECURITY_TYPE` `Spot` and its
+`BASE_CURRENCY` and `QUOTE_CURRENCY` (see [What a series is](#what-a-series-is)).
+A pair is found by its two currencies, so its identifier can be anything:
+`GBPUSD`, `GBP/USD WMR 4pm` or a vendor's code. A series named like a pair but
+with no such reference row is not a pair. `fx_pairs` lists the pairs that have
+market data. Two pairs for the same two currencies are refused.
+
+Market data with a `RATE` column, the way pairs were stored before 0.7.0, is
+refused with a message saying what to change.
 
 `fx_rate_on` finds a rate in this order:
 
@@ -315,6 +353,16 @@ force on the day; under `EXACT_DAY` a cross exists only on days both legs
 printed. `fx_rates_on` answers the same question for many days at once, and
 `fetch_fx_rates` returns a stored pair's raw series without inverting or
 crossing it.
+
+### Short rates
+
+A currency's short-term interest rate is a series too, described as
+`Fixed Income`/`Short Rate`. `short_rate_on(currency, date)` gives the rate in
+force on a day (the last on or before it, never a later one), and
+`fetch_short_rates` the series. Where a currency has several, the one month
+rate is read, else the overnight, else the first by identifier; the choice is
+logged. `short_rate(currency)` says which series it is, with its tenor and day
+count.
 
 ## Getting data in
 
@@ -370,16 +418,17 @@ matched ignoring case and spaces, so a sheet called "Corporate Actions" is the
 | Sheet | Required columns | Optional columns |
 | --- | --- | --- |
 | `market` (required) | `IDENTIFIER`, `DATE`, `CLOSE` | `OPEN`, `HIGH`, `LOW`, `VOLUME`, `SHARES_OUTSTANDING`, `FREE_FLOAT` |
-| `reference` (required) | `IDENTIFIER`, `NAME`, `CURRENCY`, `EXCHANGE`, `DATE_FROM` | `DATE_TO` |
-| `fx` | `PAIR` (such as `GBPUSD`), `DATE`, `RATE` | |
+| `reference` (required) | `IDENTIFIER`, `NAME`, `CURRENCY`, `DATE_FROM`, and `EXCHANGE` for an equity | `DATE_TO`, `EXCHANGE`, `ASSET_CLASS`, `SECURITY_TYPE`, `BASE_CURRENCY`, `QUOTE_CURRENCY`, `TENOR`, `DAY_COUNT`, `TRADABLE` |
 | `corporate_actions` | `IDENTIFIER`, `EX_DATE`, `TYPE`, `VALUE` | `PAY_DATE`, `STATUS` |
 | `features` | `IDENTIFIER`, `DATE`, `FIELD`, `VALUE` | `TYPE` (default `imported`), `DETAIL` |
 
 Extra columns are kept, so the reference sheet can carry `SECTOR`, `COUNTRY`
-or anything else. The `fx` sheet's pairs become market-data identifiers.
+or anything else. Currency pairs and short rates go in the market sheet like
+any other series, with a reference row each saying what they are. There is no
+`fx` sheet any more: one is refused, with a message saying where its rows go.
 
 `importing.template("xlsx")` returns a blank workbook with every sheet's
-columns and one example row (it needs the `excel` extra, as reading a workbook
+columns and example rows (an equity, a currency pair and a short rate) (it needs the `excel` extra, as reading a workbook
 does); `template("csv")` returns a zip of CSV files.
 
 Every row is checked before anything is loaded:
@@ -387,11 +436,15 @@ Every row is checked before anything is loaded:
 - Dates must be written `YYYY-MM-DD` (a time after the date is allowed, as
   Excel date cells carry one). `01/02/2024` is refused rather than guessed,
   because it means January on one machine and February on another.
-- Numbers must be numbers; `CLOSE` and `RATE` must be above zero, and
-  `FREE_FLOAT` between 0 and 1.
+- Numbers must be numbers; `CLOSE` must be above zero (a short rate's may be
+  negative, but not above 1) and `FREE_FLOAT` between 0 and 1.
 - Required cells must be filled, a `DATE_TO` cannot be before its
-  `DATE_FROM`, a `PAIR` must be six letters (such as `GBPUSD`), and an action's `TYPE`
-  and `STATUS` must be known values (in any case).
+  `DATE_FROM`, and an action's `TYPE` and `STATUS` and a rate's `DAY_COUNT`
+  must be known values (in any case).
+- Each reference row must describe its series properly: an equity has an
+  `EXCHANGE`, a spot pair has both currencies and is quoted in its quote
+  currency, a short rate has a currency, and no two pairs quote the same
+  currencies.
 - No two rows may share a key (such as `IDENTIFIER` and `DATE` in the market
   sheet), and every identifier in the market, actions and features sheets must
   be in the reference sheet.
@@ -430,7 +483,7 @@ save the result as a store, pass the fetcher on as in the sections above.
 ### Postgres
 
 A Postgres store is tables or views in one schema, named after the sheets
-above (`market` and `reference`, and optionally `fx`, `corporate_actions` and
+above (`market` and `reference`, and optionally `corporate_actions` and
 `features`), with the same columns. To use data you already hold, create views
 with those names and columns over your own tables. The rows go through the
 same checks as an import.

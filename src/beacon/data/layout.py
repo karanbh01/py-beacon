@@ -6,11 +6,14 @@ workbook, and the tables or views of a Postgres database. Each dataset is a
 sheet (or file, or table) with a fixed name and fixed columns:
 
 - **market** (required): `IDENTIFIER`, `DATE`, `CLOSE`; optionally `OPEN`,
-  `HIGH`, `LOW`, `VOLUME`, `SHARES_OUTSTANDING`, `FREE_FLOAT`.
-- **reference** (required): `IDENTIFIER`, `NAME`, `CURRENCY`, `EXCHANGE`,
-  `DATE_FROM`; optionally `DATE_TO` and descriptive columns such as `SECTOR`
-  and `COUNTRY`.
-- **fx**: `PAIR` (such as `GBPUSD`), `DATE`, `RATE`.
+  `HIGH`, `LOW`, `VOLUME`, `SHARES_OUTSTANDING`, `FREE_FLOAT`. Every series
+  is here, currency pairs and short rates included, its value in `CLOSE`.
+- **reference** (required): `IDENTIFIER`, `NAME`, `CURRENCY`, `DATE_FROM`;
+  `EXCHANGE` for an equity; optionally `DATE_TO`, the columns that say what a
+  series is (`ASSET_CLASS`, `SECURITY_TYPE`, `BASE_CURRENCY`,
+  `QUOTE_CURRENCY`, `TENOR`, `DAY_COUNT`, `TRADABLE`; see
+  `beacon.data.kinds`) and descriptive columns such as `SECTOR` and
+  `COUNTRY`.
 - **corporate_actions**: `IDENTIFIER`, `EX_DATE`, `TYPE`, `VALUE`; optionally
   `PAY_DATE`, `STATUS`.
 - **features**: `IDENTIFIER`, `DATE`, `FIELD`, `VALUE`; optionally `TYPE`
@@ -30,6 +33,7 @@ from typing import Any
 import pandas as pd
 
 from ..exceptions import InvalidRuleError
+from . import kinds
 from .base import MarketData, ReferenceData
 from .corporate_actions import ACTION_TYPES, STATUSES, CorporateActions
 from .features import FeatureData
@@ -81,22 +85,28 @@ MARKET = Sheet("market",
                dates=("DATE",),
                numbers=("CLOSE", "OPEN", "HIGH", "LOW", "VOLUME",
                         "SHARES_OUTSTANDING", "FREE_FLOAT"),
-               positive=("CLOSE",),
                key=("IDENTIFIER", "DATE"),
                needed=True)
+# BN-308: EXCHANGE is required of equities only, and what a series is comes
+# from the columns `beacon.data.kinds` reads.
 REFERENCE = Sheet("reference",
-                  required=("IDENTIFIER", "NAME", "CURRENCY", "EXCHANGE",
-                            "DATE_FROM"),
-                  optional=("DATE_TO",),
+                  required=("IDENTIFIER", "NAME", "CURRENCY", "DATE_FROM"),
+                  optional=("DATE_TO", "EXCHANGE", "ASSET_CLASS", "SECURITY_TYPE",
+                            "BASE_CURRENCY", "QUOTE_CURRENCY", "TENOR", "DAY_COUNT",
+                            "TRADABLE"),
                   dates=("DATE_FROM", "DATE_TO"),
                   key=("IDENTIFIER", "DATE_FROM"),
                   needed=True)
-FX = Sheet("fx",
-           required=("PAIR", "DATE", "RATE"),
-           dates=("DATE",),
-           numbers=("RATE",),
-           positive=("RATE",),
-           key=("PAIR", "DATE"))
+
+# Sheets no longer read, still looked for so that one supplied is refused
+# rather than ignored: its rows would be missing without a word.
+RETIRED_SHEETS = ("fx",)
+
+# What replaced the fx sheet and the RATE column, said to anyone still
+# supplying them.
+MOVED_TO_CLOSE = ("Put each pair's rates in the market sheet's CLOSE, and describe "
+                  "the pair in the reference sheet with ASSET_CLASS 'Currency', "
+                  "SECURITY_TYPE 'Spot', BASE_CURRENCY and QUOTE_CURRENCY.")
 CORPORATE_ACTIONS = Sheet("corporate_actions",
                           required=("IDENTIFIER", "EX_DATE", "TYPE", "VALUE"),
                           optional=("PAY_DATE", "STATUS"),
@@ -114,9 +124,10 @@ FEATURES = Sheet("features",
 CHOICES: dict[str, dict[str, frozenset[str]]] = {
     "corporate_actions": {"TYPE": frozenset(ACTION_TYPES),
                           "STATUS": frozenset(STATUSES)},
+    "reference": {"DAY_COUNT": frozenset(kinds.DAY_COUNTS)},
 }
 
-SHEETS: tuple[Sheet, ...] = (MARKET, REFERENCE, FX, CORPORATE_ACTIONS, FEATURES)
+SHEETS: tuple[Sheet, ...] = (MARKET, REFERENCE, CORPORATE_ACTIONS, FEATURES)
 BY_NAME = {sheet.name: sheet for sheet in SHEETS}
 
 
@@ -210,9 +221,12 @@ def check(sheets: dict[str, pd.DataFrame]) -> tuple[list[Problem], int]:
         tuple: The first `MAX_PROBLEMS` problems, and how many there are in
         all. No problems means the data can be loaded.
     """
-    problems = [Problem(name, None, None, "UNKNOWN_SHEET",
-                        f"'{name}' is not a sheet this layout uses. "
-                        f"Expected: {', '.join(BY_NAME)}.")
+    problems = [Problem(name, None, None, "RETIRED_SHEET",
+                        f"The fx sheet is no longer read. {MOVED_TO_CLOSE}")
+                if name in RETIRED_SHEETS
+                else Problem(name, None, None, "UNKNOWN_SHEET",
+                             f"'{name}' is not a sheet this layout uses. "
+                             f"Expected: {', '.join(BY_NAME)}.")
                 for name in sheets if name not in BY_NAME]
 
     for sheet in SHEETS:
@@ -223,6 +237,7 @@ def check(sheets: dict[str, pd.DataFrame]) -> tuple[list[Problem], int]:
                                     f"The {sheet.name} sheet is required."))
 
     problems.extend(_check_identifiers(sheets))
+    problems.extend(_check_closes(sheets))
 
     # Top to bottom, sheet by sheet, the way a person fixes a file.
     order = {sheet.name: position for position, sheet in enumerate(SHEETS)}
@@ -237,20 +252,12 @@ def to_fetcher(sheets: dict[str, pd.DataFrame],
                **settings: Any) -> DataFetcher:
     """Build the data from sheets that passed `check`.
 
-    FX pairs become market-data identifiers named by the pair, which is how
-    every stored dataset holds them.
-
     Args:
         sheets: The checked sheets.
         **settings: Passed to `DataFetcher`: `fx_policy`,
             `max_price_staleness_days`, `free_float_backfill_days`.
     """
     market = _parsed(MARKET, sheets[MARKET.name])
-
-    if FX.name in sheets:
-        rates = _parsed(FX, sheets[FX.name]).rename(columns={"PAIR": "IDENTIFIER"})
-        rates["IDENTIFIER"] = rates["IDENTIFIER"].str.upper()
-        market = pd.concat([market, rates], ignore_index=True)
 
     actions = None
     if CORPORATE_ACTIONS.name in sheets:
@@ -282,9 +289,8 @@ def _parsed(sheet: Sheet,
     """A checked sheet with its text tidied and its dates and numbers converted."""
     parsed = frame.copy()
 
-    for column in ("IDENTIFIER", "PAIR"):
-        if column in parsed:
-            parsed[column] = parsed[column].astype(str).str.strip()
+    if "IDENTIFIER" in parsed:
+        parsed["IDENTIFIER"] = parsed["IDENTIFIER"].astype(str).str.strip()
 
     # `check` accepts a code in any case; it is stored as the library spells it.
     for column, allowed in CHOICES.get(sheet.name, {}).items():
@@ -393,14 +399,12 @@ def _check_rules(sheet: Sheet,
             yield Problem(sheet.name, _row(position), "DATE_TO", "OUT_OF_RANGE",
                           "DATE_TO is before DATE_FROM.")
 
-    if sheet is FX:
-        pairs = frame["PAIR"].astype(str).str.strip()
-        wrong = ~pairs.str.fullmatch(r"[A-Za-z]{6}")
+    if sheet is MARKET and kinds.LEGACY_RATE_COLUMN in frame:
+        yield Problem(sheet.name, None, kinds.LEGACY_RATE_COLUMN, "RETIRED_COLUMN",
+                      f"RATE is no longer read. {MOVED_TO_CLOSE}")
 
-        for position in frame.index[wrong & ~_blank(frame["PAIR"])]:
-            yield Problem(sheet.name, _row(position), "PAIR", "BAD_PAIR",
-                          f"PAIR '{pairs[position]}' is not two currency "
-                          f"codes, such as GBPUSD.")
+    if sheet is REFERENCE:
+        yield from _check_kinds(frame)
 
     for column, allowed in CHOICES.get(sheet.name, {}).items():
         if column in frame:
@@ -466,3 +470,38 @@ def _check_identifiers(sheets: dict[str, pd.DataFrame]) -> Iterable[Problem]:
                           "UNKNOWN_IDENTIFIER",
                           f"'{names[position]}' is not in the reference "
                           f"sheet.")
+
+
+
+def _check_kinds(frame: pd.DataFrame) -> Iterable[Problem]:
+    """Reference rows that describe their series wrongly, and equities
+    without an exchange (see `beacon.data.kinds`)."""
+    dated = frame.assign(DATE_FROM=pd.to_datetime(frame["DATE_FROM"], errors="coerce",
+                                                  format=DATE_FORMAT))
+
+    for position, column, message in kinds.problems(dated):
+        yield Problem(REFERENCE.name, _row(position) if position is not None else None,
+                      column, "BAD_KIND", message)
+
+
+def _check_closes(sheets: dict[str, pd.DataFrame]) -> Iterable[Problem]:
+    """A close must be above zero, except a short rate's, which can be
+    negative but not above 1: a rate is an annual decimal."""
+    market = sheets.get(MARKET.name)
+    reference = sheets.get(REFERENCE.name)
+
+    if market is None or "CLOSE" not in market or "IDENTIFIER" not in market:
+        return
+
+    rates = kinds.short_rates_in(reference) if reference is not None else set()
+    closes = pd.to_numeric(market["CLOSE"], errors="coerce")
+    is_rate = market["IDENTIFIER"].astype(str).str.strip().isin(rates)
+
+    for position in market.index[~is_rate & (closes <= 0)]:
+        yield Problem(MARKET.name, _row(position), "CLOSE", "OUT_OF_RANGE",
+                      "CLOSE must be above zero.")
+
+    for position in market.index[is_rate & (closes > kinds.MAX_SHORT_RATE)]:
+        yield Problem(MARKET.name, _row(position), "CLOSE", "OUT_OF_RANGE",
+                      f"CLOSE {closes[position]:g} is a short rate above 1. Short "
+                      f"rates are annual decimals (0.0525 for 5.25%).")

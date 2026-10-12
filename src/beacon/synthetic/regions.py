@@ -162,12 +162,18 @@ def assign(count: int,
 def pairs() -> list[tuple[str, float, float]]:
     """The FX pairs a generated panel needs, as (identifier, rate, volatility).
 
-    One per non-base currency, named the way `fetch_fx_rates` looks it up:
-    ``f"{from}{to}"``, so converting EUR into USD reads ``EURUSD``. The rate
-    is inverted from the region's, which stores units per dollar.
+    One per non-base currency, named ``f"{from}{to}"``, so converting EUR
+    into USD reads ``EURUSD``. The rate is inverted from the region's, which
+    stores units per dollar.
     """
     return [(f"{region.currency}{BASE_CURRENCY}", 1.0 / region.rate,
              region.volatility)
+            for region in REGIONS if region.currency != BASE_CURRENCY]
+
+
+def pair_currencies() -> list[tuple[str, str, str]]:
+    """Each pair :func:`pairs` names, as (identifier, base, quote)."""
+    return [(f"{region.currency}{BASE_CURRENCY}", region.currency, BASE_CURRENCY)
             for region in REGIONS if region.currency != BASE_CURRENCY]
 
 

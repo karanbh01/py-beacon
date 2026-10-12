@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 
 from beacon.asset.equity import Equity
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 from beacon.exceptions import CalculationError
@@ -79,17 +80,30 @@ def market_rows(identifiers: list[str]) -> list[dict[str, object]]:
         for identifier in identifiers
         for date in DATES]
 
-    rows += [{"IDENTIFIER": f"{currency}USD", "DATE": date, "RATE": rate}
+    rows += [{"IDENTIFIER": f"{currency}USD", "DATE": date, "CLOSE": rate}
              for currency, rate in RATES.items()
              for date in DATES]
 
     return rows
 
 
+def pair_rows() -> list[dict[str, object]]:
+    """The pairs' reference rows, which are what make them pairs.
+
+    Without NAME, so records that leave NAME out still give a frame with no
+    NAME column.
+    """
+    # BN-308: a pair is what reference data says it is.
+    return [{key: value for key, value in pair_reference(f"{currency}USD").items()
+             if key != "NAME"}
+            for currency in RATES]
+
+
 def build_fetcher(rows: list[dict[str, object]] | None = None,
                   identifiers: list[str] | None = None) -> DataFetcher:
     """A fetcher over the five names, or over whatever records are supplied."""
-    reference = pd.DataFrame(rows if rows is not None else reference_rows())
+    reference = pd.DataFrame((rows if rows is not None else reference_rows())
+                             + pair_rows())
     market = pd.DataFrame(market_rows(identifiers if identifiers is not None
                                       else UNIVERSE))
 

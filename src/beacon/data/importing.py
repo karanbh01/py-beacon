@@ -42,21 +42,32 @@ TIMESTAMP = re.compile(rb"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 CSV_SUFFIX = ".csv"
 TEMPLATE_FORMATS = ("xlsx", "csv")
 
-# One made-up row per sheet, so the template shows what a filled row looks
-# like, not only its headers.
-EXAMPLES: dict[str, dict[str, object]] = {
-    "market": {"IDENTIFIER": "AAA", "DATE": "2024-01-02", "CLOSE": 100.0,
-               "VOLUME": 1_000_000, "SHARES_OUTSTANDING": 5_000_000,
-               "FREE_FLOAT": 0.9},
-    "reference": {"IDENTIFIER": "AAA", "NAME": "Example Company",
-                  "CURRENCY": "USD", "EXCHANGE": "XNYS",
-                  "DATE_FROM": "2020-01-01", "SECTOR": "Technology"},
-    "fx": {"PAIR": "GBPUSD", "DATE": "2024-01-02", "RATE": 1.27},
-    "corporate_actions": {"IDENTIFIER": "AAA", "EX_DATE": "2024-03-15",
-                          "TYPE": "DIVIDEND", "VALUE": 0.5,
-                          "PAY_DATE": "2024-03-29", "STATUS": "PAID"},
-    "features": {"IDENTIFIER": "AAA", "DATE": "2024-01-02", "FIELD": "revenue",
-                 "VALUE": 1_000_000, "TYPE": "fundamentals"},
+# Made-up rows for each sheet, so the template shows what filled rows look
+# like, not only the headers: an equity, a currency pair and a short rate,
+# each priced in market and described in reference (BN-308).
+EXAMPLES: dict[str, list[dict[str, object]]] = {
+    "market": [{"IDENTIFIER": "AAA", "DATE": "2024-01-02", "CLOSE": 100.0,
+                "VOLUME": 1_000_000, "SHARES_OUTSTANDING": 5_000_000,
+                "FREE_FLOAT": 0.9},
+               {"IDENTIFIER": "GBPUSD", "DATE": "2024-01-02", "CLOSE": 1.27},
+               {"IDENTIFIER": "USD SOFR", "DATE": "2024-01-02", "CLOSE": 0.0531}],
+    "reference": [{"IDENTIFIER": "AAA", "NAME": "Example Company",
+                   "CURRENCY": "USD", "EXCHANGE": "XNYS", "DATE_FROM": "2020-01-01",
+                   "ASSET_CLASS": "Equity", "SECURITY_TYPE": "Common Stock",
+                   "SECTOR": "Technology"},
+                  {"IDENTIFIER": "GBPUSD", "NAME": "GBP/USD", "CURRENCY": "USD",
+                   "DATE_FROM": "2020-01-01", "ASSET_CLASS": "Currency",
+                   "SECURITY_TYPE": "Spot", "BASE_CURRENCY": "GBP",
+                   "QUOTE_CURRENCY": "USD"},
+                  {"IDENTIFIER": "USD SOFR", "NAME": "SOFR", "CURRENCY": "USD",
+                   "DATE_FROM": "2020-01-01", "ASSET_CLASS": "Fixed Income",
+                   "SECURITY_TYPE": "Short Rate", "TENOR": "ON",
+                   "DAY_COUNT": "ACT/360"}],
+    "corporate_actions": [{"IDENTIFIER": "AAA", "EX_DATE": "2024-03-15",
+                           "TYPE": "DIVIDEND", "VALUE": 0.5,
+                           "PAY_DATE": "2024-03-29", "STATUS": "PAID"}],
+    "features": [{"IDENTIFIER": "AAA", "DATE": "2024-01-02", "FIELD": "revenue",
+                  "VALUE": 1_000_000, "TYPE": "fundamentals"}],
 }
 
 
@@ -114,7 +125,7 @@ def load_files(paths: Iterable[str | Path]) -> DataFetcher:
 
 
 def template(fmt: str = "xlsx") -> bytes:
-    """A blank template with every sheet's columns and one example row.
+    """A blank template with every sheet's columns and example rows.
 
     Args:
         fmt: "xlsx" for an Excel workbook, or "csv" for a zip of CSV files.
@@ -122,10 +133,10 @@ def template(fmt: str = "xlsx") -> bytes:
     Raises:
         ValueError: For any other format.
     """
-    frames = {sheet.name: pd.DataFrame([EXAMPLES[sheet.name]],
+    frames = {sheet.name: pd.DataFrame(EXAMPLES[sheet.name],
                                        columns=[*sheet.required, *sheet.optional,
                                                 *[column for column
-                                                  in EXAMPLES[sheet.name]
+                                                  in EXAMPLES[sheet.name][0]
                                                   if column not in sheet.required
                                                   and column not in sheet.optional]])
               for sheet in layout.SHEETS}

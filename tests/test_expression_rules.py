@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from beacon.asset.equity import Equity
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.corporate_actions import CorporateActions
 from beacon.data.features import FeatureData
@@ -353,7 +354,8 @@ class TestCurrencyConversion:
         reference = pd.DataFrame([
             {"IDENTIFIER": "JPY1", "DATE_FROM": "2000-01-01",
              "NAME": "JPY One", "SECTOR": "Industrials",
-             "CURRENCY": "JPY", "EXCHANGE": "XTKS"}])
+             "CURRENCY": "JPY", "EXCHANGE": "XTKS"},
+            pair_reference("JPYUSD")])
 
         from beacon.data.base import MarketData, ReferenceData
 
@@ -394,14 +396,15 @@ class TestAnUnconvertibleCapIsNoCapAtAll:
             for date in dates]
 
         if with_fx:
-            rows += [{"IDENTIFIER": "JPYUSD", "DATE": date, "RATE": 0.0064}
+            rows += [{"IDENTIFIER": "JPYUSD", "DATE": date, "CLOSE": 0.0064}
                      for date in dates]
 
         reference = pd.DataFrame([{"IDENTIFIER": "JPCO",
                                    "DATE_FROM": "2020-01-01",
                                    "NAME": "JPCO",
                                    "CURRENCY": "JPY",
-                                   "EXCHANGE": "XTKS"}])
+                                   "EXCHANGE": "XTKS"}]
+                                 + ([pair_reference("JPYUSD")] if with_fx else []))
 
         return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
                            ReferenceData.from_dataframe(reference))

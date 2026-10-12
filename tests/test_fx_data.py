@@ -69,19 +69,23 @@ class TestIdentifyingAPair:
         assert set(fetcher.instrument_identifiers) | set(fetcher.fx_pairs) == set(
             fetcher.identifiers)
 
-    def test_it_is_the_rate_column_that_decides(self,
-                                                panel):
-        """Not a six-letter name pattern.
+    def test_it_is_the_reference_data_that_decides(self,
+                                                   panel):
+        """Not a six-letter name pattern, and not a column of the market data.
 
         An instrument legitimately called `EURUSD` would be misfiled by a name
-        rule, and a store may hold pairs for currencies its reference data
-        never mentions. `RATE` is populated on a pair and null on everything
-        else, which is a fact about the data rather than about the spelling.
+        rule. The pair's reference row says what it is: a spot currency pair,
+        with its two currencies.
         """
-        market = panel.market.data
+        # BN-308: before, a populated RATE column marked a pair.
+        reference = panel.reference.data
 
-        assert market.loc["CMPA"]["RATE"].isna().all()
-        assert market.loc["EURUSD"]["RATE"].notna().all()
+        assert "RATE" not in panel.market.columns
+        assert reference.loc["EURUSD", "ASSET_CLASS"] == "Currency"
+        assert reference.loc["EURUSD", "SECURITY_TYPE"] == "Spot"
+        assert (reference.loc["EURUSD", "BASE_CURRENCY"],
+                reference.loc["EURUSD", "QUOTE_CURRENCY"]) == ("EUR", "USD")
+        assert reference.loc["CMPA", "ASSET_CLASS"] != "Currency"
 
 
 class TestFxCoverage:
@@ -139,7 +143,8 @@ class TestFxCoverage:
         assert entry["identifiers"] == 0
 
     def test_the_canonical_dataset_lists_its_pair(self):
-        """BN-226: its GBPUSD had no RATE, so coverage showed no pairs."""
+        """Its GBPUSD has a reference row that makes it a pair."""
+        # BN-226 found it unlisted; since BN-308 the reference row lists it.
         from beacon.testing import dataset
 
         client = TestClient(create_app(ServerConfig(
@@ -172,20 +177,12 @@ class TestAPairChartsLikeAnythingElse:
         assert len(close) > 200
         assert all(value is not None for value in close)
 
-    def test_close_equals_the_rate(self,
-                                   panel):
-        """Duplicated rather than moved, so the two must never diverge: `RATE`
-        is what every conversion path reads and `CLOSE` is what every chart
-        reads."""
-        pair = panel.market.data.loc["EURUSD"]
-
-        assert np.allclose(pair["CLOSE"], pair["RATE"])
-
-    def test_the_conversion_paths_still_read_the_same_numbers(self,
-                                                              fetcher,
-                                                              panel):
+    def test_the_conversion_paths_read_what_the_chart_reads(self,
+                                                            fetcher,
+                                                            panel):
+        """One column, CLOSE, for both: there is no separate rate to drift."""
         rates = fetcher.fetch_fx_rates("EUR", "USD")
-        stored = panel.market.data.loc["EURUSD"]["RATE"]
+        stored = panel.market.data.loc["EURUSD"]["CLOSE"]
 
         assert np.allclose(rates.to_numpy(), stored.to_numpy())
 
@@ -199,13 +196,12 @@ class TestAPairChartsLikeAnythingElse:
 
         assert "EURUSD" in names
 
-    def test_an_equity_carries_no_rate(self,
-                                       client):
-        """The report said market bars carry the instrument's own rate. They
-        do not — `RATE` is null on every equity, which is what makes it a
-        usable discriminator."""
-        prices = client.get("/data/prices/CMPA", headers=HEADERS).json()
-        frame = prices["prices"]
-        rates = [row[frame["columns"].index("RATE")] for row in frame["data"]]
+    def test_no_bar_carries_a_rate_column(self,
+                                          client):
+        """A pair's rate is its CLOSE, like an equity's price, so neither
+        carries a column of its own for it."""
+        # BN-308 retired the RATE column.
+        for identifier in ("CMPA", "EURUSD"):
+            prices = client.get(f"/data/prices/{identifier}", headers=HEADERS).json()
 
-        assert all(value is None for value in rates)
+            assert "RATE" not in prices["prices"]["columns"]

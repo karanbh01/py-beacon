@@ -216,8 +216,8 @@ def generate(config: SyntheticConfig | None = None,
     progress(0.40, "Building prices and corporate actions")
     market_frame, action_frame = prices.build(names, panel, rng)
 
-    # FX pairs live in the market data as identifiers of their own, which is
-    # how `fetch_fx_rates` finds them. Concatenated rather than merged: an
+    # FX pairs live in the market data as identifiers of their own, and a
+    # reference row each says what they are. Concatenated rather than merged: an
     # exchange rate has no volume, no shares outstanding and no free float,
     # and inventing zeros for those would make an FX row answer questions it
     # has no answer to.
@@ -245,8 +245,9 @@ def generate(config: SyntheticConfig | None = None,
     return SyntheticDataset(
         market=MarketData.from_dataframe(
             pd.concat([market_frame, rates], ignore_index=True)),
-        reference=ReferenceData.from_dataframe(
-            universe.reference_frame(names, settings.start, profile)),
+        reference=ReferenceData.from_dataframe(pd.concat(
+            [universe.reference_frame(names, settings.start, profile),
+             fx.reference(settings.start)], ignore_index=True)),
         actions=CorporateActions.from_dataframe(action_frame),
         features=(FeatureData.from_dataframe(feature_rows)
                   if feature_rows is not None else FeatureData.empty()),

@@ -64,6 +64,7 @@ from .corporate_actions import CorporateActions
 from .features import FeatureData
 from .fetcher import DEFAULT_FX_POLICY, DataFetcher
 from .free_float import DEFAULT_FREE_FLOAT_BACKFILL_DAYS
+from .kinds import SeriesError
 
 T = TypeVar("T")
 
@@ -407,7 +408,8 @@ def load(path: Path,
         DataFetcher: Serving whatever the store holds.
 
     Raises:
-        ConfigurationError: If the path is not a readable store.
+        ConfigurationError: If the path is not a readable store, or its rows
+            contradict each other (see `beacon.data.kinds`).
         ValueError: If *fx_policy* is not a known policy, or either day
             count is out of range.
     """
@@ -443,10 +445,18 @@ def load(path: Path,
     logger.info("Loaded %d identifier(s) from the %s data store at %s.",
                 len(market.identifiers), manifest.source, path)
 
-    fetcher = DataFetcher(market, reference, actions, features,
-                          fx_policy=fx_policy,
-                          max_price_staleness_days=max_price_staleness_days,
-                          free_float_backfill_days=free_float_backfill_days)
+    # The fetcher checks the store's rows against each other: what reference
+    # data says a series is, against its prices (BN-308). A store that fails
+    # is reported like any other unreadable store, so a server starting on it
+    # comes up without data rather than not at all.
+    try:
+        fetcher = DataFetcher(market, reference, actions, features,
+                              fx_policy=fx_policy,
+                              max_price_staleness_days=max_price_staleness_days,
+                              free_float_backfill_days=free_float_backfill_days)
+    except SeriesError as error:
+        raise ConfigurationError("data_store",
+                                 f"The data store at {path} cannot be read: {error}") from error
 
     # Stamped here because this is the only place that knows: the manifest says
     # who wrote the rows, and the path is what `/data/coverage` measures on

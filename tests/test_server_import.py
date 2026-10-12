@@ -138,7 +138,8 @@ class TestTheTemplateDownload:
         names = zipfile.ZipFile(io.BytesIO(response.content)).namelist()
 
         assert response.headers["content-type"] == "application/zip"
-        assert sorted(names) == sorted(["market.csv", "reference.csv", "fx.csv",
+        # No fx.csv since BN-308: pairs are market rows described in reference.
+        assert sorted(names) == sorted(["market.csv", "reference.csv",
                                         "corporate_actions.csv", "features.csv"])
 
     def test_another_format_is_refused(self,

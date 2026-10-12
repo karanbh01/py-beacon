@@ -42,7 +42,7 @@ class TestWhere:
                                            fetcher):
         members = universe.where(data.market.close > 0, fetcher)
 
-        assert set(members) == set(fetcher.reference_identifiers)
+        assert set(members) == set(fetcher.tradable_identifiers)
 
     def test_a_narrower_filter_selects_fewer(self,
                                              fetcher):
@@ -64,12 +64,14 @@ class TestWhere:
 
     def test_fx_pairs_are_not_universe_members(self,
                                                fetcher):
-        """The market data carries an identifier per FX pair (`GBPUSD` here),
-        which would otherwise be offered as an instrument somebody could
-        hold."""
+        """The data carries a series per FX pair (`GBPUSD` here), in market
+        and reference data alike, which would otherwise be offered as an
+        instrument somebody could hold. Its reference row says it is a pair,
+        and a pair is not tradable."""
         members = universe.where(data.market.close > 0, fetcher)
 
         assert "GBPUSD" in fetcher.identifiers
+        assert "GBPUSD" in fetcher.reference_identifiers
         assert "GBPUSD" not in members
 
     def test_the_order_is_stable(self,

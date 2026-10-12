@@ -85,6 +85,19 @@ def equities(panel):
     return panel.market.data.loc[list(panel.universe.index)]
 
 
+def companies(panel):
+    """The company rows of a panel's reference data.
+
+    Each FX pair has a reference row too, which is what makes it a pair. It
+    has no sector and no listing, so every assertion about those columns is
+    an assertion about companies and has to say so.
+    """
+    # BN-308 gave the pairs reference rows.
+    reference = panel.reference.data
+
+    return reference[reference.index.isin(panel.universe.index)]
+
+
 @pytest.fixture(scope="module")
 def panel():
     """One generated dataset over a calm window, shared by the statistics."""
@@ -158,20 +171,20 @@ class TestNaming:
         assert not set(universe_module.identifiers(5000)) & REAL_TICKERS
 
     def test_names_and_tickers_agree(self, panel):
-        reference = panel.reference.data
+        reference = companies(panel)
 
         for identifier, name in reference["NAME"].items():
             assert name == universe_module.company_name(identifier)
 
     def test_names_carry_no_real_company(self, panel):
-        names = panel.reference.data["NAME"]
+        names = companies(panel)["NAME"]
 
         assert names.str.startswith("Company ").all()
 
     def test_sub_industries_are_generic(self, panel):
         """Real GICS sub-industry names would imply a classification a random
         draw has not earned."""
-        for value in panel.reference.data["SUB_INDUSTRY"].unique():
+        for value in companies(panel)["SUB_INDUSTRY"].unique():
             sector, segment = value.split(" — ")
 
             assert sector in universe_module.SECTORS
@@ -260,7 +273,7 @@ class TestUniverse:
     """The static draw."""
 
     def test_every_sector_is_populated(self, panel):
-        sectors = set(panel.reference.data["SECTOR"])
+        sectors = set(companies(panel)["SECTOR"])
 
         assert sectors == set(universe_module.SECTORS)
 
@@ -584,20 +597,23 @@ class TestCoherence:
             f"largest discrepancy {difference:.2e}, floor {floor:.2e}")
 
     def test_the_datasets_cover_the_same_names(self, panel):
-        """Every company appears in all three, and the market data also holds
-        the FX pairs -- which are market data and nothing else.
+        """Every company appears in all three, and each FX pair in the market
+        and reference data.
 
-        A currency pair has no name, no sector and no listing, so giving it a
-        reference record would mean inventing all three and would put it in
-        front of every client that groups the universe by sector."""
+        A pair's reference row says it is a currency pair and names its two
+        currencies. It invents no sector and no listing, so a client grouping
+        the universe by sector does not find it there."""
+        # BN-308: before, a pair was market data only.
         market = set(panel.market.identifiers)
         reference = set(panel.reference.identifiers)
+        pairs = {pair for pair, _rate, _vol in regions_module.pairs()}
+        rows = panel.reference.data.loc[sorted(pairs)]
 
-        assert reference == set(panel.universe.index)
-        assert reference < market
-        assert market - reference == {pair for pair, _rate, _vol
-                                      in regions_module.pairs()}
-        assert set(panel.actions.identifiers) <= market
+        assert reference == set(panel.universe.index) | pairs
+        assert market == reference
+        assert (rows["ASSET_CLASS"] == "Currency").all()
+        assert rows["SECTOR"].isna().all()
+        assert set(panel.actions.identifiers) <= set(panel.universe.index)
 
     def test_the_panel_spans_the_requested_window(self):
         dataset = generate(SyntheticConfig(assets=8, start="2021-01-04",

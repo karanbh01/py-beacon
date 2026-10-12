@@ -22,6 +22,14 @@ from .free_float import (
     carried_forward,
     validated_window,
 )
+from .kinds import (
+    MAX_SHORT_RATE,
+    Kinds,
+    SeriesError,
+    ShortRate,
+    classify,
+    refuse_rate_column,
+)
 from .prices import prices_in
 from .session import SessionPanel
 
@@ -29,10 +37,6 @@ logger = logging.getLogger(__name__)
 
 # The datasets a fetcher can report freshness for. Named here so the server
 # and the fetcher cannot drift apart on the spelling.
-# The column an FX pair carries its rate in, and the marker that makes a
-# market identifier a pair rather than an instrument.
-RATE_COLUMN = "RATE"
-
 MARKET_DATASET = "market"
 REFERENCE_DATASET = "reference"
 ACTIONS_DATASET = "corporate_actions"
@@ -162,10 +166,12 @@ class DataFetcher:
     feature data.
 
     Args:
-        market_data: Time-series market data container. FX pairs live in it
-            as their own identifiers, named ``"{FROM}{TO}"``, with the rate in
-            a ``RATE`` column.
+        market_data: Time-series market data container. Currency pairs and
+            short rates live in it as series of their own, with their values
+            in ``CLOSE``.
         reference_data: Reference data container, or None if there is none.
+            It says which series are currency pairs and short rates, and
+            which can be held (see `beacon.data.kinds`).
         corporate_actions: Action history. Absent means an empty history
             rather than None, so callers never have to check before asking:
             "this instrument paid nothing" and "we hold no action data" give
@@ -187,8 +193,10 @@ class DataFetcher:
 
     Raises:
         ValueError: If `fx_policy` is not a known policy,
-            `max_price_staleness_days` is below 1, or
-            `free_float_backfill_days` is negative or not an integer.
+            `max_price_staleness_days` is below 1,
+            `free_float_backfill_days` is negative or not an integer, the
+            market data has a ``RATE`` column, the reference data describes a
+            series wrongly, or a short rate looks like a percent.
     """
 
     def __init__(self,
@@ -234,8 +242,11 @@ class DataFetcher:
         # `beacon.data.free_float` for why 90 and why there is no unlimited.
         self.free_float_backfill_days = validated_window(free_float_backfill_days)
 
+        refuse_rate_column(market_data.columns)
+
         self._market = market_data
         self._reference = reference_data
+        self._kinds = self._classified()
         self._actions = (corporate_actions if corporate_actions is not None
                          else CorporateActions.empty())
         # Empty rather than None, on the same terms as the actions above: a
@@ -274,8 +285,8 @@ class DataFetcher:
         self._fx_series: dict[tuple[str, str], pd.Series] = {}
         # How each cached pair was found: direct, inverse, or a cross (BN-235).
         self._fx_routes: dict[tuple[str, str], str | None] = {}
-        # Pairs already warned about being stored without RATE (BN-226).
-        self._unlisted_pairs: set[str] = set()
+        # Each currency's short rate series, read once (BN-308).
+        self._short_rate_series: dict[str, pd.Series] = {}
         # Each name's observed free floats, blanks dropped, read once when a
         # blank day first needs carrying over (BN-219). Cleared with the FX
         # series on a merge, for the same reason.
@@ -336,35 +347,98 @@ class DataFetcher:
 
     @property
     def fx_pairs(self) -> list[str]:
-        """Currency pairs held in the market data.
+        """Spot currency pairs with market data: the identifiers reference
+        data gives ``ASSET_CLASS`` ``Currency`` and ``SECURITY_TYPE``
+        ``Spot``."""
+        # BN-308: reference data says what a pair is. Before, a populated
+        # RATE column did, and a pair was named "{FROM}{TO}".
+        held = set(self._market.identifiers)
 
-        A pair is stored as an ordinary market identifier named
-        ``f"{from}{to}"``, so nothing in the frame separates it from an
-        instrument except what it carries: `RATE` is populated on a pair and
-        null on everything else. That is the discriminator, rather than a
-        name pattern: an instrument legitimately called `EURUSD` would be
-        misfiled by a six-letter rule, and a store may hold pairs for
-        currencies its reference data never mentions.
-        """
-        # Pair storage as a market identifier is BN-128.
-        if RATE_COLUMN not in self._market.columns:
-            return []
-
-        rates = self._market.data[RATE_COLUMN]
-        present = rates.notna().groupby(level="IDENTIFIER").any()
-
-        return sorted(present[present].index)
+        return [name for name in self._kinds.pair_identifiers if name in held]
 
     @property
     def instrument_identifiers(self) -> list[str]:
-        """Market identifiers that are instruments rather than currency pairs.
+        """Market identifiers a fund can hold: every series but the ones
+        reference data marks as not tradable, such as currency pairs and
+        short rates."""
+        return [name for name in self.identifiers if name not in self._kinds.untradable]
 
-        What a universe or a search should offer: a pair is a rate series, not
-        something anybody holds.
+    @property
+    def tradable_identifiers(self) -> list[str]:
+        """What a universe can be drawn from: the reference data's
+        identifiers (else the market data's), less those not tradable."""
+        names = self.reference_identifiers or self.identifiers
+
+        return [name for name in names if name not in self._kinds.untradable]
+
+    def is_tradable(self,
+                    identifier: str) -> bool:
+        """Whether a fund can hold *identifier*: false for a series reference
+        data marks as not tradable."""
+        return identifier not in self._kinds.untradable
+
+    def short_rate(self,
+                   currency: str) -> ShortRate | None:
+        """A currency's short rate, as reference data describes it, or None.
+
+        Where a currency has several, the one month rate is read, else the
+        overnight, else the first by identifier.
         """
-        pairs = set(self.fx_pairs)
+        return self._kinds.short_rates.get(currency.upper())
 
-        return [name for name in self.identifiers if name not in pairs]
+    def fetch_short_rates(self,
+                          currency: str,
+                          start_date: str | None = None,
+                          end_date: str | None = None) -> pd.Series:
+        """A currency's short rate series, annual decimals, from its
+        ``CLOSE``. Empty when the data holds none."""
+        rate = self.short_rate(currency)
+
+        if rate is None or rate.identifier not in self._market.identifiers:
+            return pd.Series(dtype=float)
+
+        frame = self._market.get(rate.identifier, start_date, end_date)
+
+        return frame["CLOSE"].dropna() if not frame.empty else pd.Series(dtype=float)
+
+    def short_rate_on(self,
+                      currency: str,
+                      date: str | pd.Timestamp) -> float | None:
+        """A currency's short rate in force on *date*: the last on or before
+        it. None when the data holds none that early."""
+        key = currency.upper()
+
+        if key not in self._short_rate_series:
+            self._short_rate_series[key] = self.fetch_short_rates(key).sort_index()
+
+        series = self._short_rate_series[key]
+        position = as_of_position(series.index, pd.Timestamp(date))
+
+        return float(series.iloc[position]) if position is not None else None
+
+    def _classified(self) -> Kinds:
+        """What each series is, checked against the market data.
+
+        Raises:
+            ValueError: If the reference data describes a series wrongly, or
+                a short rate above 1 suggests a percent.
+        """
+        kinds = classify(self._reference.data if self._reference is not None else None)
+        held = set(self._market.identifiers)
+
+        for rate in kinds.short_rates.values():
+            if rate.identifier not in held:
+                continue
+
+            highest = self._market.get(rate.identifier)["CLOSE"].max()
+
+            if pd.notna(highest) and highest > MAX_SHORT_RATE:
+                raise SeriesError(
+                    f"{rate.identifier}'s short rate reaches {highest:g}. Short "
+                    f"rates are annual decimals (0.0525 for 5.25%); divide a "
+                    f"percent by 100.")
+
+        return kinds
 
     @property
     def market_columns(self) -> list[str]:
@@ -669,6 +743,8 @@ class DataFetcher:
         if frame.empty:
             return 0
 
+        refuse_rate_column(list(frame.columns))
+
         existing = self._market.data.reset_index()
         combined = pd.concat([existing, frame], ignore_index=True)
         combined["DATE"] = pd.to_datetime(combined["DATE"])
@@ -678,11 +754,13 @@ class DataFetcher:
                                             keep="last")
 
         self._market = MarketData.from_dataframe(combined)
+        self._kinds = self._classified()
         # The pairs are market rows, so a merge can add or restate them; a
         # cache held over the swap would answer out of the old frame. The
         # session panel is the same story one day wide.
         self._fx_series.clear()
         self._fx_routes.clear()
+        self._short_rate_series.clear()
         self._free_float_history.clear()
         self._session_panel = None
         self.record_refresh(MARKET_DATASET)
@@ -708,6 +786,7 @@ class DataFetcher:
 
         if self._reference is None:
             self._reference = ReferenceData.from_dataframe(frame)
+            self._reclassify()
             self.record_refresh(REFERENCE_DATASET)
 
             return len(frame)
@@ -720,9 +799,18 @@ class DataFetcher:
                                             keep="last")
 
         self._reference = ReferenceData.from_dataframe(combined)
+        self._reclassify()
         self.record_refresh(REFERENCE_DATASET)
 
         return len(combined) - before
+
+    def _reclassify(self) -> None:
+        """Read what each series is again, after the reference data changed:
+        a record can make a series a pair or a short rate."""
+        self._kinds = self._classified()
+        self._fx_series.clear()
+        self._fx_routes.clear()
+        self._short_rate_series.clear()
 
     # -- corporate actions ---------------------------------------------------
 
@@ -860,7 +948,7 @@ class DataFetcher:
     #   * free-float factor    -> a per-(identifier, date) column
     #     (``FREE_FLOAT`` by default)
     #   * FX rates             -> a currency pair stored as its own identifier,
-    #     named ``"{FROM}{TO}"`` (e.g. ``GBPUSD``)
+    #     its rate in CLOSE, found by the currencies its reference row names
     # Each accessor returns ``None`` / an empty series when the backing column
     # or identifier is absent, so callers can fall back gracefully.
 
@@ -1037,38 +1125,26 @@ class DataFetcher:
                        from_currency: str,
                        to_currency: str,
                        start_date: str | None = None,
-                       end_date: str | None = None,
-                       column: str = "RATE") -> pd.Series:
+                       end_date: str | None = None) -> pd.Series:
         """Return the stored FX rate series converting *from_currency* into *to_currency*.
 
-        The pair is looked up as a market-data identifier named
-        ``f"{from_currency}{to_currency}"`` (upper-cased), and its *column*
-        read. A pair should carry `RATE`, which is also what :attr:`fx_pairs`
-        lists pairs by. One stored without it is read from its first data
-        column, with a warning, and is not listed. Returns an empty Series if
-        that exact pair is not stored: this does not invert or cross rates.
+        The pair is the spot pair whose reference row has *from_currency* as
+        its ``BASE_CURRENCY`` and *to_currency* as its ``QUOTE_CURRENCY``,
+        and its rate is its ``CLOSE``. Returns an empty Series if that exact
+        pair is not stored: this does not invert or cross rates.
         :meth:`fx_rate_on` and :meth:`fx_rates_on` do.
         """
-        pair = f"{from_currency}{to_currency}".upper()
-        if pair not in self._market.identifiers:
+        identifier = self._kinds.pairs.get((from_currency.upper(), to_currency.upper()))
+
+        if identifier is None or identifier not in self._market.identifiers:
             return pd.Series(dtype=float)
-        df = self._market.get(pair, start_date, end_date)
+
+        df = self._market.get(identifier, start_date, end_date)
+
         if df.empty:
             return pd.Series(dtype=float)
 
-        if column in df.columns and df[column].notna().any():
-            return df[column]
-
-        # BN-226: kept for stores written without RATE, but said, because
-        # such a pair converts and `fx_pairs` does not list it.
-        fallback = next(name for name in df.columns if name != column)
-        if pair not in self._unlisted_pairs:
-            self._unlisted_pairs.add(pair)
-            logger.warning("%s has no %s values, so it is read from %s and "
-                           "is not listed among the currency pairs. Store its "
-                           "rate in %s.", pair, column, fallback, column)
-
-        return df[fallback]
+        return df["CLOSE"]
 
     def fx_route(self,
                  from_currency: str,

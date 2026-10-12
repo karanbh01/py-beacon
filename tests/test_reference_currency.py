@@ -25,6 +25,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from beacon.data import pair_reference
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 from beacon.exceptions import InvalidRuleError
@@ -67,13 +68,14 @@ def build_fetcher(pairs: tuple[str, ...] = ("JPYUSD",)) -> DataFetcher:
                          "SHARES_OUTSTANDING": SHARES,
                          "FREE_FLOAT": FREE_FLOAT})
 
-        rows.extend({"IDENTIFIER": pair, "DATE": date, "RATE": rates[pair]}
+        rows.extend({"IDENTIFIER": pair, "DATE": date, "CLOSE": rates[pair]}
                     for pair in pairs)
 
     reference = pd.DataFrame([
         {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
          "CURRENCY": CURRENCY[name], "EXCHANGE": "XXXX"}
-        for name in PRICE])
+        for name in PRICE]
+        + [pair_reference(pair) for pair in pairs])
 
     return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
                        ReferenceData.from_dataframe(reference))
