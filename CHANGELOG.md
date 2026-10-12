@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-12
+
+Funds: synthetic and futures-based replication, futures to equitise a cash buffer, withholding tax by fund domicile, share classes that share one pool of assets, including classes in another currency, hedged or not, and more ways to build an active portfolio. Reference data now says what each series is, and exchange rates are read from `CLOSE`: market data with a `RATE` column is refused, so a store saved before this release has to be regenerated.
+
 ### Added
 
 - Synthetic replication: `IndexTracking(index, SyntheticReplication(basket, spread_bps=..., exposure_limit=0.10))` holds a substitute basket and a total return swap that pays the fund the index's return for the basket's, less a spread. The basket is required: an index definition, calculated over the run and held at its weights, or fixed weights. The swap is valued every day and included in the NAV, and is reset (settled in cash, its notional set back to net assets) when its value owed to the fund reaches the exposure limit (10% of net assets by default, the UCITS limit), at each of the index's rebalances, and on any day money flows in or out. `result.swap_value`, `result.swap_resets` and `result.counterparty_exposure` record it. A swap's settlement is a `"SWAP"` cash flow.
