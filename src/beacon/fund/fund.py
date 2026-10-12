@@ -6,8 +6,9 @@ A fund product: what it is called, what it holds and how it is held.
                 vehicle=ucits_etf(management_fee_bps=12),
                 share_classes=[ShareClass("Acc"), ShareClass("Dist", distribution="distributing")])
 
-    result = fund.backtest(end="2024-12-31", initial_capital=1e8,
-                           share_class="Dist", data_provider=fetcher)
+    result = fund.backtest(end="2024-12-31", initial_capital={"Acc": 6e7, "Dist": 4e7},
+                           data_provider=fetcher)
+    result.share_classes["Dist"].nav_per_unit
 
 A `Fund` is a record of a real product, as a prospectus describes one: a
 name, a currency, its share classes and documents, with one strategy (what
@@ -17,28 +18,25 @@ its strategy, so a saved product and a what-if run are the same computation.
 
 ## Share classes
 
-Each share class has its own management fee and distribution policy. A
-backtest of a class runs the fund once with that class's settings: its fee
-in place of the vehicle's, and its dividends reinvested (accumulating) or
-paid out (distributing). In a real fund every class shares one pool of
-assets, so its flows trade one book and share its capacity and costs; a run
-per class leaves that out, and per-class returns are otherwise the same.
+Each share class has its own management fee and distribution policy, and all
+of them share one pool of assets: `fund.backtest` runs the fund once with
+every class, each with its own capital and flows, and `result.share_classes`
+holds each class's book (see `beacon.backtest.share_classes`).
 """
-# BN-268, phase 6 of decisions/0006. Modelling the classes' shared pool of
-# assets is BN-279 (#292).
-import copy
+# BN-268, phase 6 of decisions/0006. Until BN-279 (#292) a backtest ran one
+# class at a time, as if it were the whole fund; the classes now share one
+# book, in the engine, and this passes the fund's own through.
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
 from typing import Any, Literal
 
 import pandas as pd
 
 from ..assumptions import ModellingAssumptions
-from ..backtest.dividends import DISTRIBUTE, REINVEST
 from ..backtest.flows import Flows
 from ..backtest.implementation import Implementation
 from ..backtest.main import Backtest
 from ..backtest.result import BacktestResult
+from ..backtest.share_classes import ACCUMULATING, DISTRIBUTING, ShareClass
 from ..backtest.vehicle import Vehicle
 from ..data.fetcher import DataFetcher
 from ..index.cache import IndexResultCache
@@ -46,38 +44,9 @@ from ..index.derived import AnyIndexDefinition
 from ..index.result import IndexResult
 from ..strategy.tracking import IndexTracking
 
-ACCUMULATING = "accumulating"
-DISTRIBUTING = "distributing"
-DISTRIBUTIONS = (ACCUMULATING, DISTRIBUTING)
-
-
-@dataclass(frozen=True)
-class ShareClass:
-    """One share class of a fund.
-
-    Attributes:
-        name: What the class is called, such as ``"Acc"`` or ``"I GBP Dist"``.
-        management_fee_bps: The class's annual management fee in basis
-            points. None uses the vehicle's.
-        distribution: ``"accumulating"`` (the default) reinvests its income,
-            ``"distributing"`` pays it out.
-
-    Raises:
-        ValueError: If the distribution is not one of the two, or the fee is
-            negative.
-    """
-    name: str
-    management_fee_bps: float | None = None
-    distribution: str = ACCUMULATING
-
-    def __post_init__(self) -> None:
-        if self.distribution not in DISTRIBUTIONS:
-            raise ValueError(f"Unknown distribution {self.distribution!r}. "
-                             f"Supported: {', '.join(DISTRIBUTIONS)}.")
-
-        if self.management_fee_bps is not None and self.management_fee_bps < 0:
-            raise ValueError(f"management_fee_bps cannot be negative, got "
-                             f"{self.management_fee_bps!r}.")
+# Re-exported here, where they were defined until the engine took up share
+# classes (BN-279).
+__all__ = ["ACCUMULATING", "DISTRIBUTING", "Fund", "ShareClass"]
 
 
 class Fund:
@@ -140,23 +109,11 @@ class Fund:
         raise KeyError(f"{self.name} has no share class {name!r}. Classes: "
                        f"{', '.join(c.name for c in self.share_classes)}.")
 
-    def vehicle_for(self,
-                    share_class: ShareClass) -> Vehicle:
-        """The fund's vehicle with *share_class*'s fee."""
-        if share_class.management_fee_bps is None:
-            return self.vehicle
-
-        vehicle = copy.copy(self.vehicle)
-        vehicle.management_fee_bps = share_class.management_fee_bps
-
-        return vehicle
-
     def backtest(self,
                  end: str,
-                 initial_capital: float,
+                 initial_capital: float | Mapping[str, float],
                  start: str | None = None,
-                 share_class: str | None = None,
-                 flows: Flows | list[Flows] | None = None,
+                 flows: Flows | list[Flows] | Mapping[str, Flows | list[Flows]] | None = None,
                  implementation: Implementation | None = None,
                  modelling_assumptions: ModellingAssumptions | None = None,
                  transaction_cost_bps: float = 0.0,
@@ -164,15 +121,17 @@ class Fund:
                  data_provider: DataFetcher | None = None,
                  cache: IndexResultCache | Literal[False] | None = None,
                  **backtest_settings: Any) -> BacktestResult:
-        """Backtest one share class: a `Backtest` with the fund's vehicle,
-        run on its strategy.
+        """Backtest the fund, every share class together: a `Backtest` with
+        the fund's vehicle and classes, run on its strategy.
 
         Args:
             end: The last day, YYYY-MM-DD.
-            initial_capital: The class's capital at launch.
+            initial_capital: Each class's capital at launch, by name, such as
+                ``{"Acc": 6e7, "Dist": 4e7}``; a class left out starts empty.
+                One number for a fund with one class.
             start: The first day; the strategy's base date when None.
-            share_class: Which class, by name; the first when None.
-            flows: Money arriving and leaving the class.
+            flows: Money arriving and leaving, each class's by name; one
+                scenario or a list for a fund with one class.
             implementation: Screens, caps, costs and execution.
             modelling_assumptions: What the run takes as given.
             transaction_cost_bps: The fixed cost of each trade.
@@ -184,22 +143,20 @@ class Fund:
                 `modifiers` or `price_column`.
 
         Returns:
-            BacktestResult: The class's run.
+            BacktestResult: The fund's run, with each class's book in
+            `share_classes`.
         """
-        chosen = self.share_class(share_class)
-        dividends = DISTRIBUTE if chosen.distribution == DISTRIBUTING else REINVEST
-
         backtest = Backtest(initial_capital=initial_capital,
                             transaction_cost_bps=transaction_cost_bps,
                             currency=self.currency,
                             modelling_assumptions=modelling_assumptions,
-                            dividends=dividends,
                             implementation=implementation,
                             benchmark=benchmark,
                             data_provider=data_provider,
                             cache=cache,
                             flows=flows,
-                            vehicle=self.vehicle_for(chosen),
+                            vehicle=self.vehicle,
+                            share_classes=self.share_classes,
                             **backtest_settings)
 
         return backtest.run(self.strategy, start=start, end=end)

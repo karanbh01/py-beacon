@@ -78,6 +78,7 @@ from .screens import (
     ScreenContext,
     ThresholdScreen,
 )
+from .share_classes import ShareClass, ShareClassBook
 from .swap import SwapReset
 from .vehicle import Vehicle
 
@@ -125,6 +126,8 @@ __all__ = [
     "RebalanceStep",
     "Screen",
     "ScreenContext",
+    "ShareClass",
+    "ShareClassBook",
     "SinglePricing",
     "SwapReset",
     "SwingPricing",

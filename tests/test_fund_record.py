@@ -19,6 +19,7 @@ from test_backtest_flows import DAYS, fetcher
 
 END = str(DAYS[-1].date())
 CAPITAL = 1_000_000.0
+CLASS_CAPITAL = {"Acc": 600_000.0, "I Acc": 300_000.0, "Dist": 100_000.0}
 
 
 def definition() -> IndexDefinition:
@@ -84,42 +85,49 @@ class TestTheRecord:
             build()
 
 
-class TestBacktestingAClass:
+class TestBacktestingTheFund:
+    """BN-279: every class together, in one book."""
 
     def run(self,
-            share_class: str | None = None,
             **settings):
-        return fund().backtest(end=END, initial_capital=CAPITAL,
-                               share_class=share_class,
-                               data_provider=with_shares(), cache=False,
-                               **settings)
+        return fund().backtest(end=END, initial_capital=CLASS_CAPITAL,
+                               data_provider=with_shares(), cache=False, **settings)
+
+    def test_every_class_runs_in_one_book(self):
+        result = self.run()
+
+        assert list(result.share_classes) == ["Acc", "I Acc", "Dist"]
+        assert result.portfolio.initial_capital == sum(CLASS_CAPITAL.values())
 
     def test_a_cheaper_class_returns_more(self):
-        retail = self.run("Acc").summary()["total_return"]
-        institutional = self.run("I Acc").summary()["total_return"]
+        classes = self.run().share_classes
 
-        assert institutional > retail
-
-    def test_a_class_uses_its_own_fee_and_leaves_the_vehicle_alone(self):
-        record = fund()
-        cheaper = record.vehicle_for(record.share_class("I Acc"))
-
-        assert cheaper.management_fee_bps == 10
-        assert record.vehicle.management_fee_bps == 50
-        assert cheaper.name == "UK OEIC"
+        assert classes["I Acc"].total_return() > classes["Acc"].total_return()
+        assert classes["I Acc"].management_fee_bps == 10
+        assert classes["Acc"].management_fee_bps == 50
 
     def test_the_run_takes_the_flows_and_settings_given(self):
-        result = self.run(flows=PeriodicFlows(fraction=0.01),
+        result = self.run(flows={"Dist": PeriodicFlows(fraction=0.01)},
                           transaction_cost_bps=5.0)
 
-        assert result.flows
+        assert result.share_classes["Dist"].flows
+        assert not result.share_classes["Acc"].flows
         assert result.portfolio.transactions[0].transaction_cost > 0.0
 
-    def test_a_distributing_class_pays_its_income_out(self):
+    def test_the_fund_passes_its_classes_to_the_backtest(self):
         with patch("beacon.fund.fund.Backtest", wraps=Backtest) as built:
-            self.run("Dist")
+            self.run()
 
-        assert built.call_args.kwargs["dividends"] == "distribute"
+        assert [c.name for c in built.call_args.kwargs["share_classes"]] == [
+            "Acc", "I Acc", "Dist"]
+        assert built.call_args.kwargs["vehicle"].management_fee_bps == 50
+
+    def test_a_fund_of_one_class_takes_one_capital(self):
+        record = Fund(name="Plain", strategy=definition(), vehicle=uk_oeic())
+        result = record.backtest(end=END, initial_capital=CAPITAL,
+                                 data_provider=with_shares(), cache=False)
+
+        assert list(result.share_classes) == ["Default"]
 
     def test_an_etf_fund_is_quoted(self):
         record = Fund(name="Listed", strategy=definition(),

@@ -3,6 +3,7 @@
 BacktestEngine: simulates portfolio execution against a target weight schedule.
 """
 import logging
+from collections.abc import Mapping, Sequence
 
 import pandas as pd
 
@@ -25,7 +26,7 @@ from ..strategy.synthetic import SwapTerms
 from .accounting import AccountingMixin
 from .books import benchmark_book, index_books
 from .costs import WorkingOrder
-from .dividends import DIVIDEND_POLICIES, REINVEST, DividendsMixin
+from .dividends import DISTRIBUTE, DIVIDEND_POLICIES, REINVEST, DividendsMixin
 from .etf import Quote, quotes_frame
 from .execution import ExecutionMixin
 from .flows import FlowRecord, Flows
@@ -41,6 +42,7 @@ from .settings import (
     refuse_screens_as_modifiers,
     warn_if_assumptions_differ,
 )
+from .share_classes import ShareClass, ShareClassesMixin, class_terms
 from .swap import SwapMixin
 from .vehicle import Vehicle
 
@@ -64,7 +66,9 @@ logger = logging.getLogger(__name__)
 # (BN-183).
 # SwapMixin and FuturesMixin are last: they declare AccountingMixin methods
 # they call, and a declaration earlier in the bases would shadow the real one.
-class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
+# ShareClassesMixin comes before AccountingMixin and DividendsMixin, which
+# declare the methods it provides.
+class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionMixin,
                      AccountingMixin, ListingsMixin, SwapMixin, FuturesMixin):
     """Simulates portfolio execution against a target weight schedule.
 
@@ -78,7 +82,9 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
     Args:
         start_date: The start date of the backtest (YYYY-MM-DD).
         end_date: The end date of the backtest (YYYY-MM-DD).
-        initial_capital: The starting capital for the backtest.
+        initial_capital: The starting capital for the backtest. With share
+            classes, each class's by name, such as ``{"Acc": 6e7}``; a class
+            left out starts empty.
         data_provider: Data source for market prices.
         index_result: The IndexResult whose weight_snapshots provide
             the rebalance schedule and target weights.
@@ -110,7 +116,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             which is how a run behaved before it had stages.
         flows: Money arriving and leaving: one scenario or several, added
             together (see :mod:`beacon.backtest.flows`). None for a fixed
-            amount of capital.
+            amount of capital. With share classes, each class's by name.
         vehicle: The fund's fee and unit price at launch (see
             :class:`~beacon.backtest.Vehicle`). None charges no fee.
         schedule: The weights to trade to at each rebalance, when they
@@ -126,6 +132,11 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             :class:`~beacon.strategy.FuturesReplication`). None otherwise; a
             physical fund equitises its cash buffer through
             `Implementation(equitise=...)` instead.
+        share_classes: The fund's share classes, sharing one book, each with
+            its own fee, flows and distribution policy (see
+            :mod:`beacon.backtest.share_classes`). None runs the fund as one
+            class. With classes, *dividends* applies to the accumulating
+            classes' income and may not be ``"distribute"``.
         modifiers: Optional hooks that can skip rebalances or adjust trades.
         benchmark: The benchmark of record, stored on the result so every
             reader quotes excess return against the same comparator.
@@ -150,7 +161,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
     def __init__(self,
                  start_date: str,
                  end_date: str,
-                 initial_capital: float,
+                 initial_capital: float | Mapping[str, float],
                  data_provider: DataFetcher,
                  index_result: IndexResult,
                  price_column: str = "CLOSE",
@@ -163,14 +174,21 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
                  benchmark: IndexResult | pd.Series | None = None,
                  target_index: IndexResult | None = None,
                  calendar: str | None = None,
-                 flows: Flows | list[Flows] | None = None,
+                 flows: Flows | list[Flows] | Mapping[str, Flows | list[Flows]] | None = None,
                  vehicle: Vehicle | None = None,
                  schedule: dict[pd.Timestamp, dict[str, float]] | None = None,
                  swap: SwapTerms | None = None,
-                 futures: IndexFutures | None = None):
+                 futures: IndexFutures | None = None,
+                 share_classes: Sequence[ShareClass] | None = None):
         self.start_date: pd.Timestamp = pd.Timestamp(start_date)
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
-        self.initial_capital: float = initial_capital
+
+        # BN-279: share classes' capital and flows, by class; the fund trades
+        # their sum.
+        self._ledgers = class_terms(share_classes, initial_capital, flows, vehicle)
+        self.initial_capital: float = (
+            sum(ledger.capital for ledger in self._ledgers) if self._ledgers
+            else float(initial_capital))  # type: ignore[arg-type]
 
         # BN-276: the run's assumptions, resolved once and recorded.
         assumptions = (modelling_assumptions or ModellingAssumptions()).effective()
@@ -222,13 +240,21 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             raise ValueError(f"Unknown dividend policy {dividends!r}. "
                              f"Supported: {', '.join(DIVIDEND_POLICIES)}.")
 
+        if self._ledgers and dividends == DISTRIBUTE:
+            raise ValueError("With share classes, each class's distribution decides "
+                             "whether its income is paid out; dividends= may be "
+                             "'reinvest' or 'cash'.")
+
         self.dividends: str = dividends
         refuse_screens_as_modifiers(self.modifiers)
 
         # BN-267: flows are their own part of the run; the vehicle carries
         # the fee. Both empty leave every figure as it was.
-        self.flows: list[Flows] = ([flows] if isinstance(flows, Flows)
-                                   else list(flows or []))
+        self.flows: list[Flows] = (
+            [scenario for ledger in self._ledgers for scenario in ledger.flows]
+            if self._ledgers
+            else [flows] if isinstance(flows, Flows)
+            else list(flows or []))  # type: ignore[arg-type]
         self.vehicle: Vehicle | None = vehicle
         self._fees_payable = 0.0
         self._units = 0.0
@@ -460,6 +486,10 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
         self._start_accounting(eve, trading_days[0])
 
         for idx, date in enumerate(trading_days):
+            # The day's split between share classes: their net assets at the
+            # previous close (BN-279).
+            self._begin_class_day()
+
             # 0. Splits and stock dividends change the share count before the
             # day is marked: the stored close has already moved by the ratio,
             # and the position has to move with it or the NAV steps (BN-244).
@@ -557,6 +587,7 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             # swap's value.
             self._record_swap(portfolio, date)
             self._record_futures(date)
+            self._close_classes(portfolio, date)
             self._close_books(portfolio, date)
 
             # 3. End-of-day state is already in the books: the dated mark
@@ -612,4 +643,5 @@ class BacktestEngine(PricingMixin, DividendsMixin, ExecutionMixin,
             swap_resets=list(self._swap_resets),
             futures_notional=pd.Series(self._futures_notional, dtype=float),
             futures_rolls=list(self._futures_rolls),
+            share_classes=self._class_books(),
         ).with_data(self.data_provider)

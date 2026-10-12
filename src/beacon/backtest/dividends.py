@@ -35,6 +35,7 @@ would count the distribution twice.
 # return only and trailed a total-return index by about the dividend yield.
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import pandas as pd
 
@@ -108,6 +109,13 @@ class DividendsMixin:
     modelling_assumptions: ModellingAssumptions
     transaction_cost_bps: float
     vehicle: Vehicle | None
+    _ledgers: list[Any]
+
+    def _class_distributions(self,
+                             income: float,
+                             date: pd.Timestamp) -> float:
+        """Provided by ShareClassesMixin; declared so this one type-checks."""
+        raise NotImplementedError
 
     def _rate_for(self,
                   asset_id: str,
@@ -165,7 +173,17 @@ class DividendsMixin:
             portfolio.receive_cash(amount, date, DIVIDEND, event.asset_id)
             total += amount
 
-        if self.dividends == DISTRIBUTE:
+        if self._ledgers:
+            # BN-279: the distributing classes' shares are paid out, and the
+            # accumulating classes' kept as the run's policy says.
+            paid_out = self._class_distributions(total, date)
+
+            if paid_out > 0.0:
+                portfolio.receive_cash(-paid_out, date, DISTRIBUTION)
+
+            if self.dividends == REINVEST:
+                self._reinvest(portfolio, total - paid_out, date)
+        elif self.dividends == DISTRIBUTE:
             portfolio.receive_cash(-total, date, DISTRIBUTION)
         elif self.dividends == REINVEST:
             self._reinvest(portfolio, total, date)

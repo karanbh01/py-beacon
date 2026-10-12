@@ -52,6 +52,7 @@ cash to pay it.
 # BN-267, phase 5 of decisions/0006. Interest on cash (BN-276) moved here from
 # engine.py, beside the other daily accruals.
 import logging
+from typing import Any
 
 import pandas as pd
 
@@ -89,6 +90,40 @@ class AccountingMixin:
     _working: list[WorkingOrder]
     _fees_payable: float
     _swap_value: float
+    _ledgers: list[Any]
+
+    def _start_classes(self,
+                       eve: pd.Timestamp,
+                       launch_price: float) -> None:
+        """Provided by ShareClassesMixin; declared so this one type-checks."""
+        raise NotImplementedError
+
+    def _allocate_classes(self,
+                          portfolio: Portfolio) -> None:
+        """Provided by ShareClassesMixin; declared so this one type-checks."""
+        raise NotImplementedError
+
+    def _class_fees(self,
+                    portfolio: Portfolio,
+                    date: pd.Timestamp,
+                    days: int) -> float:
+        """Provided by ShareClassesMixin; declared so this one type-checks."""
+        raise NotImplementedError
+
+    def _class_flow_amount(self,
+                           previous: pd.Timestamp,
+                           date: pd.Timestamp,
+                           carried: bool) -> float:
+        """Provided by ShareClassesMixin; declared so this one type-checks."""
+        raise NotImplementedError
+
+    def _deal_classes(self,
+                      dealt: float,
+                      dealing_price: float,
+                      fund_per_unit: float,
+                      date: pd.Timestamp) -> None:
+        """Provided by ShareClassesMixin; declared so this one type-checks."""
+        raise NotImplementedError
 
     def _fetch_price(self,
                      asset_id: str,
@@ -156,6 +191,9 @@ class AccountingMixin:
         for scenario in self.flows:
             scenario.start(first_day)
 
+        # BN-279: each share class's own register, beside the fund's.
+        self._start_classes(eve, self.launch_price)
+
     def _net_value(self,
                    portfolio: Portfolio) -> float:
         """The fund's net assets: what it holds, less the fee it owes, plus
@@ -199,7 +237,10 @@ class AccountingMixin:
             portfolio.receive_cash(portfolio.cash_balance * rate * days / 365.0,
                                    date, INTEREST)
 
-        if self.vehicle is not None:
+        if self._ledgers:
+            # Each share class's own fee, on its own net assets.
+            self._fees_payable += self._class_fees(portfolio, date, days)
+        elif self.vehicle is not None:
             self._fees_payable += self.vehicle.daily_fee(
                 self._net_value(portfolio), days)
 
@@ -235,7 +276,14 @@ class AccountingMixin:
         history = pd.Series({**self._per_unit, date: per_unit})
         context = FlowContext(previous=previous, date=date, aum=net,
                               nav_per_unit=history.iloc[1:])
-        amount = sum(scenario.amount(context) for scenario in self.flows)
+
+        if self._ledgers:
+            # Each share class's flows, sized against the class (BN-279).
+            self._allocate_classes(portfolio)
+            amount = self._class_flow_amount(previous, date,
+                                             isinstance(self.vehicle, EtfVehicle))
+        else:
+            amount = sum(scenario.amount(context) for scenario in self.flows)
         etf = self.vehicle if isinstance(self.vehicle, EtfVehicle) else None
         creations = None
 
@@ -259,6 +307,9 @@ class AccountingMixin:
         elif deal.cash < 0.0:
             deal = _scaled(deal, self._redeem(portfolio, -deal.cash, date,
                                               free=in_kind) / -deal.cash)
+
+        if self._ledgers:
+            self._deal_classes(deal.cash, deal.price, per_unit, date)
 
         self._units = max(self._units + deal.units, 0.0)
         self._dealt_today = deal.cash

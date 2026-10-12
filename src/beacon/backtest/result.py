@@ -68,6 +68,7 @@ from .flows import FlowRecord
 from .futures import FuturesRoll
 from .implementation import RebalanceStep
 from .metrics import MetricsMixin
+from .share_classes import ShareClassBook
 from .swap import SwapReset
 
 # Why an order went unfilled (BN-252, BN-266).
@@ -194,6 +195,10 @@ class BacktestResult(MetricsMixin):
         futures_rolls: Each roll of those futures to the next contract: the
             day, the new expiry, the notional, the cost and the dividend
             yield it was priced with.
+        share_classes: For a fund run with share classes, each class's book
+            by name: its net assets, units, NAV per unit, fees, distributions
+            and flows. The result's own NAV and metrics are the whole fund's.
+            Empty otherwise.
     """
 
     #: Charts for this result. A descriptor that resolves on first
@@ -220,6 +225,7 @@ class BacktestResult(MetricsMixin):
     swap_resets: list[SwapReset] = field(default_factory=list)
     futures_notional: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     futures_rolls: list[FuturesRoll] = field(default_factory=list)
+    share_classes: dict[str, ShareClassBook] = field(default_factory=dict)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 

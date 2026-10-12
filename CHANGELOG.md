@@ -18,8 +18,11 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 - A total return swap's value counts the dividends the underlying paid: `dividends` in `TotalReturnSwap`'s market data, and in the server's TRS pricing request, joins the total return leg as `notional * ((spot + dividends) / initial_price - 1)`. `dividend_yield` stays an input to the futures breakeven only, and its description now says why.
 
+- Share classes that share one pool of assets: `Backtest(share_classes=[...], initial_capital={...}, flows={...})` runs every class in one book, so capacity caps, market impact and execution limits see the whole fund. Each day the book's gains, losses and income are split by the classes' net assets at the previous close; each class's own fee, flows (dealt at its own NAV per unit) and distributions reach it alone. `result.share_classes` holds each class's net assets, units, NAV per unit, fees, distributions and flows. `ShareClass` moved to `beacon.backtest`; `beacon.fund` still exports it.
+
 ### Changed
 
+- `fund.backtest()` runs every share class together, with `initial_capital` and `flows` given by class name (one number for a fund of one class), and returns the fund's result with each class in `result.share_classes`. It no longer takes `share_class=`, and `Fund.vehicle_for()` is gone: a class's fee now reaches it inside the pooled run.
 - A backtest with a preset vehicle now withholds dividends by its domicile instead of the flat `withholding_tax_rate`, so its dividends, NAV and tracking difference change. Pass `domicile=None` to keep the flat rate.
 
 ## [0.6.0] - 2026-10-10

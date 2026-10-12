@@ -32,6 +32,7 @@ the front door works on the core install exactly as it does on a full one.
 # has imported scipy-free since BN-166.
 import copy
 import logging
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 import pandas as pd
@@ -63,6 +64,7 @@ from .implementation import Implementation
 from .result import BacktestResult
 from .rules import BacktestModifier
 from .settings import book_currency
+from .share_classes import ShareClass
 from .vehicle import Vehicle
 
 logger = logging.getLogger(__name__)
@@ -137,7 +139,8 @@ class Backtest:
         result = bt.run(definition, start="2023-01-03", end="2023-12-29")
 
     Args:
-        initial_capital: The starting capital for each run.
+        initial_capital: The starting capital for each run. With share
+            classes, each class's by name.
         transaction_cost_bps: Transaction cost in basis points applied to
             each trade's notional value. Defaults to 0 (no cost).
         price_column: Market-data column both the calculator and the engine
@@ -154,6 +157,9 @@ class Backtest:
             :mod:`beacon.backtest.dividends`.
         implementation: The screens and redistribution rule applied at each
             rebalance. None screens nothing beyond stale prices.
+        share_classes: The fund's share classes, sharing one book, each with
+            its own fee, flows and distribution policy (see
+            :mod:`beacon.backtest.share_classes`). None runs one class.
         flows: Money arriving and leaving: one scenario or several, added
             together (see :mod:`beacon.backtest.flows`). None for a fixed
             amount of capital.
@@ -174,7 +180,7 @@ class Backtest:
     """
 
     def __init__(self,
-                 initial_capital: float,
+                 initial_capital: float | Mapping[str, float],
                  transaction_cost_bps: float = 0.0,
                  price_column: str = "CLOSE",
                  currency: str | None = None,
@@ -185,15 +191,18 @@ class Backtest:
                  benchmark: IndexResult | pd.Series | None = None,
                  data_provider: DataFetcher | None = None,
                  cache: IndexResultCache | Literal[False] | None = None,
-                 flows: Flows | list[Flows] | None = None,
-                 vehicle: Vehicle | None = None):
-        self.initial_capital: float = initial_capital
+                 flows: Flows | list[Flows] | Mapping[str, Flows | list[Flows]] | None = None,
+                 vehicle: Vehicle | None = None,
+                 share_classes: Sequence[ShareClass] | None = None):
+        self.initial_capital: float | Mapping[str, float] = initial_capital
         self.transaction_cost_bps: float = transaction_cost_bps
         self.price_column: str = price_column
         self.currency: str | None = currency
         self.modelling_assumptions: ModellingAssumptions | None = modelling_assumptions
         self.implementation: Implementation | None = implementation
-        self.flows: Flows | list[Flows] | None = flows
+        self.flows: Flows | list[Flows] | Mapping[str, Flows | list[Flows]] | None = flows
+        self.share_classes: tuple[ShareClass, ...] | None = (
+            tuple(share_classes) if share_classes else None)
         self.vehicle: Vehicle | None = vehicle
         self.dividends: str = dividends
         self.modifiers: list[BacktestModifier] | None = modifiers
@@ -208,7 +217,8 @@ class Backtest:
 
         logger.info("Backtest initialised: capital %.2f, cost %.1f bps, "
                     "cache %s.",
-                    initial_capital, transaction_cost_bps,
+                    (sum(initial_capital.values()) if isinstance(initial_capital, Mapping)
+                     else initial_capital), transaction_cost_bps,
                     "off" if self.cache is None else f"at {self.cache.root}")
 
     def run(self,
@@ -330,6 +340,7 @@ class Backtest:
             dividends=self.dividends,
             implementation=self._implementation_for(index_definition),
             flows=self.flows,
+            share_classes=self.share_classes,
             vehicle=self.vehicle,
             transaction_cost_bps=self.transaction_cost_bps,
             modifiers=self.modifiers,

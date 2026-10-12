@@ -8,7 +8,8 @@ description: "Fund, a fund product with share classes, one strategy and one vehi
 A `Fund` is a fund product: a name, a currency, its share classes and
 documents, with one strategy (what it holds) and one
 [vehicle](fund-vehicles.md) (how the money is held). Its `backtest()` runs a
-[backtest](backtest.md) with the fund's vehicle on its strategy.
+[backtest](backtest.md) with the fund's vehicle and share classes on its
+strategy.
 
 ```python
 import logging
@@ -38,20 +39,37 @@ fund = Fund(name="Sample UCITS ETF", strategy=definition,
                            ShareClass("I Acc", management_fee_bps=7)],
             documents={"prospectus": "https://example.com/prospectus.pdf"})
 
-for share_class in fund.share_classes:
-    result = fund.backtest(end="2024-12-31", initial_capital=50_000_000.0,
-                           share_class=share_class.name, transaction_cost_bps=2.0,
-                           flows=PeriodicFlows(fraction=0.01),
-                           data_provider=fetcher)
-    print(share_class.name, round(result.summary()["total_return"], 6))
+result = fund.backtest(end="2024-12-31",
+                       initial_capital={"Acc": 30_000_000.0, "Dist": 10_000_000.0,
+                                        "I Acc": 10_000_000.0},
+                       flows={"Acc": PeriodicFlows(fraction=0.01)},
+                       transaction_cost_bps=2.0, data_provider=fetcher)
+
+for name, share_class in result.share_classes.items():
+    print(name, round(share_class.total_return(), 6),
+          round(share_class.net_assets.iloc[-1]))
 ```
 
 Each share class has its own management fee (the vehicle's when unset) and
-distribution policy: an accumulating class reinvests its income and a
-distributing class pays it out. `fund.backtest(share_class=...)` runs the
-fund once for that class. A real fund's classes share one pool of assets, so
-their flows trade one book and share its capacity and costs; a run per class
-leaves that out.
+distribution policy: an accumulating class keeps its income in the fund and a
+distributing class pays it out. The classes share one pool of assets, as a
+real fund's do: `fund.backtest()` runs the fund once with every class, each
+with its own capital and flows (by class name; one number for a fund of one
+class), and their money trades one book, so capacity caps, market impact and
+execution limits see the whole fund.
+
+Each day the book's gains, losses and income are split between the classes
+in proportion to their net assets at the previous close. Then what belongs to
+one class reaches it alone: its fee, accrued on its own net assets; its flows,
+dealt at its own NAV per unit (moved by the vehicle's swing or levy, which the
+fund's net flow sets); and, for a distributing class, its share of the
+dividends, paid out. `result.share_classes` holds each class's book: its net
+assets, units, NAV per unit, fees, distributions and flows, with
+`get_returns()` and `total_return()` per unit, distributions added back. The
+result itself is the whole fund's.
+
+The same works without a `Fund`: pass `share_classes=` to `Backtest`, with
+`initial_capital` and `flows` by class name.
 
 ## Tracking a fund against its index
 
