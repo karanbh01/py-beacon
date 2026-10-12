@@ -181,13 +181,15 @@ class TestTheLegacyColumn:
         """Reported like any unreadable store, so a server starting on it comes
         up without data rather than not at all."""
         from beacon.data import store
-        from beacon.exceptions import ConfigurationError
+        from beacon.exceptions import StoreFormatError
 
         path = store.save(fetcher([], {}), tmp_path / "old")
         market = pd.read_csv(path / store.MARKET_FILE)
         market.assign(RATE=float("nan")).to_csv(path / store.MARKET_FILE, index=False)
 
-        with pytest.raises(ConfigurationError, match="RATE column"):
+        assert "before py-beacon 0.7.0" in store.outdated(path)
+
+        with pytest.raises(StoreFormatError, match="RATE column"):
             store.load(path)
 
 

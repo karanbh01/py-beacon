@@ -122,6 +122,15 @@ class ConfigurationError(BeaconError):
         self.config_param = config_param
         self.details = details
 
+class StoreFormatError(ConfigurationError):
+    """Raised for a data store saved in a format this version no longer reads.
+
+    Regenerating or re-importing the store writes it in the current format.
+    """
+    # BN-309: its own code, so a client can offer to regenerate the store
+    # rather than guess that its folder was moved.
+
+
 # BN-236.
 class NoDataLoadedError(BeaconError):
     """Raised when something needs market data and none is loaded.

@@ -235,6 +235,59 @@ class TestLoading:
         assert served(client)["loading"] is False
 
 
+class TestAStoreSavedBefore070:
+    """BN-309: a store with a RATE column is refused since 0.7.0, and says so
+    with a code a client can act on, rather than looking moved or deleted."""
+
+    @staticmethod
+    def outdated(path: Path) -> Path:
+        folder = write_store(path, ["AAA"])
+        market = pd.read_csv(folder / data_store.MARKET_FILE)
+        market.assign(RATE=float("nan")).to_csv(folder / data_store.MARKET_FILE,
+                                                index=False, compression="gzip")
+
+        return folder
+
+    def test_the_listing_says_why(self,
+                                  client,
+                                  tmp_path):
+        register(client, "Old", self.outdated(tmp_path / "old"))
+        register(client, "New", write_store(tmp_path / "new", ["AAA"]))
+
+        stores = {store["id"]: store
+                  for store in client.get("/data/stores", headers=HEADERS).json()["stores"]}
+
+        assert stores["old"]["readable"] is False
+        assert stores["old"]["problem"]["code"] == "STORE_FORMAT_OUTDATED"
+        assert "0.7.0" in stores["old"]["problem"]["message"]
+        assert stores["old"]["refresh"] is None
+        assert stores["new"]["readable"] is True
+        assert stores["new"]["problem"] is None
+
+    def test_activating_it_is_refused_with_the_code(self,
+                                                    client,
+                                                    tmp_path):
+        register(client, "Old", self.outdated(tmp_path / "old"))
+
+        response = client.post("/data/stores/old/activate", headers=HEADERS)
+
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "STORE_FORMAT_OUTDATED"
+        assert served(client)["loading"] is False
+
+    def test_a_moved_store_has_no_problem_code(self,
+                                               client,
+                                               tmp_path):
+        folder = write_store(tmp_path / "a", ["AAA"])
+        register(client, "Gone", folder)
+        (folder / data_store.MARKET_FILE).unlink()
+
+        listing = client.get("/data/stores", headers=HEADERS).json()["stores"]
+
+        assert listing[0]["readable"] is False
+        assert listing[0]["problem"] is None
+
+
 class TestTheDataVersion:
     """An opaque token a client compares for equality, to know whether what
     it cached is still the data being served (asked for by beacon-ui)."""

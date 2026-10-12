@@ -58,13 +58,13 @@ from typing import TypeVar
 import pandas as pd
 
 from .._optional import require
-from ..exceptions import ConfigurationError
+from ..exceptions import ConfigurationError, StoreFormatError
 from .base import MarketData, ReferenceData
 from .corporate_actions import CorporateActions
 from .features import FeatureData
 from .fetcher import DEFAULT_FX_POLICY, DataFetcher
 from .free_float import DEFAULT_FREE_FLOAT_BACKFILL_DAYS
-from .kinds import SeriesError
+from .kinds import LEGACY_RATE_COLUMN, SeriesError
 
 T = TypeVar("T")
 
@@ -271,6 +271,29 @@ def _write_frame(frame: pd.DataFrame,
     frame.to_csv(path, compression=_GZIP_OPTIONS, **_CSV_OPTIONS)
 
 
+def outdated(path: Path) -> str | None:
+    """Why the store at *path* is in a format this version no longer reads,
+    or None. Reads only its market file's header.
+
+    A store saved before py-beacon 0.7.0 keeps exchange rates in a ``RATE``
+    column, which is refused since they moved to ``CLOSE``.
+    """
+    # BN-309, after BN-308 retired the RATE column.
+    try:
+        with gzip.open(path / MARKET_FILE, "rt", encoding="utf-8", newline="") as handle:
+            header = handle.readline()
+    except (OSError, EOFError, zlib.error, UnicodeDecodeError):
+        return None
+
+    columns = {column.strip().strip('"') for column in header.rstrip("\r\n").split(",")}
+
+    if LEGACY_RATE_COLUMN not in columns:
+        return None
+
+    return ("It was saved before py-beacon 0.7.0, with exchange rates in a RATE "
+            "column, which is no longer read. Regenerate or re-import it.")
+
+
 def _read_frame(path: Path) -> pd.DataFrame:
     """Read one gzipped CSV back.
 
@@ -408,6 +431,8 @@ def load(path: Path,
         DataFetcher: Serving whatever the store holds.
 
     Raises:
+        StoreFormatError: If the store was saved in a format this version no
+            longer reads (see `outdated`).
         ConfigurationError: If the path is not a readable store, or its rows
             contradict each other (see `beacon.data.kinds`).
         ValueError: If *fx_policy* is not a known policy, or either day
@@ -422,6 +447,10 @@ def load(path: Path,
             f"{MARKET_FILE}.")
 
     manifest = read_manifest(path)
+    reason = outdated(path)
+
+    if reason is not None:
+        raise StoreFormatError("data_store", f"The data store at {path}: {reason}")
 
     market = _build(path / MARKET_FILE, _read_frame(path / MARKET_FILE),
                     MarketData.from_dataframe)

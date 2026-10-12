@@ -299,6 +299,7 @@ contents depend on the code.
 | 404 | `DATA_NOT_FOUND` | The thing asked for does not exist: an index, a job, an instrument's data, a store. |
 | 405 | `METHOD_NOT_ALLOWED` | The path exists but not with this method. See [Wrong methods](#wrong-methods). |
 | 409 | `NO_DATA_LOADED` | The request needs data and none is loaded. Load a store, then retry. |
+| 409 | `STORE_FORMAT_OUTDATED` | The data store was saved in a format this version no longer reads, such as a store saved before 0.7.0 with exchange rates in a `RATE` column. Regenerate or re-import it. `GET /data/stores` says the same in each store's `problem`. |
 | 409 | `CONFLICT` | The engine's state refuses the request: an id already taken, a store already loading or refreshing, forgetting the store being served, a store with nothing to refresh, editing the read-only `GLOBAL` universe, a report template with no blocks. |
 | 422 | `VALIDATION_ERROR` | The request does not match its schema. `detail.errors` lists each problem with its location (`loc`), message (`msg`) and `type`. |
 | 422 | `INVALID_RULE` | A definition or document was refused. When there are several problems, `detail.findings` lists each one with `path`, `rule_id`, `severity`, `code` and `message`. |

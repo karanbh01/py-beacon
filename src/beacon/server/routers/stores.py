@@ -19,7 +19,7 @@ from typing import Any
 from ..._optional import require
 from ...data import postgres
 from ...data import store as data_store
-from ...exceptions import DataNotFoundError
+from ...exceptions import DataNotFoundError, StoreFormatError
 from ..active_data import ActiveData, active_data
 from ..data_stores import StoreRegistry, available, describe, load
 from ..errors import FindingsError
@@ -298,6 +298,14 @@ def build_stores_router() -> APIRouter:
                        + ("its password variable is not set."
                           if record["kind"] == "postgres"
                           else f"nothing usable at {record['path']}."))
+
+        # BN-309: refused at once, with its own code, rather than by a load
+        # job failing later with a generic one.
+        reason = (data_store.outdated(Path(record["path"]))
+                  if record["kind"] != "postgres" else None)
+
+        if reason is not None:
+            raise StoreFormatError("data_store", f"'{record['name']}': {reason}")
 
         claim_loading(request)
         jobs: JobRegistry = request.app.state.jobs

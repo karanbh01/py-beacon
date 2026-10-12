@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Added
+
+- `GET /data/stores` says why a store cannot be read when it can tell without loading it: a store saved before 0.7.0, with exchange rates in a `RATE` column, is `readable: false` with `problem` `{code: "STORE_FORMAT_OUTDATED", message}`. It was listed as readable and failed only when loaded, with the generic `CONFIGURATION_ERROR`. Activating it is refused at once with a 409 and the same code.
+
 ## [0.7.0] - 2026-10-12
 
 Funds: synthetic and futures-based replication, futures to equitise a cash buffer, withholding tax by fund domicile, share classes that share one pool of assets, including classes in another currency, hedged or not, and more ways to build an active portfolio. Reference data now says what each series is, and exchange rates are read from `CLOSE`: market data with a `RATE` column is refused, so a store saved before this release has to be regenerated.

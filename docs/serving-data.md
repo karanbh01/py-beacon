@@ -145,6 +145,13 @@ The "Data source" log line names the branch that ran, for example
 `Data source: no data loaded: 'My data' is unreadable.`, so an empty client
 can be explained by reading the log.
 
+`GET /data/stores` lists a store the engine cannot read with `readable: false`.
+Where it can tell why without loading the store, `problem` says so: the code
+`STORE_FORMAT_OUTDATED` marks a store saved in a format this version no longer
+reads (one saved before 0.7.0, with exchange rates in a `RATE` column), which
+regenerating or re-importing fixes. Activating such a store is refused with the
+same code. A store whose folder was moved or deleted has no `problem`.
+
 ## When there is no data
 
 The engine still starts, and everything that does not read data works.

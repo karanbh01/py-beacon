@@ -25,6 +25,7 @@ from ..exceptions import (
     MissingDependencyError,
     NoDataLoadedError,
     ReportingError,
+    StoreFormatError,
     UnexpectedCalculationError,
 )
 from .schemas import ErrorDetail, ErrorEnvelope, Finding
@@ -90,6 +91,10 @@ EXCEPTION_MAPPING: tuple[tuple[type[BeaconError], int, str], ...] = (
     (FrozenPortfolioError, status.HTTP_422_UNPROCESSABLE_CONTENT,
      "FROZEN_PORTFOLIO"),
     (MissingDependencyError, status.HTTP_503_SERVICE_UNAVAILABLE, "MISSING_DEPENDENCY"),
+    # A store saved before a format change: the store's state, not the
+    # server's fault. Before its parent, as the lookup takes the first fit
+    # (BN-309).
+    (StoreFormatError, status.HTTP_409_CONFLICT, "STORE_FORMAT_OUTDATED"),
     (ConfigurationError, status.HTTP_500_INTERNAL_SERVER_ERROR, "CONFIGURATION_ERROR"),
     # A process with no data source is a deployment fact, not a client
     # mistake -- same family as ConfigurationError.

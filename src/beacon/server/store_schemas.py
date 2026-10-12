@@ -113,6 +113,15 @@ class RefreshRequest(BaseModel):
                     "Defaults to today. Ignored by other stores.")
 
 
+class StoreProblem(BaseModel):
+    """Why a store cannot be read, when the engine can tell without loading it."""
+    code: str = Field(description="Stable machine-readable code: "
+                                  "'STORE_FORMAT_OUTDATED' for a store saved in a "
+                                  "format this version no longer reads, which "
+                                  "regenerating or re-importing fixes.")
+    message: str = Field(description="What is wrong and what to do, in a sentence.")
+
+
 class DataStore(BaseModel):
     """One registered data store."""
     id: Identifier = Field(description="Stable id, from the name it was "
@@ -133,7 +142,14 @@ class DataStore(BaseModel):
     readable: bool = Field(
         description="Whether the store can be read now. A folder that has "
                     "been moved or deleted stays registered but is not "
-                    "readable.")
+                    "readable, and nor is one saved in a format this version "
+                    "no longer reads (see `problem`).")
+    problem: StoreProblem | None = Field(
+        default=None,
+        description="Why the store is not readable, when that is known: a "
+                    "store saved before py-beacon 0.7.0 has the code "
+                    "'STORE_FORMAT_OUTDATED'. Null otherwise, including for a "
+                    "folder that was moved or deleted.")
     active: bool = Field(description="Whether this is the store the engine "
                                      "is serving.")
     created_at: str = Field(description="When it was registered, ISO 8601 "

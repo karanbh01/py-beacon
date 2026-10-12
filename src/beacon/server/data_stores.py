@@ -47,7 +47,7 @@ from ..synthetic import state as synthetic_state
 from .config import resolve_data_source
 from .documents import UNREADABLE, SkipCounts, read_collection, slug
 from .store import DocumentStore
-from .store_schemas import DataStore, RefreshAction
+from .store_schemas import DataStore, RefreshAction, StoreProblem
 
 logger = logging.getLogger(__name__)
 
@@ -356,12 +356,21 @@ def describe(record: dict[str, Any],
     readable = data_store.exists(path)
     source: str | None = None
     size: int | None = None
+    problem: StoreProblem | None = None
 
     if readable:
         try:
             source = data_store.read_manifest(path).source
         except ConfigurationError:
             readable = False
+
+    # BN-309: a store in a retired format is listed as unreadable, saying why,
+    # so a client can offer to regenerate it.
+    reason = data_store.outdated(path) if readable else None
+
+    if reason is not None:
+        readable = False
+        problem = StoreProblem(code="STORE_FORMAT_OUTDATED", message=reason)
 
     if readable:
         size = sum(item.stat().st_size for item in path.iterdir()
@@ -374,6 +383,7 @@ def describe(record: dict[str, Any],
                      source=source,
                      size_bytes=size,
                      readable=readable,
+                     problem=problem,
                      active=record["id"] == active_id,
                      created_at=record["created_at"],
                      last_loaded_at=record.get("last_loaded_at"),
