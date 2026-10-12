@@ -254,7 +254,8 @@ def price_trs(request: TrsPriceRequest) -> TrsPriceResponse:
     accrued = swap.financing_cost(valuation, last_reset,
                                   request.reference_rate_value)
 
-    total_return_leg = request.notional * (request.spot / request.initial_price - 1.0)
+    total_return_leg = swap.total_return_leg(request.spot, request.initial_price,
+                                             request.dividends)
 
     return TrsPriceResponse(
         trade_id=request.trade_id,

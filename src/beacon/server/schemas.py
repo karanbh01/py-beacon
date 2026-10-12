@@ -1992,15 +1992,21 @@ class TrsPriceRequest(BaseModel):
     spot: Number = Field(gt=0.0, description="Underlying level today.")
     initial_price: Number = Field(
         gt=0.0, description="Level at inception or last reset.")
+    dividends: Number = Field(
+        default=0.0, ge=0.0,
+        description="What the underlying paid per unit since `initial_price`, in "
+                    "its own points. They join the total-return leg: notional x "
+                    "((spot + dividends) / initial_price - 1). Leave at 0 when "
+                    "`spot` is a total return level, which already counts them.")
     dividend_yield: Number = Field(
         default=0.0,
         description="Continuous dividend yield on the underlying, used **only** "
                     "for the breakeven table, alongside `futures_prices` and "
-                    "`time_to_expiry`. `present_value`, both legs and "
-                    "`fair_spread_bps` ignore it: the total-return leg is "
-                    "`spot` against `initial_price`, and that ratio already "
-                    "carries whatever the underlying paid. Sending it without "
-                    "`futures_prices` changes nothing in the response.")
+                    "`time_to_expiry`, because a futures price embeds expected "
+                    "dividends. `present_value`, both legs and `fair_spread_bps` "
+                    "count the dividends actually paid, through `dividends`, "
+                    "not an expected yield. Sending it without `futures_prices` "
+                    "changes nothing in the response.")
     time_to_expiry: Number | None = Field(
         default=None, description="Needed for the breakeven table.")
     futures_prices: list[Number] | None = Field(

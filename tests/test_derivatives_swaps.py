@@ -163,6 +163,26 @@ class TestFairValue:
         with pytest.raises(ValueError, match="initial_price"):
             t.fair_value(110.0, VAL_DATE, {"initial_price": 0.0})
 
+    def test_dividends_paid_join_the_total_return_leg(self):
+        # BN-193 (#206): a price level of 108 plus 2 of dividends is worth
+        # what a total return level of 110 is.
+        t = _make()
+        md = {"initial_price": 100.0, "reference_rate": 0.05,
+              "last_reset_date": pd.Timestamp(START)}
+        with_dividends = t.fair_value(108.0, VAL_DATE, {**md, "dividends": 2.0})
+        assert with_dividends == pytest.approx(t.fair_value(110.0, VAL_DATE, md))
+
+    def test_negative_dividends_are_refused(self):
+        with pytest.raises(ValueError, match="dividends"):
+            _make().total_return_leg(110.0, 100.0, -1.0)
+
+    def test_the_breakdown_counts_them_too(self):
+        t = _make()
+        md = {"initial_price": 100.0, "reference_rate": 0.05,
+              "last_reset_date": pd.Timestamp(START), "dividends": 2.0}
+        legs = t.mark_to_market(108.0, 108.0, VAL_DATE, md)
+        assert legs["total_return_leg"] == pytest.approx(1_000_000.0)
+
 
 # ---------------------------------------------------------------------------
 # mark_to_market

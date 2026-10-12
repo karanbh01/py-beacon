@@ -384,6 +384,41 @@ class TestTrsDv01:
         assert payload["dv01"] < 0.0
 
 
+class TestTrsDividends:
+    """BN-193 (#206): dividends paid count; an expected yield does not."""
+
+    def test_dividends_paid_join_the_total_return_leg(self,
+                                                      client):
+        price_level = client.post("/derivatives/trs/price",
+                                  json=trs_body(spot=103.0, dividends=2.0),
+                                  headers=auth()).json()
+        total_return_level = client.post("/derivatives/trs/price",
+                                         json=trs_body(spot=105.0),
+                                         headers=auth()).json()
+
+        assert price_level["total_return_leg"] == pytest.approx(
+            total_return_level["total_return_leg"])
+        assert price_level["present_value"] == pytest.approx(
+            total_return_level["present_value"])
+
+    def test_a_dividend_yield_leaves_the_value_alone(self,
+                                                     client):
+        plain = client.post("/derivatives/trs/price", json=trs_body(),
+                            headers=auth()).json()
+        with_yield = client.post("/derivatives/trs/price",
+                                 json=trs_body(dividend_yield=0.03),
+                                 headers=auth()).json()
+
+        assert with_yield["present_value"] == plain["present_value"]
+
+    def test_negative_dividends_are_refused(self,
+                                            client):
+        response = client.post("/derivatives/trs/price", json=trs_body(dividends=-1.0),
+                               headers=auth())
+
+        assert response.status_code == 422
+
+
 class TestTrsCurveProjection:
 
     def test_the_current_period_uses_the_fixed_rate(self,

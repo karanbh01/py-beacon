@@ -34,6 +34,13 @@ class TotalReturnSwap(DerivativeBase):
     - ``reference_rate``: the floating rate for the current period (default 0)
     - ``last_reset_date``: start of the current accrual period
       (defaults to the swap start date)
+    - ``dividends``: what the underlying paid per unit since ``S_0``, in its
+      own points (default 0). They join the total return leg, so a price
+      level plus its dividends values the swap as a total return level would.
+      Leave them out when the level already counts them.
+
+    An expected dividend yield plays no part: the value is what has accrued
+    since the last reset, so it counts the dividends actually paid.
 
     The underlying is an index by default; pass *underlying_type* for an ETF
     or an equity basket. Financing accrues ACT/360.
@@ -227,9 +234,9 @@ class TotalReturnSwap(DerivativeBase):
                    market_data: dict[str, Any]) -> float:
         """Total-return-receiver P&L: total return leg minus accrued financing.
 
-        ``receiver_pnl = notional * (S_t / S_0 - 1) - accrued_financing``,
-        with ``S_0``, the reference rate and the last reset date read from
-        *market_data* as described on the class.
+        ``receiver_pnl = notional * ((S_t + D) / S_0 - 1) - accrued_financing``,
+        with ``S_0``, the dividends paid ``D``, the reference rate and the last
+        reset date read from *market_data* as described on the class.
 
         Raises:
             ValueError: If ``initial_price`` is not positive, or
@@ -243,9 +250,25 @@ class TotalReturnSwap(DerivativeBase):
         last_reset = market_data.get("last_reset_date", self.start_date)
         reference_rate = market_data.get("reference_rate", 0.0)
 
-        total_return_leg = self.notional * (spot_price / s0 - 1.0)
+        total_return_leg = self.total_return_leg(spot_price, s0,
+                                                 market_data.get("dividends", 0.0))
         financing = self.financing_cost(valuation_date, last_reset, reference_rate)
         return total_return_leg - financing
+
+    def total_return_leg(self,
+                         spot_price: float,
+                         initial_price: float,
+                         dividends: float = 0.0) -> float:
+        """What the total return leg has earned since *initial_price*: the
+        level's change plus the dividends paid per unit, on the notional.
+
+        Raises:
+            ValueError: If *dividends* is negative.
+        """
+        if dividends < 0.0:
+            raise ValueError(f"dividends cannot be negative, got {dividends!r}.")
+
+        return self.notional * ((spot_price + dividends) / initial_price - 1.0)
 
     def mark_to_market(self,
                        market_price: float,
@@ -268,7 +291,8 @@ class TotalReturnSwap(DerivativeBase):
         last_reset = pd.Timestamp(market_data.get("last_reset_date", self.start_date))
         reference_rate = market_data.get("reference_rate", 0.0)
 
-        total_return_leg = self.notional * (spot_price / s0 - 1.0)
+        total_return_leg = self.total_return_leg(spot_price, s0,
+                                                 market_data.get("dividends", 0.0))
         financing_leg = self.financing_cost(valuation_date, last_reset, reference_rate)
         accrued_days = (pd.Timestamp(valuation_date) - last_reset).days
 

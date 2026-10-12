@@ -16,6 +16,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `result.futures_notional`, `futures_rolls` and `futures_exposure` record a fund's index futures.
 - Withholding tax by fund domicile: `Vehicle(domicile=..., withholding_rates=...)`. Each preset carries its domicile (UK OEIC the United Kingdom, Luxembourg SICAV Luxembourg, Irish ICAV and UCITS ETF Ireland, the US presets the United States). A dividend is withheld at the vehicle's own rate for its source country, then a built-in table for the domicile (on US dividends: Ireland 15%, Luxembourg 30%, the United Kingdom 15%, the United States nothing; nothing on UK dividends; nothing on Irish dividends to an Irish fund), then the run's flat rate. The source country is the company's `COUNTRY_DOMICILE` or `COUNTRY`, otherwise its listing exchange's country.
 
+- A total return swap's value counts the dividends the underlying paid: `dividends` in `TotalReturnSwap`'s market data, and in the server's TRS pricing request, joins the total return leg as `notional * ((spot + dividends) / initial_price - 1)`. `dividend_yield` stays an input to the futures breakeven only, and its description now says why.
+
 ### Changed
 
 - A backtest with a preset vehicle now withholds dividends by its domicile instead of the flat `withholding_tax_rate`, so its dividends, NAV and tracking difference change. Pass `domicile=None` to keep the flat rate.

@@ -159,8 +159,15 @@ reset) and `last_reset_date`. When they are missing, `initial_price` defaults
 to the spot price (zero return), the rate to zero and the reset date to the
 start date.
 
-`fair_value` is the receiver's P&L, `notional * (S / S0 - 1)` minus accrued
-financing, not a quoted price. `mark_to_market` ignores its `market_price`
+`fair_value` is the receiver's P&L, `notional * ((S + D) / S0 - 1)` minus
+accrued financing, not a quoted price. `D` is `dividends` in `market_data`:
+what the underlying paid per unit since `initial_price`, in its own points,
+zero by default. Pass it when `S` is a price level, so the total return leg
+counts the dividends, and leave it out when `S` is a total return level,
+which already does. An expected dividend yield plays no part, because the
+value is what has accrued since the last reset; the yield matters only when
+comparing the swap with futures, whose price embeds expected dividends (see
+the breakeven spread below). `mark_to_market` ignores its `market_price`
 argument, because a swap has no quoted price, and returns
 `total_return_leg`, `financing_leg`, `net_mtm` and `accrued_days`.
 
