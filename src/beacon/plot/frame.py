@@ -352,8 +352,9 @@ def frame(ax: Axes,
     notes = notes if current.notes.show else ""
     position = current.legend.position
 
-    if position == "none" and ax.get_legend() is not None:
-        ax.get_legend().remove()
+    shown = ax.get_legend()
+    if position == "none" and shown is not None:
+        shown.remove()
 
     width, height = (float(size) for size in figure.get_size_inches())
     top = height - margin
