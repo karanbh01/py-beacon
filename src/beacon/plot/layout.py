@@ -199,6 +199,7 @@ class ColourBar:
         pad: The gap between, as a share of the panel's width.
         aspect: Its height to its width.
         labels: Text written beside it, such as what its ends mean.
+        ends: Labels for its two ends, low then high, in place of ticks.
     """
 
     low: float
@@ -207,6 +208,7 @@ class ColourBar:
     pad: float = 0.04
     aspect: float = 20.0
     labels: tuple[Label, ...] = ()
+    ends: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True)

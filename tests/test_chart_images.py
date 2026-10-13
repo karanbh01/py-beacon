@@ -14,7 +14,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from beacon.plot import Area, Bar, Column, Combo, Histogram, Line, Scatter, reset
+from beacon.plot import Area, Bar, Column, Combo, Heatmap, Histogram, Line, Scatter, reset
 from beacon.testing import dataset
 from beacon.tokens import DARK, LIGHT
 
@@ -173,3 +173,35 @@ class TestPointImages:
                          mark={"95% VaR": float(np.quantile(returns, 0.05))}, percent=True,
                          title="Daily returns", subtitle="How often AAA moved by each amount",
                          style={"theme": theme}).figure
+
+
+@pytest.mark.parametrize("theme", THEMES)
+class TestHeatmapImages:
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_heatmap_correlation(self, prices, theme):
+        correlation = prices.pct_change().dropna().corr()
+
+        return Heatmap(correlation, title="Correlation", subtitle="Between daily returns",
+                       colormap="beacon_corr", vmin=0.2, vmax=1.0,
+                       style={"theme": theme}).figure
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_heatmap_blended(self, prices, theme):
+        correlation = prices.pct_change().dropna().corr()
+
+        return Heatmap(correlation, title="Correlation", subtitle="Blended, lower triangle",
+                       colormap="beacon_corr", vmin=0.2, vmax=1.0, values=False, lower=True,
+                       shading="blended", style={"theme": theme}).figure
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_heatmap_monthly(self, prices, theme):
+        monthly = prices["AAA"].resample("ME").last().pct_change().dropna()
+        table = pd.DataFrame({"return": monthly, "year": monthly.index.year,
+                              "month": monthly.index.strftime("%b")})
+        grid = table.pivot(index="year", columns="month", values="return")
+        grid = grid[[month for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
+                                         "Aug", "Sep", "Oct", "Nov", "Dec"] if month in grid]]
+
+        return Heatmap(grid, title="Monthly returns", subtitle="AAA, by month",
+                       percent=True, decimals=1, style={"theme": theme}).figure

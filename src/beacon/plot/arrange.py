@@ -16,6 +16,7 @@ narrows as it shortens, so the layout is worked out in passes.
 # every renderer draws one layout.
 import dataclasses
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import metrics, panels
@@ -64,6 +65,11 @@ MARK_INCHES = 0.192
 MARK_ASPECT = 0.6333483705911227
 
 PASSES = 3
+
+# A cropped figure is found to within this, in inches: the plot keeps its
+# size to within it, and the search halves the range this many times.
+CROP_SETTLED = 1e-3
+CROP_PASSES = 14
 
 
 @dataclass(frozen=True)
@@ -137,6 +143,9 @@ def lay_out(chart: Description,
             style: Style) -> Layout:
     """Lay a chart's frame out in a style.
 
+    A chart that asks to be cropped is narrowed to what it draws, at the same
+    scale, and laid out again until its width settles.
+
     Args:
         chart: What the chart draws.
         style: The settings it is drawn in.
@@ -144,6 +153,65 @@ def lay_out(chart: Description,
     Returns:
         Layout: Where everything goes.
     """
+    layout = _lay_out(chart, style)
+
+    return _cropped(chart, style, layout) if chart.crop else layout
+
+
+def _cropped(chart: Description,
+             style: Style,
+             layout: Layout) -> Layout:
+    """The narrowest, then shortest, figure in which the top panel's plot
+    keeps the size it has at the chart's own size, and no narrower than the
+    heading and the legend need. Found by halving: the plot's size does not
+    follow the figure's in a straight line, since the side margins widen to
+    keep the labels in."""
+    plot = layout.panels[0].box
+    width, height = chart.size
+    floor = _text_right(layout) + MARGIN_INCHES * style.size.scale
+
+    def fits(size: tuple[float, float]) -> bool:
+        box = _lay_out(dataclasses.replace(chart, size=size), style).panels[0].box
+        return box.width >= plot.width - CROP_SETTLED and box.height >= plot.height - CROP_SETTLED
+
+    width = _least(lambda value: fits((value, height)), min(floor, width), width)
+    height = _least(lambda value: fits((width, value)), plot.height, height)
+
+    return _lay_out(dataclasses.replace(chart, size=(width, height)), style)
+
+
+def _least(fits: Callable[[float], bool],
+           low: float,
+           high: float) -> float:
+    """The least value between *low* and *high* that fits, given that *high*
+    does and that every value above one that fits fits too."""
+    if fits(low):
+        return low
+
+    for _ in range(CROP_PASSES):
+        middle = (low + high) / 2.0
+        if fits(middle):
+            high = middle
+        else:
+            low = middle
+
+    return high
+
+
+def _text_right(layout: Layout) -> float:
+    """How far right the heading's text and the legend reach."""
+    found = [text.x + metrics.width(text.text, text.size, text.font)
+             for text in (layout.title, layout.subtitle) if text is not None]
+
+    if layout.legend is not None:
+        found.append(layout.legend.box.right)
+
+    return max(found)
+
+
+def _lay_out(chart: Description,
+             style: Style) -> Layout:
+    """The layout at the chart's size."""
     zoom = style.size.scale
     width, height = chart.size
     heading = _heading(chart, style)
@@ -215,10 +283,11 @@ def lay_out(chart: Description,
         box, placed = entries(items, plan.columns, legend_size, legend_font, anchor, corner)
         legend = LegendLayout(position, plan.columns, box, placed, legend_size, anchor, corner)
 
-    return _framed(chart, style, heading, laid, legend, left,
-                   Text("\n".join(lines), left, floor, notes_size, notes_font, "text-primary",
-                        ha="left", va="top", line_height=NOTES_LINE_HEIGHT,
-                        id="beacon-notes") if lines else None)
+    notes_text = (Text("\n".join(lines), left, floor, notes_size, notes_font, "text-primary",
+                       ha="left", va="top", line_height=NOTES_LINE_HEIGHT,
+                       id="beacon-notes") if lines else None)
+
+    return _framed(chart, style, heading, laid, legend, left, notes_text)
 
 
 def _titled(axis: AxisLayout,

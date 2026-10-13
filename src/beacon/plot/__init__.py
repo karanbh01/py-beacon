@@ -29,7 +29,7 @@ matplotlib-specific, which is what keeps an interactive backend possible later
 without changing any call site.
 """
 from .base import ChartMethods, PlotAccessor
-from .charts import Area, Bar, Chart, Column, Combo, Histogram, Line, Scatter
+from .charts import Area, Bar, Chart, Column, Combo, Heatmap, Histogram, Line, Scatter
 from .design import Style, configure, current, reset, settings
 
 __all__ = [
@@ -39,6 +39,7 @@ __all__ = [
     "ChartMethods",
     "Column",
     "Combo",
+    "Heatmap",
     "Histogram",
     "Line",
     "PlotAccessor",

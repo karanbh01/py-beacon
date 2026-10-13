@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from .._optional import require
+from .colormaps import colour_at
 from .colours import resolve
 from .design import Style
 from .layout import AxisLayout, Box, Layout, LegendLayout, PanelLayout, Text
@@ -33,9 +34,11 @@ from .themes import Theme, remember, theme_named
 require("matplotlib", "Charting")
 
 import matplotlib  # noqa: E402
+import numpy as np  # noqa: E402
 from matplotlib import patheffects  # noqa: E402
 from matplotlib.axes import Axes  # noqa: E402
 from matplotlib.backends.backend_agg import FigureCanvasAgg  # noqa: E402
+from matplotlib.collections import PatchCollection  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.font_manager import FontProperties  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
@@ -50,6 +53,10 @@ from .style import register, style_dict  # noqa: E402
 
 # A dashed line's dash and gap, in multiples of its width.
 DASH = (2.0, 1.6)
+
+# How far a cell overlaps its neighbours when there is no gap between them,
+# as a share of a cell.
+CELL_OVERLAP = 0.01
 
 # The outline round text drawn over the lines, in points.
 HALO_WIDTH = 2.0
@@ -100,8 +107,12 @@ def paint(plan: Plan,
         painter = _Painter(figure, layout, theme, style)
         axes, right = painter.panels(plan.front)
         painter.marks(plan.marks, axes, right)
-        for ax, twin, panel in zip(axes, right, layout.panels, strict=True):
+        for index, (ax, twin, panel) in enumerate(zip(axes, right, layout.panels, strict=True)):
             painter.dress(ax, twin, panel, plan.grid)
+            stops = next((mark.stops for mark in plan.marks
+                          if isinstance(mark, CellsMark) and mark.panel == index), None)
+            if panel.colour_bar is not None and stops is not None:
+                painter.colour_bar(panel, [painter.ink(stop) for stop in stops])
         painter.frame(axes[0])
         # Drawn once here, so every tick and label is made in the style's
         # rcParams rather than whichever are in force when it is shown.
@@ -215,7 +226,70 @@ class _Painter:
         elif isinstance(mark, TextMark):
             self.text_mark(ax, mark)
         elif isinstance(mark, CellsMark):
-            raise NotImplementedError("cells are drawn by the heatmap")
+            self.cells(ax, mark)
+
+    def cells(self,
+              ax: Axes,
+              mark: CellsMark) -> None:
+        """A grid of coloured cells, row 0 at the top: each its own square,
+        or blended into its neighbours."""
+        stops = [self.ink(stop) for stop in mark.stops]
+        rows, columns = len(mark.values), len(mark.values[0]) if mark.values else 0
+        for side in ax.spines.values():
+            side.set_visible(False)
+
+        if mark.blended:
+            table = np.array([[np.nan if value is None else value for value in row]
+                              for row in mark.values])
+            ax.imshow(table, cmap=_colour_map(stops), vmin=mark.low, vmax=mark.high,
+                      interpolation="bilinear", aspect="auto",
+                      extent=(-0.5, columns - 0.5, rows - 0.5, -0.5), zorder=2)
+            return
+
+        span = (mark.high - mark.low) or 1.0
+        gap = mark.gap
+        squares, fills = [], []
+
+        for i, row in enumerate(mark.values):
+            for j, value in enumerate(row):
+                if value is None:
+                    continue
+                # With no gap, each square overlaps its neighbours a little,
+                # or an anti-aliased seam shows the background between them.
+                wide = 1.0 - gap + (CELL_OVERLAP if gap == 0 and j < columns - 1 else 0.0)
+                tall = 1.0 - gap + (CELL_OVERLAP if gap == 0 and i < rows - 1 else 0.0)
+                squares.append(Rectangle((j - 0.5 + gap / 2.0, i - 0.5 + gap / 2.0), wide, tall))
+                fills.append(colour_at(stops, (value - mark.low) / span))
+
+        ax.add_collection(PatchCollection(squares, facecolors=fills, edgecolors="none",
+                                          linewidths=0, zorder=2))
+
+    def colour_bar(self,
+                   panel: PanelLayout,
+                   stops: list[str]) -> None:
+        """A colour scale beside a panel, labelled at its ends or along it."""
+        bar = panel.colour_bar
+        assert bar is not None
+        cax = self.figure.add_axes(self.fractions(bar.box))
+        low, high = bar.axis.low, bar.axis.high
+        cax.imshow(np.linspace(0.0, 1.0, 256)[:, None], aspect="auto", origin="lower",
+                   cmap=_colour_map(stops), extent=(0.0, 1.0, low, high))
+        cax.set_xlim(0.0, 1.0)
+        cax.set_ylim(low, high)
+        cax.set_xticks([])
+        for side in cax.spines.values():
+            side.set_visible(False)
+        cax.yaxis.tick_right()
+        cax.yaxis.set_ticks([tick.value for tick in bar.axis.ticks],
+                            [tick.label for tick in bar.axis.ticks])
+        cax.tick_params(axis="y", length=0, labelsize=self.tick_size,
+                        labelfontfamily=self.families, labelcolor=self.ink("text-primary"))
+
+        if bar.axis.kind == "fixed":
+            # Labels at the ends sit within the bar's height.
+            labels = cax.get_yticklabels()
+            labels[0].set_verticalalignment("bottom")
+            labels[-1].set_verticalalignment("top")
 
     def bars(self,
              ax: Axes,
@@ -377,6 +451,12 @@ class _Painter:
             return Line2D([], [], color=ink, linewidth=width, dashes=DASH)
 
         return Line2D([], [], color=ink, linewidth=width)
+
+
+def _colour_map(stops: list[str]) -> Any:
+    from matplotlib.colors import LinearSegmentedColormap
+
+    return LinearSegmentedColormap.from_list("beacon-cells", stops)
 
 
 def _families(font: str) -> list[str]:

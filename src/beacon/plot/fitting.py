@@ -14,7 +14,18 @@ from dataclasses import dataclass
 
 from . import metrics, panels
 from .design import Style
-from .layout import Axis, AxisLayout, Box, Description, Label, Panel, PanelLayout, Text, Tick
+from .layout import (
+    Axis,
+    AxisLayout,
+    Box,
+    ColourBar,
+    Description,
+    Label,
+    Panel,
+    PanelLayout,
+    Text,
+    Tick,
+)
 from .panels import AxisState, Sizes
 
 # Where the plot's sides start, as shares of the figure's width, before they
@@ -133,9 +144,7 @@ class Passes:
                   if state.y2 is not None else None)
             bar_axis = None
             if panel.colour_bar is not None and bar is not None:
-                low, high = panel.colour_bar.low, panel.colour_bar.high
-                bar_axis = self._axis(AxisState(Axis("number", low, high), low, high),
-                                      bar.height, False, None)
+                bar_axis = self._axis(_bar_state(panel.colour_bar), bar.height, False, None)
             drawn.append(Drawn(x, y, y2, bar_axis))
 
         return self._titled(drawn)
@@ -252,6 +261,16 @@ def _blanks(panel: Panel,
         blanks["y2"] = min(state.y2.low, state.y2.high)
 
     return blanks
+
+
+def _bar_state(bar: ColourBar) -> AxisState:
+    """A colour bar's scale: ticks along it, or labels at its two ends."""
+    if bar.ends is None:
+        spec = Axis("number", bar.low, bar.high)
+    else:
+        spec = Axis("fixed", bar.low, bar.high, ticks=(bar.low, bar.high), names=bar.ends)
+
+    return AxisState(spec, bar.low, bar.high)
 
 
 def _wide(text: str,

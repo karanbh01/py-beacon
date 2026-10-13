@@ -8,8 +8,9 @@ its figure is asked for. So these import without matplotlib.
 """
 from .bars import Bar, Column, Combo
 from .base import Chart, Plan
+from .heatmap import Heatmap
 from .lines import Area, Line
 from .points import Histogram, Scatter
 
-__all__ = ["Area", "Bar", "Chart", "Column", "Combo", "Histogram", "Line", "Plan",
-           "Scatter"]
+__all__ = ["Area", "Bar", "Chart", "Column", "Combo", "Heatmap", "Histogram", "Line",
+           "Plan", "Scatter"]
