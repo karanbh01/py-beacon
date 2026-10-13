@@ -40,6 +40,7 @@ from .charts import (
     Histogram,
     Line,
     Scatter,
+    Table,
 )
 from .design import Style, configure, current, reset, settings
 
@@ -57,6 +58,7 @@ __all__ = [
     "PlotAccessor",
     "Scatter",
     "Style",
+    "Table",
     "compare",
     "configure",
     "current",

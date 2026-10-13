@@ -12,6 +12,7 @@ from .grid import Grid
 from .heatmap import Heatmap
 from .lines import Area, Line
 from .points import Histogram, Scatter
+from .table import Table
 
 __all__ = ["Area", "Bar", "Chart", "Column", "Combo", "Grid", "Heatmap", "Histogram",
-           "Line", "Plan", "Scatter"]
+           "Line", "Plan", "Scatter", "Table"]

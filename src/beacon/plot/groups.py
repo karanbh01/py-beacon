@@ -267,9 +267,125 @@ class ColorSettings:
                 _colour(f"colors.{f.name}", getattr(self, f.name))
 
 
+# The rules and boxes a table's preset sets, unless each is set itself.
+TABLE_PRESETS: dict[str, dict[str, bool]] = {
+    "lines": {"header_rule": True, "row_rules": True, "bottom_rule": True, "group_rules": True,
+              "column_rules": False, "box": False, "group_boxes": False, "row_boxes": False},
+    "plain": {"header_rule": False, "row_rules": False, "bottom_rule": False,
+              "group_rules": False, "column_rules": False, "box": False, "group_boxes": False,
+              "row_boxes": False},
+    "boxed": {"header_rule": False, "row_rules": False, "bottom_rule": False,
+              "group_rules": True, "column_rules": False, "box": True, "group_boxes": False,
+              "row_boxes": False},
+}
+ALIGNS = ("left", "center", "right")
+
+
+@dataclass(frozen=True)
+class TableSettings:
+    """A table's look: its rules and boxes, spacing, text and colours.
+
+    Attributes:
+        preset: "lines" (rules under the header, between rows and under the
+            table), "plain" (none at all) or "boxed" (a box around the
+            values). It sets each rule and box below that is left as None.
+        header_rule: A rule under the column headings.
+        row_rules: Rules between rows.
+        bottom_rule: A rule under the table.
+        group_rules: Rules under the column groups' headings.
+        column_rules: Rules between column groups.
+        box: A box around the values.
+        group_boxes: A box around each column group.
+        row_boxes: A box around each row group; with group boxes too, each
+            block of rows and columns gets its own.
+        group_box_scope: Whether column group boxes enclose the "values" or
+            the "headings" too.
+        rule_width: The header and bottom rules, in points as designed.
+        row_rule_width: The rules between rows.
+        box_width: Boxes.
+        row_padding: Above and below each row's text, in points.
+        cell_padding: Either side of each cell's text, in points.
+        name_space: Before the longest row name, in points: the row names'
+            column is as wide as they need, and the values share the rest.
+        body_size: The values, in points.
+        header_size: The column headings.
+        group_size: The group headings.
+        header_weight: The column headings' weight.
+        name_weight: The row names' weight.
+        number_align: "left", "center" or "right".
+        header_align: "center", or "numbers" to align as the numbers do.
+        name_align: The row names: "left" or "right".
+        stripes: Whether every other row is shaded.
+        rule_color: The rules; the column headings' colour by default.
+        row_rule_color: The rules between rows; the theme's divider by
+            default.
+        stripe_color: The stripes; the theme's divider by default.
+        header_color: The column headings; the theme's muted text by
+            default.
+    """
+    preset: str = "lines"
+    header_rule: bool | None = None
+    row_rules: bool | None = None
+    bottom_rule: bool | None = None
+    group_rules: bool | None = None
+    column_rules: bool | None = None
+    box: bool | None = None
+    group_boxes: bool | None = None
+    row_boxes: bool | None = None
+    group_box_scope: str = "values"
+    rule_width: float = 0.48
+    row_rule_width: float = 0.48
+    box_width: float = 0.36
+    row_padding: float = 2.0
+    cell_padding: float = 3.0
+    name_space: float = 3.0
+    body_size: float = 6.3
+    header_size: float = 5.5
+    group_size: float = 5.5
+    header_weight: int = 300
+    name_weight: int = 400
+    number_align: str = "center"
+    header_align: str = "center"
+    name_align: str = "right"
+    stripes: bool = False
+    rule_color: str | None = None
+    row_rule_color: str | None = None
+    stripe_color: str | None = None
+    header_color: str | None = None
+
+    def __post_init__(self) -> None:
+        _choice("table.preset", self.preset, tuple(TABLE_PRESETS))
+        for name in TABLE_PRESETS["lines"]:
+            value = getattr(self, name)
+            if value is not None:
+                _flag(f"table.{name}", value)
+        _choice("table.group_box_scope", self.group_box_scope, ("values", "headings"))
+        for name in ("rule_width", "row_rule_width", "box_width", "body_size", "header_size",
+                     "group_size", "header_weight", "name_weight"):
+            _positive(f"table.{name}", getattr(self, name))
+        for name in ("row_padding", "cell_padding", "name_space"):
+            value = getattr(self, name)
+            if not isinstance(value, int | float) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"table.{name} must be a number of at least zero, got {value!r}.")
+        _choice("table.number_align", self.number_align, ALIGNS)
+        _choice("table.header_align", self.header_align, ("center", "numbers"))
+        _choice("table.name_align", self.name_align, ("left", "right"))
+        _flag("table.stripes", self.stripes)
+        for name in ("rule_color", "row_rule_color", "stripe_color", "header_color"):
+            _colour(f"table.{name}", getattr(self, name))
+
+    def rules(self) -> dict[str, bool]:
+        """Every rule and box: each one's own setting, or its preset's."""
+        chosen = TABLE_PRESETS[self.preset]
+
+        return {name: chosen[name] if getattr(self, name) is None else bool(getattr(self, name))
+                for name in chosen}
+
+
 GROUPS: dict[str, type] = {
     "size": SizeSettings, "heading": HeadingSettings, "text": TextSettings, "lines": LineSettings,
     "axes": AxesSettings, "legend": LegendSettings, "notes": NotesSettings, "colors": ColorSettings,
+    "table": TableSettings,
 }
 
 # Settings by their short names, as configure() and a chart's style= take
@@ -300,4 +416,11 @@ FLAT: dict[str, tuple[str, str]] = {
     "accent_bar_color": ("colors", "accent_bar"), "period_color": ("colors", "period"),
     "period_label_color": ("colors", "period_label"), "text_color": ("colors", "text"),
     "muted_color": ("colors", "muted"), "background": ("colors", "background"),
+    **{f"table_{name}": ("table", name) for name in (
+        "preset", "header_rule", "row_rules", "bottom_rule", "group_rules", "column_rules", "box",
+        "group_boxes", "row_boxes", "group_box_scope", "rule_width", "row_rule_width",
+        "box_width", "row_padding", "cell_padding", "name_space", "body_size", "header_size",
+        "group_size", "header_weight", "name_weight", "number_align", "header_align",
+        "name_align", "stripes",
+        "rule_color", "row_rule_color", "stripe_color", "header_color")},
 }

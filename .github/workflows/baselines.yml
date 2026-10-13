@@ -41,7 +41,7 @@ jobs:
 
       - name: Generate baselines
         run: |
-          pytest tests/test_plot_images.py tests/test_chart_images.py -q --no-cov --mpl-generate-path=tests/baseline
+          pytest tests/test_plot_images.py tests/test_chart_images.py tests/test_table_images.py -q --no-cov --mpl-generate-path=tests/baseline
 
       - name: Upload baselines
         uses: actions/upload-artifact@v7

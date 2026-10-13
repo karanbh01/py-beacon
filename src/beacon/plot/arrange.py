@@ -74,7 +74,7 @@ CROP_PASSES = 14
 
 
 @dataclass(frozen=True)
-class _Heading:
+class Heading:
     """The heading's sizes and where it sits."""
 
     title: float
@@ -89,8 +89,8 @@ class _Heading:
     reach: float      # how far its text reaches past the plot's left edge
 
 
-def _heading(chart: Description,
-             style: Style) -> _Heading:
+def heading_of(chart: Description,
+               style: Style) -> Heading:
     heading = style.heading
     scale = heading.scale
     margin = MARGIN_INCHES * style.size.scale
@@ -110,8 +110,8 @@ def _heading(chart: Description,
         metrics.width(chart.title, title_size, title_font),
         metrics.width(chart.subtitle, subtitle_size, subtitle_font))
 
-    return _Heading(title_size, subtitle_size, title_font, subtitle_font, bar_width,
-                    bar_gap, top, subtitle_top, bottom, reach)
+    return Heading(title_size, subtitle_size, title_font, subtitle_font, bar_width,
+                   bar_gap, top, subtitle_top, bottom, reach)
 
 
 def wrap(text: str,
@@ -215,7 +215,7 @@ def _lay_out(chart: Description,
     """The layout at the chart's size."""
     zoom = style.size.scale
     width, height = chart.size
-    heading = _heading(chart, style)
+    heading = heading_of(chart, style)
     margin = MARGIN_INCHES * zoom
     plot_gap, notes_gap = PLOT_GAP_INCHES * zoom, NOTES_GAP_INCHES * zoom
     bottom_room = chart.bottom_room if chart.bottom_room is not None else TICK_ROOM_INCHES * zoom
@@ -292,7 +292,7 @@ def _lay_out(chart: Description,
                        ha="left", va="top", line_height=NOTES_LINE_HEIGHT,
                        id="beacon-notes") if lines else None)
 
-    return _framed(chart, style, heading, laid, legend, left, notes_text)
+    return framed(chart, style, heading, laid, legend, left, notes_text)
 
 
 def _titled(axis: AxisLayout,
@@ -343,13 +343,13 @@ def _legend_anchor(position: str,
     return (right, band), "lower right"
 
 
-def _framed(chart: Description,
-            style: Style,
-            heading: _Heading,
-            laid: list[PanelLayout],
-            legend: LegendLayout | None,
-            left: float,
-            notes: Text | None) -> Layout:
+def framed(chart: Description,
+           style: Style,
+           heading: Heading,
+           laid: list[PanelLayout],
+           legend: LegendLayout | None,
+           left: float,
+           notes: Text | None) -> Layout:
     """The layout, with the heading placed beside the plot's left edge."""
     scale = style.heading.scale
     text_left = left + (heading.bar_width + heading.bar_gap) / 72.0

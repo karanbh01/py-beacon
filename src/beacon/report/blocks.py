@@ -299,6 +299,25 @@ class Chart(Block):
     kind: str = field(default="chart", init=False)
 
     @classmethod
+    def of(cls,
+           chart: Any,
+           path: str,
+           title: str = "",
+           height: float = 200.0) -> "Chart":
+        """A block holding a Beacon chart or table, saved as an image.
+
+        Args:
+            chart: Anything from `beacon.plot` with a ``save(path)`` method:
+                a chart, a grid or a `Table`, drawn under the Beacon frame.
+            path: Where to save the image; a .png keeps the block portable.
+            title: Optional caption.
+            height: Drawing height in points.
+        """
+        saved = chart.save(path)
+
+        return cls(image_path=str(saved), title=title, height=height)
+
+    @classmethod
     def from_dict(cls,
                   data: dict[str, Any]) -> "Chart":
         """Rebuild from stored form."""

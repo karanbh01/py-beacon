@@ -49,14 +49,15 @@ from .groups import (
     LineSettings,
     NotesSettings,
     SizeSettings,
+    TableSettings,
     TextSettings,
 )
 from .themes import ALIASES, THEMES
 
 __all__ = ["FLAT", "GROUPS", "AxesSettings", "ColorSettings", "HeadingSettings",
            "LegendSettings", "LineSettings", "NotesSettings", "SizeSettings", "Style",
-           "StyleArgument", "TextSettings", "configure", "current", "reset", "resolve",
-           "scoped", "settings", "version"]
+           "StyleArgument", "TableSettings", "TextSettings", "configure", "current", "reset",
+           "resolve", "scoped", "settings", "version"]
 
 def _theme(name: str) -> str:
     """A theme's canonical name, or ValueError."""
@@ -81,7 +82,7 @@ class Style:
         theme: The theme: "beacon-light" (the default), "beacon-dark",
             "github-dark", "white", "transparent-dark-axes" or
             "transparent-light-axes".
-        size, heading, text, lines, axes, legend, notes, colors: The
+        size, heading, text, lines, axes, legend, notes, colors, table: The
             settings, grouped. Each group's documentation lists its own.
     """
     theme: str = "beacon-light"
@@ -93,6 +94,7 @@ class Style:
     legend: LegendSettings = field(default_factory=LegendSettings)
     notes: NotesSettings = field(default_factory=NotesSettings)
     colors: ColorSettings = field(default_factory=ColorSettings)
+    table: TableSettings = field(default_factory=TableSettings)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "theme", _theme(self.theme))
