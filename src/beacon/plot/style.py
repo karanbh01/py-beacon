@@ -156,7 +156,7 @@ REFERENCE_WIDTH = scaled(0.5)
 FIGSIZE = {
     "level": (6.0, 4.5),
     "constituents": (6.0, 4.5),
-    "performance": (6.0, 5.75),
+    "performance": (6.0, 5.67),
     "annual_returns": (6.0, 4.5),
     "weights": (6.0, 4.5),
     "contributions": (6.0, 4.5),

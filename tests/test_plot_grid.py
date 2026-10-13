@@ -5,7 +5,6 @@ import pandas as pd
 import pytest
 
 from beacon.plot import Bar, Column, Grid, Line, reset
-from beacon.plot.charts.stack import Stacked
 
 DAYS = pd.bdate_range("2024-01-02", "2024-12-31")
 RNG = np.random.default_rng(300)
@@ -111,10 +110,16 @@ class TestRefusals:
             Grid([[None]])
 
     def test_a_chart_of_several_panels(self):
-        stack = Stacked([Line(LEVELS["Fund"]), Bar(pd.Series([1.0], index=["A"]))], [3, 1])
+        inner = Grid([[Line(LEVELS["Fund"])], [Bar(pd.Series([1.0], index=["A"]))]])
 
         with pytest.raises(ValueError, match="one panel each"):
-            _ = Grid([[stack]]).plan
+            _ = Grid([[inner]]).plan
+
+    def test_cells_that_are_not_a_rectangle(self):
+        chart = Line(LEVELS["Fund"], title="Fund")
+
+        with pytest.raises(ValueError, match="rectangle"):
+            Grid([[chart, chart], [chart, None]])
 
 
 class TestNames:
@@ -143,3 +148,38 @@ class TestNames:
                       for name in "ABC"]], title="Three")
 
         assert all(tick.label for tick in grid.layout.panels[0].x.ticks)
+
+
+class TestShapes:
+
+    def test_rows_take_their_share_of_the_height(self):
+        grid = Grid([[Line(LEVELS["Fund"], title="Level")],
+                     [Line(LEVELS["Benchmark"], title="Index")]], heights=(3, 1))
+        upper, lower = (panel.box for panel in grid.layout.panels)
+
+        assert upper.height == pytest.approx(3 * lower.height)
+
+    def test_columns_take_their_share_of_the_width(self):
+        grid = Grid([[Line(LEVELS["Fund"], title="Wide"), Line(LEVELS["Benchmark"],
+                                                              title="Narrow")]],
+                    widths=(2, 1))
+        wide, narrow = (panel.box for panel in grid.layout.panels)
+
+        assert wide.width == pytest.approx(2 * narrow.width)
+
+    def test_a_chart_spans_the_cells_it_is_named_in(self):
+        tall = Line(LEVELS["Benchmark"], title="Tall")
+        grid = Grid([[Line(LEVELS["Fund"], title="Top"), tall],
+                     [Column(pd.Series([0.1, -0.05], index=["A", "B"]), title="Bottom"), tall]])
+        top, spanning, bottom = (panel.box for panel in grid.layout.panels)
+
+        assert spanning.top == pytest.approx(top.top)
+        assert spanning.bottom == pytest.approx(bottom.bottom)
+
+    def test_one_calendar_down_a_column_writes_its_dates_once(self):
+        grid = Grid([[Line(LEVELS["Fund"], title="Level")],
+                     [Line(LEVELS["Benchmark"], title="Index")]], sharex=True)
+        upper, lower = grid.layout.panels
+
+        assert not upper.x.show_labels and lower.x.show_labels
+        assert (upper.x.low, upper.x.high) == (lower.x.low, lower.x.high)

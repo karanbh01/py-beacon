@@ -249,3 +249,19 @@ class TestGridImages:
                       for name in ("AAA", "BBB", "CCC")]],
                     title="Monthly returns", subtitle="Three holdings in 2024",
                     style={"theme": theme}).figure
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_grid_spanning(self, prices, theme):
+        rebased = prices[["AAA", "BBB"]] / prices[["AAA", "BBB"]].iloc[0] * 100
+        drawdown = rebased["AAA"] / rebased["AAA"].cummax() - 1
+        yearly = prices.resample("YE").last().pct_change().dropna()
+        yearly.index = yearly.index.year
+        returns = yearly.iloc[-1].sort_values(ascending=False).rename("2024")
+        ranks = Bar(returns, title="Returns in 2024", percent=True, value_labels=True)
+
+        return Grid([[Line(rebased, title="Growth of 100", reference=100), ranks],
+                     [Area(drawdown.rename("Drawdown"), title="AAA's drawdown",
+                           percent=True, colors=["danger"]), ranks]],
+                    heights=(3, 1), widths=(3, 2), sharex=True,
+                    title="Two holdings", subtitle="A tall chart beside two",
+                    style={"theme": theme}).figure

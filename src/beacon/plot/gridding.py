@@ -4,10 +4,10 @@ Panels laid out in rows and columns, under one heading.
 
 Each column is given the room its panels' labels take on either side, each
 row the room its panels' titles take above and their tick labels below, and
-the plots share what is left equally, so every plot in a grid is the same
-size and the labels between them never run into the next panel. The room
-each needs is measured from the panels as drawn in the last pass, so the
-layout settles over its passes.
+the plots share what is left by each row's and column's share (equal unless
+set), so the labels between panels never run into the next one. A panel may
+take several rows or columns. The room each needs is measured from the panels
+as drawn in the last pass, so the layout settles over its passes.
 """
 # BN-300.
 from dataclasses import dataclass, field
@@ -40,9 +40,19 @@ class Needs:
 
 def shape(chart: Description) -> tuple[int, int]:
     """A grid's rows and columns."""
-    rows = max(panel.cell[0] for panel in chart.panels) + 1
+    rows = max(panel.cell[0] + panel.span[0] for panel in chart.panels)
+    columns = max(panel.cell[1] + panel.span[1] for panel in chart.panels)
 
-    return rows, chart.columns
+    return rows, max(columns, chart.columns)
+
+
+def _shares(weights: tuple[float, ...],
+            count: int) -> list[float]:
+    """Each row's or column's share, from its weight; equal without any."""
+    found = list(weights[:count]) + [1.0] * max(count - len(weights), 0)
+    total = sum(found)
+
+    return [weight / total for weight in found]
 
 
 class Grid:
@@ -58,6 +68,8 @@ class Grid:
         self.rows, self.columns = shape(chart)
         self.title_size = title_size
         self.title_font = title_font
+        self.heights = _shares(chart.heights, self.rows)
+        self.widths = _shares(chart.widths, self.columns)
         titled = [any(panel.title for panel in chart.panels if panel.cell[0] == row)
                   for row in range(self.rows)]
         self.needs = Needs(left=[FIRST_GUESS["left"]] * self.columns,
@@ -77,32 +89,37 @@ class Grid:
               margin: float) -> list[tuple[float, float, float, float]]:
         """Each panel's cell as figure fractions (left, bottom, right, top),
         between *bottom* and *top* inches up the figure and *margin* inches in
-        from its sides."""
+        from its sides. A panel taking several rows or columns runs from the
+        first one's edge to the last one's."""
         width, height = self.chart.size
         needs = self.needs
-        across = (width - 2.0 * margin - sum(needs.left) - sum(needs.right)
-                  - (self.columns - 1) * COLUMN_GAP * self.zoom) / self.columns
-        up = (top - bottom - sum(needs.above) - sum(needs.below)
-              - (self.rows - 1) * ROW_GAP * self.zoom) / self.rows
-        lefts, tops = [], []
+        across = max(width - 2.0 * margin - sum(needs.left) - sum(needs.right)
+                     - (self.columns - 1) * COLUMN_GAP * self.zoom, 0.0)
+        up = max(top - bottom - sum(needs.above) - sum(needs.below)
+                 - (self.rows - 1) * ROW_GAP * self.zoom, 0.0)
+        lefts, rights, tops, bottoms = [], [], [], []
         x, y = margin, top
 
-        for column in range(self.columns):
+        for column, share in enumerate(self.widths):
             x += needs.left[column]
             lefts.append(x)
-            x += max(across, 0.0) + needs.right[column] + COLUMN_GAP * self.zoom
+            x += across * share
+            rights.append(x)
+            x += needs.right[column] + COLUMN_GAP * self.zoom
 
-        for row in range(self.rows):
+        for row, share in enumerate(self.heights):
             y -= needs.above[row]
             tops.append(y)
-            y -= max(up, 0.0) + needs.below[row] + ROW_GAP * self.zoom
+            y -= up * share
+            bottoms.append(y)
+            y -= needs.below[row] + ROW_GAP * self.zoom
 
         found = []
         for panel in self.chart.panels:
             row, column = panel.cell
-            left, high = lefts[column], tops[row]
-            found.append((left / width, (high - max(up, 0.0)) / height,
-                          (left + max(across, 0.0)) / width, high / height))
+            last_row, last_column = row + panel.span[0] - 1, column + panel.span[1] - 1
+            found.append((lefts[column] / width, bottoms[last_row] / height,
+                          rights[last_column] / width, tops[row] / height))
 
         return found
 
@@ -110,7 +127,9 @@ class Grid:
                 placed: list[Box],
                 spans: list[tuple[float, float]],
                 lows: list[float]) -> None:
-        """Take each column's and row's room from the panels as drawn.
+        """Take each column's and row's room from the panels as drawn: a
+        panel's labels at its left need room in its first column, at its
+        right in its last, and below it in its last row.
 
         Args:
             placed: Each panel's plot.
@@ -124,9 +143,10 @@ class Grid:
         for panel, plot, (low, high), bottom in zip(self.chart.panels, placed, spans, lows,
                                                     strict=True):
             row, column = panel.cell
+            last_row, last_column = row + panel.span[0] - 1, column + panel.span[1] - 1
             left[column] = max(left[column], plot.left - low)
-            right[column] = max(right[column], high - plot.right)
-            below[row] = max(below[row], plot.bottom - bottom)
+            right[last_column] = max(right[last_column], high - plot.right)
+            below[last_row] = max(below[last_row], plot.bottom - bottom)
 
         self.needs.left, self.needs.right, self.needs.below = left, right, below
 

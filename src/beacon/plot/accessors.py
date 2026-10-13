@@ -20,12 +20,14 @@ import logging
 
 import pandas as pd
 
+from . import design
 from .base import ChartMethods
 from .charts import Area, Bar, Column, Line
 from .charts.base import Chart, Plan
-from .charts.stack import Stacked
+from .charts.grid import Grid
 from .design import StyleArgument
 from .notes import provenance, sentences
+from .style import figure_size
 from .ticks import Spacing
 
 logger = logging.getLogger(__name__)
@@ -291,17 +293,17 @@ class BacktestPlots(ChartMethods):
         levels = _rebase(_series(self._result.performance_levels())).rename("Level")
         drawdown = (levels / levels.cummax() - 1.0).rename("Drawdown")
 
-        return _Performance([Line(levels, reference=100.0, label_last=True, ylabel="Level",
-                                  style=style),
-                             Area(drawdown, percent=True, ylabel="Drawdown",
-                                  colors=["danger"], style=style)],
-                            weights=(3.0, 1.0),
+        return _Performance([[Line(levels, reference=100.0, label_last=True, ylabel="Level",
+                                   style=style)],
+                             [Area(drawdown, percent=True, ylabel="Drawdown",
+                                   colors=["danger"], style=style)]],
+                            heights=(3.0, 1.0), sharex=True,
                             title=_given(title, "Growth of 100"),
                             subtitle=_given(subtitle, "The portfolio, with its drawdown"),
                             notes=_given(notes, sentences(
                                 provenance(self._result, "backtest", levels.index),
                                 "Drawdown is the level against its running peak.")),
-                            kind="performance", style=style)
+                            style=style)
 
     def constituents(self,
                      limit: int = MAX_LINES,
@@ -375,9 +377,14 @@ class BacktestPlots(ChartMethods):
                       style=style)
 
 
-class _Performance(Stacked):
-    """A level over its drawdown, the drawdown's panel spaced for its few
+class _Performance(Grid):
+    """A level over its drawdown, three to one, on one calendar: drawn at the
+    performance chart's size, the drawdown's panel spaced for its few
     ticks."""
+
+    def _size(self) -> tuple[float, float]:
+        with design.scoped(self.style):
+            return figure_size("performance")
 
     def _build(self) -> Plan:
         plan = super()._build()

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from . import metrics, panels
 from .design import Style
 from .fitting import Passes
+from .gridding import ROW_GAP
 from .layout import (
     AxisLayout,
     Box,
@@ -229,9 +230,10 @@ def _lay_out(chart: Description,
     labels = [item.label for item in items]
 
     passes = Passes(chart, style, margin)
-    if chart.columns > 1:
-        # A grid keeps room under each row for its tick labels itself.
-        bottom_room = 0.0
+    if chart.grid:
+        # A grid keeps room under each row for its tick labels itself; under
+        # the last, a row's gap too, before the notes.
+        bottom_room = ROW_GAP * zoom
     lines: list[str] = []
     band = heading.bottom
     plan: LegendPlan | None = None

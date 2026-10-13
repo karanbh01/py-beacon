@@ -102,7 +102,7 @@ class Passes:
         self.placed: list[tuple[Box, Box | None]] = []
         self.grid = (Grid(chart, style.size.scale, self.sizes.axis_title,
                           Font(style.heading.title_font, TITLE_WEIGHT))
-                     if chart.columns > 1 else None)
+                     if chart.grid else None)
 
     def place(self,
               bottom: float,
@@ -162,6 +162,9 @@ class Passes:
             blanks = self.blanks[index]
             x = _slanted(self._axis(state.x, plot.width, True, blanks.get("x")), plot,
                          self.sizes)
+            # A shared axis is one state, but each panel says whether it
+            # writes its own tick labels.
+            x = dataclasses.replace(x, show_labels=panel.x.show_labels)
             y = self._axis(state.y, plot.height, False, blanks.get("y"))
             y2 = (self._axis(state.y2, plot.height, False, blanks.get("y2"))
                   if state.y2 is not None else None)

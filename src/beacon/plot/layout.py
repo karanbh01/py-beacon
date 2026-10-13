@@ -227,6 +227,7 @@ class Panel:
             plot's edges.
         title: A short title above the panel, in a grid of several.
         cell: Its row and column in a grid, counting from the top left.
+        span: How many rows and columns of the grid it takes.
     """
 
     x: Axis
@@ -239,6 +240,7 @@ class Panel:
     origin: bool = False
     title: str = ""
     cell: tuple[int, int] = (0, 0)
+    span: tuple[int, int] = (1, 1)
 
 
 @dataclass(frozen=True)
@@ -266,9 +268,11 @@ class Description:
             default one row of them.
         crop: Whether the figure is narrowed to what the chart draws, at the
             same scale, rather than kept at its size (a square heatmap).
-        columns: How many columns the panels are laid out in. One stacks
-            them top to bottom; more lays them out as a grid, each panel at
-            its cell.
+        columns: How many columns a grid's panels are laid out in.
+        grid: Whether the panels are laid out as a grid, each at its cell,
+            rather than stacked top to bottom by weight.
+        heights: A grid's rows' shares of its height; equal when empty.
+        widths: Its columns' shares of its width; equal when empty.
     """
 
     size: tuple[float, float]
@@ -281,6 +285,9 @@ class Description:
     bottom_room: float | None = None
     crop: bool = False
     columns: int = 1
+    grid: bool = False
+    heights: tuple[float, ...] = ()
+    widths: tuple[float, ...] = ()
 
 
 # What the layout gives back.
