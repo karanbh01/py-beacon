@@ -79,10 +79,11 @@ RISK_FREE = 0.02
 # when zoomed.
 DPI = 300
 
-# The live versions are drawn this much larger than the images' design, about
-# the width of the site's text column, so their text and lines are sized for
-# it; they then fill whatever frame the page gives them.
-LIVE_SCALE = 1.5
+# The live versions are drawn this much larger than the images' design, the
+# width of the site's text column (about 600px, from a 461px design), so their
+# text and lines are sized for it; they then fill whatever frame the page gives
+# them.
+LIVE_SCALE = 1.3
 
 # Each theme and the suffix its images take: the Beacon themes as .light and
 # .dark, which the site swaps by the reader's setting, and the others by name,
