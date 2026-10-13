@@ -13,7 +13,7 @@ neither meets the other as the image's do.
 from typing import Any
 
 from ..layout import AxisLayout, Box, PanelLayout
-from .units import PT, Paint
+from .units import PT, PX, Paint
 
 
 class Spines:
@@ -97,15 +97,19 @@ class Spines:
 
         box = self.panel.box
         reach = self.reach * side
+        # From the axis line's far edge rather than its middle, so a tick at
+        # the line's square end closes the corner instead of leaving a notch
+        # half the line's width across.
+        start = base - (self.weight / PX / 2.0) * (1.0 if reach > 0 else -1.0)
         marks = []
 
         for tick in laid.ticks:
             if horizontal:
                 at = self.at(laid, box.left, box.width, tick.value)
-                marks.append(f"M{self.x(at)},{self.y(base)}V{self.y(base + reach)}")
+                marks.append(f"M{self.x(at)},{self.y(start)}V{self.y(base + reach)}")
             else:
                 at = self.at(laid, box.bottom, box.height, tick.value)
-                marks.append(f"M{self.x(base)},{self.y(at)}H{self.x(base + reach)}")
+                marks.append(f"M{self.x(start)},{self.y(at)}H{self.x(base + reach)}")
 
         return [self.path("".join(marks), "beacon-ticks")]
 
