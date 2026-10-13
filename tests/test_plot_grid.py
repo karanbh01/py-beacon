@@ -126,7 +126,20 @@ class TestNames:
     def test_names_that_fit_stay_level(self):
         assert Column(self.MONTHS, title="One").layout.panels[0].x.rotation == 0.0
 
-    def test_names_that_do_not_fit_turn_until_they_do(self):
+    def test_names_that_do_not_fit_are_labelled_every_few(self):
         grid = Grid([[Column(self.MONTHS, title=name) for name in "ABC"]], title="Three")
+        axis = grid.layout.panels[0].x
+        shown = [tick.label for tick in axis.ticks if tick.label]
 
-        assert {panel.x.rotation for panel in grid.layout.panels} == {90.0}
+        assert axis.rotation == 0.0
+        assert len(axis.ticks) == 12
+        assert shown[0] == "Jan" and 2 <= len(shown) <= 6
+
+    def test_a_tables_names_turn_rather_than_thin(self):
+        from beacon.plot import Heatmap
+
+        table = pd.DataFrame(np.eye(12), index=self.MONTHS.index, columns=self.MONTHS.index)
+        grid = Grid([[Heatmap(table, title=name, values=False, colorbar=False)
+                      for name in "ABC"]], title="Three")
+
+        assert all(tick.label for tick in grid.layout.panels[0].x.ticks)

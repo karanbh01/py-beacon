@@ -32,9 +32,12 @@ from .panels import AxisState, Sizes
 # The weight a grid's panel titles are set in, the heading title's.
 TITLE_WEIGHT = 400
 
-# Names closer than this, in multiples of their size, are slanted to read,
-# or stood upright where a slant does not fit either.
+# Names closer than this, in multiples of their size, do not fit side by
+# side. Ordered categories are then labelled every so many, by the first of
+# these steps that fits (every other, every third: a year's quarters, ...);
+# a table's names are slanted, or stood upright.
 NAME_GAP = 0.6
+STEPS = (2, 3, 4, 6, 12)
 SLANT = 45.0
 UPRIGHT = 90.0
 
@@ -327,21 +330,32 @@ class Passes:
 def _slanted(axis: AxisLayout,
              plot: Box,
              sizes: Sizes) -> AxisLayout:
-    """An axis of names whose names do not fit side by side, slanted so they
-    read, or stood upright where a slant does not fit either; names that fit,
-    and every other axis, as they are."""
+    """An axis whose names do not fit side by side, made to read: categories
+    in order (a column chart's) labelled every few, the smallest step that
+    fits, so they stay level; a table's (a heatmap's), where every name
+    matters, slanted, or stood upright where a slant does not fit either.
+    Names that fit, and every other axis, are left as they are."""
     if axis.kind not in ("names", "fixed") or axis.rotation or len(axis.ticks) < 2:
         return axis
 
-    slot = plot.width / len(axis.ticks) - NAME_GAP * sizes.tick_label / 72.0
+    slot = plot.width / len(axis.ticks)
+    gap = NAME_GAP * sizes.tick_label / 72.0
     widest = max(panels.label_span(tick.label, sizes.tick_label, sizes.font, 0.0)[0]
                  for tick in axis.ticks)
+
+    if widest + gap <= slot:
+        return axis
+
+    if axis.kind == "names":
+        step = next((step for step in STEPS if widest + gap <= slot * step),
+                    len(axis.ticks))
+        thinned = tuple(Tick(tick.value, tick.label if index % step == 0 else "")
+                        for index, tick in enumerate(axis.ticks))
+        return dataclasses.replace(axis, ticks=thinned)
+
     slanted = max(panels.label_span(tick.label, sizes.tick_label, sizes.font, SLANT)[0]
                   for tick in axis.ticks)
-
-    if widest <= slot:
-        return axis
-    if slanted <= slot:
+    if slanted + gap <= slot:
         return dataclasses.replace(axis, rotation=SLANT, align="right")
 
     return dataclasses.replace(axis, rotation=UPRIGHT, align="center")
