@@ -14,8 +14,8 @@ from beacon.exceptions import BeaconError, MissingDependencyError
 # A registered optional module used as the subject of the guard tests. Which
 # one does not matter — the import itself is always faked, so these tests give
 # the same answer whether or not the extra happens to be installed.
-GUARDED_MODULE = "openpyxl"
-GUARDED_EXTRA = "excel"
+GUARDED_MODULE = "yfinance"
+GUARDED_EXTRA = "data"
 
 
 def fake_import(raises: bool):
@@ -116,6 +116,14 @@ CORE_MODULES = [
     "beacon.optimise.constraints",
     "beacon.optimise.result",
     "beacon.portfolio",
+    # Charts, interactive charts, PDF reports, the solver and Postgres stores
+    # joined the core in BN-310, so they import with only the extras blocked.
+    "beacon.plot",
+    "beacon.plot.paint",
+    "beacon.plot.interactive.figure",
+    "beacon.report.pdf",
+    "beacon.optimise.solver",
+    "beacon.data.postgres",
     # The generator is pandas and numpy only (BN-114); its CLI needs
     # `platformdirs` solely to resolve a default output path.
     "beacon.synthetic",
@@ -182,44 +190,43 @@ class TestCoreImportsAreDependencyFree:
         assert "ok" in completed.stdout
 
 
-class TestGuardedFeatures:
-    """Features behind an extra report the extra rather than failing obscurely."""
+class TestTheCoreInstall:
+    """What used to be extras is core: the packages are declared as core
+    dependencies, and the old extras stay declared, empty, so an install
+    command written for an earlier release still works."""
 
-    def test_excel_report_reports_the_missing_extra(self,
-                                                    monkeypatch):
-        from beacon.portfolio import ReportGenerator
+    CORE = ("matplotlib", "fonttools", "plotly", "reportlab", "openpyxl", "scipy",
+            "psycopg[binary]", "platformdirs")
+    FOLDED = ("excel", "postgres", "pdf", "optimise", "plot", "plot-interactive")
 
-        monkeypatch.setattr(importlib, "import_module", fake_import(raises=True))
+    @staticmethod
+    def project() -> dict:
+        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        if not pyproject.exists():
+            pytest.skip("pyproject.toml not available (installed-only checkout)")
 
-        with pytest.raises(MissingDependencyError,
-                           match=r'py-beacon-kit\[excel\]'):
-            ReportGenerator().generate_performance_report_excel(
-                performance_data=None,
-                report_path="unused.xlsx")
+        import tomllib
 
+        with pyproject.open("rb") as handle:
+            return tomllib.load(handle)["project"]
 
-    def test_the_optimiser_reports_the_missing_extra(self):
-        """Solving without scipy names the extra to install.
+    def test_charts_reports_excel_the_optimiser_and_postgres_are_core(self):
+        declared = [entry.split(">")[0].split("<")[0]
+                    for entry in self.project()["dependencies"]]
 
-        Since BN-166 the guard fires at solve time rather than import time —
-        the package itself must import clean, which the core-import test above
-        proves — so the failing act here is an actual solve. Run in a
-        subprocess with scipy blocked, because this interpreter has scipy.
-        """
-        script = BARE_ENVIRONMENT_SCRIPT.replace(
-            "for name in {modules!r}:\n    importlib.import_module(name)",
-            "from beacon.optimise import FullInvestment, minimise_tracking_error\n"
-            "minimise_tracking_error({{'A': 0.6, 'B': 0.4}}, [FullInvestment()])")
+        assert [name for name in self.CORE if name not in declared] == []
 
-        completed = subprocess.run(
-            [sys.executable, "-c", script.format(blocked=["scipy"], modules=[])],
-            capture_output=True,
-            text=True,
-            check=False)
+    def test_the_folded_extras_stay_declared_and_empty(self):
+        extras = self.project()["optional-dependencies"]
 
-        assert completed.returncode != 0
-        assert 'py-beacon-kit[optimise]' in completed.stderr
-        assert "MissingDependencyError" in completed.stderr
+        assert {name: extras.get(name) for name in self.FOLDED} == {
+            name: [] for name in self.FOLDED}
+
+    def test_none_of_them_is_guarded_any_more(self):
+        guarded = {"matplotlib", "fontTools", "plotly", "reportlab", "openpyxl", "scipy",
+                   "psycopg", "platformdirs"}
+
+        assert guarded.isdisjoint(EXTRA_FOR_MODULE)
 
 
 class TestExtrasAreDeclared:
@@ -266,14 +273,13 @@ class TestTheServerExtraIsSelfSufficient:
     """`pip install "py-beacon-kit[server]"` must give a server that starts.
 
     The server mounts the optimiser and report routers, which import scipy and
-    reportlab at module scope, so the `server` extra has to bring those too.
-    This broke the OpenAPI export job in CI, which installed only `[server]`
-    and could not build the app.
+    reportlab at module scope. Both are core, so the extra need bring only
+    the server's own packages.
     """
 
     def test_the_app_builds_with_only_the_server_stack(self):
-        """Everything outside the server's own dependency set is blocked, so a
-        new router quietly importing an unrelated extra fails here."""
+        """The other extra (data) is blocked, so a new router quietly
+        importing yfinance fails here."""
         script = BARE_ENVIRONMENT_SCRIPT.replace(
             "for name in {modules!r}:\n    importlib.import_module(name)",
             "from beacon.server import ServerConfig, create_app\n"
@@ -281,17 +287,14 @@ class TestTheServerExtraIsSelfSufficient:
             "assert len(app.openapi()['paths']) > 30")
 
         completed = subprocess.run(
-            [sys.executable, "-c",
-             script.format(blocked=["yfinance", "matplotlib", "openpyxl", "plotly"],
-                           modules=[])],
+            [sys.executable, "-c", script.format(blocked=["yfinance"], modules=[])],
             capture_output=True, text=True, check=False)
 
         assert completed.returncode == 0, completed.stderr
         assert "ok" in completed.stdout
 
     def test_the_extra_declares_what_the_server_imports(self):
-        """The declaration, not just the behaviour: an environment that happens
-        to have scipy installed would hide a missing entry."""
+        """The declaration, not just the behaviour."""
         pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
         if not pyproject.exists():
             pytest.skip("pyproject.toml not available (installed-only checkout)")
@@ -301,5 +304,5 @@ class TestTheServerExtraIsSelfSufficient:
         with pyproject.open("rb") as handle:
             server = tomllib.load(handle)["project"]["optional-dependencies"]["server"]
 
-        assert "py-beacon-kit[optimise]" in server
-        assert "py-beacon-kit[pdf]" in server
+        assert {"fastapi", "orjson", "websockets"} <= set(server)
+        assert any(entry.startswith("uvicorn") for entry in server)

@@ -36,43 +36,45 @@ classifiers = [
 # pandas_market_calendars, holidays, workalendar) were measured and rejected;
 # beacon/index/schedule.py records why. Cost: 1.3 MB, plus pyluach, toolz and
 # korean_lunar_calendar, all small and pure-Python.
-dependencies = ["pandas", "numpy", "pydantic>=2", "exchange_calendars"]
+# Charts, interactive charts, PDF and Excel reports, the optimiser and
+# Postgres stores are core since BN-310: a plain install does everything but
+# serve the API and download market data. matplotlib is pinned to a minor
+# series because chart image regression compares rendered pixels, and
+# matplotlib changes its layout and rasterisation between minor releases; an
+# unpinned range would make the baselines expire silently on the next release.
+# fonttools measures chart text for the layout without matplotlib, and
+# platformdirs gives data stores and the index cache their default folders.
+dependencies = [
+  "pandas",
+  "numpy",
+  "pydantic>=2",
+  "exchange_calendars",
+  "matplotlib>=3.10,<3.11",
+  "fonttools",
+  "plotly",
+  "reportlab",
+  "openpyxl",
+  "scipy",
+  "psycopg[binary]",
+  "platformdirs",
+]
 
-# Core stays importable without any of these. Modules that need one import it
-# through beacon._optional.require(), which names the extra when it is absent.
+# The core imports without these. Modules that need one import it through
+# beacon._optional.require(), which names the extra when it is absent.
 [project.optional-dependencies]
 data = ["yfinance"]
-excel = ["openpyxl"]
-# Read-only Postgres data stores.
-postgres = ["psycopg[binary]"]
-pdf = ["reportlab"]
-optimise = ["scipy"]
-# Pinned to a minor series: chart image regression compares rendered
-# pixels, and matplotlib changes its layout and rasterisation between
-# minor releases. An unpinned range would make the baselines expire
-# silently on the next release.
-plot = ["matplotlib>=3.10,<3.11", "fonttools"]
-# fonttools measures chart text for the layout without matplotlib.
-plot-interactive = ["plotly", "fonttools"]
-# The server mounts the optimiser and report routers, which import scipy and
-# reportlab at module scope. So `pip install "py-beacon-kit[server]"` has to bring
-# those too, or the extra promises a server that cannot start. The alternative
-# — mounting routers conditionally on what is installed — would make the API
-# surface vary by installation, and the client contract with it.
-server = ["fastapi", "uvicorn[standard]", "orjson", "websockets", "platformdirs",
-          "py-beacon-kit[optimise]", "py-beacon-kit[pdf]", "py-beacon-kit[excel]"]
-# The gallery renders the frontier and optimiser charts, so building the
-# docs needs the optimiser as well as matplotlib, and plotly for the live
-# versions beside them and the interactive charts' reference.
-docs = ["mkdocs-material", "mkdocstrings[python]", "py-beacon-kit[plot]",
-        "py-beacon-kit[optimise]", "py-beacon-kit[plot-interactive]"]
+server = ["fastapi", "uvicorn[standard]", "orjson", "websockets"]
+# Folded into the core in BN-310 and kept, empty, so an install command
+# written for an earlier release still works.
+excel = []
+postgres = []
+pdf = []
+optimise = []
+plot = []
+plot-interactive = []
+docs = ["mkdocs-material", "mkdocstrings[python]"]
 dev = [
   "py-beacon-kit[server]",   # the server tests exercise the real app
-  "py-beacon-kit[optimise]", # and the optimiser tests solve real problems
-  "py-beacon-kit[pdf]",      # and the report tests render real documents
-  "py-beacon-kit[plot]",     # and the chart tests draw real figures
-  "py-beacon-kit[plot-interactive]",  # and the interactive ones real plotly figures
-  "py-beacon-kit[postgres]", # and the Postgres store tests connect for real in CI
   "pytest-mpl",          # image regression over every chart
   "pytest",
   "pytest-asyncio",      # the job registry is driven on an event loop

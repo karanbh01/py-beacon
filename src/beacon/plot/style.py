@@ -33,7 +33,6 @@ import logging
 import warnings
 from typing import Any
 
-from .._optional import require
 from ..tokens import DARK, LIGHT, raw_colours
 from . import design
 from .themes import THEMES, set_current, theme_named
@@ -376,8 +375,6 @@ def correlation_colormap() -> Any:
     Returns:
         Colormap: Registered under CORRELATION_COLORMAP.
     """
-    require("matplotlib", "Charting")
-
     from matplotlib.colors import LinearSegmentedColormap
 
     raw = raw_colours()
@@ -396,8 +393,6 @@ def register() -> None:
     importing matplotlib to do it, which is exactly what the lazy accessor
     exists to avoid.
     """
-    require("matplotlib", "Charting")
-
     from .frame import register_fonts
 
     register_fonts()

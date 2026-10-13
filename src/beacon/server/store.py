@@ -16,7 +16,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .._optional import require
 from ..exceptions import (
     ConfigurationError,
     DocumentFromNewerBuildError,
@@ -46,9 +45,6 @@ RESERVED_IDENTIFIERS = frozenset({
     "rule-types",
     "calendars",
 })
-
-require("platformdirs", "Document storage for the Beacon API server")
-
 import platformdirs  # noqa: E402
 
 APP_NAME = "beacon"

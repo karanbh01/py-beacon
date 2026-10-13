@@ -13,15 +13,9 @@ or Series in the same frame, [`Table`](#tables) sets a DataFrame as a table,
 every chart becomes an [interactive chart](#interactive-charts) with
 `.interactive()`, and every part of the design is a [setting](#styles).
 
-Charts need the `plot` extra (matplotlib):
-
-```bash
-pip install "py-beacon-kit[plot]"
-```
-
 `import beacon` does not import matplotlib, and neither does building a
 chart. It is loaded the first time a chart is drawn, so code that never
-plots never needs it.
+plots never pays for it.
 
 Pictures of every chart, in every theme, beside a live interactive version,
 are in the [Gallery](../gallery.md). The [chart styles page](../chart-styles.html)
@@ -527,12 +521,7 @@ block.
 ## Interactive charts
 
 Every chart's `.interactive()` returns a plotly figure drawn from the same
-layout as its image, so the two look the same. It needs the
-`plot-interactive` extra (plotly):
-
-```bash
-pip install "py-beacon-kit[plot-interactive]"
-```
+layout as its image, so the two look the same.
 
 ```python
 figure = Line(rebased[["AAA", "BBB", "CCC"]], title="Three holdings",
@@ -568,15 +557,13 @@ figure.write_html("three-holdings-light.html", include_plotlyjs="directory")
 | Heatmap | The cell and its value |
 | Histogram | The bin's range and its count |
 
-A chart is built and drawn without plotly; only `.interactive()` needs it, and
-without it raises an error naming the extra to install. A table's interactive
+plotly is loaded only when `.interactive()` is called. A table's interactive
 form is its HTML, so `Table.interactive()` points to `to_html()`.
 
 ## Attribution, optimisation and risk
 
 These results come from [Attribution](attribution.md),
-[Optimiser](optimiser.md) and [Risk model](risk-model.md). The optimiser
-needs the `optimise` extra.
+[Optimiser](optimiser.md) and [Risk model](risk-model.md).
 
 ```python
 from beacon.analysis import attribute, drifted_weights

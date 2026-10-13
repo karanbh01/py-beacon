@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pandas as pd
 
-from .._optional import require
 from ..exceptions import ReportingError
 from .base import Portfolio
 
@@ -51,12 +50,9 @@ class ReportGenerator:
                 into every row of the holdings sheet.
 
         Raises:
-            MissingDependencyError: If openpyxl is not installed.
             ReportingError: If there's an issue writing the file.
             ValueError: If portfolio is None.
         """
-        require("openpyxl", "Excel reporting")
-
         if portfolio is None:
             raise ValueError("Portfolio object must be provided.")
 
@@ -128,12 +124,9 @@ class ReportGenerator:
                 sheet ``PerformanceData``.
 
         Raises:
-            MissingDependencyError: If openpyxl is not installed.
             ReportingError: If there's an issue writing the file.
             ValueError: If performance_data is not a non-empty DataFrame.
         """
-        require("openpyxl", "Excel reporting")
-
         if not isinstance(performance_data, pd.DataFrame) or performance_data.empty:
             raise ValueError("performance_data must be a non-empty pandas DataFrame.")
 

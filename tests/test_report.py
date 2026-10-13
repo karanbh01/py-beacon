@@ -368,29 +368,6 @@ class TestTextWrapping:
 
 class TestMissingExtra:
 
-    def test_importing_without_reportlab_names_the_extra(self):
-        """The acceptance criterion, in a subprocess with reportlab blocked."""
-        import subprocess
-        import sys
-
-        script = (
-            "import sys\n"
-            "class Blocker:\n"
-            "    def find_spec(self, name, path=None, target=None):\n"
-            "        if name.split('.')[0] == 'reportlab':\n"
-            "            raise ImportError(name)\n"
-            "        return None\n"
-            "sys.meta_path.insert(0, Blocker())\n"
-            "import beacon.report.pdf\n"
-        )
-
-        completed = subprocess.run([sys.executable, "-c", script],
-                                   capture_output=True, text=True, check=False)
-
-        assert completed.returncode != 0
-        assert 'py-beacon-kit[pdf]' in completed.stderr
-        assert "MissingDependencyError" in completed.stderr
-
     def test_the_block_model_needs_no_extra(self):
         """A client builds and stores templates without a PDF library."""
         import subprocess

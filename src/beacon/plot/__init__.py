@@ -11,14 +11,9 @@ knows how to draw itself and nothing else grows a chart method.
     result.plot.level()
     backtest.plot.performance()
 
-Needs matplotlib, which ships in the `plot` extra:
-
-    pip install "py-beacon-kit[plot]"
-
 **Importing `beacon` costs nothing extra.** The accessor is a descriptor that
 resolves on first access, so matplotlib is imported when a chart is drawn and
-not before. `import beacon` works without matplotlib installed and does not
-import it, and a test asserts that.
+not before. `import beacon` does not import it, and a test asserts that.
 
 To compare several results on one chart, use `beacon.plot.compare(a, b)`. To
 restyle any matplotlib chart, use `beacon.plot.use()`.

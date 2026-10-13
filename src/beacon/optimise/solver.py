@@ -49,7 +49,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .._optional import require
 from ..exceptions import CalculationError
 from ..risk.model import RiskModel
 from .constraints import (
@@ -597,12 +596,10 @@ def _solve(objective: Callable[[Vector], float],
            highs: Vector) -> Any:
     """Run SLSQP once over the given box.
 
-    scipy is required here, at solve time, rather than at import: describing a
-    problem — constraints, configs, results — is core work, and only actually
-    solving one needs the ``optimise`` extra (BN-166).
+    scipy is imported here, at solve time, rather than at import: describing
+    a problem (constraints, configs, results) should not cost scipy's import
+    time, and only solving one needs it.
     """
-    require("scipy", "Portfolio optimisation")
-
     from scipy.optimize import minimize  # noqa: PLC0415
 
     return minimize(objective,

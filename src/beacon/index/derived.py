@@ -24,8 +24,8 @@ subclass would have to invent eligibility rules, a weighting scheme and a
 rebalancing frequency it does not have, and the calculator must never receive
 one by accident. The level chaining lives in `beacon.index.chaining`.
 
-This module imports on the core install. scipy (the `optimise` extra) is
-needed only when a solve actually runs.
+This module imports without scipy; scipy is imported only when a solve
+actually runs.
 """
 # Design record: planning/optimised_index_design.md rev 2 (the owner's
 # framing: "create an index, then optimise it, and that creates a NEW index").

@@ -25,23 +25,19 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from .._optional import require
+from matplotlib import font_manager
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+
 from ..tokens import LIGHT
-
-require("matplotlib", "Charting")
-
-from matplotlib import font_manager  # noqa: E402
-from matplotlib.axes import Axes  # noqa: E402
-from matplotlib.figure import Figure  # noqa: E402
-
-from . import design  # noqa: E402
-from .charts.lines import REFERENCE_ID  # noqa: E402, F401
-from .colours import resolve  # noqa: E402
+from . import design
+from .charts.lines import REFERENCE_ID  # noqa: F401
+from .colours import resolve
 
 # MARK_LABEL is re-exported: callers find the mark's axes by it through frame.
-from .mark import MARK_LABEL  # noqa: E402, F401
-from .notes import SOURCE_NAMES, provenance, sentences  # noqa: E402, F401
-from .themes import Theme, for_background, of_figure, theme_named  # noqa: E402
+from .mark import MARK_LABEL  # noqa: F401
+from .notes import SOURCE_NAMES, provenance, sentences  # noqa: F401
+from .themes import Theme, for_background, of_figure, theme_named
 
 logger = logging.getLogger(__name__)
 

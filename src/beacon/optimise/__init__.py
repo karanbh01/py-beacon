@@ -6,16 +6,10 @@ Constraint classes describing what a portfolio is allowed to be, and a solver
 that finds the closest feasible portfolio to a target: the tracking problem an
 index business meets first.
 
-Solving needs scipy, which ships in the ``optimise`` extra:
-
-    pip install "py-beacon-kit[optimise]"
-
-Importing this package does not need scipy. Constraints, configs and results
-are descriptions, and describing a problem is core work: `Backtest.run` takes
-an :class:`OptimisationConfig`, and the catalogue serialises constraint
-configurations, neither of which should cost an optional package. scipy is
-required at solve time, where a missing install raises MissingDependencyError
-naming the extra.
+Solving uses scipy, imported when a problem is solved rather than when this
+package is. Constraints, configs and results are descriptions: `Backtest.run`
+takes an :class:`OptimisationConfig`, and the catalogue serialises constraint
+configurations, neither of which should cost scipy's import time.
 """
 # The import/solve split above was introduced in BN-166.
 from .config import OptimisationConfig, constraint_from_payload, constraint_payload

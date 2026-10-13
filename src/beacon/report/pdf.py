@@ -41,7 +41,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .._optional import require
+from reportlab.lib.colors import HexColor
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas as pdf_canvas
+
 from ..exceptions import ReportingError
 from ..tokens import raw_colours
 from .blocks import (
@@ -55,12 +58,6 @@ from .blocks import (
     Table,
     Text,
 )
-
-require("reportlab", "PDF reporting")
-
-from reportlab.lib.colors import HexColor  # noqa: E402
-from reportlab.lib.utils import ImageReader  # noqa: E402
-from reportlab.pdfgen import canvas as pdf_canvas  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +155,6 @@ def render(template: ReportTemplate,
 
     Raises:
         ReportingError: If the content does not fit on one page.
-        MissingDependencyError: If reportlab is not installed.
     """
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)

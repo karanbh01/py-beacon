@@ -12,12 +12,8 @@ py-beacon writes two kinds of report:
 - **Excel workbooks** (`beacon.portfolio.reporting`): holdings and performance
   tables, for someone to pick up and work with.
 
-Building a PDF template needs nothing extra. Rendering it needs the `pdf`
-extra (reportlab), and Excel output needs the `excel` extra (openpyxl):
-
-```bash
-pip install "py-beacon-kit[pdf,excel]"
-```
+A plain install renders both: PDFs with reportlab and workbooks with
+openpyxl. Building a PDF template loads neither.
 
 ## A template is data
 
@@ -51,7 +47,7 @@ orientation.
 ## Building a template
 
 This example draws a correlation chart to a PNG, then lays out a one-page
-factsheet around it. The chart needs the `plot` extra.
+factsheet around it.
 
 ```python
 import beacon.plot
@@ -125,9 +121,8 @@ What to expect from the renderer:
 - The template's `name` becomes the PDF title and its `template_id` the
   subject.
 
-Importing `beacon.report.pdf` without reportlab raises
-`MissingDependencyError` naming the `pdf` extra. `beacon.report.blocks` always
-imports.
+`beacon.report.blocks` imports without loading reportlab, so a client can
+build and store templates cheaply.
 
 ## Saving and loading templates
 

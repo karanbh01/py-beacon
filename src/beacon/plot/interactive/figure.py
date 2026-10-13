@@ -8,22 +8,18 @@ frame drawn where the layout puts it.
 # BN-301.
 from typing import Any
 
-from ..._optional import require
+import plotly.graph_objects as go
+
 from .. import design
 from ..layout import ColourBarLayout, Description, Layout, PanelLayout
 from ..marks import BarMark, CellsMark, Mark, PointMark
 from .axes import Names, axis, domain, origin, tick_labels
 from .frame import Frame
+from .html import figure_html, write_figure_html
 from .popup import glass
 from .spines import Spines
 from .traces import Marks
 from .units import PT, PX, Paint
-
-require("plotly", "Interactive charts")
-
-import plotly.graph_objects as go  # noqa: E402
-
-from .html import figure_html, write_figure_html  # noqa: E402
 
 # The colour bar's own colours, sampled along it.
 BAR_STEPS = 256

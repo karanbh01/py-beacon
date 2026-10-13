@@ -29,9 +29,7 @@ from beacon.data.fetcher import DataFetcher
 from beacon.exceptions import (
     CalculationError,
     DataSourceError,
-    MissingDependencyError,
 )
-from beacon.index import cache as index_cache
 from beacon.index.cache import IndexResultCache
 from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
@@ -161,27 +159,6 @@ class TestConstruction:
         with pytest.raises(ValueError, match="end"):
             Backtest(initial_capital=CAPITAL).run(build_definition(),
                                                   start=START)
-
-    def test_without_platformdirs_caching_degrades_to_off(self,
-                                                          monkeypatch):
-        """A missing optional package costs the convenience, never the run:
-        the front door must work on the core install exactly as on a full
-        one."""
-        def unavailable():
-            raise MissingDependencyError("platformdirs",
-                                         "The default index-cache location",
-                                         "server")
-
-        monkeypatch.setattr(index_cache, "default_root", unavailable)
-
-        bt = Backtest(initial_capital=CAPITAL,
-                      data_provider=dataset.data_fetcher())
-
-        assert bt.cache is None
-
-        result = quiet_run(bt)
-
-        assert not result.trading_nav.empty
 
 
 class TestResolutionOrder:

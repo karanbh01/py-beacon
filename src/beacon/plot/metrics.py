@@ -19,8 +19,6 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from .._optional import require
-
 logger = logging.getLogger(__name__)
 
 FONTS = Path(__file__).parent / "fonts"
@@ -113,8 +111,6 @@ class _Face:
     """One font file's glyph advances and outline bounds, in font units."""
 
     def __init__(self, path: Path):
-        require("fontTools", "Chart layout")
-
         from fontTools.pens.boundsPen import BoundsPen
         from fontTools.ttLib import TTFont
 

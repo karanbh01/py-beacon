@@ -13,11 +13,25 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .._optional import require
+import matplotlib
+import numpy as np
+from matplotlib import patheffects
+from matplotlib.axes import Axes
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.collections import PatchCollection
+from matplotlib.figure import Figure
+from matplotlib.font_manager import FontProperties
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch, Rectangle
+
+from . import style as sizes
+from .charts.base import Plan
 from .colormaps import colour_at
 from .colours import resolve
 from .design import Style
 from .layout import AxisLayout, Box, Layout, LegendLayout, PanelLayout, Text
+from .legend import COLUMN_GAP, HANDLE_GAP, HANDLE_LENGTH, ROW_HEIGHT
+from .mark import draw_mark
 from .marks import (
     AreaMark,
     BarMark,
@@ -29,27 +43,9 @@ from .marks import (
     SpanMark,
     TextMark,
 )
+from .panels import CHART_WEIGHT
+from .style import register, style_dict
 from .themes import Theme, remember, theme_named
-
-require("matplotlib", "Charting")
-
-import matplotlib  # noqa: E402
-import numpy as np  # noqa: E402
-from matplotlib import patheffects  # noqa: E402
-from matplotlib.axes import Axes  # noqa: E402
-from matplotlib.backends.backend_agg import FigureCanvasAgg  # noqa: E402
-from matplotlib.collections import PatchCollection  # noqa: E402
-from matplotlib.figure import Figure  # noqa: E402
-from matplotlib.font_manager import FontProperties  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
-from matplotlib.patches import Patch, Rectangle  # noqa: E402
-
-from . import style as sizes  # noqa: E402
-from .charts.base import Plan  # noqa: E402
-from .legend import COLUMN_GAP, HANDLE_GAP, HANDLE_LENGTH, ROW_HEIGHT  # noqa: E402
-from .mark import draw_mark  # noqa: E402
-from .panels import CHART_WEIGHT  # noqa: E402
-from .style import register, style_dict  # noqa: E402
 
 # A dashed line's dash and gap, in multiples of its width.
 DASH = (2.0, 1.6)

@@ -21,20 +21,19 @@ py-beacon needs Python 3.11 or later.
 pip install py-beacon-kit
 ```
 
-In code, import it as `beacon`. The core installs pandas, numpy, pydantic and
-exchange_calendars. Optional features are extras: `data` (Yahoo Finance
-downloads), `excel`, `postgres`, `optimise`, `plot`, `plot-interactive`, `pdf`
-and `server`.
-Install them as `pip install "py-beacon-kit[plot,optimise]"`. The
-[documentation](https://pybeacon.dev/library/#install) lists what each one
-adds.
+In code, import it as `beacon`. A plain install does everything but serve the
+API and download market data: indices, backtests, funds and derivatives,
+charts and interactive charts, PDF and Excel reports, the optimiser and
+Postgres stores. Two extras add the rest: `server` (the local API server) and
+`data` (Yahoo Finance downloads), as in `pip install "py-beacon-kit[server]"`.
+The [documentation](https://pybeacon.dev/library/#install) lists what each
+one adds.
 
 ## Quickstart
 
 Define an index, calculate it, and backtest a portfolio that tracks it. The
 example builds its own small dataset, so it runs as it is. Each block is a
-cell, as in a notebook, and the charts need the `plot` extra
-(`pip install "py-beacon-kit[plot]"`).
+cell, as in a notebook.
 
 ```python
 import logging
@@ -169,7 +168,7 @@ result.plot.performance()
 Any chart becomes interactive: `.interactive()` returns a plotly figure drawn
 from the same layout, with a popup under the pointer giving each series' value
 on the date there. Its HTML carries its fonts and plotly.js, so it works
-offline (this needs the `plot-interactive` extra).
+offline.
 
 ```python
 result.plot.performance().interactive().write_html("performance.html")

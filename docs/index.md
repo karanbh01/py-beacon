@@ -19,35 +19,33 @@ py-beacon needs Python 3.11 or later.
 pip install py-beacon-kit
 ```
 
-In code, import it as `beacon`. The core installs pandas, numpy, pydantic and
-exchange_calendars, and covers data, indices, backtests, portfolios, funds,
-derivatives, risk and analysis.
+In code, import it as `beacon`. A plain install does everything but serve the
+API and download market data: data, indices, backtests, portfolios, funds,
+derivatives, risk and analysis, charts and interactive charts, PDF and Excel
+reports, the optimiser and Postgres stores. It brings pandas, numpy, pydantic,
+exchange_calendars, matplotlib, plotly, fonttools, reportlab, openpyxl, scipy,
+psycopg and platformdirs.
 
-Everything else is an extra, so a plain install stays small:
+Two extras add the rest:
 
 | Extra | Adds | For |
 | --- | --- | --- |
+| `server` | fastapi, uvicorn, orjson, websockets | The local API server |
 | `data` | yfinance | Downloading prices and reference data from Yahoo Finance |
-| `excel` | openpyxl | Excel reports, and importing data from Excel workbooks |
-| `postgres` | psycopg | Reading a data store from a Postgres database |
-| `optimise` | scipy | Solving optimised indices and portfolios |
-| `plot` | matplotlib | Charts and tables drawn as images, from results or any data |
-| `plot-interactive` | plotly | Interactive charts: `.interactive()` and the HTML it writes |
-| `pdf` | reportlab | Rendering PDF reports |
-| `server` | fastapi, uvicorn, orjson, websockets, platformdirs, plus `optimise`, `pdf` and `excel` | The local API server |
 
-Install one with `pip install "py-beacon-kit[plot]"`, or several with
-`pip install "py-beacon-kit[plot,optimise]"`. Using a feature without its
-extra raises a `MissingDependencyError` that names the extra to install. The
-`docs` and `dev` extras are for building this site and working on py-beacon
-itself.
+Install one with `pip install "py-beacon-kit[server]"`, or both with
+`pip install "py-beacon-kit[server,data]"`. Using a feature without its extra
+raises a `MissingDependencyError` that names the extra to install. The `docs`
+and `dev` extras are for building this site and working on py-beacon itself.
+The extras earlier releases had for charts, reports, Excel, the optimiser and
+Postgres (`plot`, `plot-interactive`, `pdf`, `excel`, `optimise` and
+`postgres`) still install, and add nothing.
 
 ## Quickstart
 
 Define an index, calculate it, and backtest a portfolio that tracks it. The
 example builds its own small dataset, so it runs as it is. Each block is a
-cell, as in a notebook, and the charts need the `plot` extra
-(`pip install "py-beacon-kit[plot]"`).
+cell, as in a notebook.
 
 ```python
 import logging
@@ -178,7 +176,7 @@ result.plot.performance()
 Any chart becomes interactive: `.interactive()` returns a plotly figure drawn
 from the same layout, with a popup under the pointer giving each series' value
 on the date there. Its HTML carries its fonts and plotly.js, so it works
-offline (this needs the `plot-interactive` extra).
+offline.
 
 ```python
 result.plot.performance().interactive().write_html("performance.html")

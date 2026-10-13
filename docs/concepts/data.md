@@ -371,8 +371,8 @@ There are four ways in, and each ends in a `DataFetcher`.
 | Source | Use | Needs |
 | --- | --- | --- |
 | A data store folder | Saving and reloading data, and what the engine serves | Nothing extra |
-| CSV files or an Excel workbook | Bringing your own data, checked row by row | `excel` extra for Excel |
-| A Postgres database | Reading data you already hold, in place | `postgres` extra |
+| CSV files or an Excel workbook | Bringing your own data, checked row by row | Nothing extra |
+| A Postgres database | Reading data you already hold, in place | Nothing extra |
 | Yahoo Finance | Downloading real prices | `data` extra |
 
 ### Data stores
@@ -404,7 +404,7 @@ print(loaded.source, loaded.fx_policy)   # local EXACT_DAY
 ```
 
 `store.default_path()` is the folder the engine loads when it is given no
-other data; it needs the `server` extra. See [Serving data](../serving-data.md)
+other data. See [Serving data](../serving-data.md)
 for how the engine chooses and registers stores.
 
 ### Importing CSV or Excel
@@ -428,8 +428,8 @@ any other series, with a reference row each saying what they are. There is no
 `fx` sheet any more: one is refused, with a message saying where its rows go.
 
 `importing.template("xlsx")` returns a blank workbook with every sheet's
-columns and example rows (an equity, a currency pair and a short rate) (it needs the `excel` extra, as reading a workbook
-does); `template("csv")` returns a zip of CSV files.
+columns and example rows (an equity, a currency pair and a short rate);
+`template("csv")` returns a zip of CSV files.
 
 Every row is checked before anything is loaded:
 
@@ -492,10 +492,6 @@ py-beacon only reads: it connects with a read-only session and never creates,
 changes or deletes anything. The password is never stored. Name an
 environment variable that holds it (`password_env`), and it is read each time
 py-beacon connects; leave it as None for a server that needs no password.
-
-```bash
-pip install "py-beacon-kit[postgres]"
-```
 
 <!-- not run: needs a Postgres server -->
 ```python

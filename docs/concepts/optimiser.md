@@ -9,14 +9,9 @@ description: "Constrained portfolio optimisation, the efficient frontier and opt
 finds weights **numerically**: the portfolio that best meets an objective while
 satisfying the constraints you state.
 
-It lives in `beacon.optimise`. Describing a problem (constraints, configs,
-results) needs only the core install; solving one needs scipy, from the
-`optimise` extra. Without it, a solve raises `MissingDependencyError` naming
-the extra.
-
-```bash
-pip install "py-beacon-kit[optimise]"
-```
+It lives in `beacon.optimise`, and solves with scipy, which a plain install
+brings. Describing a problem (constraints, configs, results) does not load
+scipy; only solving one does.
 
 ## The shape of a problem
 

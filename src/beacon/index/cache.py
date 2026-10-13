@@ -37,7 +37,6 @@ from typing import Any
 import pandas as pd
 
 from .. import __version__
-from .._optional import require
 from ..assumptions import ModellingAssumptions
 from ..catalogue import CONSTRAINT, SELECTION, WEIGHTING, classes, parameters_of
 from ..data import store
@@ -78,12 +77,10 @@ _DIVISOR_COLUMN = "DIVISOR"
 def default_root() -> Path:
     """The cache location used when no explicit root is given.
 
-    Requires `platformdirs`, imported inside the function for the same reason
+    Uses `platformdirs`, imported inside the function for the same reason
     `store.default_path` does: only the *default* location is a platform
-    question, and the core import path must not need an optional package.
+    question, and the core import path need not load it to answer others.
     """
-    require("platformdirs", "The default index-cache location")
-
     import platformdirs  # noqa: PLC0415
 
     return Path(platformdirs.user_data_dir(store.APP_NAME)) / CACHE_DIRECTORY

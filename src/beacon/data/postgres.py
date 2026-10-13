@@ -17,8 +17,6 @@ The password is never stored. Name an environment variable that holds it
     source = PostgresSource(host="localhost", database="markets",
                             user="analyst", password_env="MARKETS_PASSWORD")
     data = load(source)
-
-Needs the `postgres` extra: `pip install "py-beacon-kit[postgres]"`.
 """
 import os
 import re
@@ -29,7 +27,6 @@ from typing import Any
 
 import pandas as pd
 
-from .._optional import require
 from . import layout
 from .fetcher import DataFetcher
 
@@ -90,7 +87,7 @@ Connector = Callable[[PostgresSource], Any]
 
 def connect(source: PostgresSource) -> Any:
     """A read-only connection to the database."""
-    psycopg = require("psycopg", "Postgres data stores")
+    import psycopg  # noqa: PLC0415
 
     connection = psycopg.connect(host=source.host,
                                  port=source.port,

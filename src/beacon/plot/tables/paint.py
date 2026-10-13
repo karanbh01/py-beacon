@@ -7,26 +7,22 @@ frame every chart has.
 from collections.abc import Callable
 from typing import Any
 
-from ..._optional import require
+import matplotlib
+import numpy as np
+from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
+
 from ...tokens import DARK
 from ..colormaps import ink_on
 from ..layout import Box
+from ..paint import Painted, _figure, _Painter
+from ..style import register, style_dict
 from ..themes import Theme, remember, theme_named
 from .draw import HeatText
 from .geometry import measure
 from .model import over
 from .sizes import Blend, Geometry
-
-require("matplotlib", "Charting")
-
-import matplotlib  # noqa: E402
-import numpy as np  # noqa: E402
-from matplotlib.figure import Figure  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
-from matplotlib.patches import Rectangle  # noqa: E402
-
-from ..paint import Painted, _figure, _Painter  # noqa: E402
-from ..style import register, style_dict  # noqa: E402
 
 # What a faded heatmap cell is laid over where the theme draws no background.
 GROUND = {"light": "#ffffff", "dark": "#232323"}

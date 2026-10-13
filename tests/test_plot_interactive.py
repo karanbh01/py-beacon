@@ -3,8 +3,6 @@
 from the same layout as its image: its size, each axis's domain, range,
 ticks and labels, and the heading and legend are the layout's."""
 import json
-import subprocess
-import sys
 
 import pandas as pd
 import pytest
@@ -307,32 +305,3 @@ class TestHtml:
     def test_table_has_no_figure(self, prices):
         with pytest.raises(TypeError, match="to_html"):
             Table(prices.iloc[:3, :2]).interactive()
-
-
-def test_needs_the_extra():
-    """Without plotly a chart is still built and drawn; asking for its
-    interactive figure names the extra to install."""
-    script = """
-import sys
-
-class Blocker:
-    def find_spec(self, fullname, path=None, target=None):
-        if fullname.split(".")[0] == "plotly":
-            raise ImportError("blocked")
-        return None
-
-sys.meta_path.insert(0, Blocker())
-import pandas as pd
-from beacon.exceptions import MissingDependencyError
-from beacon.plot import Line
-chart = Line(pd.Series([1.0, 2.0, 3.0], name="A"), title="T")
-chart.layout
-try:
-    chart.interactive()
-except MissingDependencyError as error:
-    print("plot-interactive" in str(error))
-"""
-    completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
-                               check=False)
-
-    assert completed.stdout.strip() == "True", completed.stderr

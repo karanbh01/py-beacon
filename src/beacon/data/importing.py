@@ -25,7 +25,6 @@ from pathlib import Path
 
 import pandas as pd
 
-from .._optional import require
 from . import layout
 from .fetcher import DataFetcher
 from .layout import DataImportError
@@ -143,8 +142,6 @@ def template(fmt: str = "xlsx") -> bytes:
     buffer = io.BytesIO()
 
     if fmt == "xlsx":
-        require("openpyxl", "Excel templates")
-
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             for name, frame in frames.items():
                 frame.to_excel(writer, sheet_name=name, index=False)
@@ -191,7 +188,6 @@ def _read_one(path: Path) -> dict[str, pd.DataFrame]:
         return {layout.sheet_name(path.stem): layout.tidy(pd.read_csv(path, dtype=str))}
 
     if suffix in EXCEL_SUFFIXES:
-        require("openpyxl", "Excel import")
         workbook = pd.read_excel(path, sheet_name=None, dtype=str)
 
         return {layout.sheet_name(name): layout.tidy(frame) for name, frame in workbook.items()}

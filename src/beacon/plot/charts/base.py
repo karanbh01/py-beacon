@@ -145,7 +145,6 @@ class Chart:
 
         Its `.write_html()` and `.to_html()` carry the chart's fonts,
         plotly.js and the popup's script, so the file looks the same offline.
-        Needs the plot-interactive extra.
 
         Returns:
             BeaconFigure: A plotly figure.

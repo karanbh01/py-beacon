@@ -9,13 +9,9 @@ font at all, and it is the same shape the application and the site draw.
 import functools
 import re
 
-from .._optional import require
-
-require("matplotlib", "Charting")
-
-from matplotlib.figure import Figure  # noqa: E402
-from matplotlib.patches import PathPatch  # noqa: E402
-from matplotlib.path import Path as Outline  # noqa: E402
+from matplotlib.figure import Figure
+from matplotlib.patches import PathPatch
+from matplotlib.path import Path as Outline
 
 # The label on the axes that holds the mark, which the layout leaves alone.
 MARK_LABEL = "beacon-mark"

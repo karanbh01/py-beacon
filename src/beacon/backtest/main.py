@@ -40,7 +40,7 @@ import pandas as pd
 from .. import sources
 from ..assumptions import ModellingAssumptions, apply
 from ..data.fetcher import DataFetcher
-from ..exceptions import CalculationError, MissingDependencyError
+from ..exceptions import CalculationError
 from ..index import cache as index_cache
 from ..index.cache import IndexResultCache
 from ..index.calculation import IndexCalculator
@@ -70,18 +70,9 @@ from .vehicle import Vehicle
 logger = logging.getLogger(__name__)
 
 
-def _default_cache() -> IndexResultCache | None:
-    """A cache at the default root, or None when `platformdirs` is missing.
-
-    Degrading beats raising: a missing optional package should cost the
-    convenience it provides — reuse across runs — not the run itself.
-    """
-    try:
-        return IndexResultCache()
-    except MissingDependencyError:
-        logger.info("platformdirs is not installed; backtests run uncached.")
-
-        return None
+def _default_cache() -> IndexResultCache:
+    """A cache at the default root."""
+    return IndexResultCache()
 
 
 def _rejecting_empty(definition: AnyIndexDefinition,

@@ -2,17 +2,16 @@
 """
 Import guards for py-beacon's optional dependencies.
 
-The core pipeline (index, backtest, portfolio, fund, derivatives) runs on
-pandas, numpy, pydantic and `exchange_calendars` alone. `exchange_calendars`
-is core rather than an extra because every index schedules against a real
-trading calendar, and a required input cannot sit behind an optional install.
-Everything beyond that (Excel reporting, plotting, optimisation, market-data
-downloads, the API server) lives behind an extra.
-Modules needing one import it through :func:`require`, so a missing package
-reports the extra to install instead of surfacing a bare ImportError.
+A plain install does everything but serve the API and download market data:
+indices, backtests, funds and derivatives, charts and interactive charts, PDF
+and Excel reports, the optimiser and Postgres stores. The API server and Yahoo
+Finance downloads live behind the `server` and `data` extras. Modules needing
+one import it through :func:`require`, so a missing package reports the extra
+to install instead of surfacing a bare ImportError.
 """
 # `exchange_calendars` moved from the `calendars` extra into the core in
-# BN-180.
+# BN-180; charts, reports, Excel, the optimiser, Postgres stores and
+# platformdirs followed in BN-310.
 import importlib
 from types import ModuleType
 
@@ -22,16 +21,7 @@ from .exceptions import MissingDependencyError
 # passed to require() must appear here; a missing entry is a packaging bug.
 EXTRA_FOR_MODULE = {
     "fastapi": "server",
-    # Measures chart text for the layout; matplotlib brings it too.
-    "fontTools": "plot",
-    "matplotlib": "plot",
-    "openpyxl": "excel",
     "orjson": "server",
-    "platformdirs": "server",
-    "plotly": "plot-interactive",
-    "psycopg": "postgres",
-    "reportlab": "pdf",
-    "scipy": "optimise",
     "uvicorn": "server",
     "websockets": "server",
     "yfinance": "data",
@@ -43,9 +33,9 @@ def require(module_name: str,
     """Import an optional dependency, or raise an actionable error.
 
     Args:
-        module_name: Module to import, e.g. ``"openpyxl"``.
+        module_name: Module to import, e.g. ``"yfinance"``.
         feature: Human-readable name of the py-beacon feature that needs it,
-            used to open the error message, e.g. ``"Excel reporting"``.
+            used to open the error message, e.g. ``"Market-data ingestion"``.
 
     Returns:
         The imported module.

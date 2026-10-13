@@ -57,7 +57,6 @@ from typing import TypeVar
 
 import pandas as pd
 
-from .._optional import require
 from ..exceptions import ConfigurationError, StoreFormatError
 from .base import MarketData, ReferenceData
 from .corporate_actions import CorporateActions
@@ -141,11 +140,9 @@ def default_path() -> Path:
     Returns:
         Path: The directory, which may not exist.
     """
-    require("platformdirs", "The default data-store location")
-
     # Deliberately inside the function: `beacon.data` is on the core import
-    # path, and hoisting this would make the whole data layer need an optional
-    # package to answer a question only this function asks.
+    # path, and hoisting this would make the whole data layer load a package
+    # to answer a question only this function asks.
     import platformdirs  # noqa: PLC0415
 
     return Path(platformdirs.user_data_dir(APP_NAME)) / STORE_DIRECTORY

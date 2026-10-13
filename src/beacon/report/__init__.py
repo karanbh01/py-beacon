@@ -14,8 +14,8 @@ than a replacement for it: a spreadsheet is for numbers someone will pick up
 and work with, a PDF is a paginated document that looks the same everywhere and
 is meant to be read as it was laid out.
 
-Importing `beacon.report.pdf` without reportlab raises MissingDependencyError
-naming the extra; importing `beacon.report.blocks` always works.
+`beacon.report.blocks` imports without reportlab, so a client can build and
+store templates without loading the PDF library.
 """
 from .blocks import (
     BLOCK_TYPES,

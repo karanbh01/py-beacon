@@ -2,7 +2,6 @@
 """
 Interactive charts: a chart as a plotly figure drawn from the same layout as
 its image, so the two look the same, with a popup and crosshair under the
-pointer. Behind the plot-interactive extra; `Chart.interactive()` is the way
-in.
+pointer. `Chart.interactive()` is the way in.
 """
 # BN-301.
