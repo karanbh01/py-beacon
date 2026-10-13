@@ -94,10 +94,10 @@ def _heading(chart: Description,
     bar_gap = BAR_GAP * scale if heading.accent_bar else 0.0
 
     top = chart.size[1] - margin
-    bottom = top - title_size * HEADING_LINE_HEIGHT / 72.0
-    subtitle_top = bottom - LINE_GAP * scale / 72.0
-    if chart.subtitle:
-        bottom = subtitle_top - subtitle_size * HEADING_LINE_HEIGHT / 72.0
+    subtitle_top = top - (title_size * HEADING_LINE_HEIGHT + LINE_GAP * scale) / 72.0
+    # As tall with or without a subtitle, so the accent bar is one size on
+    # every chart; a title alone is centred on it.
+    bottom = subtitle_top - subtitle_size * HEADING_LINE_HEIGHT / 72.0
 
     reach = (bar_width + bar_gap) / 72.0 + max(
         metrics.width(chart.title, title_size, title_font),
@@ -281,6 +281,8 @@ def _framed(chart: Description,
     text_left = left + (heading.bar_width + heading.bar_gap) / 72.0
     title = Text(chart.title, text_left, heading.top, heading.title, heading.title_font,
                  "text-primary", ha="left", va="top", id="beacon-title")
+    if not chart.subtitle:
+        title = dataclasses.replace(title, y=(heading.top + heading.bottom) / 2.0, va="center")
     subtitle = None
     if chart.subtitle:
         subtitle = Text(chart.subtitle, text_left, heading.subtitle_top, heading.subtitle,
