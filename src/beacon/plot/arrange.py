@@ -238,7 +238,7 @@ def _lay_out(chart: Description,
 
     for _ in range(PASSES):
         floor = margin + len(lines) * notes_size * NOTES_LINE_HEIGHT / 72.0
-        top_share = (band - plot_gap) / height
+        top_share = (band - plot_gap - chart.top_room) / height
         bottom_share = (floor + notes_gap + bottom_room + beneath) / height
         passes.place(bottom_share, top_share)
         passes.end_axes()

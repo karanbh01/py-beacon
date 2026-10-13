@@ -262,6 +262,8 @@ class Description:
             default one row of them.
         crop: Whether the figure is narrowed to what the chart draws, at the
             same scale, rather than kept at its size (a square heatmap).
+        top_room: Inches kept free above the plot, for text the chart writes
+            over it, such as an axis title above an axis through zero.
     """
 
     size: tuple[float, float]
@@ -273,6 +275,7 @@ class Description:
     legend: tuple[LegendItem, ...] = ()
     bottom_room: float | None = None
     crop: bool = False
+    top_room: float = 0.0
 
 
 # What the layout gives back.
