@@ -139,6 +139,21 @@ class Chart:
 
         show(self.plan, self.layout, self.style)
 
+    def interactive(self) -> Any:
+        """The chart as an interactive plotly figure, laid out as its image
+        is, with a popup and crosshair under the pointer.
+
+        Its `.write_html()` and `.to_html()` carry the chart's fonts,
+        plotly.js and the popup's script, so the file looks the same offline.
+        Needs the plot-interactive extra.
+
+        Returns:
+            BeaconFigure: A plotly figure.
+        """
+        from ..interactive.figure import interactive
+
+        return interactive(self)
+
     def save(self,
              path: str | Path,
              dpi: int | None = None) -> Path:

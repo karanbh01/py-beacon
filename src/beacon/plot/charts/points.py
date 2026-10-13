@@ -4,6 +4,7 @@ One measure against another, and how a measure is spread: `Scatter` and
 `Histogram`.
 """
 # BN-299.
+import itertools
 import math
 from collections.abc import Mapping, Sequence
 from typing import Literal
@@ -186,17 +187,24 @@ class Scatter(Chart):
         size = sizes.scaled(MANY_POINTS if many else POINT)
         alpha = MANY_ALPHA if many else 1.0
 
+        names = (tuple(str(name) for name in self.names) if self.names is not None
+                 else ("",) * len(x))
+        measures = (self.xlabel, self.ylabel)
+
         if not self.signed:
-            return [PointMark(x, y, colour, size, alpha=alpha)]
+            return [PointMark(x, y, colour, size, alpha=alpha, names=names, name=self.name,
+                              measures=measures)]
 
         agree = [a * b > 0 for a, b in zip(x, y, strict=True)]
         marks: list[Mark] = []
-        for keep, name in ((True, "success"), (False, "danger")):
-            chosen = [(a, b) for (a, b), same in zip(zip(x, y, strict=True), agree, strict=True)
+        for keep, ink in ((True, "success"), (False, "danger")):
+            chosen = [(a, b, name) for a, b, name, same in zip(x, y, names, agree, strict=True)
                       if same == keep]
             if chosen:
-                marks.append(PointMark(tuple(a for a, _ in chosen), tuple(b for _, b in chosen),
-                                       name, size, alpha=alpha))
+                marks.append(PointMark(tuple(a for a, _, _ in chosen),
+                                       tuple(b for _, b, _ in chosen), ink, size, alpha=alpha,
+                                       names=tuple(name for _, _, name in chosen),
+                                       name=self.name, measures=measures))
 
         return marks
 
@@ -346,15 +354,22 @@ class Histogram(Chart):
         self.percent = percent
         self.color = color
 
+    def _bound(self, value: float) -> str:
+        """A bin's edge, as the popup writes it."""
+        return percent(value, 2) if self.percent else plain(value, 2)
+
     def _build(self) -> Plan:
         values = self.data.to_numpy(dtype=float)
         counts, edges = np.histogram(values, bins=self.bins)
         centres = (edges[:-1] + edges[1:]) / 2.0
         width = float(edges[1] - edges[0])
         colour = self.color or palette(0)
+        bins = tuple(f"{self._bound(float(low))} to {self._bound(float(high))}"
+                     for low, high in itertools.pairwise(edges))
         marks: list[Mark] = [BarMark(tuple(float(at) for at in centres),
                                      tuple(float(count) for count in counts),
-                                     (width * BIN_FILL,) * len(counts), (colour,) * len(counts))]
+                                     (width * BIN_FILL,) * len(counts), (colour,) * len(counts),
+                                     name="Count", labels=bins)]
         legend: list[LegendItem] = []
         tops = [0.0, float(counts.max())]
 

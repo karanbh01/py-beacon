@@ -106,8 +106,11 @@ class Heatmap(Chart):
         cells = tuple(tuple(None if (self.lower and j > i) or not math.isfinite(table[i, j])
                             else float(table[i, j]) for j in range(columns))
                       for i in range(rows))
+        written = tuple(tuple("" if value is None else self._value(value) for value in row)
+                        for row in cells)
         marks: list[Mark] = [CellsMark(cells, self.stops, self.low, self.high,
-                                       blended=self.shading == "blended", gap=self.gap)]
+                                       blended=self.shading == "blended", gap=self.gap,
+                                       written=written)]
 
         if self.values:
             marks.extend(self._written(cells))

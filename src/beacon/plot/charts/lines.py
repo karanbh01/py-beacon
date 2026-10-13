@@ -202,7 +202,7 @@ class Line(Chart):
         # The first series last, so it is drawn over the others.
         marks.extend(LineMark(x, values(self.data.iloc[:, index]), self._colour(index),
                               sizes.series_width() if index == 0 else sizes.secondary_width(),
-                              layer=4.0 if index == 0 else 3.0)
+                              layer=4.0 if index == 0 else 3.0, name=left[index])
                      for index in reversed(range(len(left))))
 
         if self.secondary is not None:
@@ -210,7 +210,7 @@ class Line(Chart):
             for index, _ in enumerate(right):
                 marks.append(LineMark(x_right, values(self.secondary.iloc[:, index]),
                                       self._colour(len(left) + index), sizes.secondary_width(),
-                                      side="right"))
+                                      side="right", name=right[index]))
 
         marks.extend(self._last_marks(left, right))
         marks.extend(self._end_names(left))
@@ -393,14 +393,15 @@ class Area(Chart):
                 line = values(self.data[name])
                 marks.append(AreaMark(x, tuple(lower), values(filled[name]),
                                       self._colour(index), alpha=FILL_ALPHA))
-                marks.append(LineMark(x, line, self._colour(index), sizes.secondary_width()))
+                marks.append(LineMark(x, line, self._colour(index), sizes.secondary_width(),
+                                      name=name))
                 tops.extend(line)
         else:
             for index, name in enumerate(names):
                 upper = [low + value for low, value in zip(lower, values(filled[name]),
                                                            strict=True)]
                 marks.append(AreaMark(x, tuple(lower), tuple(upper), self._colour(index),
-                                      alpha=STACK_ALPHA))
+                                      alpha=STACK_ALPHA, name=name))
                 lower = upper
                 tops.extend(upper)
 

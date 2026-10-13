@@ -125,7 +125,8 @@ class _Bars(Chart):
             offset = (index - (len(series) - 1) / 2.0) * slot
             places = tuple(self._place(at, count) + offset for at in range(count))
             marks.append(BarMark(places, column, (slot * (1.0 - self.inner_gap),) * count,
-                                 self._colours(index, column), horizontal=self.horizontal))
+                                 self._colours(index, column), horizontal=self.horizontal,
+                                 name=name, labels=tuple(names)))
             everything.extend(column)
             if self.value_labels:
                 marks.extend(self._label(place, value) for place, value in zip(places, column,
@@ -422,10 +423,12 @@ class Combo(Chart):
             line_x = tuple(float(self.columns.index.get_loc(when)) for when in self.line.index)
 
         line_colour = self.line_color or palette(0)
+        labels = () if dates else tuple(str(name) for name in self.columns.index)
         marks.append(BarMark(places, heights, widths, colours, edge=edge,
-                             seamless=dates and self.gap == 0))
+                             seamless=dates and self.gap == 0, name=str(self.columns.name),
+                             labels=labels))
         marks.append(LineMark(line_x, floats(self.line), line_colour, sizes.series_width(),
-                              side="right"))
+                              side="right", name=str(self.line.name)))
 
         y_low, y_high = limited(*extent(heights, [0.0]), self.ylim)
         r_low, r_high = limited(*extent(floats(self.line)), self.ylim_secondary)

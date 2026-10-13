@@ -281,6 +281,15 @@ class Table(Chart):
 
         show_table(self)
 
+    def interactive(self) -> Any:
+        """A table has no plotly figure: its HTML (`to_html()`) is its
+        interactive form, with columns that sort.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise TypeError("a table's interactive form is its HTML: use .to_html()")
+
     def to_html(self) -> str:
         """The table as HTML: the heading, the table and the notes, in the
         table's theme, with columns that sort when their headings are

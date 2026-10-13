@@ -169,7 +169,8 @@ class _Frontier(Scatter):
         for point, name, colour in ((minimum, "Minimum variance", "palette-3"),
                                     (tangency, "Tangency", "palette-2")):
             marks.append(PointMark((point.volatility,), (point.expected_return or 0.0,),
-                                   colour, sizes.scaled(NAMED_POINT)))
+                                   colour, sizes.scaled(NAMED_POINT), name=name,
+                                   measures=(self.xlabel, self.ylabel)))
             legend.append(LegendItem(name, colour, "marker"))
 
         if tangency.sharpe_ratio is not None:

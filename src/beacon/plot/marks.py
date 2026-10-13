@@ -9,7 +9,9 @@ coloured cells. Positions are in the panel's data, with dates as days since
 and line widths and sizes are in points as drawn.
 
 Each mark names the panel it is drawn in and, where a panel has a second
-vertical axis, the side whose scale it is measured on.
+vertical axis, the side whose scale it is measured on. A mark that is data
+names what it shows, for an interactive chart's popup; one with no name, such
+as a reference line, is left out of it.
 
 Standard library only, like the layout, so the plotly renderer draws the
 same marks without importing matplotlib.
@@ -36,6 +38,7 @@ class LineMark:
     layer: float = 3.0
     panel: int = 0
     side: Side = "left"
+    name: str = ""
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,7 @@ class AreaMark:
     layer: float = 2.0
     panel: int = 0
     side: Side = "left"
+    name: str = ""
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,8 @@ class BarMark:
         base: Where each bar starts; zero when empty.
         edge: Whether a position is the bar's left edge rather than its centre.
         seamless: Whether bars that meet are drawn without a seam between.
+        name: The series the bars show.
+        labels: What each bar is, such as its category or its bin's range.
     """
 
     positions: tuple[float, ...]
@@ -79,11 +85,14 @@ class BarMark:
     layer: float = 2.0
     panel: int = 0
     side: Side = "left"
+    name: str = ""
+    labels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class PointMark:
-    """Dots."""
+    """Dots: what they are, each one's name where it has one, and the names
+    of the two measures they are placed by."""
 
     x: tuple[float, ...]
     y: tuple[float, ...]
@@ -94,6 +103,9 @@ class PointMark:
     layer: float = 5.0
     panel: int = 0
     side: Side = "left"
+    name: str = ""
+    names: tuple[str, ...] = ()
+    measures: tuple[str, str] = ("", "")
 
 
 @dataclass(frozen=True)
@@ -175,6 +187,7 @@ class CellsMark:
         blended: Whether each colour blends into the next rather than each
             cell being its own square.
         gap: The space between cells, as a share of a cell.
+        written: Each value as the chart writes it, row by row.
     """
 
     values: tuple[tuple[float | None, ...], ...]
@@ -184,6 +197,7 @@ class CellsMark:
     blended: bool = False
     gap: float = 0.0
     panel: int = 0
+    written: tuple[tuple[str, ...], ...] = ()
 
 
 Mark = LineMark | AreaMark | BarMark | PointMark | RuleMark | SpanMark | TextMark | CellsMark
