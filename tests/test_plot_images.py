@@ -23,6 +23,10 @@ Everything comes from `beacon.testing.dataset`, whose paths avoid `exp` and
 DejaVu Sans, which ships with matplotlib. Without both of those a baseline
 would only be valid on the machine that generated it.
 """
+import html
+import json
+import re
+
 import matplotlib
 import pytest
 
@@ -218,8 +222,8 @@ class TestGalleryScript:
 
         assert set(module.RESULT_CHARTS) | set(module.CLASS_CHARTS) == set(self._calls(module))
 
-    def test_the_live_versions_fill_their_frames(self,
-                                                 tmp_path):
+    def test_the_live_versions_fill_their_frames_in_every_theme(self,
+                                                                tmp_path):
         module = self._module()
         calls = {name: call for name, call in self._calls(module).items()
                  if name in ("level", "table")}
@@ -229,11 +233,24 @@ class TestGalleryScript:
         assert set(shapes) == {"level", "table"}
         assert (tmp_path / "plotly.min.js").exists() and (tmp_path / "fonts.css").exists()
         assert any((tmp_path / "fonts").glob("*.ttf"))
+        for suffix, _, _ in module.THEMES.values():
+            assert (tmp_path / f"level.{suffix}.html").exists()
+            assert "<table" in (tmp_path / f"table.{suffix}.html").read_text(encoding="utf-8")
         live = (tmp_path / "level.light.html").read_text(encoding="utf-8")
         assert '"responsive": true' in live and 'href="fonts.css"' in live
-        assert "<table" in (tmp_path / "table.dark.html").read_text(encoding="utf-8")
 
-    def test_the_page_links_both_modes_the_live_versions_and_every_theme(self,
+    def test_a_chart_has_one_shape_in_every_theme(self):
+        """The page gives a chart one frame, whichever theme is picked."""
+        module = self._module()
+        shapes = {}
+
+        module._record(shapes, "level", (599.0, 280.0))
+        module._record(shapes, "level", (599.0, 280.0))
+
+        with pytest.raises(ValueError, match="level"):
+            module._record(shapes, "level", (599.0, 300.0))
+
+    def test_the_page_gives_each_chart_one_element_for_the_sites_toggles(self,
                                                                          tmp_path):
         module = self._module()
         names = [*module.RESULT_CHARTS, *module.CLASS_CHARTS]
@@ -244,14 +261,40 @@ class TestGalleryScript:
         text = page.read_text(encoding="utf-8")
 
         assert page == tmp_path / "gallery.md"
+        assert "<iframe" not in text and "| --- |" not in text
+        elements = re.findall(r'^<div class="beacon-chart".*$', text, re.MULTILINE)
+        assert len(elements) == len(names)
         for name in names:
-            assert f"gallery/{name}.light.png){{ loading=lazy }}" in text
-            assert f"gallery/{name}.dark.png){{ loading=lazy }}" in text
-            # A bare name: the published page sits beside the gallery's files.
-            assert f'<iframe src="{name}.light.html"' in text
-            assert f'<iframe src="{name}.dark.html"' in text
-            assert f"gallery/{name}.github-dark.png" in text
-        assert 'style="aspect-ratio: 691 / 518"' in text
+            # Bare names: the published page sits beside the gallery's files.
+            assert f'data-chart="{name}"' in text
+            assert f'<img src="{name}.light.png"' in text
+            assert f'<img src="{name}.dark.png"' in text
+        assert 'data-ratio="691 / 518"' in text
+
+        themes = json.loads(html.unescape(re.search(r"data-themes='([^']*)'", text).group(1)))
+        # The site's default takes the theme matching its mode, so the modes lead.
+        assert [entry[0] for entry in themes[:2]] == ["light", "dark"]
+        assert [entry[1] for entry in themes] == list(module.THEMES)
+        assert all(len(entry) == 4 for entry in themes)
+
+    def test_each_chart_element_stands_alone_in_the_markdown(self,
+                                                            tmp_path):
+        """Python-Markdown passes a block of HTML through untouched only when it
+        starts a line, unindented, with a blank line on either side."""
+        module = self._module()
+        names = [*module.RESULT_CHARTS, *module.CLASS_CHARTS]
+        directory = tmp_path / "gallery"
+        directory.mkdir()
+
+        page = module.write_page(directory, dict.fromkeys(names, (691.0, 518.0)))
+        lines = page.read_text(encoding="utf-8").splitlines()
+
+        for index, line in enumerate(lines):
+            if line.startswith('<div class="beacon-chart"'):
+                assert lines[index - 1] == ""
+                end = lines.index("</div>", index)
+                assert end + 1 == len(lines) or lines[end + 1] == ""
+        assert not any(line.startswith(" <") for line in lines)
 
     def test_the_gallery_covers_every_chart_the_accessors_offer(self):
         """A chart added without a gallery entry would go undocumented, and

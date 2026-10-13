@@ -8,8 +8,8 @@ than no gallery: it becomes a record of what the charts used to look like, and
 nobody knows which images are still true.
 
 Every chart (each result's and each chart class's) is drawn from
-`beacon.testing.dataset` in every theme, and beside it a live interactive
-version in the light and dark themes. The data is reproducible, so the same
+`beacon.testing.dataset` in every theme, both as an image and as a live
+interactive version. The data is reproducible, so the same
 run on any machine produces the same pictures, for the same reason the
 image-regression baselines can exist at all.
 
@@ -20,13 +20,19 @@ Usage:
 Defaults to `docs/gallery`. The page is written as `gallery.md` beside the
 output directory, linking the files as `gallery/<file>`:
 
-- `{name}.light.png` and `{name}.dark.png`: the Beacon themes. pybeacon.dev
-  shows the one matching the reader's light or dark setting.
-- `{name}.{theme}.png`: the other four themes, shown in both settings.
-- `{name}.light.html` and `{name}.dark.html`: the live versions, which fill
-  the frame the page gives them. They share `plotly.min.js`, and `fonts.css`
-  with the font files in `fonts/`.
+- `{name}.{suffix}.png`: the image in each theme, the Beacon themes taking
+  the suffixes `light` and `dark`.
+- `{name}.{suffix}.html`: the live version in each theme, which fills the
+  frame the page gives it. They share `plotly.min.js`, and `fonts.css` with
+  the font files in `fonts/`.
+
+Each chart is one element on the page carrying its name, shape and themes;
+pybeacon.dev's script gives it toggles between the image and the live version
+and between the themes, starting on the image in the theme matching the
+page's light or dark setting.
 """
+import html
+import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -85,20 +91,22 @@ DPI = 300
 # them.
 LIVE_SCALE = 1.3
 
-# Each theme and the suffix its images take: the Beacon themes as .light and
-# .dark, which the site swaps by the reader's setting, and the others by name,
-# shown in both. With what each theme is for.
+# Each theme, the suffix its files take, its label on the page and what it is
+# for. The Beacon themes take .light and .dark, the site's two modes, and a
+# chart starts in the one matching the reader's setting.
 THEMES = {
-    "beacon-light": ("light", "Beacon's light canvas."),
-    "beacon-dark": ("dark", "Beacon's dark canvas."),
-    "github-dark": ("github-dark", "GitHub's dark page."),
-    "white": ("white", "A white page."),
-    "transparent-dark-axes": ("transparent-dark-axes",
+    "beacon-light": ("light", "Beacon light", "Beacon's light canvas."),
+    "beacon-dark": ("dark", "Beacon dark", "Beacon's dark canvas."),
+    "github-dark": ("github-dark", "GitHub dark", "GitHub's dark page."),
+    "white": ("white", "White", "A white page."),
+    "transparent-dark-axes": ("transparent-dark-axes", "Transparent, dark text",
                               "No background, dark text: for a light page."),
-    "transparent-light-axes": ("transparent-light-axes",
+    "transparent-light-axes": ("transparent-light-axes", "Transparent, light text",
                                "No background, light text: for a dark page."),
 }
-LIVE = ("beacon-light", "beacon-dark")
+# The fallback shown where the site's script does not run: the two modes'
+# images, which the site swaps by the reader's setting.
+MODES = ("beacon-light", "beacon-dark")
 
 # Chart id -> its title and what it is for, shown as the caption. Written here
 # rather than scraped from docstrings because a caption and an API docstring
@@ -284,7 +292,7 @@ def class_calls(prices: pd.DataFrame) -> dict[str, Callable[[], object]]:
 def render_images(directory: Path,
                   calls: dict[str, Callable[[], object]]) -> None:
     """Every chart in every theme, as a PNG."""
-    for theme, (suffix, _) in THEMES.items():
+    for theme, (suffix, _, _) in THEMES.items():
         use(theme)
         for name, call in calls.items():
             call().save(directory / f"{name}.{suffix}.png", dpi=DPI)
@@ -294,8 +302,8 @@ def render_images(directory: Path,
 
 def render_live(directory: Path,
                 calls: dict[str, Callable[[], object]]) -> dict[str, tuple[float, float]]:
-    """Every chart's live version in the light and dark themes: a plotly
-    figure that fills its frame, or a table's HTML.
+    """Every chart's live version in every theme: a plotly figure that fills
+    its frame, or a table's HTML.
 
     Returns:
         dict: Each chart's width and height in pixels, for its frame's shape.
@@ -303,9 +311,8 @@ def render_live(directory: Path,
     shapes: dict[str, tuple[float, float]] = {}
     fonts = set()
 
-    for theme in LIVE:
+    for theme, (suffix, _, _) in THEMES.items():
         use(theme)
-        suffix = THEMES[theme][0]
         for name, call in calls.items():
             # The heading keeps its own scale, so it is zoomed with the rest.
             with settings(scale=LIVE_SCALE, heading_scale=LIVE_SCALE):
@@ -313,12 +320,12 @@ def render_live(directory: Path,
             target = directory / f"{name}.{suffix}.html"
             if isinstance(chart, Table):
                 target.write_text(_page(chart.to_html()), encoding="utf-8")
-                shapes[name] = (chart.layout.width * 96.0, chart.layout.height * 96.0)
+                _record(shapes, name, (chart.layout.width * 96.0, chart.layout.height * 96.0))
                 continue
             figure = chart.interactive()
             fonts |= figure_fonts(figure)
             figure.write_html(target, include_plotlyjs="directory", fonts="fonts.css", fit=True)
-            shapes[name] = (figure.layout.width, figure.layout.height)
+            _record(shapes, name, (figure.layout.width, figure.layout.height))
 
     use("beacon-light")
     font_files(fonts, directory / "fonts")
@@ -327,60 +334,77 @@ def render_live(directory: Path,
     return shapes
 
 
+def _record(shapes: dict[str, tuple[float, float]],
+            name: str,
+            shape: tuple[float, float]) -> None:
+    """Keep a chart's shape, which every theme must share: the page gives a
+    chart one frame, whichever theme the reader picks."""
+    if shapes.setdefault(name, shape) != shape:
+        raise ValueError(f"{name} is {shape} in one theme and {shapes[name]} in another")
+
+
 def _page(fragment: str) -> str:
     """A table's HTML as a page of its own, for a frame."""
     return ('<!doctype html><html><head><meta charset="utf-8">'
             "<style>html,body{margin:0}</style></head><body>" + fragment + "</body></html>")
 
 
+def chart_element(name: str,
+                  title: str,
+                  shape: tuple[float, float]) -> str:
+    """One chart's element on the page: its name, title, shape and themes as
+    data for the site's toggles, holding the two modes' images as the
+    fallback where the script does not run.
+
+    Paths are bare names: raw HTML is not rewritten, and the published page
+    sits in the same folder as the gallery's files.
+    """
+    width, height = shape
+    # In single quotes, so the apostrophes in the JSON ("Beacon's") are escaped
+    # as well as the HTML characters.
+    themes = json.dumps([[suffix, theme, label, purpose]
+                         for theme, (suffix, label, purpose) in THEMES.items()])
+    themes = html.escape(themes, quote=False).replace("'", "&#39;")
+    images = [f'<img src="{name}.{THEMES[theme][0]}.png" alt="{html.escape(title)}" '
+              'loading="lazy">' for theme in MODES]
+
+    return "\n".join([f'<div class="beacon-chart" data-chart="{name}" '
+                      f'data-title="{html.escape(title)}" '
+                      f'data-ratio="{width:.0f} / {height:.0f}" '
+                      f"data-themes='{themes}'>",
+                      *images,
+                      "</div>"])
+
+
 def write_page(directory: Path,
                shapes: dict[str, tuple[float, float]]) -> Path:
-    """Write the gallery's markdown page.
-
-    Each chart's image and live version are linked in both modes:
-    pybeacon.dev shows the ones matching the reader's light or dark setting,
-    and a local preview shows both. The other themes follow in a row.
-    """
+    """Write the gallery's markdown page: each chart's heading, caption and
+    element."""
     lines = [
         "---",
         "title: Gallery",
-        'description: "Every chart py-beacon draws, in every theme, beside a live '
-        'interactive version."',
+        'description: "Every chart py-beacon draws, in every theme, as an image '
+        'and as a live interactive version."',
         "---",
         "",
         "# Chart gallery",
         "",
         "Every chart py-beacon draws, rendered from the sample dataset",
         "(`beacon.testing.dataset`). The images are generated when the docs",
-        "are built, so they show what the current code draws. Each is drawn",
-        "in the light and the dark theme, and the one shown follows your",
-        "light or dark setting. Beside it is the live version: move the",
-        "pointer over it for the popup. The other four themes follow, for",
-        "pages that are white, GitHub's dark, or let the page show through.",
+        "are built, so they show what the current code draws. Each chart",
+        "starts as its image in the theme matching your light or dark",
+        "setting. Its toggles switch to the live version, where moving the",
+        "pointer over it shows the popup, and to the other themes: for pages",
+        "that are white, GitHub's dark, or let the page show through.",
         "[Charts](concepts/charts.md) explains how to draw them.",
         "",
     ]
-    others = [theme for theme in THEMES if theme not in LIVE]
 
     for section, charts in (("Results", RESULT_CHARTS), ("Chart classes", CLASS_CHARTS)):
         lines += [f"## {section}", ""]
         for name, (title, caption) in charts.items():
-            width, height = shapes[name]
-            ratio = f"{width:.0f} / {height:.0f}"
-            lines += [f"### {title}", "", caption, ""]
-            lines += [f"![{title}](gallery/{name}.{THEMES[theme][0]}.png){{ loading=lazy }}"
-                      for theme in LIVE]
-            lines += [""]
-            # A bare name: raw HTML is not rewritten, and the published page
-            # sits in the same folder as the gallery's files.
-            lines += [f'<iframe src="{name}.{THEMES[theme][0]}.html" title="{title}" '
-                      f'loading="lazy" style="aspect-ratio: {ratio}"></iframe>'
-                      for theme in LIVE]
-            lines += ["", "| " + " | ".join(f"`{theme}`" for theme in others) + " |",
-                      "| " + " | ".join("---" for _ in others) + " |",
-                      "| " + " | ".join(THEMES[theme][1] for theme in others) + " |",
-                      "| " + " | ".join(f"![{title}, {theme}](gallery/{name}.{theme}.png)"
-                                        "{ loading=lazy }" for theme in others) + " |", ""]
+            lines += [f"### {title}", "", caption, "",
+                      chart_element(name, title, shapes[name]), ""]
 
     page = directory.parent / "gallery.md"
     page.write_text("\n".join(lines), encoding="utf-8")
@@ -400,8 +424,8 @@ def main() -> int:
     shapes = render_live(directory, calls)
     page = write_page(directory, shapes)
 
-    print(f"Rendered {len(calls)} charts in {len(THEMES)} themes, and {len(calls) * len(LIVE)} "
-          f"live versions, to {directory}; wrote {page}.")
+    print(f"Rendered {len(calls)} charts in {len(THEMES)} themes, as images and live, "
+          f"to {directory}; wrote {page}.")
 
     return 0
 
