@@ -37,9 +37,10 @@ Colour = str
 # 0, 1, 2..., or ticks a chart fixed itself (a heatmap's rows).
 AxisKind = Literal["number", "date", "names", "fixed"]
 
-# How a number axis writes its ticks: plainly, as a percentage, or as a
-# chart's own function of the value.
-LabelStyle = Literal["number", "percent"] | Callable[[float], str]
+# How a number axis writes its ticks: plainly; as a percentage, with as many
+# decimals as the axis's range needs ("percent") or as few as tell its ticks
+# apart ("share"); or as a chart's own function of the value.
+LabelStyle = Literal["number", "percent", "share"] | Callable[[float], str]
 
 HorizontalAlignment = Literal["left", "center", "right"]
 VerticalAlignment = Literal["top", "center", "bottom", "baseline", "center_baseline"]

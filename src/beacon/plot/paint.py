@@ -239,7 +239,8 @@ class _Painter:
                   ax: Axes,
                   mark: TextMark) -> None:
         coords: Any = {"data": "data", "axes": "axes fraction",
-                       "xdata": ("data", "axes fraction")}[mark.coords]
+                       "xdata": ("data", "axes fraction"),
+                       "ydata": ("axes fraction", "data")}[mark.coords]
         text = ax.annotate(mark.text, xy=(mark.x, mark.y), xycoords=coords,
                            xytext=(mark.dx, mark.dy), textcoords="offset points",
                            ha=mark.ha, va=mark.va, fontsize=mark.size,

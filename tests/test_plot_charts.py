@@ -19,7 +19,18 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
-from beacon.plot import Area, Bar, Chart, Column, Combo, Line, configure, reset
+from beacon.plot import (
+    Area,
+    Bar,
+    Chart,
+    Column,
+    Combo,
+    Histogram,
+    Line,
+    Scatter,
+    configure,
+    reset,
+)
 from beacon.plot.charts.data import limited
 from beacon.plot.marks import (
     AreaMark,
@@ -308,3 +319,73 @@ class TestCombo:
         assert bars.edge and bars.seamless
         assert all(left + width == pytest.approx(right) for left, width, right in
                    zip(bars.positions, bars.thickness, bars.positions[1:], strict=False))
+
+
+RETURNS = pd.DataFrame({"Benchmark": RNG.normal(0.0, 0.01, 200)})
+RETURNS["Fund"] = 0.9 * RETURNS["Benchmark"] + RNG.normal(0.0, 0.003, 200)
+
+
+class TestScatter:
+
+    def test_measures_by_column_or_series(self):
+        by_column = Scatter(RETURNS, x="Benchmark", y="Fund")
+        by_series = Scatter(x=RETURNS["Benchmark"], y=RETURNS["Fund"])
+
+        assert marks_of(by_column, PointMark) == marks_of(by_series, PointMark)
+        assert by_column.layout.panels[0].x.title.text == "Benchmark"
+
+    def test_a_missing_measure_is_refused(self):
+        with pytest.raises(ValueError, match="names no column"):
+            Scatter(RETURNS, x="Benchmark", y="Index")
+
+    def test_a_fitted_line(self):
+        chart = Scatter(RETURNS, x="Benchmark", y="Fund", fit="linear")
+        summary = marks_of(chart, TextMark)[0].text
+
+        assert summary.startswith("\N{GREEK SMALL LETTER BETA} 0.9")
+        assert [entry.label for entry in chart.layout.legend.entries] == ["Points", "Fitted line"]
+
+    def test_a_curve_and_named_points(self):
+        holdings = pd.DataFrame({"Risk": [0.2, 0.3], "Return": [0.08, 0.12],
+                                 "Ticker": ["A", "B"]})
+        curve = pd.Series([0.06, 0.1, 0.14], index=[0.12, 0.13, 0.16], name="Frontier")
+        chart = Scatter(holdings, x="Risk", y="Return", labels="Ticker", name="Holdings",
+                        curve=curve)
+
+        assert [text.text for text in marks_of(chart, TextMark)] == ["A", "B"]
+        assert [entry.label for entry in chart.layout.legend.entries] == ["Holdings",
+                                                                          "Frontier"]
+
+    def test_axes_through_zero(self):
+        chart = Scatter(RETURNS, x="Benchmark", y="Fund", axes="origin", signed=True,
+                        quadrants=("Both up", "", "Both down", ""))
+        panel = chart.layout.panels[0]
+        zero = [tick for tick in panel.x.ticks if tick.value == 0.0]
+
+        assert panel.origin and panel.x.low == -panel.x.high
+        assert zero and zero[0].label == ""
+        assert {point.colour for point in marks_of(chart, PointMark)} == {"success", "danger"}
+        assert "Both up" in [text.text for text in marks_of(chart, TextMark)]
+
+    def test_shares_are_written_briefly(self):
+        panel = Scatter(RETURNS, x="Benchmark", y="Fund", percent=True).layout.panels[0]
+
+        assert all(tick.label.endswith("%") and ".0" not in tick.label
+                   for tick in panel.x.ticks if tick.label)
+
+
+class TestHistogram:
+
+    def test_equal_bins(self):
+        bars = marks_of(Histogram(RETURNS["Fund"], bins=20), BarMark)[0]
+
+        assert len(bars.positions) == 20
+        assert sum(bars.values) == 200
+
+    def test_a_normal_curve_and_a_marked_value(self):
+        chart = Histogram(RETURNS["Fund"], normal=True, mark={"VaR": -0.015}, percent=True)
+        rule = marks_of(chart, RuleMark)[0]
+
+        assert len(marks_of(chart, LineMark)) == 1
+        assert (rule.value, rule.vertical) == (-0.015, True)
+        assert marks_of(chart, TextMark)[0].text == "VaR \N{MINUS SIGN}1.50%"

@@ -402,3 +402,13 @@ def percent_labels(ticks: Sequence[float],
 
     return Labels(tuple(fix_minus(f"{100.0 * tick / whole:0.{decimals}f}{symbol}")
                         for tick in ticks))
+
+
+def share_labels(ticks: Sequence[float],
+                 low: float,
+                 high: float) -> Labels:
+    """Shares written as percentages, with as few decimals as tell the ticks
+    apart: 5%, 10%, 15% rather than 5.0%, 10.0%, 15.0%."""
+    written = number_labels([100.0 * tick for tick in ticks], 100.0 * low, 100.0 * high)
+
+    return Labels(tuple(f"{label}%" for label in written.labels), written.offset)

@@ -12,8 +12,9 @@ import pytest
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import numpy as np
 
-from beacon.plot import Area, Bar, Column, Combo, Line, reset
+from beacon.plot import Area, Bar, Column, Combo, Histogram, Line, Scatter, reset
 from beacon.testing import dataset
 from beacon.tokens import DARK, LIGHT
 
@@ -137,3 +138,38 @@ class TestBarImages:
                      subtitle="Each column runs to the next trading day",
                      ylabel="Net flows", ylabel_secondary="Assets",
                      style={"theme": theme}).figure
+
+
+@pytest.mark.parametrize("theme", THEMES)
+class TestPointImages:
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_scatter_fitted(self, prices, theme):
+        returns = prices[["AAA", "DDD"]].pct_change().dropna().loc["2024"]
+
+        return Scatter(returns, x="DDD", y="AAA", fit="linear", percent=True,
+                       title="Sensitivity", subtitle="AAA's daily returns against DDD's, 2024",
+                       style={"theme": theme}).figure
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_scatter_origin(self, prices, theme):
+        returns = prices.pct_change().dropna().loc["2024"]
+        active = returns.std() - returns.std().mean()
+        excess = returns.mean() * 252 - (returns.mean() * 252).mean()
+        bets = pd.DataFrame({"Active weight": active, "Excess return": excess})
+
+        return Scatter(bets, x="Active weight", y="Excess return", labels=bets.index.to_series(),
+                       axes="origin", signed=True, percent=True,
+                       quadrants=("Over, ahead", "Under, ahead", "Under, behind",
+                                  "Over, behind"),
+                       title="Did the bets pay off?", subtitle="Each holding, 2024",
+                       style={"theme": theme}).figure
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_histogram(self, prices, theme):
+        returns = prices["AAA"].pct_change().dropna().rename("Daily return")
+
+        return Histogram(returns, bins=40, normal=True,
+                         mark={"95% VaR": float(np.quantile(returns, 0.05))}, percent=True,
+                         title="Daily returns", subtitle="How often AAA moved by each amount",
+                         style={"theme": theme}).figure

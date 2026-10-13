@@ -180,7 +180,7 @@ class _Bars(Chart):
                      series: list[str]) -> Description:
         count = len(names)
         places = tuple(self._place(at, count) for at in range(count))
-        labels: LabelStyle = "percent" if self.percent else "number"
+        labels: LabelStyle = "share" if self.percent else "number"
         low, high = limited(*extent(everything), self.lim)
         categories = Axis("names", -0.5, count - 0.5, ticks=places, names=tuple(names))
 

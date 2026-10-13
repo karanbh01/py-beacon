@@ -234,6 +234,10 @@ def _numbers(every: list[float],
     if spec.labels == "percent":
         return ticks.percent_labels(every, low, high).labels, ""
 
+    if spec.labels == "share":
+        written = ticks.share_labels(every, low, high)
+        return written.labels, written.offset
+
     if callable(spec.labels):
         return tuple(str(spec.labels(value)) for value in every), ""
 

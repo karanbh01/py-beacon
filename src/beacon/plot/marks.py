@@ -139,7 +139,8 @@ class TextMark:
         ha: Which side of its box sits on the point.
         va: Which side of it sits on the point.
         coords: "data" for both in data, "axes" for both as fractions of the
-            plot, "xdata" for x in data and y as a fraction.
+            plot, "xdata" for x in data and y as a fraction, "ydata" for x as a
+            fraction and y in data.
         clip: Whether it is left out when its point falls outside the plot.
         halo: Whether it is outlined in the background's colour, so it reads
             over the lines it sits on.
@@ -155,7 +156,7 @@ class TextMark:
     dy: float = 0.0
     ha: Literal["left", "center", "right"] = "left"
     va: Literal["top", "center", "bottom", "baseline"] = "center"
-    coords: Literal["data", "axes", "xdata"] = "data"
+    coords: Literal["data", "axes", "xdata", "ydata"] = "data"
     clip: bool = False
     halo: bool = False
     panel: int = 0

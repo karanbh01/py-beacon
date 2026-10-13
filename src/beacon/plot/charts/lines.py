@@ -264,7 +264,7 @@ class Line(Chart):
         x_low, x_high = limited(*extent(x), self.xlim, dates)
         y_low, y_high = limited(*extent(*(values(self.data[name]) for name in self.data),
                                         reference), self.ylim)
-        labels: LabelStyle = "percent" if self.percent else "number"
+        labels: LabelStyle = "share" if self.percent else "number"
         y2 = None
 
         if self.secondary is not None:
@@ -382,7 +382,7 @@ class Area(Chart):
         panel = Panel(x=Axis("date" if dates else "number", *extent(x), title=self.xlabel,
                              end=False),
                       y=Axis("number", y_low, y_high,
-                             labels="percent" if self.percent else "number", title=self.ylabel))
+                             labels="share" if self.percent else "number", title=self.ylabel))
         description = Description(size=self._size(), title=self.title, subtitle=self.subtitle,
                                   notes=self._notes(), panels=(panel,), legend=legend)
 
