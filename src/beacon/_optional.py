@@ -22,6 +22,8 @@ from .exceptions import MissingDependencyError
 # passed to require() must appear here; a missing entry is a packaging bug.
 EXTRA_FOR_MODULE = {
     "fastapi": "server",
+    # Measures chart text for the layout; matplotlib brings it too.
+    "fontTools": "plot",
     "matplotlib": "plot",
     "openpyxl": "excel",
     "orjson": "server",

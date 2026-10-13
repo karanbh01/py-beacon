@@ -16,6 +16,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 ### Changed
 
 - Series take a new palette in order: blue, deep blue, magenta, pink, lime, green, olive, red and oxblood, then black (white on a dark canvas) and five greys. Orange is no longer a default: in `compare()` a second line is deep blue rather than purple, and a third magenta rather than orange. Marked periods get their own colour per theme.
+- A chart's frame is laid out before it is drawn, without a renderer, so an interactive version can draw the same layout: where the plot sits, where each axis ends and what its ticks say, and where the heading, legend and notes go. The ticks are the same as before. Text is now measured from the bundled fonts rather than from the drawn image, so a plot's edges move by up to 0.014in. Notes now wrap at their measured width, so a line can hold more: the annual returns chart's notes fit on one line instead of two. A chart's measuring axes keep the ticks they were drawn with: setting new limits on the returned axes no longer picks new ticks.
 
 ## [0.7.0] - 2026-10-12
 

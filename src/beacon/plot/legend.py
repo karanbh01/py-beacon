@@ -6,30 +6,29 @@ says (legend.position), under the plot or in one column to its right.
 The legend sits at the right of the heading band, right-aligned with the end
 of the x axis and its bottom level with the subtitle's, in a row of as many
 entries as fit beside the title and subtitle; it wraps onto more rows, upward,
-when they do not. A legend taller than
-the heading pushes the plot down rather than running into it, and one that
-cannot fit beside the heading at all goes under it.
+when they do not. A legend taller than the heading pushes the plot down rather
+than running into it, and one that cannot fit beside the heading at all goes
+under it.
 
-Widths are measured from the fonts themselves, as text paths, so the layout
-needs no renderer and comes out the same on every backend.
+Widths are measured from the fonts themselves (beacon.plot.metrics), so the
+layout needs no renderer and comes out the same on every backend.
 """
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal
 
-from .._optional import require
+import numpy as np
 
-require("matplotlib", "Charting")
-
-import matplotlib  # noqa: E402
-from matplotlib.axes import Axes  # noqa: E402
-from matplotlib.font_manager import FontProperties  # noqa: E402
-from matplotlib.textpath import TextPath  # noqa: E402
+from . import metrics
+from .layout import Box, LegendEntry, LegendItem, Text
+from .metrics import Font
 
 # Spacing inside the legend, in multiples of its font size.
 HANDLE_LENGTH = 1.6
 HANDLE_GAP = 0.5
 COLUMN_GAP = 1.2
 ROW_HEIGHT = 1.35
+# A key's height, and where its line sits above the label's baseline.
+KEY_HEIGHT = 0.7
 
 # The least room, in points, kept between the heading's text and the legend.
 CLEARANCE = 12.0
@@ -37,10 +36,9 @@ CLEARANCE = 12.0
 
 @dataclass(frozen=True)
 class LegendPlan:
-    """Where a framed chart's legend goes and how it is laid out."""
+    """How a framed chart's legend is laid out."""
 
-    handles: list[Any]
-    labels: list[str]
+    labels: tuple[str, ...]
     columns: int
     height: float  # inches
     beside: bool   # beside the heading, or under it
@@ -50,27 +48,26 @@ class LegendPlan:
 def text_width(text: str,
                size: float,
                family: str,
-               style: Literal["normal", "italic", "oblique"] = "normal",
-               weight: Any = "normal") -> float:
+               italic: bool = False,
+               weight: int = 400) -> float:
     """How wide *text* is set, in inches."""
-    if not text:
-        return 0.0
-
-    font = FontProperties(family=family, style=style, weight=weight)
-
-    return float(TextPath((0, 0), text, size=size, prop=font).get_extents().width) / 72.0
+    return metrics.width(text, size, Font(family, weight, italic))
 
 
-def plan(ax: Axes,
+def plan(labels: Sequence[str],
+         size: float,
+         font: Font,
          heading_width: float,
          room: float,
          under: bool = False,
          columns: int | None = None) -> LegendPlan | None:
-    """Lay out an axes' legend for the heading band, or under the plot, or in
-    a set number of columns.
+    """Lay out a legend for the heading band, or under the plot, or in a set
+    number of columns.
 
     Args:
-        ax: The chart's axes.
+        labels: The entries' labels.
+        size: Their size, in points.
+        font: Their face.
         heading_width: How far the heading's text reaches from the plot's
             left edge, in inches.
         room: The plot's width, in inches.
@@ -79,23 +76,12 @@ def plan(ax: Axes,
             plot.
 
     Returns:
-        LegendPlan | None: None when the axes has no legend.
+        LegendPlan | None: None when there are no entries.
     """
-    legend = ax.get_legend()
-
-    if legend is None:
-        return None
-
-    handles = list(getattr(legend, "legend_handles", []))
-    labels = [text.get_text() for text in legend.get_texts()]
-
     if not labels:
         return None
 
-    size = _font_size()
-    family = matplotlib.rcParams["font.sans-serif"][0]
-    weight = matplotlib.rcParams["font.weight"]
-    entry = (max(text_width(label, size, family, weight=weight) for label in labels)
+    entry = (max(metrics.width(label, size, font) for label in labels)
              + (HANDLE_LENGTH + HANDLE_GAP) * size / 72.0)
     gap = COLUMN_GAP * size / 72.0
 
@@ -112,61 +98,11 @@ def plan(ax: Axes,
 
     rows = -(-len(labels) // columns)
 
-    return LegendPlan(handles=handles,
-                      labels=labels,
+    return LegendPlan(labels=tuple(labels),
                       columns=columns,
                       height=rows * ROW_HEIGHT * size / 72.0,
                       beside=fits_beside,
                       width=columns * entry + (columns - 1) * gap)
-
-
-def place(ax: Axes,
-          layout: LegendPlan,
-          right: float,
-          bottom: float) -> None:
-    """Redraw the axes' legend at the bottom right of the heading band.
-
-    Args:
-        ax: The chart's axes.
-        layout: From plan().
-        right: The plot's right edge, as a figure fraction.
-        bottom: Where the legend's bottom sits, as a figure fraction.
-    """
-    figure = ax.get_figure()
-    assert figure is not None
-
-    ax.legend(layout.handles, layout.labels, ncol=layout.columns,
-              loc="lower right", bbox_to_anchor=(right, bottom),
-              bbox_transform=figure.transFigure, frameon=False,
-              borderaxespad=0.0, borderpad=0.0,
-              handlelength=HANDLE_LENGTH, handletextpad=HANDLE_GAP,
-              columnspacing=COLUMN_GAP, labelspacing=ROW_HEIGHT - 1.0)
-
-
-def place_at(ax: Axes,
-             layout: LegendPlan,
-             x: float,
-             y: float,
-             anchor: str) -> None:
-    """Redraw the axes' legend with its *anchor* corner at (x, y), figure
-    fractions: under the plot or beside it.
-
-    Args:
-        ax: The chart's axes.
-        layout: From plan().
-        x: Across, as a figure fraction.
-        y: Up, as a figure fraction.
-        anchor: Which corner sits there, such as "upper left".
-    """
-    figure = ax.get_figure()
-    assert figure is not None
-
-    ax.legend(layout.handles, layout.labels, ncol=layout.columns,
-              loc=anchor, bbox_to_anchor=(x, y),
-              bbox_transform=figure.transFigure, frameon=False,
-              borderaxespad=0.0, borderpad=0.0,
-              handlelength=HANDLE_LENGTH, handletextpad=HANDLE_GAP,
-              columnspacing=COLUMN_GAP, labelspacing=ROW_HEIGHT - 1.0)
 
 
 def _columns(count: int,
@@ -181,13 +117,44 @@ def _columns(count: int,
     return 0
 
 
-def _font_size() -> float:
-    """The legend's font size, in points."""
-    from matplotlib.font_manager import font_scalings
+def entries(items: Sequence[LegendItem],
+            columns: int,
+            size: float,
+            font: Font,
+            anchor: tuple[float, float],
+            corner: str) -> tuple[Box, tuple[LegendEntry, ...]]:
+    """Each entry's key and label, with the legend's *corner* (such as
+    "lower right") at *anchor*.
 
-    size = matplotlib.rcParams["legend.fontsize"]
+    Entries fill the columns in turn, top to bottom, each column as wide as
+    its widest entry, as matplotlib sets a legend.
+    """
+    em = size / 72.0
+    line = metrics.box(metrics.REFERENCE_TEXT, size, font)
+    above = max(KEY_HEIGHT * em, line.ascent)
+    pitch = above + line.descent + (ROW_HEIGHT - 1.0) * em
+    split = [list(part) for part in np.array_split(np.arange(len(items)), columns) if len(part)]
+    widths = [max(metrics.width(items[i].label, size, font) for i in column)
+              + (HANDLE_LENGTH + HANDLE_GAP) * em for column in split]
+    rows = max(len(column) for column in split)
+    wide = sum(widths) + (len(split) - 1) * COLUMN_GAP * em
+    tall = rows * pitch - (ROW_HEIGHT - 1.0) * em
+    left = anchor[0] - (wide if "right" in corner else 0.0)
+    bottom = anchor[1] - (tall if "upper" in corner else 0.0)
+    placed: list[LegendEntry] = []
+    x = left
 
-    if isinstance(size, str):
-        return float(matplotlib.rcParams["font.size"]) * font_scalings.get(size, 1.0)
+    for column, column_width in zip(split, widths, strict=True):
+        for row, index in enumerate(column):
+            item = items[index]
+            baseline = bottom + tall - above - row * pitch
+            key = Box(x, baseline, HANDLE_LENGTH * em, KEY_HEIGHT * em)
+            text = Text(item.label, key.right + HANDLE_GAP * em, baseline, size, font,
+                        "text-primary", ha="left", va="baseline")
+            placed.append(LegendEntry(item.label, item.colour, item.key, key, text))
+        x += column_width + COLUMN_GAP * em
 
-    return float(size)
+    order = [index for column in split for index in column]
+    by_item = dict(zip(order, placed, strict=True))
+
+    return Box(left, bottom, wide, tall), tuple(by_item[i] for i in range(len(items)))

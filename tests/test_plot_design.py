@@ -19,8 +19,7 @@ from beacon.index.calculation import IndexCalculator
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import MarketCapWeighted
 from beacon.plot import Style, compare, configure, current, reset, settings, style, use
-from beacon.plot.frame import REFERENCE_ID
-from beacon.plot.scales import MARK_LABEL
+from beacon.plot.frame import MARK_LABEL, REFERENCE_ID
 from beacon.plot.themes import SERIES
 from beacon.testing import dataset
 from beacon.tokens import LIGHT

@@ -17,7 +17,8 @@ from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.patches import PathPatch  # noqa: E402
 from matplotlib.path import Path as Outline  # noqa: E402
 
-from .scales import MARK_LABEL  # noqa: E402
+# The label on the axes that holds the mark, which the layout leaves alone.
+MARK_LABEL = "beacon-mark"
 
 # The mark's height beside a heading at its designed size, in inches.
 MARK_INCHES = 0.192
