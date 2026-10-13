@@ -10,14 +10,15 @@ import numpy as np
 from .._optional import require
 from . import style as beacon_style
 from .base import ChartMethods
-from .drawing import _axes, _finish, _given, _ink, _signed_colours, _truncate
+from .design import StyleArgument
+from .drawing import _axes, _finish, _given, _ink, _signed_colours, _truncate, styled
 
 require("matplotlib", "Charting")
 
 from matplotlib.axes import Axes  # noqa: E402
 
 # Inches kept under a heatmap for its slanted asset names.
-SLANTED_LABEL_ROOM = beacon_style.scaled(0.5)
+SLANTED_LABEL_ROOM = 0.5
 
 # How much of the accent's brightness the tangency point keeps, per style.
 DEEP_ACCENT = {"light": 0.6, "dark": 0.7}
@@ -30,11 +31,13 @@ SHADINGS = {"squares": "nearest", "blended": "bicubic"}
 class OptimisationPlots(ChartMethods):
     """Charts for an `OptimisationResult`."""
 
+    @styled
     def exposures(self,
                   ax: Axes | None = None,
                   title: str | None = None,
                   subtitle: str | None = None,
-                  notes: str | None = None) -> Axes:
+                  notes: str | None = None,
+                  style: StyleArgument = None) -> Axes:
         """Active weights as sign-coloured tilts against the index.
 
         Args:
@@ -43,6 +46,9 @@ class OptimisationPlots(ChartMethods):
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
                 source and dates and what the chart needs said.
+            style: Settings for this chart alone: a Style, or settings by
+                name such as {"mark": False, "scale": 1.2}. None draws in the
+                current style (beacon.plot.configure).
 
         Returns:
             Axes: What was drawn on.
@@ -54,8 +60,9 @@ class OptimisationPlots(ChartMethods):
                                             [float(value) for value in active])
 
         ax.barh(labels, values, color=_signed_colours(ax, values), height=0.68)
-        ax.axvline(0.0, color=_ink(ax, "border"),
-                   linewidth=beacon_style.REFERENCE_WIDTH)
+        if beacon_style.reference_lines():
+            ax.axvline(0.0, color=_ink(ax, "border"),
+                       linewidth=beacon_style.reference_width())
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:+.1%}")
         ax.grid(visible=False)
 
@@ -71,13 +78,15 @@ class OptimisationPlots(ChartMethods):
                        "",
                        _given(notes, note))
 
+    @styled
     def frontier(self,
                  frontier: Any,
                  risk_free_rate: float | None = None,
                  ax: Axes | None = None,
                  title: str | None = None,
                  subtitle: str | None = None,
-                 notes: str | None = None) -> Axes:
+                 notes: str | None = None,
+                 style: StyleArgument = None) -> Axes:
         """The efficient frontier, with the named points and the capital line.
 
         Args:
@@ -90,6 +99,9 @@ class OptimisationPlots(ChartMethods):
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
                 source and dates and what the chart needs said.
+            style: Settings for this chart alone: a Style, or settings by
+                name such as {"mark": False, "scale": 1.2}. None draws in the
+                current style (beacon.plot.configure).
 
         Returns:
             Axes: What was drawn on.
@@ -105,7 +117,7 @@ class OptimisationPlots(ChartMethods):
         returns = [point.expected_return or 0.0 for point in frontier.points]
 
         ax.plot(volatilities, returns, color=_ink(ax, "accent"),
-                linewidth=beacon_style.SERIES_WIDTH, zorder=3, label="Frontier")
+                linewidth=beacon_style.series_width(), zorder=3, label="Frontier")
 
         tangency = frontier.tangency
         minimum = frontier.minimum_variance
@@ -142,7 +154,7 @@ class OptimisationPlots(ChartMethods):
             ax.annotate(f"Sharpe {tangency.sharpe_ratio:.2f}",
                         xy=(tangency.volatility, tangency.expected_return or 0.0),
                         xytext=(beacon_style.scaled(8), beacon_style.scaled(-10)),
-                        textcoords="offset points", fontsize=beacon_style.LINE_LABEL_SIZE,
+                        textcoords="offset points", fontsize=beacon_style.label_size(),
                         color=tangency_ink, fontweight="bold")
 
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
@@ -177,12 +189,14 @@ def _deep_accent(ax: Axes) -> str:
 class RiskPlots(ChartMethods):
     """Charts for a `RiskModel`."""
 
+    @styled
     def correlation(self,
                     shading: str = "squares",
                     ax: Axes | None = None,
                     title: str | None = None,
                     subtitle: str | None = None,
-                    notes: str | None = None) -> Axes:
+                    notes: str | None = None,
+                    style: StyleArgument = None) -> Axes:
         """The correlation matrix as a heatmap.
 
         Args:
@@ -194,6 +208,9 @@ class RiskPlots(ChartMethods):
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
                 source and dates and what the chart needs said.
+            style: Settings for this chart alone: a Style, or settings by
+                name such as {"mark": False, "scale": 1.2}. None draws in the
+                current style (beacon.plot.configure).
 
         Returns:
             Axes: What was drawn on.
@@ -230,7 +247,7 @@ class RiskPlots(ChartMethods):
         outline: Any = bar.outline
         if outline is not None:
             outline.set_visible(False)
-        bar.ax.tick_params(labelsize=beacon_style.TICK_LABEL_SIZE, length=0)
+        bar.ax.tick_params(labelsize=beacon_style.tick_label_size(), length=0)
 
         # What the two ends of the scale mean, each at its own end of the bar
         # and reading up it, beyond the numbers.
@@ -251,4 +268,4 @@ class RiskPlots(ChartMethods):
                                      f"estimate."),
                        # The asset names are slanted, so they hang lower than
                        # a row of dates does.
-                       bottom_room=SLANTED_LABEL_ROOM)
+                       bottom_room=beacon_style.scaled(SLANTED_LABEL_ROOM))

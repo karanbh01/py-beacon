@@ -1,6 +1,7 @@
 # src/beacon/plot/legend.py
 """
-A framed chart's legend, in the heading band.
+A framed chart's legend: in the heading band by default, or, as the style
+says (legend.position), under the plot or in one column to its right.
 
 The legend sits at the right of the heading band, right-aligned with the end
 of the x axis and its bottom level with the subtitle's, in a row of as many
@@ -43,6 +44,7 @@ class LegendPlan:
     columns: int
     height: float  # inches
     beside: bool   # beside the heading, or under it
+    width: float = 0.0  # inches
 
 
 def text_width(text: str,
@@ -61,14 +63,20 @@ def text_width(text: str,
 
 def plan(ax: Axes,
          heading_width: float,
-         room: float) -> LegendPlan | None:
-    """Lay out an axes' legend for the heading band.
+         room: float,
+         under: bool = False,
+         columns: int | None = None) -> LegendPlan | None:
+    """Lay out an axes' legend for the heading band, or under the plot, or in
+    a set number of columns.
 
     Args:
         ax: The chart's axes.
         heading_width: How far the heading's text reaches from the plot's
             left edge, in inches.
         room: The plot's width, in inches.
+        under: Lay it out across the plot's whole width, under it.
+        columns: A set number of columns, such as one for a legend beside the
+            plot.
 
     Returns:
         LegendPlan | None: None when the axes has no legend.
@@ -91,12 +99,16 @@ def plan(ax: Axes,
              + (HANDLE_LENGTH + HANDLE_GAP) * size / 72.0)
     gap = COLUMN_GAP * size / 72.0
 
-    beside = room - heading_width - CLEARANCE / 72.0
-    columns = _columns(len(labels), entry, gap, beside)
-    fits_beside = columns > 0
+    if columns is not None or under:
+        fits_beside = False
+        columns = columns or max(1, _columns(len(labels), entry, gap, room))
+    else:
+        beside = room - heading_width - CLEARANCE / 72.0
+        columns = _columns(len(labels), entry, gap, beside)
+        fits_beside = columns > 0
 
-    if not fits_beside:
-        columns = max(1, _columns(len(labels), entry, gap, room))
+        if not fits_beside:
+            columns = max(1, _columns(len(labels), entry, gap, room))
 
     rows = -(-len(labels) // columns)
 
@@ -104,7 +116,8 @@ def plan(ax: Axes,
                       labels=labels,
                       columns=columns,
                       height=rows * ROW_HEIGHT * size / 72.0,
-                      beside=fits_beside)
+                      beside=fits_beside,
+                      width=columns * entry + (columns - 1) * gap)
 
 
 def place(ax: Axes,
@@ -124,6 +137,32 @@ def place(ax: Axes,
 
     ax.legend(layout.handles, layout.labels, ncol=layout.columns,
               loc="lower right", bbox_to_anchor=(right, bottom),
+              bbox_transform=figure.transFigure, frameon=False,
+              borderaxespad=0.0, borderpad=0.0,
+              handlelength=HANDLE_LENGTH, handletextpad=HANDLE_GAP,
+              columnspacing=COLUMN_GAP, labelspacing=ROW_HEIGHT - 1.0)
+
+
+def place_at(ax: Axes,
+             layout: LegendPlan,
+             x: float,
+             y: float,
+             anchor: str) -> None:
+    """Redraw the axes' legend with its *anchor* corner at (x, y), figure
+    fractions: under the plot or beside it.
+
+    Args:
+        ax: The chart's axes.
+        layout: From plan().
+        x: Across, as a figure fraction.
+        y: Up, as a figure fraction.
+        anchor: Which corner sits there, such as "upper left".
+    """
+    figure = ax.get_figure()
+    assert figure is not None
+
+    ax.legend(layout.handles, layout.labels, ncol=layout.columns,
+              loc=anchor, bbox_to_anchor=(x, y),
               bbox_transform=figure.transFigure, frameon=False,
               borderaxespad=0.0, borderpad=0.0,
               handlelength=HANDLE_LENGTH, handletextpad=HANDLE_GAP,

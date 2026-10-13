@@ -43,14 +43,18 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib import font_manager  # noqa: E402
 from matplotlib.axes import Axes  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
-from matplotlib.patches import PathPatch, Rectangle  # noqa: E402
+from matplotlib.patches import Rectangle  # noqa: E402
 
+from . import design  # noqa: E402
 from .legend import LegendPlan, text_width  # noqa: E402
 from .legend import place as place_legend  # noqa: E402
+from .legend import place_at as place_legend_at  # noqa: E402
 from .legend import plan as legend_plan  # noqa: E402
-from .mark import beta_outline  # noqa: E402
-from .scales import MARK_LABEL, end_on_ticks, fit_sides  # noqa: E402
-from .style import SCALE  # noqa: E402
+from .mark import MARK_INCHES, draw_mark  # noqa: E402
+
+# MARK_LABEL is re-exported: callers find the mark's axes by it through frame.
+from .scales import MARK_LABEL, apply_grid, end_on_ticks, fit_sides  # noqa: E402, F401
+from .style import SCALE, apply, font_family  # noqa: E402
 from .themes import Theme, for_background, of_figure, remember, theme_named  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -83,10 +87,11 @@ LINE_GAP = 0.5
 
 # Distances in inches, so a frame keeps its proportions on any figure size.
 MARGIN_INCHES = 0.25
-MARK_INCHES = 0.192
 PLOT_GAP_INCHES = 0.12
 TICK_ROOM_INCHES = 0.3 * SCALE
 NOTES_GAP_INCHES = 0.04 * SCALE
+# Between the plot and a legend placed under it or beside it.
+LEGEND_GAP_INCHES = 0.12
 
 # Line heights as multiples of the font size: tight in the heading, so its
 # two lines sit together beside the mark, and easier in the notes. The frame
@@ -128,7 +133,8 @@ def register_fonts() -> None:
 
 
 def new_figure(size: tuple[float, float]) -> Figure:
-    """A figure this module will frame, in the current theme."""
+    """A figure this module will frame, in the current theme and style."""
+    apply()
     figure = plt.figure(figsize=size)
     _OWNED.add(figure)
     remember(figure, figure.get_facecolor())
@@ -161,10 +167,19 @@ def mode_of(ax: Axes) -> str:
     return theme_of(ax).mode
 
 
+# The token colours a style can replace, and the setting that replaces each.
+STYLE_COLOURS = {"success": "up", "danger": "down", "text-primary": "text",
+                 "text-secondary": "muted", "period": "period"}
+
+
 def ink(ax: Axes,
         name: str) -> str:
-    """One token colour, in whichever theme this axes is drawn in."""
-    return theme_of(ax).colour(name)
+    """One token colour, in whichever theme this axes is drawn in, or the
+    current style's colour in its place."""
+    setting = STYLE_COLOURS.get(name)
+    chosen = getattr(design.current().colors, setting) if setting else None
+
+    return chosen or theme_of(ax).colour(name)
 
 
 def provenance(result: Any,
@@ -208,7 +223,7 @@ def finish(ax: Axes,
            ylabel: str = "",
            notes: str = "",
            note_offset: float = -0.14,
-           bottom_room: float = TICK_ROOM_INCHES) -> Axes:
+           bottom_room: float | None = None) -> Axes:
     """Give a chart its title, subtitle, axis label and notes.
 
     The whole frame when the chart made its own figure; a plain title and the
@@ -224,7 +239,8 @@ def finish(ax: Axes,
         note_offset: Where the notes sit under a supplied axes, in axes
             coordinates. A short panel needs a larger offset.
         bottom_room: Inches kept free under the plot for its tick labels and
-            anything else the chart writes beneath it.
+            anything else the chart writes beneath it; by default room for
+            one row of tick labels at the current scale.
 
     Returns:
         Axes: The same axes.
@@ -232,6 +248,10 @@ def finish(ax: Axes,
     if ylabel:
         ax.set_ylabel(ylabel)
 
+    if bottom_room is None:
+        bottom_room = TICK_ROOM_INCHES * design.current().size.scale
+
+    apply_grid(ax)
     figure = ax.get_figure()
 
     if isinstance(figure, Figure) and owns(figure):
@@ -246,12 +266,14 @@ def finish(ax: Axes,
 
     end_on_ticks(ax)
     register_fonts()
-    ax.set_title(title, loc="left", pad=12, fontfamily=TITLE_FONT,
+    ax.set_title(title, loc="left", pad=12,
+                 fontfamily=font_family(design.current().heading.title_font),
                  fontweight="normal")
 
-    if notes:
+    if notes and design.current().notes.show:
         ax.text(0.0, note_offset, notes, transform=ax.transAxes,
-                fontsize=7 * SCALE, color=ink(ax, "text-primary"), va="top",
+                fontsize=7 * SCALE * design.current().size.scale,
+                color=ink(ax, "text-primary"), va="top",
                 gid="beacon-notes")
 
     return ax
@@ -297,7 +319,8 @@ def frame(ax: Axes,
 
     The accent bar and the notes start at the y axis line, the mark sits just
     left of the bar, and the legend ends where the x axis does, so the frame
-    lines up with the plot it surrounds.
+    lines up with the plot it surrounds. Every size, font and colour comes
+    from the current style (beacon.plot.design).
 
     Args:
         ax: The chart's axes; for a chart of several panels, the top one.
@@ -312,19 +335,40 @@ def frame(ax: Axes,
     figure = ax.get_figure()
     assert isinstance(figure, Figure)  # finish() frames only figures it owns
 
-    width, height = (float(size) for size in figure.get_size_inches())
-    top = height - MARGIN_INCHES
+    current = design.current()
+    heading, zoom = current.heading, current.size.scale
+    hs = heading.scale
+    text_zoom = zoom * current.text.scale
+    title_size, subtitle_size = heading.title_size * hs, heading.subtitle_size * hs
+    title_font, subtitle_font = font_family(heading.title_font), font_family(heading.subtitle_font)
+    notes_font, notes_size = font_family(current.text.font), current.notes.size * text_zoom
+    bar_width = BAR_WIDTH * hs if heading.accent_bar else 0.0
+    bar_gap = BAR_GAP * hs if heading.accent_bar else 0.0
+    line_gap = LINE_GAP * hs
+    margin = MARGIN_INCHES * zoom
+    plot_gap, notes_gap = PLOT_GAP_INCHES * zoom, NOTES_GAP_INCHES * zoom
+    text_colour = current.colors.text or theme.colour("text-primary")
+    muted_colour = current.colors.muted or theme.colour("text-secondary")
+    notes = notes if current.notes.show else ""
+    position = current.legend.position
 
-    bottom = top - TITLE_SIZE * HEADING_LINE_HEIGHT / 72.0
-    subtitle_top = bottom - LINE_GAP / 72.0
+    if position == "none" and ax.get_legend() is not None:
+        ax.get_legend().remove()
+
+    width, height = (float(size) for size in figure.get_size_inches())
+    top = height - margin
+
+    bottom = top - title_size * HEADING_LINE_HEIGHT / 72.0
+    subtitle_top = bottom - line_gap / 72.0
     if subtitle:
-        bottom = subtitle_top - SUBTITLE_SIZE * HEADING_LINE_HEIGHT / 72.0
+        bottom = subtitle_top - subtitle_size * HEADING_LINE_HEIGHT / 72.0
 
     # How far the heading's text reaches past the plot's left edge, which is
     # the room the legend has to keep clear of.
-    reach = (BAR_WIDTH + BAR_GAP) / 72.0 + max(
-        text_width(title, TITLE_SIZE, TITLE_FONT),
-        text_width(subtitle, SUBTITLE_SIZE, SUBTITLE_FONT, "italic", SUBTITLE_WEIGHT))
+    reach = (bar_width + bar_gap) / 72.0 + max(
+        text_width(title, title_size, title_font),
+        text_width(subtitle, subtitle_size, subtitle_font,
+                   "italic" if heading.subtitle_italic else "normal", SUBTITLE_WEIGHT))
 
     # Placed in passes. The plot's height depends on how many lines the notes
     # take and how tall the legend is, their widths on where the axes end up,
@@ -332,64 +376,87 @@ def frame(ax: Axes,
     lines: list[str] = []
     band = bottom
     legend_layout = None
+    beneath = 0.0
     for _ in range(3):
-        floor = MARGIN_INCHES + len(lines) * NOTES_SIZE * NOTES_LINE_HEIGHT / 72.0
-        figure.subplots_adjust(top=(band - PLOT_GAP_INCHES) / height,
-                               bottom=(floor + NOTES_GAP_INCHES + bottom_room) / height)
+        floor = margin + len(lines) * notes_size * NOTES_LINE_HEIGHT / 72.0
+        figure.subplots_adjust(top=(band - plot_gap) / height,
+                               bottom=(floor + notes_gap + bottom_room + beneath) / height)
         # The axes are ended on their ticks at the size the plot has in this
         # pass: matplotlib picks its tick step from the plot's size, so ends
         # chosen for a taller plot can fall between the ticks of a shorter one.
         for panel in figure.get_axes():
             end_on_ticks(panel)
 
-        fit_sides(figure, MARGIN_INCHES)
+        fit_sides(figure, margin)
+        if position == "right" and legend_layout is not None:
+            # Room on the right for a legend of one column.
+            room = legend_layout.width + LEGEND_GAP_INCHES * zoom
+            figure.subplots_adjust(right=min(figure.subplotpars.right,
+                                             (width - margin - room) / width))
         left, right = _plot_edges(ax, width)
 
         if notes:
-            lines = _wrap(f"Notes: {notes}", right - left)
+            lines = _wrap(f"Notes: {notes}", right - left, notes_size)
 
-        legend_layout = legend_plan(ax, reach, right - left)
-        band = _band_bottom(bottom, top, legend_layout)
+        if position == "heading":
+            legend_layout = legend_plan(ax, reach, right - left)
+            band = _band_bottom(bottom, top, legend_layout)
+        elif position == "bottom":
+            legend_layout = legend_plan(ax, 0.0, right - left, under=True)
+            beneath = legend_layout.height + LEGEND_GAP_INCHES * zoom if legend_layout else 0.0
+        elif position == "right":
+            legend_layout = legend_plan(ax, 0.0, right - left, columns=1)
 
-    text_left = left + (BAR_WIDTH + BAR_GAP) / 72.0
+    text_left = left + (bar_width + bar_gap) / 72.0
 
     if legend_layout is not None:
-        # Its bottom on the heading band's: level with the subtitle when it
-        # fits beside the heading, growing upward when it has more rows.
-        place_legend(ax, legend_layout, right / width, band / height)
+        if position == "heading":
+            # Its bottom on the heading band's: level with the subtitle when it
+            # fits beside the heading, growing upward when it has more rows.
+            place_legend(ax, legend_layout, right / width, band / height)
+        elif position == "bottom":
+            place_legend_at(ax, legend_layout, left / width,
+                            (floor + notes_gap + beneath) / height, "upper left")
+        elif position == "right":
+            box = ax.get_position()
+            place_legend_at(ax, legend_layout, (width - margin) / width, box.y1, "upper right")
 
     figure.text(text_left / width, top / height, title,
-                fontfamily=TITLE_FONT, fontsize=TITLE_SIZE, fontweight="normal",
-                color=theme.colour("text-primary"), ha="left", va="top",
+                fontfamily=title_font, fontsize=title_size, fontweight="normal",
+                color=text_colour, ha="left", va="top",
                 gid="beacon-title")
 
     if subtitle:
         figure.text(text_left / width, subtitle_top / height, subtitle,
-                    fontfamily=SUBTITLE_FONT, fontsize=SUBTITLE_SIZE,
-                    fontstyle="italic", fontweight=SUBTITLE_WEIGHT,
-                    color=theme.colour("text-secondary"),
+                    fontfamily=subtitle_font, fontsize=subtitle_size,
+                    fontstyle="italic" if heading.subtitle_italic else "normal",
+                    fontweight=SUBTITLE_WEIGHT, color=muted_colour,
                     ha="left", va="top", gid="beacon-subtitle")
 
-    # Square-cornered: a Rectangle has no rounding, and with no edge drawn its
-    # corners are exactly the box's.
-    figure.add_artist(Rectangle((left / width, bottom / height),
-                                BAR_WIDTH / 72.0 / width,
-                                (top - bottom) / height,
-                                transform=figure.transFigure,
-                                facecolor=theme.colour("accent"),
-                                edgecolor="none",
-                                linewidth=0))
+    if heading.accent_bar:
+        # Square-cornered: a Rectangle has no rounding, and with no edge drawn
+        # its corners are exactly the box's.
+        figure.add_artist(Rectangle((left / width, bottom / height),
+                                    bar_width / 72.0 / width,
+                                    (top - bottom) / height,
+                                    transform=figure.transFigure,
+                                    facecolor=current.colors.accent_bar or theme.colour("accent"),
+                                    edgecolor="none",
+                                    linewidth=0,
+                                    gid="beacon-accent-bar"))
 
-    _draw_mark(figure,
-               left - BAR_GAP / 72.0,
-               (top + bottom) / 2.0,
-               theme.colour("text-primary"))
+    if heading.mark:
+        draw_mark(figure,
+                   left - BAR_GAP * hs / 72.0,
+                   (top + bottom) / 2.0,
+                   text_colour,
+                   MARK_INCHES * hs)
 
     if lines:
         figure.text(left / width, floor / height,
-                    "\n".join(lines), fontfamily=NOTES_FONT, fontsize=NOTES_SIZE,
-                    fontstyle="italic", fontweight=CHART_WEIGHT,
-                    color=theme.colour("text-primary"),
+                    "\n".join(lines), fontfamily=notes_font, fontsize=notes_size,
+                    fontstyle="italic" if current.notes.italic else "normal",
+                    fontweight=CHART_WEIGHT, color=text_colour,
                     ha="left", va="top", linespacing=NOTES_LINE_HEIGHT,
                     gid="beacon-notes")
 
@@ -421,51 +488,11 @@ def _plot_edges(ax: Axes,
     return box.x0 * width, box.x1 * width
 
 
-def _mark_width() -> float:
-    """How wide the mark is drawn, in inches."""
-    extent = beta_outline().get_extents()
-
-    return MARK_INCHES * extent.width / extent.height
-
-
-def _draw_mark(figure: Figure,
-               right: float,
-               middle: float,
-               colour_value: str) -> None:
-    """The beta mark beside the heading.
-
-    Args:
-        figure: The figure to draw on.
-        right: Where the mark ends, in inches from the left.
-        middle: The heading's middle, in inches from the bottom.
-        colour_value: The mark's colour.
-    """
-    width, height = (float(size) for size in figure.get_size_inches())
-    outline = beta_outline()
-    extent = outline.get_extents()
-    mark_width = _mark_width()
-
-    holder = figure.add_axes(((right - mark_width) / width,
-                              (middle - MARK_INCHES / 2.0) / height,
-                              mark_width / width,
-                              MARK_INCHES / height),
-                             label=MARK_LABEL)
-    holder.set_axis_off()
-    # Unclipped, or the glyph's anti-aliased edges are cut at the holder's
-    # boundary.
-    holder.add_patch(PathPatch(outline,
-                               facecolor=colour_value,
-                               edgecolor="none",
-                               linewidth=0,
-                               clip_on=False))
-    holder.set_xlim(extent.x0, extent.x1)
-    holder.set_ylim(extent.y0, extent.y1)
-
-
 def _wrap(text: str,
-          inches: float) -> list[str]:
+          inches: float,
+          size: float = NOTES_SIZE) -> list[str]:
     """The notes broken into lines that fit the width they have."""
-    characters = max(20, int(inches * 72.0 / (NOTES_SIZE * CHARACTER_WIDTH)))
+    characters = max(20, int(inches * 72.0 / (size * CHARACTER_WIDTH)))
 
     return textwrap.wrap(text, characters) or [text]
 

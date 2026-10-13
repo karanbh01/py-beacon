@@ -27,6 +27,8 @@ import pandas as pd
 
 from .._optional import require
 from . import style as beacon_style
+from .design import StyleArgument
+from .drawing import styled
 from .frame import REFERENCE_ID, finish, ink, new_figure
 
 require("matplotlib", "Charting")
@@ -72,12 +74,14 @@ def _label_of(result: Any,
     return f"Series {position + 1}"
 
 
+@styled
 def compare(*results: Any,
             labels: list[str] | None = None,
             ax: Axes | None = None,
             title: str | None = None,
             subtitle: str | None = None,
-            notes: str | None = None) -> Axes:
+            notes: str | None = None,
+            style: StyleArgument = None) -> Axes:
     """Plot several results on one rebased axis.
 
     Args:
@@ -89,6 +93,9 @@ def compare(*results: Any,
         subtitle: Beneath the heading. Defaults to what the lines are.
         notes: The notes line, after "Notes:". Defaults to how many shared
             observations the comparison rests on.
+        style: Settings for this chart alone: a Style, or settings by
+            name such as {"mark": False, "scale": 1.2}. None draws in the
+            current style (beacon.plot.configure).
 
     Returns:
         Axes: What was drawn on.
@@ -125,12 +132,13 @@ def compare(*results: Any,
         rebased = clipped / float(clipped.iloc[0]) * 100.0
 
         ax.plot(rebased.index, rebased.to_numpy(),
-                linewidth=beacon_style.SERIES_WIDTH, label=name)
+                linewidth=beacon_style.series_width(), label=name)
 
     # A level chart's one line, at the shared start, in place of gridlines.
     ax.grid(visible=False)
-    ax.axhline(100.0, color=ink(ax, "border"),
-               linewidth=beacon_style.REFERENCE_WIDTH, zorder=1, gid=REFERENCE_ID)
+    if beacon_style.reference_lines():
+        ax.axhline(100.0, color=ink(ax, "border"),
+                   linewidth=beacon_style.reference_width(), zorder=1, gid=REFERENCE_ID)
     ax.legend(loc="upper left")
 
     shared = (f"Aligned on {len(window)} shared observations, rebased to 100 on "

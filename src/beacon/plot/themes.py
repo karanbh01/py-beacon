@@ -52,15 +52,44 @@ class Theme:
 
     def colour(self,
                token: str) -> str:
-        """One colour in this theme: "none" for a transparent canvas."""
+        """One colour in this theme: "none" for a transparent canvas.
+
+        "period", marked periods' boxes, is the theme's own where it has one
+        and its divider otherwise.
+        """
         if token == "canvas":
             return self.canvas if self.canvas is not None else "none"
 
+        if token == "period":
+            return self.overrides.get("period") or colour("divider", self.mode)
+
         return self.overrides.get(token) or colour(token, self.mode)
+
+    def series(self) -> tuple[str, ...]:
+        """The series colours, in the order series take them."""
+        return SERIES[self.mode]
 
 
 # GitHub's dark page (its canvas.default) and the text greys it sets on it
 # (fg.default and fg.muted), with its border greys for the lines.
+# The series palette, in order: blue, deep blue, magenta, pink, lime, green,
+# olive, red and oxblood, then black (white on a dark canvas) and five greys
+# for context lines such as peers. Orange is no longer a default. Chart colours
+# rather than design tokens: the tokens are beacon-ui's (beacon.tokens), and
+# these are offered to it to adopt.
+# BN-303, chosen by Karan on 2026-10-13. The dark red is still to confirm.
+SERIES: dict[str, tuple[str, ...]] = {
+    LIGHT: ("#4a88c7", "#070f67", "#cc0088", "#ff70cf", "#adbc10", "#20a464", "#404f25",
+            "#f0200d", "#682107",
+            "#000000", "#262626", "#4d4d4d", "#737373", "#999999", "#bfbfbf"),
+    DARK: ("#6fa7dc", "#0072a3", "#beacec", "#7d59d9", "#6bcf9a", "#ccf403", "#09714e",
+           "#e0474b", "#ed8a83",
+           "#ffffff", "#f2f2f2", "#cccccc", "#a6a6a6", "#808080", "#595959"),
+}
+
+# Grey 4: unsigned bars and columns.
+GREY_4 = 13
+
 GITHUB_DARK = {
     "text-primary": "#e6edf3",
     "text-secondary": "#9198a1",
@@ -71,12 +100,16 @@ GITHUB_DARK = {
 
 THEMES: dict[str, Theme] = {
     theme.name: theme for theme in (
-        Theme("beacon-light", "beacon", LIGHT, colour("canvas", LIGHT)),
+        # Marked periods' boxes have their own colour where the divider is too
+        # faint on that canvas (BN-303).
+        Theme("beacon-light", "beacon", LIGHT, colour("canvas", LIGHT), {"period": "#e7dabb"}),
         Theme("beacon-dark", "beacon-dark", DARK, colour("canvas", DARK)),
         Theme("github-dark", "beacon-github-dark", DARK, "#0d1117", GITHUB_DARK),
-        Theme("white", "beacon-white", LIGHT, "#ffffff"),
-        Theme("transparent-dark-axes", "beacon-transparent-dark-axes", LIGHT, None),
-        Theme("transparent-light-axes", "beacon-transparent-light-axes", DARK, None),
+        Theme("white", "beacon-white", LIGHT, "#ffffff", {"period": "#e6e6e6"}),
+        Theme("transparent-dark-axes", "beacon-transparent-dark-axes", LIGHT, None,
+              {"period": "#e6e6e6"}),
+        Theme("transparent-light-axes", "beacon-transparent-light-axes", DARK, None,
+              {"period": "#4d4d4d"}),
     )
 }
 

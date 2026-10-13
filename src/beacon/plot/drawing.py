@@ -5,18 +5,26 @@ chart is read against, the last value marked, sign colours and truncation.
 
 Shared by `accessors` and `analysis_charts`, which hold the chart methods.
 """
+import functools
+import inspect
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import Any, ParamSpec, TypeVar
 
 import pandas as pd
 
 from .._optional import require
+from . import design, themes
 from . import style as beacon_style
 from .frame import REFERENCE_ID, finish, ink, new_figure
 
 require("matplotlib", "Charting")
 
+import matplotlib  # noqa: E402
 from matplotlib.axes import Axes  # noqa: E402
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +43,39 @@ MAX_LINES = 8
 # Short names, as the methods below used them before the frame moved out.
 _ink = ink
 _finish = finish
+
+
+def styled(method: Callable[P, R]) -> Callable[P, R]:
+    """Draw a chart method in its own style= when one is given.
+
+    The style is in force only while the chart is drawn: its settings for the
+    frame, and its rcParams through matplotlib's rc_context, so neither the
+    current style nor the rcParams a user set are changed by it.
+    """
+    # BN-303.
+    signature = inspect.signature(method)
+
+    @functools.wraps(method)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        choice = signature.bind_partial(*args, **kwargs).arguments.get("style")
+
+        if choice is None:
+            return method(*args, **kwargs)
+
+        chosen = design.resolve(choice)
+        before = themes.current().name
+        beacon_style.register()
+
+        params = beacon_style.style_dict(chosen.theme, style=chosen)
+
+        with design.scoped(chosen), matplotlib.rc_context(params):
+            themes.set_current(chosen.theme)
+            try:
+                return method(*args, **kwargs)
+            finally:
+                themes.set_current(before)
+
+    return wrapper
 
 
 def _axes(ax: Axes | None,
@@ -62,8 +103,9 @@ def _reference_at(ax: Axes,
     """A level chart's one horizontal line, at its starting value, in place of
     gridlines: above it the series has gained, below it lost."""
     ax.grid(visible=False)
-    ax.axhline(level, color=_ink(ax, "border"),
-               linewidth=beacon_style.REFERENCE_WIDTH, zorder=1, gid=REFERENCE_ID)
+    if beacon_style.reference_lines():
+        ax.axhline(level, color=_ink(ax, "border"),
+                   linewidth=beacon_style.reference_width(), zorder=1, gid=REFERENCE_ID)
 
 
 def _series(payload: pd.Series) -> pd.Series:
@@ -99,7 +141,7 @@ def _mark_last(ax: Axes,
     ax.annotate(f"{series.iloc[-1]:,.1f}",
                 xy=(series.index[-1], series.iloc[-1]),
                 xytext=(beacon_style.scaled(6), 0), textcoords="offset points",
-                va="center", fontsize=beacon_style.LINE_LABEL_SIZE, color=ink,
+                va="center", fontsize=beacon_style.label_size(), color=ink,
                 fontweight="bold")
 
 

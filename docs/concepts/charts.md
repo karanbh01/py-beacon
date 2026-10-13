@@ -276,7 +276,8 @@ Labels default to each result's index id or portfolio id. `compare` raises
 
 ## Themes
 
-`beacon.plot.use(theme)` applies a theme to every chart drawn afterwards:
+`beacon.plot.use(theme)` applies a theme to every chart drawn afterwards,
+changing nothing else in the [style](#styles):
 
 | Theme | Background | Text and axes |
 | --- | --- | --- |
@@ -331,6 +332,92 @@ plt.close("all")
 `series-3`. The series colour cycle is accent, `series-2`, `series-3`, then
 `text-secondary`. Green and red are left out of it because they mean up and
 down elsewhere in the application.
+
+## Styles
+
+Every part of a chart's design is a setting, with Beacon's design as the
+default: its size, the heading, the text, the line weights, the axes, the
+legend, the notes and the colours. Change any of them for every chart, for a
+block of code, or for one chart.
+
+- **`Style`** is a look: one value holding every setting. `Style.beacon()` is
+  the default and `Style.plain()` drops the beta mark and draws on white, for
+  work that is not a Beacon report. A style saves to a TOML file and loads
+  back, so a project can keep its look in one place.
+- **`configure()`** makes a look the default for every chart drawn afterwards.
+  It takes a `Style`, a file a style was saved to, `preset="plain"`, or
+  settings by name. Settings by name change the current style rather than
+  replacing it, and `reset()` goes back to Beacon's design.
+- **`settings()`** does the same for one `with` block, then puts the previous
+  look back.
+- **`style=`** on any chart changes that chart alone: a `Style`, or settings
+  by name.
+
+The most specific wins: a chart's `style=`, then a `settings()` block, then
+`configure()`, then the defaults. `use(theme)` is a shortcut for
+`configure(theme=...)` and changes nothing else.
+
+```python
+from beacon.plot import Style, configure, reset, settings
+
+configure(mark=False, heading_scale=1.2)
+ax = index.plot.level()
+plt.close("all")
+
+with settings(theme="white", legend="bottom"):
+    ax = index.plot.level()
+plt.close("all")
+
+ax = index.plot.level(style={"scale": 1.25, "series_width": 2.0})
+plt.close("all")
+
+house = Style.plain().replace(lines={"series_width": 2.0}, axes={"grid": "y"})
+house.save("house.toml")
+configure(Style.load("house.toml"))
+reset()
+```
+
+The settings, by the short names `configure()` and `style=` take, with the
+group each lives in for `Style.replace()`:
+
+| Setting | Group | Default | What it does |
+| --- | --- | --- | --- |
+| `theme` | | `beacon-light` | The theme (see [Themes](#themes)). |
+| `scale` | size | 1.0 | Zooms the chart: figure, text and lines together. The heading keeps its own scale. |
+| `width` | size | the chart's own (6in) | The designed width: more room at the same text size. |
+| `aspect` | size | the chart's own | Width to height, such as `"16:9"`. |
+| `dpi` | size | 300 | For saved images. |
+| `mark`, `accent_bar` | heading | on | The beta mark and the bar beside the title. |
+| `heading_scale` | heading | 1.0 | Scales the mark, accent bar, title and subtitle together. |
+| `title_font`, `title_size` | heading | Inter Tight, 9pt | |
+| `subtitle_font`, `subtitle_size`, `subtitle_italic` | heading | Source Serif 4, 6.3pt, italic | |
+| `font` | text | Inter Tight | The chart's own text. |
+| `text_scale` | text | 1.0 | The chart's small text alone. |
+| `label_size` | text | 5.5pt | Legend entries and labels on the chart. |
+| `series_width`, `secondary_width` | lines | 1.5pt, 1.1pt | The leading series, and the others. |
+| `axis_width`, `reference_width`, `grid_width` | lines | 0.6pt, 0.5pt, 0.6pt | |
+| `x_axis_line`, `y_axis_line` | axes | on | The axis lines. |
+| `x_ticks`, `y_ticks` | axes | on | The tick marks. |
+| `tick_direction`, `tick_length` | axes | in, 3.5pt | |
+| `tick_label_size`, `axis_title_size` | axes | 7.8pt, 8pt | |
+| `grid` | axes | each chart's own | `"none"`, `"x"`, `"y"` or `"both"`. |
+| `end_on_ticks` | axes | on | Each measuring axis ends on its outermost ticks. |
+| `blank_lowest_label` | axes | on | The lowest y label is left blank where both axes measure. |
+| `reference_lines` | axes | on | The lines a chart is read against, such as 100 or zero. |
+| `legend` | legend | `"heading"` | `"heading"`, `"bottom"`, `"right"` or `"none"`. |
+| `notes`, `notes_size`, `notes_italic` | notes | on, 4.5pt, italic | The notes line. |
+| `series_colors` | colors | the palette | Hex codes replacing the series colours in order. |
+| `up_color`, `down_color` | colors | the theme's | Gains and losses. |
+| `accent_bar_color`, `period_color`, `period_label_color` | colors | the theme's | |
+| `text_color`, `muted_color`, `background` | colors | the theme's | |
+
+Sizes are in points as designed. A font that is not bundled is given as the
+path of its file (`.ttf` or `.otf`), so its text can be measured.
+
+Series take the palette in order: blue, deep blue, magenta, pink, lime, green,
+olive, red and oxblood, then black (white on a dark canvas) and five greys for
+context lines such as peers. `beacon.plot.themes.SERIES` holds both modes'
+lists.
 
 ## Interactive charts
 

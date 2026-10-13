@@ -28,6 +28,7 @@ import pandas as pd
 from .._optional import require
 from . import style as beacon_style
 from .base import ChartMethods
+from .design import StyleArgument
 from .drawing import (
     MAX_BARS,
     MAX_LINES,
@@ -42,6 +43,7 @@ from .drawing import (
     _series,
     _signed_colours,
     _truncate,
+    styled,
 )
 from .frame import new_figure, provenance, sentences
 
@@ -64,13 +66,15 @@ __all__ = ["MAX_BARS", "MINIMUM_BAR", "AttributionPlots", "BacktestPlots",
 class IndexPlots(ChartMethods):
     """Charts for an `IndexResult`."""
 
+    @styled
     def level(self,
               benchmark: pd.Series | None = None,
               ax: Axes | None = None,
               label: str = "Index",
               title: str | None = None,
               subtitle: str | None = None,
-              notes: str | None = None) -> Axes:
+              notes: str | None = None,
+              style: StyleArgument = None) -> Axes:
         """The index level over time, rebased to 100.
 
         Args:
@@ -81,6 +85,9 @@ class IndexPlots(ChartMethods):
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
                 source and dates and what the chart needs said.
+            style: Settings for this chart alone: a Style, or settings by
+                name such as {"mark": False, "scale": 1.2}. None draws in the
+                current style (beacon.plot.configure).
 
         Returns:
             Axes: What was drawn on.
@@ -90,7 +97,7 @@ class IndexPlots(ChartMethods):
         levels = _rebase(_series(result.index_levels))
 
         ax.plot(levels.index, levels.to_numpy(), color=_ink(ax, "accent"),
-                linewidth=beacon_style.SERIES_WIDTH, label=label)
+                linewidth=beacon_style.series_width(), label=label)
         _mark_last(ax, levels)
         _reference_at(ax, 100.0)
 
@@ -98,7 +105,7 @@ class IndexPlots(ChartMethods):
             rebased = _rebase(_series(benchmark))
             ax.plot(rebased.index, rebased.to_numpy(),
                     color=_ink(ax, "text-secondary"),
-                    linewidth=beacon_style.BENCHMARK_WIDTH, label="Benchmark")
+                    linewidth=beacon_style.secondary_width(), label="Benchmark")
             ax.legend(loc="upper left")
 
         return _finish(ax,
@@ -109,12 +116,14 @@ class IndexPlots(ChartMethods):
                            provenance(result, "index", levels.index),
                            "Rebased to 100 at the first observation.")))
 
+    @styled
     def constituents(self,
                      limit: int = MAX_LINES,
                      ax: Axes | None = None,
                      title: str | None = None,
                      subtitle: str | None = None,
-                     notes: str | None = None) -> Axes:
+                     notes: str | None = None,
+                     style: StyleArgument = None) -> Axes:
         """The index among its constituents, each rebased to 100.
 
         The constituents are the names held at the latest rebalance, each
@@ -129,6 +138,9 @@ class IndexPlots(ChartMethods):
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
                 source and dates and what the chart needs said.
+            style: Settings for this chart alone: a Style, or settings by
+                name such as {"mark": False, "scale": 1.2}. None draws in the
+                current style (beacon.plot.configure).
 
         Returns:
             Axes: What was drawn on.
@@ -167,15 +179,15 @@ class IndexPlots(ChartMethods):
             rebased = _rebase(closes)
             ax.plot(rebased.index, rebased.to_numpy(),
                     color=_ink(ax, "text-muted"),
-                    linewidth=beacon_style.BENCHMARK_WIDTH, alpha=0.7)
+                    linewidth=beacon_style.secondary_width(), alpha=0.7)
             ax.annotate(name, xy=(rebased.index[-1], rebased.iloc[-1]),
                         xytext=(beacon_style.scaled(4), 0),
                         textcoords="offset points", va="center",
-                        fontsize=beacon_style.LINE_LABEL_SIZE,
+                        fontsize=beacon_style.label_size(),
                         color=_ink(ax, "text-muted"))
 
         ax.plot(levels.index, levels.to_numpy(), color=_ink(ax, "accent"),
-                linewidth=beacon_style.SERIES_WIDTH * 1.6, label="Index",
+                linewidth=beacon_style.series_width() * 1.6, label="Index",
                 zorder=4)
         _mark_last(ax, levels)
         _reference_at(ax, 100.0)
@@ -197,12 +209,14 @@ class IndexPlots(ChartMethods):
                        "Level",
                        _given(notes, note))
 
+    @styled
     def weights(self,
                 date: pd.Timestamp | None = None,
                 ax: Axes | None = None,
                 title: str | None = None,
                 subtitle: str | None = None,
-                notes: str | None = None) -> Axes:
+                notes: str | None = None,
+                style: StyleArgument = None) -> Axes:
         """Constituent weights at a rebalance, with cap markers.
 
         Args:
@@ -212,6 +226,9 @@ class IndexPlots(ChartMethods):
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
                 source and dates and what the chart needs said.
+            style: Settings for this chart alone: a Style, or settings by
+                name such as {"mark": False, "scale": 1.2}. None draws in the
+                current style (beacon.plot.configure).
 
         Returns:
             Axes: What was drawn on.
@@ -237,7 +254,7 @@ class IndexPlots(ChartMethods):
             ax.annotate(f"cap {cap:.1%}", xy=(cap, len(labels) - 0.5),
                         xytext=(beacon_style.scaled(4), 0),
                         textcoords="offset points",
-                        fontsize=beacon_style.LINE_LABEL_SIZE, color=_ink(ax, "danger"),
+                        fontsize=beacon_style.label_size(), color=_ink(ax, "danger"),
                         va="top")
 
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
@@ -257,11 +274,13 @@ class IndexPlots(ChartMethods):
 class BacktestPlots(ChartMethods):
     """Charts for a `BacktestResult`."""
 
+    @styled
     def performance(self,
                     ax: Axes | None = None,
                     title: str | None = None,
                     subtitle: str | None = None,
-                    notes: str | None = None) -> Axes:
+                    notes: str | None = None,
+                    style: StyleArgument = None) -> Axes:
         """Growth of 100 with a drawdown panel beneath it.
 
         The two share an x axis and sit in one gridspec, because a drawdown is
@@ -275,6 +294,9 @@ class BacktestPlots(ChartMethods):
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
                 source and dates and what the chart needs said.
+            style: Settings for this chart alone: a Style, or settings by
+                name such as {"mark": False, "scale": 1.2}. None draws in the
+                current style (beacon.plot.configure).
 
         Returns:
             Axes: The upper (level) panel.
@@ -296,7 +318,7 @@ class BacktestPlots(ChartMethods):
         # (BN-267); the NAV itself otherwise.
         levels = _rebase(_series(self._result.performance_levels()))
         upper.plot(levels.index, levels.to_numpy(), color=_ink(upper, "accent"),
-                   linewidth=beacon_style.SERIES_WIDTH)
+                   linewidth=beacon_style.series_width())
         _mark_last(upper, levels)
         _reference_at(upper, 100.0)
         upper.tick_params(labelbottom=False)
@@ -326,12 +348,14 @@ class BacktestPlots(ChartMethods):
                            provenance(self._result, "backtest", levels.index),
                            "Drawdown is the level against its running peak.")))
 
+    @styled
     def constituents(self,
                      limit: int = MAX_LINES,
                      ax: Axes | None = None,
                      title: str | None = None,
                      subtitle: str | None = None,
-                     notes: str | None = None) -> Axes:
+                     notes: str | None = None,
+                     style: StyleArgument = None) -> Axes:
         """The index the backtest tracked, among its constituents.
 
         The same chart as `IndexResult.plot.constituents()`, for the index
@@ -344,6 +368,9 @@ class BacktestPlots(ChartMethods):
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
                 source and dates and what the chart needs said.
+            style: Settings for this chart alone: a Style, or settings by
+                name such as {"mark": False, "scale": 1.2}. None draws in the
+                current style (beacon.plot.configure).
 
         Returns:
             Axes: What was drawn on.
@@ -364,11 +391,13 @@ class BacktestPlots(ChartMethods):
                                                subtitle=subtitle,
                                                notes=notes)
 
+    @styled
     def annual_returns(self,
                        ax: Axes | None = None,
                        title: str | None = None,
                        subtitle: str | None = None,
-                       notes: str | None = None) -> Axes:
+                       notes: str | None = None,
+                       style: StyleArgument = None) -> Axes:
         """Calendar-year returns as signed bars.
 
         Args:
@@ -377,6 +406,9 @@ class BacktestPlots(ChartMethods):
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
                 source and dates and what the chart needs said.
+            style: Settings for this chart alone: a Style, or settings by
+                name such as {"mark": False, "scale": 1.2}. None draws in the
+                current style (beacon.plot.configure).
 
         Returns:
             Axes: What was drawn on.
@@ -395,9 +427,9 @@ class BacktestPlots(ChartMethods):
 
         # A zero line only when a year falls below it; otherwise it would sit
         # on the axis itself.
-        if (values < 0).any():
+        if (values < 0).any() and beacon_style.reference_lines():
             ax.axhline(0.0, color=_ink(ax, "border"),
-                       linewidth=beacon_style.REFERENCE_WIDTH)
+                       linewidth=beacon_style.reference_width())
         ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
 
         return _finish(ax,
@@ -414,11 +446,13 @@ class BacktestPlots(ChartMethods):
 class AttributionPlots(ChartMethods):
     """Charts for an `AttributionResult`."""
 
+    @styled
     def contributions(self,
                       ax: Axes | None = None,
                       title: str | None = None,
                       subtitle: str | None = None,
-                      notes: str | None = None) -> Axes:
+                      notes: str | None = None,
+                      style: StyleArgument = None) -> Axes:
         """Per-constituent contributions as diverging bars.
 
         The drags are stated in the chart's note rather than drawn as bars,
@@ -436,6 +470,9 @@ class AttributionPlots(ChartMethods):
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
                 source and dates and what the chart needs said.
+            style: Settings for this chart alone: a Style, or settings by
+                name such as {"mark": False, "scale": 1.2}. None draws in the
+                current style (beacon.plot.configure).
 
         Returns:
             Axes: What was drawn on.
@@ -448,8 +485,9 @@ class AttributionPlots(ChartMethods):
                                             [item.contribution for item in items])
 
         ax.barh(labels, values, color=_signed_colours(ax, values), height=0.68)
-        ax.axvline(0.0, color=_ink(ax, "border"),
-                   linewidth=beacon_style.REFERENCE_WIDTH)
+        if beacon_style.reference_lines():
+            ax.axvline(0.0, color=_ink(ax, "border"),
+                       linewidth=beacon_style.reference_width())
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:.1%}")
         ax.grid(visible=False)
 

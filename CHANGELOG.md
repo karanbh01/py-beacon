@@ -10,7 +10,12 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Added
 
+- Chart styles: every part of the chart design is a setting, with Beacon's design as the default. `beacon.plot.Style` holds them (size and zoom, the heading and its scale, the beta mark and accent bar, fonts, text sizes, line weights, axis lines and ticks, gridlines, the legend's position, the notes and every colour), and saves to and loads from a TOML file. `configure()` sets a style for every chart drawn afterwards, `settings()` for a `with` block, and every chart method takes `style=` for that chart alone. `Style.plain()` drops the beta mark and draws on white. `use(theme)` is now a shortcut for `configure(theme=...)`.
 - `GET /data/stores` says why a store cannot be read when it can tell without loading it: a store saved before 0.7.0, with exchange rates in a `RATE` column, is `readable: false` with `problem` `{code: "STORE_FORMAT_OUTDATED", message}`. It was listed as readable and failed only when loaded, with the generic `CONFIGURATION_ERROR`. Activating it is refused at once with a 409 and the same code.
+
+### Changed
+
+- Series take a new palette in order: blue, deep blue, magenta, pink, lime, green, olive, red and oxblood, then black (white on a dark canvas) and five greys. Orange is no longer a default: in `compare()` a second line is deep blue rather than purple, and a third magenta rather than orange. Marked periods get their own colour per theme.
 
 ## [0.7.0] - 2026-10-12
 

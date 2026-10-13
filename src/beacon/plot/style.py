@@ -35,6 +35,7 @@ from typing import Any
 
 from .._optional import require
 from ..tokens import DARK, LIGHT, raw_colours
+from . import design
 from .themes import THEMES, set_current, theme_named
 
 logger = logging.getLogger(__name__)
@@ -56,15 +57,75 @@ CORRELATION_DOMAIN = (0.2, 1.0)
 # Every chart but its heading is drawn at this share of its designed size:
 # the figure, its text, its lines, its marks and its footer. The heading
 # (title, subtitle, accent bar and mark) keeps its own size, so it reads the
-# same on every chart.
+# same on every chart. A style's size.scale zooms on top of it (BN-303).
 SCALE = 0.8
 
 
 def scaled(value: float) -> float:
-    """A designed size at the scale charts are drawn at."""
-    return value * SCALE
+    """A designed size at the scale charts are drawn at, in the current
+    style."""
+    return value * SCALE * design.current().size.scale
 
 
+def _text_zoom() -> float:
+    """How much the chart's small text is scaled: the chart's zoom and the
+    text's own scale."""
+    current = design.current()
+
+    return current.size.scale * current.text.scale
+
+
+def series_width() -> float:
+    """The leading series' line weight, as drawn."""
+    return scaled(design.current().lines.series_width)
+
+
+def secondary_width() -> float:
+    """Every other series' line weight, as drawn."""
+    return scaled(design.current().lines.secondary_width)
+
+
+def reference_width() -> float:
+    """A reference line's weight, as drawn."""
+    return scaled(design.current().lines.reference_width)
+
+
+def label_size() -> float:
+    """Legend entries and labels on the chart, in points as drawn."""
+    return design.current().text.label_size * _text_zoom()
+
+
+def tick_label_size() -> float:
+    """Tick labels, in points as drawn."""
+    return design.current().axes.tick_label_size * _text_zoom()
+
+
+def axis_title_size() -> float:
+    """Axis titles, in points as drawn."""
+    return design.current().axes.title_size * _text_zoom()
+
+
+def reference_lines() -> bool:
+    """Whether charts draw the lines they are read against."""
+    return design.current().axes.reference
+
+
+def font_family(name: str) -> str:
+    """A font's family name: *name* itself, or the family of the font file it
+    names (.ttf or .otf), which is registered with matplotlib first."""
+    if not name.lower().endswith((".ttf", ".otf")):
+        return name
+
+    from matplotlib import font_manager
+
+    font_manager.fontManager.addfont(name)
+
+    return str(font_manager.FontProperties(fname=name).get_name())
+
+
+# The defaults of the settings below, kept for code that reads them; charts
+# read the current style through the functions above (BN-303).
+#
 # The chart's small text, in points as drawn rather than scaled, so it stays
 # readable whatever SCALE is: the axis titles, and the tick labels and legend
 # entries, which share a size.
@@ -107,8 +168,18 @@ FIGSIZE = {
 
 
 def figure_size(kind: str) -> tuple[float, float]:
-    """The size a chart of *kind* is drawn at, in inches."""
+    """The size a chart of *kind* is drawn at, in inches, in the current
+    style: its designed size, or the style's width (at the same proportions)
+    and aspect, zoomed by the style's scale."""
     width, height = FIGSIZE.get(kind, (6.0, 4.5))
+    size = design.current().size
+
+    if size.width is not None:
+        width, height = size.width, height * size.width / width
+
+    ratio = size.ratio()
+    if ratio is not None:
+        height = width / ratio
 
     return scaled(width), scaled(height)
 
@@ -133,12 +204,13 @@ def palette(theme: str | None = None,
     return {name: chosen.colour(name)
             for name in ("canvas", "surface", "border", "divider", "text-primary",
                          "text-secondary", "text-muted", "accent", "success",
-                         "danger", "series-2", "series-3")}
+                         "danger", "series-2", "series-3", "period")}
 
 
 def style_dict(theme: str | None = None,
-               mode: str | None = None) -> dict[str, Any]:
-    """The rcParams for one theme.
+               mode: str | None = None,
+               style: "design.Style | None" = None) -> dict[str, Any]:
+    """The rcParams for one theme, in one style.
 
     Built as a mapping rather than written to an `.mplstyle` file so the values
     stay derived from the tokens. A generated file would be a second copy to
@@ -146,14 +218,30 @@ def style_dict(theme: str | None = None,
 
     Args:
         theme: A theme's name, or LIGHT or DARK for the Beacon canvases.
-            Defaults to LIGHT.
+            Defaults to the style's theme.
         mode: Deprecated: the parameter's name before themes, which still
             works and warns. Use `theme`.
+        style: The settings; Beacon's defaults when None.
 
     Returns:
         dict: matplotlib rcParams names to values.
     """
-    ink = palette(_theme_argument(theme, mode, "style_dict"))
+    chosen = style if style is not None else design.Style()
+    if theme is None and mode is None:
+        theme = chosen.theme
+    name = _theme_argument(theme, mode, "style_dict")
+    ink = palette(name)
+    # A style's colours replace the theme's where it sets them.
+    colours = chosen.colors
+    for token, value in (("text-primary", colours.text), ("text-secondary", colours.muted),
+                         ("canvas", colours.background), ("success", colours.up),
+                         ("danger", colours.down)):
+        if value is not None:
+            ink[token] = value
+    series = colours.series or theme_named(name).series()
+    k = SCALE * chosen.size.scale
+    zoom = chosen.size.scale * chosen.text.scale
+    axes = chosen.axes
 
     return {
         "figure.facecolor": ink["canvas"],
@@ -186,22 +274,24 @@ def style_dict(theme: str | None = None,
         "axes.labelcolor": ink["text-primary"],
         "axes.labelweight": "light",
         "axes.titlecolor": ink["text-primary"],
-        "axes.linewidth": SPINE_WIDTH,
+        "axes.linewidth": chosen.lines.axis_width * k,
         "axes.grid": True,
         "axes.grid.axis": "y",
         "axes.axisbelow": True,
         "axes.spines.top": False,
         "axes.spines.right": False,
+        "axes.spines.left": axes.y_line,
+        "axes.spines.bottom": axes.x_line,
         "axes.titlesize": 12,
         "axes.titleweight": "bold",
-        "axes.labelsize": AXIS_TITLE_SIZE,
-        "axes.prop_cycle": _cycler(ink),
+        "axes.labelsize": axes.title_size * zoom,
+        "axes.prop_cycle": _cycler(series),
 
         "grid.color": ink["divider"],
-        "grid.linewidth": GRID_WIDTH,
+        "grid.linewidth": chosen.lines.grid_width * k,
         "grid.alpha": 1.0,
 
-        "lines.linewidth": SERIES_WIDTH,
+        "lines.linewidth": chosen.lines.series_width * k,
         "lines.solid_capstyle": "round",
 
         "text.color": ink["text-primary"],
@@ -209,23 +299,23 @@ def style_dict(theme: str | None = None,
         "ytick.color": ink["text-primary"],
         "xtick.labelcolor": ink["text-primary"],
         "ytick.labelcolor": ink["text-primary"],
-        "xtick.labelsize": TICK_LABEL_SIZE,
-        "ytick.labelsize": TICK_LABEL_SIZE,
-        "xtick.major.size": scaled(3.5),
-        "ytick.major.size": scaled(3.5),
-        "xtick.major.pad": scaled(3.5),
-        "ytick.major.pad": scaled(3.5),
-        "axes.labelpad": scaled(4.0),
-        "lines.markersize": scaled(6.0),
+        "xtick.labelsize": axes.tick_label_size * zoom,
+        "ytick.labelsize": axes.tick_label_size * zoom,
+        "xtick.major.size": axes.tick_length * k if axes.x_ticks else 0.0,
+        "ytick.major.size": axes.tick_length * k if axes.y_ticks else 0.0,
+        "xtick.major.pad": 3.5 * k,
+        "ytick.major.pad": 3.5 * k,
+        "axes.labelpad": 4.0 * k,
+        "lines.markersize": 6.0 * k,
         # Inward, and on the bottom and left only. Pinned rather than left to
         # matplotlib's defaults, which another style (pytest-mpl applies
         # "classic") can turn on for all four sides.
-        "xtick.direction": "in",
-        "ytick.direction": "in",
+        "xtick.direction": axes.tick_direction,
+        "ytick.direction": axes.tick_direction,
         "xtick.top": False,
         "ytick.right": False,
-        "xtick.major.width": SPINE_WIDTH,
-        "ytick.major.width": SPINE_WIDTH,
+        "xtick.major.width": chosen.lines.axis_width * k,
+        "ytick.major.width": chosen.lines.axis_width * k,
 
         # Pinned for the same reason as the ticks: "classic" outlines every
         # bar in black, doubles a legend's markers and blurs a heatmap.
@@ -236,7 +326,7 @@ def style_dict(theme: str | None = None,
         "legend.scatterpoints": 1,
 
         "legend.frameon": False,
-        "legend.fontsize": LINE_LABEL_SIZE,
+        "legend.fontsize": chosen.text.label_size * zoom,
         "legend.labelcolor": ink["text-primary"],
 
         # No padding beyond the data: each measuring axis is then ended on its
@@ -249,29 +339,24 @@ def style_dict(theme: str | None = None,
         "axes.xmargin": 0.0,
         "axes.ymargin": 0.0,
 
-        "font.size": scaled(9),
+        "font.size": 9 * k,
         "font.family": "sans-serif",
         "font.weight": "light",
         # Inter Tight ships with py-beacon (beacon/plot/fonts), so a chart
         # looks the same on every machine and image regression can compare
         # it; DejaVu, which ships with matplotlib, is the fallback for a glyph
         # Inter Tight lacks.
-        "font.sans-serif": ["Inter Tight", "DejaVu Sans"],
+        "font.sans-serif": list(dict.fromkeys([font_family(chosen.text.font), "Inter Tight",
+                                                "DejaVu Sans"])),
     }
 
 
-def _cycler(ink: dict[str, str]) -> Any:
-    """The series colour order.
-
-    Accent first, then the two colours added for compare lines. Success and
-    danger are deliberately absent: green and red mean up and down elsewhere in
-    the application, and a third series that happened to be green would read as
-    a gain rather than as a series.
-    """
+def _cycler(series: tuple[str, ...]) -> Any:
+    """The series colour order: the style's series colours, or the theme's
+    palette (beacon.plot.themes.SERIES)."""
     from cycler import cycler
 
-    return cycler(color=[ink["accent"], ink["series-2"], ink["series-3"],
-                         ink["text-secondary"]])
+    return cycler(color=list(series))
 
 
 def correlation_colormap() -> Any:
@@ -336,9 +421,35 @@ def register() -> None:
     logger.debug("Registered the beacon styles and the correlation colormap.")
 
 
+# The design version last applied to matplotlib's rcParams (BN-303).
+_APPLIED = {"version": design.version()}
+
+
+def apply(force: bool = False) -> None:
+    """Put the current style into matplotlib's rcParams, when it has changed
+    since it was last applied.
+
+    Charts draw in whatever rcParams are active, so nothing is applied until a
+    style is chosen: `configure()` takes effect at the next chart, and a user
+    who never calls it keeps the rcParams they set themselves.
+    """
+    if not force and design.version() == _APPLIED["version"]:
+        return
+
+    register()
+
+    import matplotlib.pyplot as plt
+
+    current = design.current()
+    plt.style.use(style_dict(current.theme, style=current))
+    set_current(current.theme)
+    _APPLIED["version"] = design.version()
+
+
 def use(theme: str | None = None,
         mode: str | None = None) -> None:
-    """Apply a beacon theme to every chart drawn afterwards.
+    """Apply a beacon theme to every chart drawn afterwards: a shortcut for
+    `configure(theme=...)`, which changes nothing else in the style.
 
     Args:
         theme: "beacon-light" (or LIGHT, the default), "beacon-dark" (or
@@ -352,12 +463,8 @@ def use(theme: str | None = None,
         TypeError: If both `theme` and `mode` are given.
     """
     chosen = theme_named(_theme_argument(theme, mode, "use"))
-    register()
-
-    import matplotlib.pyplot as plt
-
-    plt.style.use(chosen.style)
-    set_current(chosen.name)
+    design.configure(theme=chosen.name)
+    apply(force=True)
 
 
 def _theme_argument(theme: str | None,

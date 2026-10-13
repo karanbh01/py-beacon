@@ -13,7 +13,14 @@ from .._optional import require
 
 require("matplotlib", "Charting")
 
+from matplotlib.figure import Figure  # noqa: E402
+from matplotlib.patches import PathPatch  # noqa: E402
 from matplotlib.path import Path as Outline  # noqa: E402
+
+from .scales import MARK_LABEL  # noqa: E402
+
+# The mark's height beside a heading at its designed size, in inches.
+MARK_INCHES = 0.192
 
 # An italic beta from Playfair Display, as an outline. Copied from
 # beacon-site's overrides/partials/logo-beta.html, itself from beacon-ui's
@@ -101,3 +108,46 @@ def _parse(d: str) -> Outline:
             command = ""
 
     return Outline(vertices, codes)
+
+
+def mark_width(size: float = MARK_INCHES) -> float:
+    """How wide the mark is drawn, in inches, at *size* inches tall."""
+    extent = beta_outline().get_extents()
+
+    return size * extent.width / extent.height
+
+
+def draw_mark(figure: Figure,
+               right: float,
+               middle: float,
+               colour_value: str,
+               size: float = MARK_INCHES) -> None:
+    """The beta mark beside the heading.
+
+    Args:
+        figure: The figure to draw on.
+        right: Where the mark ends, in inches from the left.
+        middle: The heading's middle, in inches from the bottom.
+        colour_value: The mark's colour.
+        size: Its height, in inches.
+    """
+    width, height = (float(size) for size in figure.get_size_inches())
+    outline = beta_outline()
+    extent = outline.get_extents()
+    width_of_mark = mark_width(size)
+
+    holder = figure.add_axes(((right - width_of_mark) / width,
+                              (middle - size / 2.0) / height,
+                              width_of_mark / width,
+                              size / height),
+                             label=MARK_LABEL)
+    holder.set_axis_off()
+    # Unclipped, or the glyph's anti-aliased edges are cut at the holder's
+    # boundary.
+    holder.add_patch(PathPatch(outline,
+                               facecolor=colour_value,
+                               edgecolor="none",
+                               linewidth=0,
+                               clip_on=False))
+    holder.set_xlim(extent.x0, extent.x1)
+    holder.set_ylim(extent.y0, extent.y1)

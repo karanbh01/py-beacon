@@ -27,7 +27,10 @@ import matplotlib  # noqa: E402
 from matplotlib import dates  # noqa: E402
 from matplotlib.axes import Axes  # noqa: E402
 from matplotlib.category import StrCategoryConverter  # noqa: E402
+from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.ticker import FixedLocator, Formatter  # noqa: E402
+
+from . import design  # noqa: E402
 
 # The label on the axes that holds the beta mark (beacon.plot.frame), whose
 # axes are left alone.
@@ -44,6 +47,11 @@ def end_on_ticks(ax: Axes) -> None:
     if ax.get_label() == MARK_LABEL or hasattr(ax, "_colorbar"):
         return
 
+    # The style can leave axes where their data puts them (BN-303).
+    axes_style = design.current().axes
+    if not axes_style.end_on_ticks:
+        return
+
     # Idempotent: an axes ended before has its blanking formatter unwrapped,
     # so ending it again (after the plot is resized) blanks the new corner.
     formatter = ax.yaxis.get_major_formatter()
@@ -53,7 +61,7 @@ def end_on_ticks(ax: Axes) -> None:
     x_ended = _end(ax.xaxis, ax.get_xlim, ax.set_xlim)
     y_ended = _end(ax.yaxis, ax.get_ylim, ax.set_ylim)
 
-    if x_ended and y_ended:
+    if x_ended and y_ended and axes_style.blank_lowest_label:
         low = min(ax.get_ylim())
         ax.yaxis.set_major_formatter(SkipFirst(ax.yaxis.get_major_formatter(), low))
 
@@ -189,3 +197,22 @@ def fit_sides(figure: Any,
     figure.subplots_adjust(left=left, right=right)
 
     return True
+
+
+def apply_grid(ax: Axes) -> None:
+    """The style's gridlines, when it sets them; otherwise the chart's own."""
+    grid = design.current().axes.grid
+
+    if grid is None:
+        return
+
+    figure = ax.get_figure()
+
+    for panel in (figure.get_axes() if isinstance(figure, Figure) else [ax]):
+        if panel.get_label() == MARK_LABEL or hasattr(panel, "_colorbar"):
+            continue
+        panel.grid(visible=False)
+        if grid in ("x", "both"):
+            panel.grid(visible=True, axis="x")
+        if grid in ("y", "both"):
+            panel.grid(visible=True, axis="y")
