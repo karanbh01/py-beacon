@@ -29,6 +29,11 @@ SCALE = 0.8
 TICK_PAD = 3.5
 TITLE_PAD = 4.0
 
+# The room a date's label takes across, in multiples of its size: as for a
+# number's (beacon.plot.ticks.room_for), so a full-width chart has room for
+# the dozen dates matplotlib allows and only a narrow panel is held to fewer.
+DATE_LABEL_ROOM = 3.0
+
 # The weight the chart's own text is set in.
 CHART_WEIGHT = 300
 
@@ -182,7 +187,7 @@ def end(state: AxisState,
         return False
 
     if spec.kind == "date":
-        low, high, ended = dateticks.ends(low, high)
+        low, high, ended = dateticks.ends(low, high, _date_room(length, sizes))
     else:
         room = ticks.room_for(length, sizes.tick_label, across)
         (low, high), ended = ticks.ends(low, high, spec.spacing, room), True
@@ -208,7 +213,7 @@ def axis_ticks(state: AxisState,
         return tuple(tick for tick in shown if low - 1e-9 <= tick.value <= high + 1e-9), ""
 
     if spec.kind == "date":
-        every = dateticks.tick_values(low, high)
+        every = dateticks.tick_values(low, high, _date_room(length, sizes))
         written = dateticks.labels(every, spec.inverted)
         labels, offset = written.labels, written.offset
     else:
@@ -225,6 +230,13 @@ def axis_ticks(state: AxisState,
             found.append(Tick(value, "" if hidden else label))
 
     return tuple(found), offset
+
+
+def _date_room(length: float,
+               sizes: Sizes) -> int:
+    """How many dates an axis has room to label: one per three label sizes
+    across, since "2024" and "Sep" are about that wide with room between."""
+    return int(length * 72.0 / (sizes.tick_label * DATE_LABEL_ROOM))
 
 
 def _numbers(every: list[float],

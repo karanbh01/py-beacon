@@ -228,7 +228,10 @@ def _lay_out(chart: Description,
     legend_font = Font(style.text.font, panels.CHART_WEIGHT)
     labels = [item.label for item in items]
 
-    passes = Passes(chart, style)
+    passes = Passes(chart, style, margin)
+    if chart.columns > 1:
+        # A grid keeps room under each row for its tick labels itself.
+        bottom_room = 0.0
     lines: list[str] = []
     band = heading.bottom
     plan: LegendPlan | None = None
@@ -249,8 +252,7 @@ def _lay_out(chart: Description,
             passes.sides[1] = min(passes.sides[1], (width - margin - room) / width)
 
         passes.place(bottom_share, top_share)
-        main = passes.placed[0][0]
-        left, right = main.left, main.right
+        left, right = passes.outer()
 
         if notes:
             lines = wrap(f"Notes: {notes}", right - left, notes_size, notes_font)
@@ -266,15 +268,16 @@ def _lay_out(chart: Description,
 
     laid = []
 
-    for (plot, bar), drawn, panel in zip(passes.placed, passes.axes(), chart.panels,
-                                         strict=True):
+    for (plot, bar), drawn, panel, panel_title in zip(passes.placed, passes.axes(), chart.panels,
+                                                      passes.panel_titles(), strict=True):
         bar_layout = None
         if bar is not None and drawn.bar is not None and panel.colour_bar is not None:
             bar_layout = ColourBarLayout(bar, drawn.bar, tuple(
                 _bar_text(label, bar) for label in panel.colour_bar.labels))
         y2 = _titled(drawn.y2, drawn.y2_title) if drawn.y2 is not None else None
         laid.append(PanelLayout(plot, _titled(drawn.x, drawn.x_title),
-                                _titled(drawn.y, drawn.y_title), bar_layout, y2, panel.origin))
+                                _titled(drawn.y, drawn.y_title), bar_layout, y2, panel.origin,
+                                panel_title))
 
     legend = None
     if plan is not None:

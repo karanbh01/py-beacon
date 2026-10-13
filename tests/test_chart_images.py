@@ -14,7 +14,18 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from beacon.plot import Area, Bar, Column, Combo, Heatmap, Histogram, Line, Scatter, reset
+from beacon.plot import (
+    Area,
+    Bar,
+    Column,
+    Combo,
+    Grid,
+    Heatmap,
+    Histogram,
+    Line,
+    Scatter,
+    reset,
+)
 from beacon.testing import dataset
 from beacon.tokens import DARK, LIGHT
 
@@ -205,3 +216,36 @@ class TestHeatmapImages:
 
         return Heatmap(grid, title="Monthly returns", subtitle="AAA, by month",
                        percent=True, decimals=1, style={"theme": theme}).figure
+
+
+@pytest.mark.parametrize("theme", THEMES)
+class TestGridImages:
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_grid_two_by_two(self, prices, theme):
+        returns = prices.pct_change().dropna()
+        volatility = (returns["AAA"].rolling(63).std() * np.sqrt(252)).dropna()
+        level = prices["AAA"] / prices["AAA"].iloc[0] * 100
+        drawdown = level / level.cummax() - 1
+        market = returns["DDD"]
+        beta = (returns["AAA"].rolling(126).cov(market) / market.rolling(126).var()).dropna()
+        tracking = ((returns["AAA"] - market).rolling(126).std() * np.sqrt(252)).dropna()
+
+        return Grid([[Line(volatility.rename("Volatility"), title="Volatility", percent=True),
+                      Area(drawdown.rename("Drawdown"), title="Drawdown", percent=True,
+                           colors=["danger"])],
+                     [Line(beta.rename("Beta"), title="Beta against DDD", reference=1),
+                      Line(tracking.rename("Tracking error"), title="Tracking error",
+                           percent=True)]],
+                    title="Risk at a glance", subtitle="Four measures of AAA's risk",
+                    source="Synthetic data", sharex=True, style={"theme": theme}).figure
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_grid_one_by_three(self, prices, theme):
+        monthly = prices.resample("ME").last().pct_change().dropna().loc["2024"]
+        monthly.index = monthly.index.strftime("%b")
+
+        return Grid([[Column(monthly[name].rename(name), title=name, percent=True)
+                      for name in ("AAA", "BBB", "CCC")]],
+                    title="Monthly returns", subtitle="Three holdings in 2024",
+                    style={"theme": theme}).figure

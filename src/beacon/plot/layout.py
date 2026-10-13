@@ -225,6 +225,8 @@ class Panel:
         y2: A second vertical axis, on the right, with its own scale.
         origin: Whether the axes cross at zero rather than sit at the
             plot's edges.
+        title: A short title above the panel, in a grid of several.
+        cell: Its row and column in a grid, counting from the top left.
     """
 
     x: Axis
@@ -235,6 +237,8 @@ class Panel:
     colour_bar: ColourBar | None = None
     y2: Axis | None = None
     origin: bool = False
+    title: str = ""
+    cell: tuple[int, int] = (0, 0)
 
 
 @dataclass(frozen=True)
@@ -262,6 +266,9 @@ class Description:
             default one row of them.
         crop: Whether the figure is narrowed to what the chart draws, at the
             same scale, rather than kept at its size (a square heatmap).
+        columns: How many columns the panels are laid out in. One stacks
+            them top to bottom; more lays them out as a grid, each panel at
+            its cell.
     """
 
     size: tuple[float, float]
@@ -273,6 +280,7 @@ class Description:
     legend: tuple[LegendItem, ...] = ()
     bottom_room: float | None = None
     crop: bool = False
+    columns: int = 1
 
 
 # What the layout gives back.
@@ -329,8 +337,8 @@ class ColourBarLayout:
 
 @dataclass(frozen=True)
 class PanelLayout:
-    """A panel as drawn: the box its plot fills, its axes, and whether they
-    cross at zero."""
+    """A panel as drawn: the box its plot fills, its axes, whether they
+    cross at zero, and its title in a grid."""
 
     box: Box
     x: AxisLayout
@@ -338,6 +346,7 @@ class PanelLayout:
     colour_bar: ColourBarLayout | None = None
     y2: AxisLayout | None = None
     origin: bool = False
+    title: Text | None = None
 
 
 @dataclass(frozen=True)

@@ -26,6 +26,9 @@ YEARLY, MONTHLY, DAILY, HOURLY = 0, 1, 2, 3
 LEAST = 5
 MOST = {YEARLY: 11, MONTHLY: 12, DAILY: 11, HOURLY: 12}
 
+# The fewest ticks an axis short of room is given.
+FEWEST = 3
+
 # The intervals each frequency may take. Days skip 3 for 4, so a 31-day month
 # does not end with ticks on the 31st and the 1st side by side.
 INTERVALS = {
@@ -59,9 +62,10 @@ def to_date(number: float) -> datetime.datetime:
 
 
 def _choose(low: datetime.datetime,
-            high: datetime.datetime) -> tuple[int, int, list[int] | None, list[int] | None]:
+            high: datetime.datetime,
+            room: int | None = None) -> tuple[int, int, list[int] | None, list[int] | None]:
     """The frequency and interval for a range, and the months and days of
-    the month its ticks may fall on."""
+    the month its ticks may fall on: no more ticks than *room*, where given."""
     delta = relativedelta(high, low)
     years = float(delta.years)
     months = years * 12 + delta.months
@@ -78,7 +82,8 @@ def _choose(low: datetime.datetime,
                 chosen[level] = None
             continue
 
-        interval = next((step for step in INTERVALS[level] if count <= step * (MOST[level] - 1)),
+        most = MOST[level] if room is None else max(min(MOST[level], room), FEWEST)
+        interval = next((step for step in INTERVALS[level] if count <= step * (most - 1)),
                         INTERVALS[level][-1])
         frequency = level
         if level in (MONTHLY, DAILY):
@@ -103,17 +108,20 @@ def _every(options: list[int],
 
 
 def tick_values(low: float,
-                high: float) -> list[float]:
+                high: float,
+                room: int | None = None) -> list[float]:
     """Every tick for a range of dates, including the years just beyond its
     ends on a yearly axis.
 
     Args:
         low: Days since 1970-01-01.
         high: Days since 1970-01-01.
+        room: The most ticks the axis has room for; a dozen or so when
+            None, as matplotlib allows whatever the axis's length.
     """
     low, high = _nonsingular(low, high)
     start, stop = to_date(low), to_date(high)
-    frequency, interval, months, days = _choose(start, stop)
+    frequency, interval, months, days = _choose(start, stop, room)
 
     if frequency == YEARLY:
         first = max(int(np.floor(start.year / interval)) * interval, 1)
@@ -184,7 +192,8 @@ def _nonsingular(low: float,
 
 
 def ends(low: float,
-         high: float) -> tuple[float, float, bool]:
+         high: float,
+         room: int | None = None) -> tuple[float, float, bool]:
     """The ticks at or beyond each end of a range of dates, checked so the
     ticks of the ended range still include both ends.
 
@@ -196,7 +205,7 @@ def ends(low: float,
     span = high - low
 
     for _ in range(PASSES):
-        ticks = tick_values(low - span * 0.1, high + span * 0.1)
+        ticks = tick_values(low - span * 0.1, high + span * 0.1, room)
         below = [tick for tick in ticks if tick <= low + span * 1e-9]
         above = [tick for tick in ticks if tick >= high - span * 1e-9]
 
@@ -204,7 +213,7 @@ def ends(low: float,
             return low, high, False
 
         low, high = max(below), min(above)
-        shown = tick_values(low, high)
+        shown = tick_values(low, high, room)
 
         if _has(shown, low) and _has(shown, high):
             break

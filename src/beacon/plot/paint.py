@@ -384,7 +384,8 @@ class _Painter:
         if layout.legend is not None:
             self.legend(main, layout.legend)
 
-        for text in (layout.title, layout.subtitle, layout.notes):
+        panel_titles = [panel.title for panel in layout.panels]
+        for text in (layout.title, layout.subtitle, layout.notes, *panel_titles):
             if text is not None:
                 self.text(text)
 

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from . import metrics, panels
 from .design import Style
+from .gridding import Grid
 from .layout import (
     Axis,
     AxisLayout,
@@ -25,7 +26,17 @@ from .layout import (
     Text,
     Tick,
 )
+from .metrics import Font
 from .panels import AxisState, Sizes
+
+# The weight a grid's panel titles are set in, the heading title's.
+TITLE_WEIGHT = 400
+
+# Names closer than this, in multiples of their size, are slanted to read,
+# or stood upright where a slant does not fit either.
+NAME_GAP = 0.6
+SLANT = 45.0
+UPRIGHT = 90.0
 
 # Where the plot's sides start, as shares of the figure's width, before they
 # widen to fit what the chart draws.
@@ -76,22 +87,31 @@ class Passes:
 
     def __init__(self,
                  chart: Description,
-                 style: Style):
+                 style: Style,
+                 margin: float = 0.0):
         self.chart = chart
         self.style = style
+        self.margin = margin
         self.sizes = Sizes.of(style)
         self.states = _states(chart)
         self.sides = list(SIDES)
         self.blanks: list[Blanks] = [{} for _ in chart.panels]
         self.placed: list[tuple[Box, Box | None]] = []
+        self.grid = (Grid(chart, style.size.scale, self.sizes.axis_title,
+                          Font(style.heading.title_font, TITLE_WEIGHT))
+                     if chart.columns > 1 else None)
 
     def place(self,
               bottom: float,
               top: float) -> None:
         """Put the panels between *bottom* and *top* (figure fractions)."""
         chart = self.chart
-        grid = panels.cells([panel.weight for panel in chart.panels], chart.gap,
-                            self.sides[0], self.sides[1], bottom, top)
+        if self.grid is not None:
+            height = chart.size[1]
+            grid = self.grid.cells(bottom * height, top * height, self.margin)
+        else:
+            grid = panels.cells([panel.weight for panel in chart.panels], chart.gap,
+                                self.sides[0], self.sides[1], bottom, top)
         self.placed = [panels.boxes(panel, cell, (state.x, state.y), chart.size)
                        for panel, cell, state in zip(chart.panels, grid, self.states,
                                                      strict=True)]
@@ -137,7 +157,8 @@ class Passes:
         for index, (panel, (plot, bar), state) in enumerate(
                 zip(self.chart.panels, self.placed, self.states, strict=True)):
             blanks = self.blanks[index]
-            x = self._axis(state.x, plot.width, True, blanks.get("x"))
+            x = _slanted(self._axis(state.x, plot.width, True, blanks.get("x")), plot,
+                         self.sizes)
             y = self._axis(state.y, plot.height, False, blanks.get("y"))
             y2 = (self._axis(state.y2, plot.height, False, blanks.get("y2"))
                   if state.y2 is not None else None)
@@ -165,10 +186,15 @@ class Passes:
         lefts = [panels.y_label_left(laid.y, plot, sizes,
                                      sizes.label_pad(state.y.spec, axes.y_ticks))
                  for (plot, _), laid, state in zip(self.placed, drawn, self.states, strict=True)]
-        column = min(lefts) - sizes.title_pad / 72.0
+        # The left titles line up within each column of panels.
+        columns = {panel.cell[1]: min(left for other, left in zip(self.chart.panels, lefts,
+                                                                    strict=True)
+                                      if other.cell[1] == panel.cell[1])
+                   for panel in self.chart.panels}
         titled = []
 
         for panel, (plot, _), laid in zip(self.chart.panels, self.placed, drawn, strict=True):
+            column = columns[panel.cell[1]] - sizes.title_pad / 72.0
             y_title = panels.y_title(panel.y.title, column, plot, sizes) if panel.y.title else None
             x_title = y2_title = None
             if panel.x.title:
@@ -232,11 +258,93 @@ class Passes:
     def fit_sides(self,
                   margin: float) -> None:
         """Widen the sides until nothing the panels draw runs past *margin*
-        inches from either edge."""
+        inches from either edge; in a grid, give each row and column the room
+        its panels take."""
+        if self.grid is not None:
+            self._measure_grid()
+            return
+
         width = self.chart.size[0]
         left, right = self.reach()
         self.sides[0] += max(margin - left, 0.0) / width
         self.sides[1] -= max(right - (width - margin), 0.0) / width
+
+
+    def _measure_grid(self) -> None:
+        assert self.grid is not None
+        spans, lows = [], []
+
+        for panel, placed, laid, state in zip(self.chart.panels, self.placed, self.axes(),
+                                              self.states, strict=True):
+            found = self._spans(panel, placed, laid, state)
+            spans.append((min(span[0] for span in found), max(span[1] for span in found)))
+            lows.append(self._lowest(panel, placed[0], laid))
+
+        self.grid.measure([plot for plot, _ in self.placed], spans, lows)
+
+    def _lowest(self,
+                panel: Panel,
+                plot: Box,
+                laid: Drawn) -> float:
+        """How far down a panel's drawing reaches: its axis title, or its tick
+        labels."""
+        if panel.origin:
+            return plot.bottom
+        if laid.x_title is not None:
+            title = laid.x_title
+            return title.y - metrics.box(title.text, title.size, title.font).height
+
+        pad = self.sizes.label_pad(panel.x, self.style.axes.x_ticks)
+
+        return panels.x_label_bottom(laid.x, plot, self.sizes, pad)
+
+    def outer(self) -> tuple[float, float]:
+        """The plots' outer edges, which the heading and the legend line up
+        with: the top panel's, or a grid's outermost."""
+        if self.grid is not None:
+            return self.grid.outer([plot for plot, _ in self.placed])
+
+        main = self.placed[0][0]
+
+        return main.left, main.right
+
+    def panel_titles(self) -> list[Text | None]:
+        """Each panel's title above it, in a grid."""
+        found: list[Text | None] = []
+
+        for panel, (plot, _) in zip(self.chart.panels, self.placed, strict=True):
+            if self.grid is None or not panel.title:
+                found.append(None)
+                continue
+            x, y = self.grid.title_at(plot)
+            found.append(Text(panel.title, x, y, self.sizes.axis_title,
+                              Font(self.style.heading.title_font, TITLE_WEIGHT), "text-primary",
+                              ha="left", va="bottom", id="beacon-panel-title"))
+
+        return found
+
+
+def _slanted(axis: AxisLayout,
+             plot: Box,
+             sizes: Sizes) -> AxisLayout:
+    """An axis of names whose names do not fit side by side, slanted so they
+    read, or stood upright where a slant does not fit either; names that fit,
+    and every other axis, as they are."""
+    if axis.kind not in ("names", "fixed") or axis.rotation or len(axis.ticks) < 2:
+        return axis
+
+    slot = plot.width / len(axis.ticks) - NAME_GAP * sizes.tick_label / 72.0
+    widest = max(panels.label_span(tick.label, sizes.tick_label, sizes.font, 0.0)[0]
+                 for tick in axis.ticks)
+    slanted = max(panels.label_span(tick.label, sizes.tick_label, sizes.font, SLANT)[0]
+                  for tick in axis.ticks)
+
+    if widest <= slot:
+        return axis
+    if slanted <= slot:
+        return dataclasses.replace(axis, rotation=SLANT, align="right")
+
+    return dataclasses.replace(axis, rotation=UPRIGHT, align="center")
 
 
 def _blanks(panel: Panel,

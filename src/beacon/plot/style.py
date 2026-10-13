@@ -171,7 +171,14 @@ def figure_size(kind: str) -> tuple[float, float]:
     """The size a chart of *kind* is drawn at, in inches, in the current
     style: its designed size, or the style's width (at the same proportions)
     and aspect, zoomed by the style's scale."""
-    width, height = FIGSIZE.get(kind, (6.0, 4.5))
+    return sized(*FIGSIZE.get(kind, (6.0, 4.5)))
+
+
+def sized(width: float,
+          height: float) -> tuple[float, float]:
+    """A designed size as drawn, in inches, in the current style: the
+    style's width (at the same proportions) and aspect where it sets them,
+    zoomed by the style's scale."""
     size = design.current().size
 
     if size.width is not None:
