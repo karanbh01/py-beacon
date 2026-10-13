@@ -178,7 +178,7 @@ def end(state: AxisState,
     spec = state.spec
     low, high = sorted((state.low, state.high))
 
-    if not spec.measures or not high > low:
+    if not spec.measures or not spec.end or not high > low:
         return False
 
     if spec.kind == "date":
@@ -346,6 +346,18 @@ def y_label_left(axis: AxisLayout,
     return box.left - pad / 72.0 - max(widths) if widths else box.left
 
 
+def y_label_right(axis: AxisLayout,
+                  box: Box,
+                  sizes: Sizes,
+                  pad: float) -> float:
+    """Where a right-hand axis's tick labels end, at the right: the axis line
+    where there are none."""
+    widths = [metrics.width(tick.label, sizes.tick_label, sizes.font)
+              for tick in axis.ticks if tick.label] if axis.show_labels else []
+
+    return box.right + pad / 72.0 + max(widths) if widths else box.right
+
+
 def x_label_bottom(axis: AxisLayout,
                    box: Box,
                    sizes: Sizes,
@@ -366,6 +378,17 @@ def y_title(text: str,
     panel, reading upward."""
     return Text(text, right, box.bottom + box.height / 2.0, sizes.axis_title, sizes.font,
                 "text-primary", ha="center", va="bottom", rotation=90.0,
+                id="beacon-axis-title")
+
+
+def y2_title(text: str,
+             left: float,
+             box: Box,
+             sizes: Sizes) -> Text:
+    """A right-hand axis's title, its left edge at *left*, centred up the
+    panel, reading upward."""
+    return Text(text, left, box.bottom + box.height / 2.0, sizes.axis_title, sizes.font,
+                "text-primary", ha="center", va="top", rotation=90.0,
                 id="beacon-axis-title")
 
 

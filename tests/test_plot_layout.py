@@ -28,7 +28,7 @@ import test_plot
 from beacon.plot import dateticks, design, metrics, style, ticks, use
 from beacon.plot.arrange import MARK_ASPECT, lay_out, wrap
 from beacon.plot.frame import frame_text
-from beacon.plot.layout import Axis, Chart, LegendItem, Panel
+from beacon.plot.layout import Axis, Description, LegendItem, Panel
 from beacon.plot.mark import beta_outline
 from beacon.plot.render import describe
 from beacon.tokens import LIGHT
@@ -64,7 +64,7 @@ def chart(**changes):
         "legend": (LegendItem("Index", "accent"), LegendItem("Benchmark", "text-secondary")),
     }
 
-    return Chart(**{**settings, **changes})
+    return Description(**{**settings, **changes})
 
 
 class TestNumberTicks:
@@ -259,9 +259,9 @@ class TestWithoutMatplotlib:
 
             from beacon.plot.arrange import lay_out
             from beacon.plot.design import Style
-            from beacon.plot.layout import Axis, Chart, LegendItem, Panel
+            from beacon.plot.layout import Axis, Description, LegendItem, Panel
 
-            laid = lay_out(Chart(size=(4.8, 3.6), title="Level", notes="A note.",
+            laid = lay_out(Description(size=(4.8, 3.6), title="Level", notes="A note.",
                                  panels=(Panel(Axis("date", 19724.0, 20088.0),
                                                Axis("number", 96.3, 143.1)),),
                                  legend=(LegendItem("Index", "accent"),)),

@@ -3,7 +3,7 @@
 A chart's layout as a value: where everything in its frame goes, worked out
 once, without a renderer, for every renderer to draw from.
 
-A renderer describes what it will draw as a `Chart`: the figure's size, the
+A renderer describes what it will draw as a `Description`: the figure's size, the
 heading and notes, each panel's axes (their data ranges, how their ticks are
 spaced and written) and the labels it writes on them, and the legend's
 entries. `beacon.plot.arrange.lay_out()` turns that and a `Style` into a
@@ -43,7 +43,9 @@ LabelStyle = Literal["number", "percent"] | Callable[[float], str]
 
 HorizontalAlignment = Literal["left", "center", "right"]
 VerticalAlignment = Literal["top", "center", "bottom", "baseline", "center_baseline"]
-Key = Literal["line", "dashed", "marker", "patch"]
+# A legend key: a line, a dashed line, a dot, a filled box, or the thin
+# rectangle that names marked periods.
+Key = Literal["line", "dashed", "marker", "patch", "period"]
 
 
 @dataclass(frozen=True)
@@ -123,6 +125,8 @@ class Axis:
             the style's.
         shared: Another panel whose axis this one is: the same range and
             ticks.
+        end: Whether a measuring axis ends on its outermost ticks; one that
+            does not runs to its data's ends (an area that meets the axes).
     """
 
     kind: AxisKind
@@ -139,6 +143,7 @@ class Axis:
     inverted: bool = False
     tick_length: float | None = None
     shared: int | None = None
+    end: bool = True
 
     @property
     def measures(self) -> bool:
@@ -214,6 +219,9 @@ class Panel:
         equal: Whether a unit is as long across as up (a heatmap's squares).
         labels: Text written on it.
         colour_bar: A colour scale beside it.
+        y2: A second vertical axis, on the right, with its own scale.
+        origin: Whether the axes cross at zero rather than sit at the
+            plot's edges.
     """
 
     x: Axis
@@ -222,6 +230,8 @@ class Panel:
     equal: bool = False
     labels: tuple[Label, ...] = ()
     colour_bar: ColourBar | None = None
+    y2: Axis | None = None
+    origin: bool = False
 
 
 @dataclass(frozen=True)
@@ -234,7 +244,7 @@ class LegendItem:
 
 
 @dataclass(frozen=True)
-class Chart:
+class Description:
     """What a chart asks the layout for.
 
     Attributes:
@@ -247,6 +257,8 @@ class Chart:
         legend: Its entries; none for no legend.
         bottom_room: Inches kept free under the plot for its tick labels; by
             default one row of them.
+        crop: Whether the figure is narrowed to what the chart draws, at the
+            same scale, rather than kept at its size (a square heatmap).
     """
 
     size: tuple[float, float]
@@ -257,6 +269,7 @@ class Chart:
     gap: float = 0.2
     legend: tuple[LegendItem, ...] = ()
     bottom_room: float | None = None
+    crop: bool = False
 
 
 # What the layout gives back.
@@ -313,12 +326,15 @@ class ColourBarLayout:
 
 @dataclass(frozen=True)
 class PanelLayout:
-    """A panel as drawn: the box its plot fills and its two axes."""
+    """A panel as drawn: the box its plot fills, its axes, and whether they
+    cross at zero."""
 
     box: Box
     x: AxisLayout
     y: AxisLayout
     colour_bar: ColourBarLayout | None = None
+    y2: AxisLayout | None = None
+    origin: bool = False
 
 
 @dataclass(frozen=True)

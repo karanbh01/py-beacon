@@ -14,6 +14,7 @@ narrows as it shortens, so the layout is worked out in passes.
 """
 # BN-298: the rules beacon.plot.frame applied inside matplotlib, moved here so
 # every renderer draws one layout.
+import dataclasses
 import re
 from dataclasses import dataclass
 
@@ -23,8 +24,8 @@ from .fitting import Passes
 from .layout import (
     AxisLayout,
     Box,
-    Chart,
     ColourBarLayout,
+    Description,
     Label,
     Layout,
     LegendLayout,
@@ -81,7 +82,7 @@ class _Heading:
     reach: float      # how far its text reaches past the plot's left edge
 
 
-def _heading(chart: Chart,
+def _heading(chart: Description,
              style: Style) -> _Heading:
     heading = style.heading
     scale = heading.scale
@@ -132,7 +133,7 @@ def wrap(text: str,
     return lines or [text]
 
 
-def lay_out(chart: Chart,
+def lay_out(chart: Description,
             style: Style) -> Layout:
     """Lay a chart's frame out in a style.
 
@@ -195,17 +196,17 @@ def lay_out(chart: Chart,
         elif position == "right":
             plan = legend_plan(labels, legend_size, legend_font, 0.0, right - left, columns=1)
 
-    drawn = passes.axes()
-    titles = passes.titles(drawn)
     laid = []
 
-    for (plot, bar), (x, y, bar_axis), (x_title, y_title), panel in zip(
-            passes.placed, drawn, titles, chart.panels, strict=True):
+    for (plot, bar), drawn, panel in zip(passes.placed, passes.axes(), chart.panels,
+                                         strict=True):
         bar_layout = None
-        if bar is not None and bar_axis is not None and panel.colour_bar is not None:
-            bar_layout = ColourBarLayout(bar, bar_axis, tuple(
+        if bar is not None and drawn.bar is not None and panel.colour_bar is not None:
+            bar_layout = ColourBarLayout(bar, drawn.bar, tuple(
                 _bar_text(label, bar) for label in panel.colour_bar.labels))
-        laid.append(PanelLayout(plot, _titled(x, x_title), _titled(y, y_title), bar_layout))
+        y2 = _titled(drawn.y2, drawn.y2_title) if drawn.y2 is not None else None
+        laid.append(PanelLayout(plot, _titled(drawn.x, drawn.x_title),
+                                _titled(drawn.y, drawn.y_title), bar_layout, y2, panel.origin))
 
     legend = None
     if plan is not None:
@@ -222,11 +223,7 @@ def lay_out(chart: Chart,
 
 def _titled(axis: AxisLayout,
             title: Text | None) -> AxisLayout:
-    if title is None:
-        return axis
-
-    return AxisLayout(axis.kind, axis.low, axis.high, axis.ticks, axis.offset, title,
-                      axis.ended, axis.show_labels, axis.rotation, axis.align, axis.inverted)
+    return axis if title is None else dataclasses.replace(axis, title=title)
 
 
 def _bar_text(label: Label,
@@ -272,7 +269,7 @@ def _legend_anchor(position: str,
     return (right, band), "lower right"
 
 
-def _framed(chart: Chart,
+def _framed(chart: Description,
             style: Style,
             heading: _Heading,
             laid: list[PanelLayout],

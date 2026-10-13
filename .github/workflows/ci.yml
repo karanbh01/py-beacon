@@ -104,7 +104,7 @@ jobs:
 
       - name: Compare chart images
         run: >-
-          pytest tests/test_plot_images.py -q --no-cov --mpl
+          pytest tests/test_plot_images.py tests/test_chart_images.py -q --no-cov --mpl
           --mpl-results-path=chart-results
 
       # The baseline, the rendered figure and their diff for each failed

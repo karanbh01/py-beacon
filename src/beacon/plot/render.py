@@ -4,7 +4,7 @@ The matplotlib renderer: a chart's figure described for the layout, and the
 layout drawn back onto it.
 
 The chart methods draw their data on matplotlib axes as they always have.
-`describe()` reads those axes into the `Chart` the layout needs (each axis's
+`describe()` reads those axes into the `Description` the layout needs (each axis's
 range and how it writes its ticks, the labels on the plot, the legend's
 entries), `beacon.plot.arrange.lay_out()` lays it out, and `draw()` puts the
 axes where the layout says, with its ranges, ticks and labels, and draws the
@@ -20,8 +20,8 @@ from .layout import (
     AxisKind,
     AxisLayout,
     Box,
-    Chart,
     ColourBar,
+    Description,
     Key,
     Label,
     Layout,
@@ -72,7 +72,7 @@ def describe(ax: Axes,
              title: str,
              subtitle: str,
              notes: str,
-             bottom_room: float | None) -> tuple[Chart, list[Axes]]:
+             bottom_room: float | None) -> tuple[Description, list[Axes]]:
     """The chart a figure holds, as the layout needs it.
 
     Returns:
@@ -95,7 +95,7 @@ def describe(ax: Axes,
 
     width, height = (float(size) for size in figure.get_size_inches())
 
-    return Chart(size=(width, height), title=title, subtitle=subtitle, notes=notes,
+    return Description(size=(width, height), title=title, subtitle=subtitle, notes=notes,
                  panels=tuple(described), gap=_gap(panels[0]),
                  legend=tuple(_legend(ax)), bottom_room=bottom_room), panels
 
