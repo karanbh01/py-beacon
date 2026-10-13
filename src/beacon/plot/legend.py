@@ -16,8 +16,6 @@ layout needs no renderer and comes out the same on every backend.
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-import numpy as np
-
 from . import metrics
 from .layout import Box, LegendEntry, LegendItem, Text
 from .metrics import Font
@@ -133,7 +131,7 @@ def entries(items: Sequence[LegendItem],
     line = metrics.box(metrics.REFERENCE_TEXT, size, font)
     above = max(KEY_HEIGHT * em, line.ascent)
     pitch = above + line.descent + (ROW_HEIGHT - 1.0) * em
-    split = [list(part) for part in np.array_split(np.arange(len(items)), columns) if len(part)]
+    split = _split(len(items), columns)
     widths = [max(metrics.width(items[i].label, size, font) for i in column)
               + (HANDLE_LENGTH + HANDLE_GAP) * em for column in split]
     rows = max(len(column) for column in split)
@@ -158,3 +156,19 @@ def entries(items: Sequence[LegendItem],
     by_item = dict(zip(order, placed, strict=True))
 
     return Box(left, bottom, wide, tall), tuple(by_item[i] for i in range(len(items)))
+
+
+def _split(count: int,
+           columns: int) -> list[list[int]]:
+    """Entry indices filled into columns in turn, the first columns taking
+    one more when they do not divide evenly."""
+    each, extra = divmod(count, columns)
+    split, start = [], 0
+
+    for column in range(columns):
+        size = each + (1 if column < extra else 0)
+        if size:
+            split.append(list(range(start, start + size)))
+        start += size
+
+    return split
