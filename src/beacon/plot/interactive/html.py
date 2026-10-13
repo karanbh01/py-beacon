@@ -23,23 +23,56 @@ CONFIG = {"displayModeBar": False, "scrollZoom": False, "doubleClick": False,
           "responsive": False}
 
 
+# What a figure that fills its frame needs: no margin round the page, and
+# the page as tall as the frame.
+FILL = "<style>html,body{margin:0;height:100%;overflow:hidden}</style>"
+
+
 def figure_html(figure: Any,
                 render: Callable[..., str],
                 *args: Any,
+                fonts: str | None = "embed",
+                fit: bool = False,
                 **kwargs: Any) -> str:
     """plotly's HTML for a figure, with the chart's fonts before it and the
-    popup's script after it."""
-    kwargs.setdefault("config", CONFIG)
+    popup's script after it.
+
+    Args:
+        figure: The figure.
+        render: plotly's own to_html for it.
+        fonts: "embed" to carry the fonts in the page, a stylesheet's address
+            to link one that has them (beacon.plot.webfonts.font_faces with
+            a base), or None for neither.
+        fit: Whether the figure fills the frame it is shown in rather than
+            keeping its own size, as in an iframe sized by the page.
+    """
+    kwargs.setdefault("config", {**CONFIG, "responsive": fit})
     kwargs.setdefault("include_plotlyjs", True)
     scripts = kwargs.get("post_script") or []
     kwargs["post_script"] = [*([scripts] if isinstance(scripts, str) else scripts), SCRIPT]
-    written = render(*args, **kwargs)
-    fonts = f"<style>{font_faces(_fonts(figure))}</style>"
+    styles = ""
+    if fonts == "embed":
+        styles = f"<style>{font_faces(figure_fonts(figure))}</style>"
+    elif fonts is not None:
+        styles = f'<link rel="stylesheet" href="{fonts}">'
+
+    if fit:
+        size = figure.layout.width, figure.layout.height
+        figure.update_layout(width=None, height=None, autosize=True)
+        kwargs.setdefault("default_width", "100%")
+        kwargs.setdefault("default_height", "100%")
+        styles += FILL
+        try:
+            written = render(*args, **kwargs)
+        finally:
+            figure.update_layout(width=size[0], height=size[1], autosize=False)
+    else:
+        written = render(*args, **kwargs)
 
     if "<body>" in written:
-        return written.replace("<body>", f"<body>{fonts}", 1)
+        return written.replace("<body>", f"<body>{styles}", 1)
 
-    return fonts + written
+    return styles + written
 
 
 def write_figure_html(html: str,
@@ -60,7 +93,7 @@ def write_figure_html(html: str,
         script.write_text(get_plotlyjs(), encoding="utf-8")
 
 
-def _fonts(figure: Any) -> set[Font]:
+def figure_fonts(figure: Any) -> set[Font]:
     """The faces the figure's text is set in: its ticks and labels in the
     chart's font, and each piece of its frame in its own."""
     used = {Font(_name(figure.layout.font.family), weight) for weight in CHART_WEIGHTS}

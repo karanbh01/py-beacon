@@ -36,17 +36,31 @@ class BeaconFigure(go.Figure):  # type: ignore[misc]
 
     def to_html(self, *args: Any, **kwargs: Any) -> str:
         """The figure as HTML, with its fonts and popup; plotly's own
-        options otherwise."""
+        options otherwise.
+
+        Takes two options of its own: fonts="embed" (the default) carries
+        the fonts in the page, a stylesheet's address links one that has
+        them, and None leaves them out; fit=True makes the figure fill the
+        frame it is shown in rather than keep its own size.
+        """
         return figure_html(self, super().to_html, *args, **kwargs)
 
     def write_html(self, file: Any, *args: Any, **kwargs: Any) -> None:
         """Write the figure's HTML, with its fonts and popup, to a file.
 
-        With include_plotlyjs="directory", plotly.js is written once beside
-        it, as plotly's own write_html does, for several figures to share.
+        Takes to_html's options. With include_plotlyjs="directory", plotly.js
+        is written once beside it, as plotly's own write_html does, for
+        several figures to share.
         """
         write_figure_html(self.to_html(*args, **kwargs), file,
                           kwargs.get("include_plotlyjs") == "directory")
+
+
+def aligned(annotation: dict[str, Any]) -> dict[str, Any]:
+    """Text set from its anchored edge. plotly otherwise centres text in a
+    box it measured, and a box measured before the chart's fonts arrive puts
+    each line a little off once they do."""
+    return {**annotation, "align": annotation.get("xanchor", "center")}
 
 
 def interactive(chart: Any) -> BeaconFigure:
@@ -93,7 +107,8 @@ class _Builder:
             showlegend=False, dragmode=False, barmode="overlay", hovermode=self.hovermode(),
             hoverlabel={"font": {"family": self.paint.family}},
             shapes=[*drawn.shapes, *self.ticks, *frame.shapes],
-            annotations=[*drawn.annotations, *self.labels, *frame.annotations],
+            annotations=[aligned(annotation) for annotation in
+                         (*drawn.annotations, *self.labels, *frame.annotations)],
             meta={"beacon": glass(self.paint, self.crosshair())},
             **self.axes)
 

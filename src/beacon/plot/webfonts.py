@@ -30,9 +30,16 @@ def css_family(name: str) -> str:
     return f"'{family_name(name)}', 'Inter Tight', 'Inter', system-ui, sans-serif"
 
 
-def font_faces(fonts: Iterable[Font]) -> str:
+def font_faces(fonts: Iterable[Font],
+               base: str | None = None) -> str:
     """The @font-face rules for the faces text is set in, each file once,
-    serving every weight that is set in it."""
+    serving every weight that is set in it.
+
+    Args:
+        fonts: The faces.
+        base: Where the font files are, such as "fonts/", to link them by
+            name rather than embed them (font_files writes them there).
+    """
     faces: dict[tuple[str, bool, Path], list[int]] = {}
 
     for font in fonts:
@@ -41,8 +48,23 @@ def font_faces(fonts: Iterable[Font]) -> str:
         key = (family_name(font.family), font.italic, font_file(font))
         faces.setdefault(key, []).append(font.weight)
 
-    return "".join(_face(family, italic, path, weights)
+    return "".join(_face(family, italic, path, weights, base)
                    for (family, italic, path), weights in sorted(faces.items(), key=str))
+
+
+def font_files(fonts: Iterable[Font],
+               directory: Path) -> list[Path]:
+    """Copy the files the faces are set in into a folder, for a stylesheet
+    that links them (font_faces with *base*) to share."""
+    directory.mkdir(parents=True, exist_ok=True)
+    written = []
+
+    for path in sorted({font_file(font) for font in fonts if embeddable(font.family)}):
+        target = directory / path.name
+        target.write_bytes(path.read_bytes())
+        written.append(target)
+
+    return written
 
 
 def embeddable(family: str) -> bool:
@@ -54,13 +76,15 @@ def embeddable(family: str) -> bool:
 def _face(family: str,
           italic: bool,
           path: Path,
-          weights: list[int]) -> str:
+          weights: list[int],
+          base: str | None) -> str:
     kind = "opentype" if path.suffix.lower() == ".otf" else "truetype"
+    source = (f"{base}{path.name}" if base is not None
+              else f"data:font/{path.suffix.lower()[1:]};base64,{_encoded(path)}")
 
     return (f"@font-face{{font-family:'{family}';font-style:{'italic' if italic else 'normal'};"
             f"font-weight:{min(weights)} {max(weights)};"
-            f"src:url(data:font/{path.suffix.lower()[1:]};base64,{_encoded(path)}) "
-            f"format('{kind}')}}")
+            f"src:url({source}) format('{kind}')}}")
 
 
 @functools.cache

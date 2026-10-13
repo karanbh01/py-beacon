@@ -1,0 +1,1797 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beacon Chart Styles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,300;0,400;0,500;1,300&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;1,8..60,350&family=IBM+Plex+Sans:ital,wght@0,300;0,400;1,300&family=IBM+Plex+Mono:wght@300;400&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+  :root {
+    --ground: #f6e2c7;
+    --plate: #ffedd8;
+    --ink: #2a2419;
+    --ink-2: #6b6455;
+    --ink-3: #8b8577;
+    --rule: #ddd2b8;
+    --accent: #4a88c7;
+    --code-bg: #efd9bb;
+    --bad: #8f2f2a;
+    --sans: "Inter Tight", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #1a1918;
+      --plate: #232323;
+      --ink: #ede6d6;
+      --ink-2: #b5ad9a;
+      --ink-3: #8a8371;
+      --rule: #3d392f;
+      --accent: #6fa7dc;
+      --code-bg: #2c2a26;
+      --bad: #e09a92;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #1a1918;
+    --plate: #232323;
+    --ink: #ede6d6;
+    --ink-2: #b5ad9a;
+    --ink-3: #8a8371;
+    --rule: #3d392f;
+    --accent: #6fa7dc;
+    --code-bg: #2c2a26;
+    --bad: #e09a92;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font: 15px/1.55 var(--sans);
+    padding-inline: 16px;
+    padding-block: 28px 56px;
+  }
+  .wrap { max-width: 1480px; margin: 0 auto; display: grid; gap: 28px; }
+
+  header { display: grid; gap: 12px; }
+  .title-block { border-left: 3px solid var(--accent); padding-left: 12px; display: grid; gap: 2px; }
+  h1 { margin: 0; font-weight: 400; font-size: clamp(26px, 4vw, 34px); line-height: 1.15; text-wrap: balance; }
+  .sub { margin: 0; font-family: var(--serif); font-style: italic; font-weight: 350; font-size: 18px; color: var(--ink-2); }
+  .lede { margin: 0; max-width: 78ch; color: var(--ink-2); }
+  code { font-family: var(--mono); font-size: 0.85em; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  .status { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); border: 1px solid var(--rule); border-radius: 999px; padding: 3px 10px; }
+
+  .workbench { display: grid; grid-template-columns: minmax(340px, 430px) minmax(0, 1fr); gap: 28px; align-items: start; }
+  .panel {
+    position: sticky; top: env(safe-area-inset-top, 0px);
+    max-height: calc(100vh - env(safe-area-inset-top, 0px));
+    overflow-y: auto; overscroll-behavior: contain;
+    display: grid; gap: 18px; padding-right: 6px; padding-block: 4px 16px;
+  }
+
+  form { display: grid; gap: 4px; }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
+  .bar label { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+  details { border-bottom: 1px solid var(--rule); }
+  summary {
+    cursor: pointer; list-style: none; padding-block: 9px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); font-weight: 500;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; font-family: var(--mono); color: var(--ink-3); letter-spacing: 0; }
+  details[open] > summary::after { content: "\2212"; }
+  summary .tree { font-family: var(--mono); font-size: 11px; letter-spacing: 0; text-transform: none; color: var(--ink-3); font-weight: 400; margin-left: auto; }
+  summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .fields { display: grid; grid-template-columns: 1fr; gap: 10px; padding-bottom: 14px; }
+
+  .field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; }
+  .field > label, .field > .lab { font-size: 13.5px; color: var(--ink); }
+  .field .name { display: block; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+  .field.changed > label::before, .field.changed > .lab::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: 2px; }
+
+  input, select, button { font: inherit; color: inherit; }
+  select, input[type="text"] {
+    background: var(--plate); border: 1px solid var(--rule); border-radius: 4px; padding: 5px 8px; font-size: 13.5px; min-width: 0;
+  }
+  select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .range { display: flex; align-items: center; gap: 8px; }
+  .range input[type="range"] { width: 130px; accent-color: var(--accent); }
+  .range output { font-family: var(--mono); font-size: 12px; min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  .toggle { display: inline-flex; align-items: center; }
+  .toggle input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+  .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+  .seg button { background: transparent; border: 0; padding: 5px 9px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--rule); }
+  .seg button[aria-pressed="true"] { background: var(--plate); color: var(--ink); }
+
+  .hex { display: flex; align-items: center; gap: 6px; }
+  .hex input { width: 92px; font-family: var(--mono); font-size: 12.5px; text-transform: lowercase; }
+  .hex .swatch { width: 22px; height: 22px; border-radius: 3px; border: 1px solid var(--rule); flex: none; }
+  .hex .swatch.bad { background: repeating-linear-gradient(45deg, transparent 0 3px, var(--bad) 3px 4px) !important; }
+  .hex input.bad, input.num.bad { border-color: var(--bad); }
+  input.num { width: 128px; font-family: var(--mono); font-size: 12.5px; }
+  .help.drawn { color: var(--ink-2); }
+  .cstrip { width: 64px; height: 14px; border-radius: 2px; border: 1px solid var(--rule); flex: none; }
+  .cbar { height: 22px; border-radius: 2px; border: 1px solid var(--rule); }
+  .lsw { display: inline-block; width: 16px; height: 3px; border-radius: 1px; margin-right: 8px; vertical-align: 4px; }
+  .reset-one { background: none; border: 0; color: var(--ink-3); cursor: pointer; font-size: 13px; padding: 2px 4px; visibility: hidden; }
+  .changed .reset-one { visibility: visible; }
+  .reset-one:hover { color: var(--ink); }
+  .help { grid-column: 1 / -1; font-size: 12.5px; color: var(--ink-3); margin: -2px 0 0; }
+  .err { grid-column: 1 / -1; font-size: 12.5px; color: var(--bad); margin: 0; }
+
+  .ghost { background: transparent; border: 1px solid var(--rule); border-radius: 4px; padding: 5px 10px; font-size: 13px; cursor: pointer; color: var(--ink-2); }
+  .ghost:hover { color: var(--ink); }
+
+  .code { display: grid; gap: 8px; }
+  .code-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .code-head h2 { margin: 0; }
+  pre.out {
+    margin: 0; font: 12.5px/1.55 var(--mono); background: var(--code-bg); color: var(--ink);
+    padding: 12px 14px; border-radius: 4px; overflow-x: auto; white-space: pre; tab-size: 4;
+  }
+  pre.out .c { color: var(--ink-3); }
+  pre.out .s { color: var(--ink-2); }
+  pre.out .k { color: var(--accent); }
+  .copied { font-size: 12px; color: var(--ink-3); }
+  .terms { display: grid; gap: 6px; font-size: 13.5px; color: var(--ink-2); }
+  .terms p { margin: 0; }
+  .terms b { font-weight: 500; color: var(--ink); font-family: var(--mono); font-size: 12.5px; }
+
+  h2 { margin: 0; font-weight: 500; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
+
+  .charts { display: grid; gap: 30px; min-width: 0; }
+  figure { margin: 0; display: grid; gap: 6px; min-width: 0; }
+  figcaption { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  figcaption .dims { text-transform: none; letter-spacing: 0; font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .stage { overflow-x: auto; border: 1px solid var(--rule); line-height: 0; width: fit-content; max-width: 100%; }
+  /* Transparent themes: a checkerboard behind the chart shows what is
+     see-through, in squares light enough (or dark enough) for its inks. */
+  .stage.checker-light { background: repeating-conic-gradient(#e6e6e6 0 25%, #ffffff 0 50%) 0 0 / 14px 14px; }
+  .stage.checker-dark { background: repeating-conic-gradient(#1c1c1c 0 25%, #2b2b2b 0 50%) 0 0 / 14px 14px; }
+  .stage svg { display: block; max-width: none; }
+
+  .palette { display: grid; gap: 16px; border-top: 1px solid var(--rule); padding-top: 22px; }
+  .pal-head { display: grid; gap: 6px; }
+  .pal-head p { margin: 0; max-width: 80ch; color: var(--ink-2); font-size: 14px; }
+  .pal-row { display: grid; gap: 8px; }
+  .pal-row h3 { margin: 0; font-weight: 400; font-size: 14px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .pal-row h3 span { font-size: 12.5px; color: var(--ink-3); }
+  .blocks { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0; padding: 12px; border: 1px solid var(--rule); }
+  .block { min-height: 92px; padding: 8px 9px; display: grid; align-content: space-between; gap: 6px; font-size: 12px; }
+  .block .n { font-family: var(--mono); font-size: 11px; opacity: 0.85; }
+  .block .nm { font-weight: 500; }
+  .block .hx { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.02em; }
+  .tframe th, .tframe td { font: inherit; color: inherit; }
+  .tframe table th { font-size: inherit; }
+  .live-table tbody tr.rgroup:hover td { box-shadow: none; }
+  .live-table tbody tr:hover td { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--row-hover) 70%, transparent); }
+  .live-table th[aria-sort="ascending"]::after { content: " \2191"; }
+  .live-table th[aria-sort="descending"]::after { content: " \2193"; }
+  .viewbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .vlabel { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+  .vhint { font-size: 13px; color: var(--ink-2); }
+  .pair { display: grid; gap: 14px; }
+  .cell { display: grid; gap: 4px; min-width: 0; }
+  .cap { margin: 0; font-size: 12px; color: var(--ink-3); }
+  .cap code { font-size: 11px; }
+  body[data-view="static"] .is-live, body[data-view="interactive"] .is-static { display: none; }
+  body:not([data-view="both"]) .cap { display: none; }
+  .live-wrap { position: relative; display: inline-block; touch-action: pan-y; }
+  .hl { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .hair { position: absolute; width: 0; border: 0 dashed; border-left-width: 1px; }
+  .dot { position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; }
+  /* Beacon desktop's popover surface (beacon-ui Popover.css): glass fill, a
+     0.5px border, a 2px radius, a soft shadow and a 3px backdrop blur. */
+  .glass-tip {
+    position: absolute; left: 0; top: 0; min-width: 120px; max-width: 260px; padding: 6px 9px 7px; border-radius: 2px;
+    background: var(--g-bg); border: 0.5px solid var(--g-border); box-shadow: 0 4px 6px rgb(0 0 0 / 15%);
+    color: var(--g-ink); font-size: 12px; line-height: 1.4; font-weight: 400; font-variant-numeric: tabular-nums;
+    display: grid; gap: 3px;
+  }
+  @supports ((backdrop-filter: blur(3px)) or (-webkit-backdrop-filter: blur(3px))) {
+    .glass-tip { -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+  }
+  .glass-tip[hidden] { display: none !important; }
+  .glass-tip .tip-head { font-weight: 500; white-space: nowrap; }
+  .glass-tip .tip-rows { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; align-items: center; }
+  .glass-tip .sw { width: 10px; height: 2px; border-radius: 1px; }
+  .glass-tip .sw.patch { height: 8px; }
+  .glass-tip .lab { color: var(--g-ink2); font-weight: 300; white-space: nowrap; }
+  .glass-tip .val { text-align: right; white-space: nowrap; }
+
+  @media (max-width: 980px) {
+    .workbench { grid-template-columns: minmax(0, 1fr); }
+    .panel { position: static; max-height: none; overflow: visible; padding-right: 0; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .stage svg { transition: opacity 120ms ease; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="title-block">
+      <h1>Beacon chart styles</h1>
+      <p class="sub">Every part of the default design, open to change</p>
+    </div>
+    <p class="lede">Every setting of <code>beacon.plot</code>'s chart design, on sample charts and a table. The charts start in Beacon's default design. Change any setting and they redraw, and the code below the form changes to match. A blue dot marks a setting that differs from the preset you started from. The charts here are drawn in your browser as a sketch of what the library draws, so check a look in Python before relying on it. <a href="concepts/charts/">Charts</a> explains every setting.</p>
+    <div class="status">
+      <span class="chip">Proposed, not built yet</span>
+      <span class="chip">Planned for 0.8.0</span>
+      <span class="chip">Sample data</span>
+    </div>
+  </header>
+
+  <div class="workbench">
+    <aside class="panel" aria-label="Settings and code">
+      <form id="form" autocomplete="off">
+        <div class="bar">
+          <label for="preset">Start from</label>
+          <select id="preset">
+            <option value="beacon">Beacon (the default)</option>
+            <option value="plain">Plain: no mark, on white</option>
+          </select>
+          <button type="button" class="ghost" id="reset-all">Reset all</button>
+        </div>
+        <div id="groups"></div>
+      </form>
+
+      <section class="code" aria-labelledby="code-h">
+        <div class="code-head">
+          <h2 id="code-h">The same in code</h2>
+          <div class="seg" role="group" aria-label="Code form" id="code-tabs">
+            <button type="button" data-tab="configure" aria-pressed="true">configure()</button>
+            <button type="button" data-tab="style" aria-pressed="false">Style</button>
+          </div>
+          <button type="button" class="ghost" id="copy">Copy</button>
+          <span class="copied" id="copied" aria-live="polite"></span>
+        </div>
+        <pre class="out" id="code" tabindex="0"></pre>
+        <div class="terms">
+          <p><b>Style</b> is the look itself: one value holding every setting. It changes nothing until it's used, and can be saved to a file and loaded again.</p>
+          <p><b>configure()</b> makes a look the default for every chart drawn afterwards, like <code>use(theme)</code> does today.</p>
+          <p><b>settings()</b> does the same for one <code>with</code> block only, then puts the previous look back.</p>
+          <p>Keyword arguments on a chart change that chart alone.</p>
+        </div>
+      </section>
+    </aside>
+
+    <main class="charts" id="charts" aria-label="Charts"></main>
+  </div>
+
+  <section class="palette" aria-labelledby="pal-h">
+    <div class="pal-head">
+      <h2 id="pal-h">Series colours</h2>
+      <p>The default order for lines and other series: nine colours, then black (white in the dark themes) and five greys for lines that set the context rather than lead, such as peers. Orange is gone from the defaults. Each block shows the hex code it is drawn in. A dark block marked "proposed" is a stand-in until its dark-theme colour is chosen.</p>
+    </div>
+    <div id="palette"></div>
+  </section>
+</div>
+
+<script>
+(() => {
+  // ---- Beacon tokens and themes (from beacon.tokens and beacon.plot.themes) ----
+  const TOKENS = {
+    light: { canvas: "#ffedd8", "text-primary": "#2a2419", "text-secondary": "#6b6455", "text-muted": "#8b8577",
+             accent: "#4a88c7", success: "#4e9455", danger: "#8f2f2a", "series-2": "#7d4fb8", "series-3": "#b5701a",
+             border: "#ddd2b8", divider: "#ede3cb" },
+    dark: { canvas: "#232323", "text-primary": "#ede6d6", "text-secondary": "#b5ad9a", "text-muted": "#8a8371",
+            accent: "#6fa7dc", success: "#5fa867", danger: "#e09a92", "series-2": "#b98fd9", "series-3": "#e8a33d",
+            border: "#3d392f", divider: "#35322a" },
+  };
+  // Series order, one list per mode, as Karan set it: blues, then purples,
+  // then greens, then reds. Dark values marked in PROPOSED_DARK are stand-ins
+  // until chosen: the light-theme colour would barely show on a dark canvas.
+  // Previously: blue, purple, accent 3 (a deep blue), plum,
+  // then teal and olive greens, then crimson and rose reds. No orange. The
+  // greens and reds are kept apart from the up and down colours, so a series
+  // never reads as a gain or a loss.
+  const PALETTE = {
+    light: ["#4a88c7", "#070f67", "#cc0088", "#ff70cf", "#adbc10", "#20a464", "#404f25", "#f0200d", "#682107",
+            "#000000", "#262626", "#4d4d4d", "#737373", "#999999", "#bfbfbf"],
+    dark: ["#6fa7dc", "#0072a3", "#beacec", "#7d59d9", "#6bcf9a", "#ccf403", "#09714e", "#e0474b", "#ed8a83",
+           "#ffffff", "#f2f2f2", "#cccccc", "#a6a6a6", "#808080", "#595959"],
+  };
+  // Colour maps: stops from low to high. beacon_corr is the library's
+  // correlation map, from the raw.heatmap-* tokens; the others are built from
+  // the series palette, except viridis.
+  const CMAPS = {
+    beacon_corr: ["#4ca56b", "#d9b34c", "#ca5851"],
+    "blue-red": ["#11376a", "#4a88c7", "#f2f2f2", "#f0796b", "#ba151a"],
+    blues: ["#eaf1fa", "#4a88c7", "#070f67"],
+    greens: ["#e8f5ec", "#20a464", "#245723"],
+    purples: ["#f1eaf8", "#7d4fb8", "#4b2554"],
+    greys: ["#f2f2f2", "#999999", "#262626"],
+    viridis: ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"],
+  };
+  const CMAP_NAMES = [...Object.keys(CMAPS), "custom"];
+  function stopsOf(name) {
+    if (name !== "custom") return CMAPS[name];
+    const pick = (k, d) => (S[k] && validHex(S[k]) ? normHex(S[k]) : d);
+    return [pick("cmap_low", "#4ca56b"), pick("cmap_mid", "#d9b34c"), pick("cmap_high", "#ca5851")];
+  }
+  function cmapColor(name, t, reverse) {
+    const stops = stopsOf(name).map(h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]);
+    let x = Math.min(Math.max(reverse ? 1 - t : t, 0), 1) * (stops.length - 1);
+    const i = Math.min(Math.floor(x), stops.length - 2), f = x - i;
+    const rgb = stops[i].map((v, k) => Math.round(v + (stops[i + 1][k] - v) * f));
+    return "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
+  }
+  function cmapGradient(name, reverse) {
+    return `linear-gradient(90deg, ${Array.from({ length: 11 }, (_, i) => cmapColor(name, i / 10, reverse)).join(", ")})`;
+  }
+  const SERIES_NAMES = ["Blue", "Deep blue", "Magenta", "Pink", "Lime", "Green", "Olive", "Red", "Oxblood",
+                        "Black / white", "Grey 1", "Grey 2", "Grey 3", "Grey 4", "Grey 5"];
+  // The first nine are colours; then black (white in the dark themes) and five
+  // greys, darkest first in the light themes and lightest first in the dark ones.
+  const COLOURS = 9;
+  // Unsigned bars and columns are drawn in grey 4 unless given a colour.
+  const GREY_4 = SERIES_NAMES.indexOf("Grey 4");
+  const PROPOSED_DARK = new Set([7]);
+  const LINE_NAMES = ["Fund", "Index", "Peer median", "Global Value", "Global Growth", "World Small Cap",
+                      "Emerging Markets", "Quality Income", "Low Volatility", "Peer A", "Peer B", "Peer C", "Peer D", "Peer E", "Peer F"];
+  const GITHUB = { "text-primary": "#e6edf3", "text-secondary": "#9198a1", "text-muted": "#9198a1", border: "#3d444d", divider: "#262c36" };
+  const THEMES = {
+    // Marked-period boxes, per theme where it differs from the mode's divider.
+    "beacon-light": { mode: "light", canvas: TOKENS.light.canvas, over: { period: "#e7dabb" } },
+    "beacon-dark": { mode: "dark", canvas: TOKENS.dark.canvas, over: {} },
+    "github-dark": { mode: "dark", canvas: "#0d1117", over: GITHUB },
+    "white": { mode: "light", canvas: "#ffffff", over: { period: "#e6e6e6" } },
+    "transparent-dark-axes": { mode: "light", canvas: null, over: { period: "#e6e6e6" }, stage: "checker-light" },
+    "transparent-light-axes": { mode: "dark", canvas: null, over: { period: "#4d4d4d" }, stage: "checker-dark" },
+  };
+  function themeInk(name) {
+    const t = THEMES[name];
+    const tok = { ...TOKENS[t.mode], ...t.over };
+    return {
+      background: t.canvas, text: tok["text-primary"], muted: tok["text-secondary"], faint: tok["text-muted"],
+      series: PALETTE[t.mode], up: tok.success, down: tok.danger,
+      period: tok.period || tok.divider, reference: tok.border, grid: tok.divider, accent_bar: tok.accent,
+    };
+  }
+
+  // ---- The settings: one entry per form control, grouped as the Style tree ----
+  const FONTS = ["Inter Tight", "Source Serif 4", "IBM Plex Sans", "IBM Plex Mono"];
+  const FONT_FILES = { "IBM Plex Sans": "fonts/IBMPlexSans-Regular.ttf", "IBM Plex Mono": "fonts/IBMPlexMono-Regular.ttf" };
+  const GROUPS = [
+    { title: "Theme and size", tree: "size, theme", open: true, fields: [
+      { key: "theme", label: "Theme", type: "select", options: Object.keys(THEMES), tree: ["theme"] },
+      { key: "scale", label: "Scale", help: "Zooms the chart: figure, text and lines together. 1.0 is today's size. The heading keeps its own scale.", type: "range", min: 0.6, max: 1.6, step: 0.05, tree: ["size", "scale"] },
+      { key: "width", label: "Designed width (in)", help: "Room, not zoom: the text stays the same size.", type: "range", min: 4, max: 9, step: 0.25, tree: ["size", "width"] },
+      { key: "aspect", label: "Aspect", type: "seg", options: ["4:3", "3:2", "16:9", "1:1"], tree: ["size", "aspect"] },
+      { key: "dpi", label: "Saved at (dpi)", type: "select", options: [150, 300, 600], tree: ["size", "dpi"] },
+    ] },
+    { title: "Heading", tree: "heading", open: true, fields: [
+      { key: "mark", label: "Beta mark", type: "toggle", tree: ["heading", "mark"] },
+      { key: "accent_bar", label: "Accent bar", type: "toggle", tree: ["heading", "accent_bar"] },
+      { key: "heading_scale", label: "Heading scale", help: "Mark, accent bar, title and subtitle scale together.", type: "range", min: 0.6, max: 2, step: 0.05, tree: ["heading", "scale"] },
+      { key: "title_font", label: "Title font", type: "select", options: FONTS, tree: ["heading", "title_font"] },
+      { key: "title_size", label: "Title size (pt)", type: "range", min: 6, max: 16, step: 0.1, tree: ["heading", "title_size"] },
+      { key: "subtitle_font", label: "Subtitle font", type: "select", options: FONTS, tree: ["heading", "subtitle_font"] },
+      { key: "subtitle_size", label: "Subtitle size (pt)", type: "range", min: 4, max: 12, step: 0.1, tree: ["heading", "subtitle_size"] },
+      { key: "subtitle_italic", label: "Subtitle in italics", type: "toggle", tree: ["heading", "subtitle_italic"] },
+    ] },
+    { title: "Chart text", tree: "text", fields: [
+      { key: "font", label: "Font", type: "select", options: FONTS, tree: ["text", "font"] },
+      { key: "text_scale", label: "Text scale", help: "The chart's small text alone, at any chart scale.", type: "range", min: 0.6, max: 1.6, step: 0.05, tree: ["text", "scale"] },
+      { key: "label_size", label: "Legend and line labels (pt)", type: "range", min: 3.5, max: 10, step: 0.1, tree: ["text", "label_size"] },
+    ] },
+    { title: "Lines", tree: "lines", fields: [
+      { key: "series_width", label: "First series (pt)", type: "range", min: 0.5, max: 3, step: 0.1, tree: ["lines", "series_width"] },
+      { key: "secondary_width", label: "Other series (pt)", type: "range", min: 0.3, max: 3, step: 0.1, tree: ["lines", "secondary_width"] },
+      { key: "axis_width", label: "Axes (pt)", type: "range", min: 0.2, max: 2, step: 0.1, tree: ["lines", "axis_width"] },
+      { key: "reference_width", label: "Reference lines (pt)", type: "range", min: 0.2, max: 2, step: 0.1, tree: ["lines", "reference_width"] },
+    ] },
+    { title: "Colours", tree: "colors", help: "Type a hex code, such as #4a88c7. Blank fields follow the theme.", fields: [
+      ...SERIES_NAMES.map((_, i) => i + 1).map(n => ({ key: `series${n}`, label: `Series ${n}`, type: "hex", tree: ["colors", "series", n - 1] })),
+      { key: "up", label: "Up (gains)", type: "hex", tree: ["colors", "up"] },
+      { key: "down", label: "Down (losses)", type: "hex", tree: ["colors", "down"] },
+      { key: "accent_bar_color", label: "Accent bar", type: "hex", tree: ["colors", "accent_bar"] },
+      { key: "period", label: "Marked periods", type: "hex", tree: ["colors", "period"] },
+      { key: "period_label", label: "Period labels", type: "hex", tree: ["colors", "period_label"] },
+      { key: "text", label: "Text and axes", type: "hex", tree: ["colors", "text"] },
+      { key: "muted", label: "Subtitle", type: "hex", tree: ["colors", "muted"] },
+      { key: "background", label: "Background", type: "hex", tree: ["colors", "background"] },
+    ] },
+    { title: "Axes and legend", tree: "axes, legend", fields: [
+      { key: "x_line", label: "x axis line", type: "toggle", tree: ["axes", "x_line"] },
+      { key: "y_line", label: "y axis line", type: "toggle", tree: ["axes", "y_line"] },
+      { key: "tick_size", label: "Tick labels (pt)", type: "range", min: 4, max: 12, step: 0.1, tree: ["axes", "tick_label_size"] },
+      { key: "axis_title_size", label: "Axis titles (pt)", type: "range", min: 4, max: 12, step: 0.1, tree: ["axes", "title_size"] },
+      { key: "tick_length", label: "Tick length (pt)", type: "range", min: 1, max: 8, step: 0.5, tree: ["axes", "tick_length"] },
+      { key: "grid", label: "Gridlines", type: "seg", options: ["none", "y", "x", "both"], tree: ["axes", "grid"] },
+      { key: "x_ticks", label: "x axis ticks", type: "toggle", tree: ["axes", "x_ticks"] },
+      { key: "y_ticks", label: "y axis ticks", type: "toggle", tree: ["axes", "y_ticks"] },
+      { key: "ticks", label: "Tick direction", type: "seg", options: ["in", "out"], tree: ["axes", "tick_direction"] },
+      { key: "end_on_ticks", label: "Axes end on their ticks", type: "toggle", tree: ["axes", "end_on_ticks"] },
+      { key: "blank_lowest", label: "Leave the lowest y label blank", help: "So it does not sit on the first x label at the corner.", type: "toggle", tree: ["axes", "blank_lowest_label"] },
+      { key: "reference", label: "Reference lines (100, zero)", type: "toggle", tree: ["axes", "reference"] },
+      { key: "legend", label: "Legend", type: "seg", options: ["heading", "bottom", "right", "none"], tree: ["legend", "position"] },
+    ] },
+    { title: "Notes", tree: "notes", fields: [
+      { key: "notes", label: "Notes line", type: "toggle", tree: ["notes", "show"] },
+      { key: "notes_size", label: "Notes size (pt)", type: "range", min: 3, max: 9, step: 0.1, tree: ["notes", "size"] },
+      { key: "notes_italic", label: "Notes in italics", type: "toggle", tree: ["notes", "italic"] },
+    ] },
+    { title: "Table style", tree: "table", fields: [
+      { key: "table_preset", label: "Start from", help: "Sets the rules below; each can still be changed.", type: "seg", options: ["lines", "plain", "boxed"], tree: ["table", "preset"] },
+      { key: "table_header_rule", label: "Rule under the header", type: "toggle", tree: ["table", "header_rule"] },
+      { key: "table_row_rules", label: "Rules between rows", type: "toggle", tree: ["table", "row_rules"] },
+      { key: "table_bottom_rule", label: "Rule under the table", type: "toggle", tree: ["table", "bottom_rule"] },
+      { key: "table_box", label: "Box around the values", type: "toggle", tree: ["table", "box"] },
+      { key: "table_group_rules", label: "Rules under group headings", type: "toggle", tree: ["table", "group_rules"] },
+      { key: "table_group_boxes", label: "Boxes around column groups", type: "toggle", tree: ["table", "group_boxes"] },
+      { key: "table_row_boxes", label: "Boxes around row groups", help: "With column group boxes too, each block of rows and columns gets its own box.", type: "toggle", tree: ["table", "row_boxes"] },
+      { key: "table_group_box_scope", label: "Group boxes enclose", type: "seg", options: ["values", "headings"], tree: ["table", "group_box_scope"] },
+      { key: "table_column_rules", label: "Rules between column groups", type: "toggle", tree: ["table", "column_rules"] },
+      { key: "table_rule_width", label: "Header and bottom rules (pt)", type: "range", min: 0.2, max: 2, step: 0.02, tree: ["table", "rule_width"] },
+      { key: "table_row_rule_width", label: "Row rules (pt)", type: "range", min: 0.2, max: 2, step: 0.02, tree: ["table", "row_rule_width"] },
+      { key: "table_box_width", label: "Box (pt)", type: "range", min: 0.2, max: 2, step: 0.02, tree: ["table", "box_width"] },
+      { key: "table_row_padding", label: "Row spacing (pt)", type: "range", min: 0, max: 10, step: 0.5, tree: ["table", "row_padding"] },
+      { key: "table_cell_padding", label: "Column spacing (pt)", type: "range", min: 0, max: 12, step: 0.5, tree: ["table", "cell_padding"] },
+      { key: "table_name_space", label: "Space before row names (pt)", help: "The row names' column is as wide as they need; the values share the rest.", type: "range", min: 0, max: 24, step: 0.5, tree: ["table", "name_space"] },
+      { key: "table_body_size", label: "Values (pt)", type: "range", min: 4, max: 12, step: 0.1, tree: ["table", "body_size"] },
+      { key: "table_header_size", label: "Column headings (pt)", type: "range", min: 4, max: 12, step: 0.1, tree: ["table", "header_size"] },
+      { key: "table_group_size", label: "Group headings (pt)", type: "range", min: 4, max: 12, step: 0.1, tree: ["table", "group_size"] },
+      { key: "table_header_weight", label: "Column heading weight", type: "seg", options: ["300", "400", "500"], tree: ["table", "header_weight"] },
+      { key: "table_name_weight", label: "Row name weight", type: "seg", options: ["300", "400", "500"], tree: ["table", "name_weight"] },
+      { key: "table_number_align", label: "Numbers", type: "seg", options: ["left", "center", "right"], tree: ["table", "number_align"] },
+      { key: "table_header_align", label: "Column headings", type: "seg", options: ["numbers", "center"], tree: ["table", "header_align"] },
+      { key: "table_name_align", label: "Row names", type: "seg", options: ["left", "right"], tree: ["table", "name_align"] },
+      { key: "table_stripes", label: "Striped rows", type: "toggle", tree: ["table", "stripes"] },
+      { key: "table_rule_color", label: "Rule colour", type: "hex", tree: ["table", "rule_color"] },
+      { key: "table_row_rule_color", label: "Row rule colour", type: "hex", tree: ["table", "row_rule_color"] },
+      { key: "table_stripe_color", label: "Stripe colour", type: "hex", tree: ["table", "stripe_color"] },
+      { key: "table_header_color", label: "Column heading colour", type: "hex", tree: ["table", "header_color"] },
+    ] },
+    { title: "Table", tree: "Table(...)", chart: true, fields: [
+      { key: "tbl_dec_returns", label: "Returns: decimals", type: "range", min: 0, max: 3, step: 1, arg: "formats" },
+      { key: "tbl_dec_risk", label: "Volatility and drawdown: decimals", type: "range", min: 0, max: 3, step: 1, arg: "formats" },
+      { key: "tbl_dec_sharpe", label: "Sharpe: decimals", type: "range", min: 0, max: 3, step: 1, arg: "formats" },
+      { key: "tbl_dec_aum", label: "AUM: decimals", type: "range", min: 0, max: 3, step: 1, arg: "formats" },
+      { key: "tbl_thousands", label: "Thousands separator", type: "toggle", arg: "formats" },
+      { key: "tbl_percent", label: "% sign in return cells", type: "toggle", arg: "formats" },
+      { key: "tbl_negatives", label: "Negative numbers", type: "seg", options: ["minus", "brackets"], arg: "negatives" },
+      { key: "tbl_signed", label: "Colour returns by sign", type: "toggle", arg: "signed" },
+      { key: "tbl_groups", label: "Group headings", type: "toggle", arg: "groups" },
+      { key: "tbl_lead", label: "First row in bold", type: "toggle", arg: "highlight" },
+      { key: "tbl_row_heads", label: "Row group headings", type: "toggle", arg: "row_groups" },
+      { key: "tbl_heat", label: "Heatmap on", help: "A whole column group, or one column.", type: "select",
+        options: ["none", "Return (%)", "Risk", "Size", "1M", "3M", "YTD", "1Y", "3Y p.a.", "Volatility (%)", "Max drawdown (%)", "Sharpe", "AUM (\u00a3m)"], arg: "heatmap" },
+      { key: "tbl_cmap", label: "Heatmap colour map", type: "select", options: CMAP_NAMES, arg: "heatmap", cmap: "tbl_cmap_reverse" },
+      { key: "tbl_cmap_reverse", label: "Reverse it", type: "toggle", arg: "heatmap" },
+      { key: "tbl_heat_scale", label: "Heatmap scale", type: "seg", options: ["per column", "across the group"], arg: "heatmap" },
+      { key: "tbl_heat_zero", label: "Centre the scale on zero", type: "toggle", arg: "heatmap" },
+      { key: "tbl_heat_fade", label: "Fade into the background", help: "Cells near the neutral point take the table's background, so no white or pale cell stands out on a dark table. A diverging map fades from its middle to both ends; a one-way map, such as blues, fades to its deep end.", type: "toggle", arg: "heatmap" },
+      { key: "tbl_heat_values", label: "Numbers in heatmap cells", type: "toggle", arg: "heatmap" },
+      { key: "tbl_heat_shading", label: "Heatmap shading", type: "seg", options: ["squares", "blended"], arg: "heatmap" },
+      { key: "tbl_heat_blend", label: "Blend", type: "seg", options: ["across columns", "down rows", "whole group"], arg: "heatmap" },
+    ] },
+    { title: "Heatmap", tree: "Heatmap(...)", chart: true, fields: [
+      { key: "cmap", label: "Colour map", type: "select", options: CMAP_NAMES, arg: "colormap", cmap: "cmap_reverse" },
+      { key: "cmap_reverse", label: "Reverse it", type: "toggle", arg: "colormap" },
+      { key: "cmap_low", label: "Custom: low", type: "hex", arg: "colormap" },
+      { key: "cmap_mid", label: "Custom: middle", type: "hex", arg: "colormap" },
+      { key: "cmap_high", label: "Custom: high", type: "hex", arg: "colormap" },
+      { key: "heat_domain", label: "Scale", type: "seg", options: ["0.2 to 1", "\u22121 to 1", "data"], arg: "vmin, vmax" },
+      { key: "heat_shading", label: "Shading", type: "seg", options: ["squares", "blended"], arg: "shading" },
+      { key: "heat_gap", label: "Gap between cells", type: "range", min: 0, max: 0.3, step: 0.01, arg: "gap" },
+      { key: "heat_values", label: "Values in the cells", type: "toggle", arg: "values" },
+      { key: "heat_decimals", label: "Decimals", type: "range", min: 0, max: 3, step: 1, arg: "decimals" },
+      { key: "heat_lower", label: "Lower triangle only", type: "toggle", arg: "lower" },
+      { key: "heat_bar", label: "Colour bar", type: "toggle", arg: "colorbar" },
+    ] },
+    { title: "Line chart", tree: "Line(...)", chart: true, fields: [
+      ...LINE_NAMES.map((name, i) => ({ key: `show${i + 1}`, label: `${name}`, type: "toggle", arg: "columns", swatch: i })),
+      { key: "line_ymin", label: "y from", type: "num", arg: "ylim" },
+      { key: "line_ymax", label: "y to", type: "num", arg: "ylim", drawn: "line_y", help: "Blank is automatic. With axes ending on their ticks, a limit moves out to the nearest tick." },
+      { key: "line_xfrom", label: "Dates from", type: "date", arg: "xlim" },
+      { key: "line_xto", label: "Dates to", type: "date", arg: "xlim", drawn: "line_x" },
+      { key: "periods", label: "Marked periods", type: "toggle", arg: "periods" },
+      { key: "period_labels", label: "Period labels", type: "toggle", arg: "period_labels" },
+      { key: "period_legend", label: "Periods in the legend", type: "toggle", arg: "period_legend" },
+      { key: "label_last", label: "Label the last value", type: "toggle", arg: "label_last" },
+    ] },
+    { title: "Bar chart", tree: "Bar(...)", chart: true, fields: [
+      { key: "bar_gap", label: "Gap between bars", type: "range", min: 0, max: 0.8, step: 0.05, arg: "gap" },
+      { key: "bar_xmin", label: "x from", type: "num", arg: "xlim" },
+      { key: "bar_xmax", label: "x to", type: "num", arg: "xlim", drawn: "bar_x", help: "Blank is automatic. With axes ending on their ticks, a limit moves out to the nearest tick." },
+      { key: "value_labels", label: "Value labels", type: "toggle", arg: "value_labels" },
+      { key: "bar_signed", label: "Signed colours", help: "Off draws every bar in the one colour below, grey 4 unless you set it.", type: "toggle", arg: "signed" },
+      { key: "bar_color", label: "Bar colour (unsigned)", type: "hex", arg: "color" },
+      { key: "bar_up", label: "Positive bars", type: "hex", arg: "up_color" },
+      { key: "bar_down", label: "Negative bars", type: "hex", arg: "down_color" },
+    ] },
+    { title: "Combo chart", tree: "Combo(...)", chart: true, fields: [
+      { key: "combo_gap", label: "Gap between columns", type: "range", min: 0, max: 0.8, step: 0.05, arg: "gap" },
+      { key: "combo_ymin", label: "Flows from (\u00a3m)", type: "num", arg: "ylim" },
+      { key: "combo_ymax", label: "Flows to (\u00a3m)", type: "num", arg: "ylim", drawn: "combo_y", help: "Blank is automatic. With axes ending on their ticks, a limit moves out to the nearest tick." },
+      { key: "combo_y2min", label: "AUM from (\u00a3bn)", type: "num", arg: "ylim_secondary" },
+      { key: "combo_y2max", label: "AUM to (\u00a3bn)", type: "num", arg: "ylim_secondary", drawn: "combo_y2" },
+      { key: "combo_signed", label: "Signed columns", help: "Off draws every column in the one colour below, grey 4 unless you set it.", type: "toggle", arg: "signed" },
+      { key: "combo_color", label: "Column colour (unsigned)", type: "hex", arg: "color" },
+      { key: "combo_up", label: "Positive columns", type: "hex", arg: "up_color" },
+      { key: "combo_down", label: "Negative columns", type: "hex", arg: "down_color" },
+    ] },
+  ];
+  const FIELDS = GROUPS.flatMap(g => g.fields);
+  const BY_KEY = Object.fromEntries(FIELDS.map(f => [f.key, f]));
+  const HEX_KEYS = FIELDS.filter(f => f.type === "hex").map(f => f.key);
+
+  const BEACON = {
+    theme: "beacon-light", scale: 1, width: 6, aspect: "4:3", dpi: 300,
+    mark: true, accent_bar: true, heading_scale: 1, title_font: "Inter Tight", title_size: 9,
+    subtitle_font: "Source Serif 4", subtitle_size: 6.3, subtitle_italic: true,
+    font: "Inter Tight", text_scale: 1, tick_size: 7.8, axis_title_size: 8, label_size: 5.5,
+    series_width: 1.5, secondary_width: 1.1, axis_width: 0.6, reference_width: 0.5,
+    blank_lowest: true,
+    show1: true, show2: true, show3: true, show4: false, show5: false, show6: false, show7: false, show8: false, show9: false,
+    show10: false, show11: false, show12: false, show13: false, show14: false, show15: false,
+    line_ymin: null, line_ymax: null, line_xfrom: "", line_xto: "", bar_xmin: null, bar_xmax: null,
+    combo_ymin: null, combo_ymax: null, combo_y2min: null, combo_y2max: null,
+    x_line: true, y_line: true, x_ticks: true, y_ticks: true, tick_length: 3,
+    grid: "none", ticks: "in", end_on_ticks: true, reference: true, legend: "heading",
+    notes: true, notes_size: 4.5, notes_italic: true,
+    periods: true, period_labels: true, period_legend: true, label_last: true,
+    table_preset: "lines", table_header_rule: true, table_row_rules: true, table_bottom_rule: true, table_box: false,
+    table_group_rules: true, table_group_boxes: false, table_group_box_scope: "values", table_column_rules: false, table_rule_width: 0.48, table_row_rule_width: 0.48, table_box_width: 0.36,
+    table_row_padding: 2, table_cell_padding: 3, table_name_space: 3, table_body_size: 6.3, table_header_size: 5.5, table_group_size: 5.5,
+    table_header_weight: "300", table_name_weight: "400", table_number_align: "center", table_header_align: "center",
+    table_name_align: "right", table_stripes: false,
+    tbl_dec_returns: 1, tbl_dec_risk: 1, tbl_dec_sharpe: 2, tbl_dec_aum: 1, tbl_thousands: true, tbl_percent: false,
+    tbl_negatives: "minus", tbl_signed: true, tbl_groups: true, tbl_lead: false,
+    tbl_row_heads: false, tbl_heat: "none", tbl_cmap: "blue-red", tbl_cmap_reverse: true, tbl_heat_scale: "per column", tbl_heat_zero: true,
+    tbl_heat_fade: false, tbl_heat_values: true, tbl_heat_shading: "squares", tbl_heat_blend: "across columns",
+    table_row_boxes: false,
+    cmap: "beacon_corr", cmap_reverse: false, heat_domain: "0.2 to 1", heat_shading: "squares", heat_gap: 0.04,
+    heat_values: true, heat_decimals: 2, heat_lower: false, heat_bar: true,
+    bar_gap: 0.32, value_labels: false, bar_signed: true, combo_signed: true, combo_gap: 0.32,
+  };
+  for (const key of HEX_KEYS) BEACON[key] = "";
+  const PRESETS = { beacon: BEACON, plain: { ...BEACON, mark: false, theme: "white" } };
+
+  let base = PRESETS.beacon;
+  let S = { ...base };
+  let tab = "configure";
+
+  // ---- Sample data: seeded, so the page always shows the same charts ----
+  function rng(seed) {
+    let a = seed >>> 0;
+    return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  function normal(r) { return Math.sqrt(-2 * Math.log(r() + 1e-12)) * Math.cos(2 * Math.PI * r()); }
+  const PERIODS = [
+    { label: "2022 drawdown", from: new Date(2022, 0, 3), to: new Date(2022, 9, 14) },
+    { label: "2025 tariff shock", from: new Date(2025, 1, 19), to: new Date(2025, 3, 8) },
+  ];
+  const LINE = (() => {
+    const r = rng(7), dates = [];
+    for (let d = new Date(2021, 0, 1); d <= new Date(2025, 11, 31); d = new Date(d.getTime() + 7 * 864e5)) dates.push(d);
+    const inPeriod = d => PERIODS.some(p => d >= p.from && d <= p.to);
+    // Weekly log returns, falling through the marked periods, then shifted
+    // evenly so each series ends where it should.
+    const walk = (end, vol, crash) => {
+      const steps = dates.map((d, i) => (i ? (inPeriod(d) ? -crash : 0) + vol * normal(r) : 0));
+      const shift = (Math.log(end / 100) - steps.reduce((a, b) => a + b, 0)) / (dates.length - 1);
+      let lv = Math.log(100);
+      return steps.map((s, i) => Math.exp(lv += i ? s + shift : 0));
+    };
+    return { dates, series: [
+      ["Fund", 171.4, 0.017, 0.012], ["Index", 158.2, 0.016, 0.011], ["Peer median", 146.9, 0.014, 0.01],
+      ["Global Value", 139.0, 0.015, 0.009], ["Global Growth", 165.0, 0.019, 0.014], ["World Small Cap", 131.5, 0.02, 0.013],
+      ["Emerging Markets", 118.2, 0.021, 0.012], ["Quality Income", 150.3, 0.013, 0.008], ["Low Volatility", 136.4, 0.011, 0.006],
+      ["Peer A", 162.0, 0.016, 0.011], ["Peer B", 154.5, 0.015, 0.01], ["Peer C", 143.1, 0.015, 0.01], ["Peer D", 127.8, 0.017, 0.012], ["Peer E", 112.6, 0.018, 0.012], ["Peer F", 168.9, 0.016, 0.011],
+    ].map(([name, end, vol, crash]) => ({ name, values: walk(end, vol, crash) })) };
+  })();
+  const BAR = [
+    ["Information Technology", 2.4], ["Health Care", 1.6], ["Industrials", 0.9], ["Consumer Staples", 0.4],
+    ["Communication Services", 0.1], ["Materials", -0.3], ["Utilities", -0.6], ["Consumer Discretionary", -0.9],
+    ["Energy", -1.4], ["Financials", -2.1],
+  ];
+  const COMBO = (() => {
+    const r = rng(11), months = [], flows = [], aum = [];
+    let a = 1.2;
+    for (let i = 0; i < 24; i++) {
+      months.push(new Date(2024, i, 1));
+      const f = Math.round((22 + 38 * normal(r)) * 10) / 10;
+      flows.push(f);
+      a = a * (1 + 0.009 + 0.025 * normal(r)) + f / 1000;
+      aum.push(a);
+    }
+    return { months, flows, aum };
+  })();
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  // ---- Measuring and drawing helpers ----
+  const measurer = document.createElement("canvas").getContext("2d");
+  function textWidth(text, size, family, weight = 300, italic = false) {
+    measurer.font = `${italic ? "italic " : ""}${weight} ${size}px "${family}"`;
+    return measurer.measureText(text).width;
+  }
+  const FALLBACK = { "Source Serif 4": "Georgia, serif", "IBM Plex Mono": "ui-monospace, monospace" };
+  function ff(name) { return `'${name}', ${FALLBACK[name] || "system-ui, sans-serif"}`; }
+  function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+  function fmt(v, d = 0) { return v.toFixed(d).replace("-", "−"); }
+  function niceStep(span, target) {
+    const raw = span / Math.max(target, 1), mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / mag;
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+  }
+  // An axis over [lo, hi]: ends on its outermost ticks, or on the data with a
+  // margin and the ticks inside it.
+  function axis(lo, hi, target, endOnTicks, include, lim) {
+    if (include !== undefined) { lo = Math.min(lo, include); hi = Math.max(hi, include); }
+    const setLo = lim && lim[0] !== null && lim[0] !== undefined, setHi = lim && lim[1] !== null && lim[1] !== undefined;
+    const span = Math.max(hi - lo, 1);
+    let swapped = false;
+    if (setLo) lo = lim[0];
+    if (setHi) hi = lim[1];
+    // Limits given the wrong way round are swapped. A single limit beyond the
+    // data keeps the data's span on the automatic side.
+    if (setLo && setHi && lo > hi) { [lo, hi] = [hi, lo]; swapped = true; }
+    if (!(hi > lo)) { if (setLo && !setHi) hi = lo + span; else if (setHi && !setLo) lo = hi - span; else hi = lo + 1; }
+    const step = niceStep(hi - lo, target);
+    if (endOnTicks) {
+      const a = Math.floor(lo / step + 1e-9) * step, b = Math.ceil(hi / step - 1e-9) * step;
+      const ticks = []; for (let v = a; v <= b + step / 2; v += step) ticks.push(+v.toFixed(10));
+      return { lo: a, hi: b, ticks, step, swapped };
+    }
+    const pad = (hi - lo) * 0.05; if (!setLo) lo -= pad; if (!setHi) hi += pad;
+    const ticks = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) ticks.push(+v.toFixed(10));
+    return { lo, hi, ticks, step, swapped };
+  }
+  // Where each limited axis was drawn, for the line under its inputs.
+  const DRAWN = {};
+  function noteDrawn(key, set, a, b, swapped) {
+    DRAWN[key] = set ? `Drawn from ${a} to ${b}.${swapped ? " The two limits were the wrong way round, so they were swapped." : ""}` : "";
+  }
+  function clip(id, left, top, right, bottom) {
+    return `<clipPath id="clip-${id}"><rect x="${left}" y="${top}" width="${right - left}" height="${bottom - top}"/></clipPath>`;
+  }
+  function decimals(step) { return step >= 1 ? 0 : Math.min(3, Math.ceil(-Math.log10(step) - 1e-9)); }
+  function wrap(text, size, family, width, italic) {
+    const words = text.split(" "), lines = []; let line = "";
+    for (const w of words) {
+      const t = line ? line + " " + w : w;
+      if (line && textWidth(t, size, family, 300, italic) > width) { lines.push(line); line = w; } else line = t;
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+  const BETA = "M14.4344 33.6673C12.4646 33.1878 10.6078 31.6051 9.60677 29.5269C8.7349 27.7204 8.20208 26.0418 5.69948 17.4252C4.40781 12.981 2.95469 7.9932 2.47031 6.31463C1.92135 4.47619 1.27552 2.63776 0.791146 1.6466L0 0H1.35625H2.72865L3.11615 0.767347C3.64896 1.80646 4.8599 5.17959 5.39271 7.11395C5.65104 7.9932 5.89323 8.77653 5.97396 8.85646C6.03854 8.92041 6.4099 8.76054 6.81354 8.48878C9.26771 6.82619 13.3526 7.36973 15.9844 9.71973C17.0661 10.6789 18.2609 12.5014 18.7292 13.9242C19.2943 15.6507 19.2781 17.9367 18.6969 19.1837C18.2448 20.1429 17.2276 21.2139 16.3557 21.6776C16.049 21.8374 15.8068 22.0133 15.8068 22.0612C15.8068 22.1252 16.2589 22.381 16.8078 22.6367C18.2286 23.2922 19.5203 24.2833 20.2307 25.2425C21.3609 26.7612 21.7484 28.8874 21.2156 30.6619C20.4891 33.0759 17.4859 34.4027 14.4344 33.6673ZM17.5828 32.5643C18.4708 31.9888 18.7937 31.2854 18.7776 29.9745C18.7453 27.4806 17.1469 24.2034 15.3708 23.0364C14.6927 22.5888 14.6604 22.5888 13.9984 22.8126C12.4807 23.3241 11.4474 23.0364 11.6734 22.1412C11.8187 21.5656 12.3677 21.4058 13.4979 21.5816C14.6766 21.7735 15.0318 21.5497 15.726 20.2228C16.1781 19.3595 16.2104 19.1517 16.2104 17.681C16.1943 15.7306 15.9359 14.8194 14.7573 12.3895C14.2083 11.2544 13.6432 10.3752 13.1911 9.92755C11.738 8.4568 9.8974 8.07313 8.23438 8.88844C7.37865 9.32007 6.39375 10.3912 6.52292 10.7588C6.5875 10.9507 6.74896 11.4622 8.94479 19.0238C11.7057 28.4718 12.4646 30.518 13.6594 31.717C14.8542 32.932 16.5172 33.2837 17.5828 32.5643Z";
+  const BETA_W = 21.85, BETA_H = 34.45;
+
+  const PX_PER_PT = 1.75;      // how big a chart is shown on screen
+  const ASPECTS = { "4:3": 4 / 3, "3:2": 3 / 2, "16:9": 16 / 9, "1:1": 1 };
+
+  // Every resolved number a chart is drawn with, from the settings.
+  function resolve() {
+    const ink = themeInk(S.theme);
+    const col = k => (validHex(S[k]) ? normHex(S[k]) : null);
+    const c = {
+      background: S.background && validHex(S.background) ? normHex(S.background) : ink.background,
+      text: col("text") || ink.text, muted: col("muted") || ink.muted,
+      series: ink.series.map((hex, i) => col(`series${i + 1}`) || hex),
+      up: col("up") || ink.up, down: col("down") || ink.down, period: col("period") || ink.period,
+      accentBar: col("accent_bar_color") || ink.accent_bar, reference: ink.reference, grid: ink.grid,
+    };
+    c.periodLabel = col("period_label") || c.text;
+    // A chart's own colours fall back on the style's.
+    c.bar = { up: col("bar_up") || c.up, down: col("bar_down") || c.down, one: col("bar_color") || c.series[GREY_4] };
+    c.columns = { up: col("combo_up") || c.up, down: col("combo_down") || c.down, one: col("combo_color") || c.series[GREY_4] };
+    const k = 0.8 * S.scale;                       // figure, lines, margins
+    const ts = S.scale * S.text_scale;             // the chart's small text
+    const hs = S.heading_scale;                    // the heading, on its own
+    const W = S.width * 72 * k, H = W / ASPECTS[S.aspect];
+    return {
+      c, k, ts, hs, W, H, m: 0.25 * 72 * k,
+      tick: S.tick_size * ts, axisTitle: S.axis_title_size * ts, label: S.label_size * ts, notes: S.notes_size * ts,
+      seriesW: S.series_width * k, otherW: S.secondary_width * k, axisW: S.axis_width * k, refW: S.reference_width * k,
+      tickLen: S.tick_length * k, pad: 3 * ts,
+    };
+  }
+
+  // The frame: heading, legend, notes, and the box left for the plot.
+  function frame(R, spec, plotLeft) {
+    const parts = [];
+    const { c, m, W, H, hs } = R;
+    const titleSize = S.title_size * hs, subSize = S.subtitle_size * hs;
+    const blockH = titleSize * 1.1 + subSize * 1.15;
+    let x = plotLeft;
+    if (S.mark) {
+      const mh = 13.8 * hs, mw = mh * BETA_W / BETA_H, s = mh / BETA_H;
+      const y = m + (blockH - mh) / 2;
+      x = Math.max(plotLeft - 5 * hs - mw, m * 0.5);
+      // The outline is in the glyph's own coordinates with y up, as
+      // beacon.plot.mark keeps it; SVG's y runs down, so flip it.
+      parts.push(`<path d="${BETA}" fill="${c.text}" transform="translate(${x} ${y + mh}) scale(${s} ${-s})"/>`);
+      x = plotLeft;
+    }
+    if (S.accent_bar) {
+      parts.push(`<rect x="${x}" y="${m}" width="${2.5 * hs}" height="${blockH}" fill="${c.accentBar}"/>`);
+      x += 2.5 * hs + 2.5 * hs;
+    }
+    const subStyle = S.subtitle_italic ? ' font-style="italic"' : "";
+    parts.push(`<text x="${x}" y="${m + titleSize * 0.92}" font-family="${ff(S.title_font)}" font-weight="400" font-size="${titleSize}" fill="${c.text}">${esc(spec.title)}</text>`);
+    parts.push(`<text x="${x}" y="${m + titleSize * 1.1 + subSize * 0.95}" font-family="${ff(S.subtitle_font)}" font-weight="350"${subStyle} font-size="${subSize}" fill="${c.muted}">${esc(spec.subtitle)}</text>`);
+    const headingRight = x + Math.max(textWidth(spec.title, titleSize, S.title_font, 400),
+                                      textWidth(spec.subtitle, subSize, S.subtitle_font, 350, S.subtitle_italic));
+
+    // Legend keys
+    const entries = S.legend === "none" ? [] : spec.legend;
+    const keyLen = 1.6 * R.label * 1.5, keyGap = 0.5 * R.label, colGap = 1.4 * R.label, rowH = 1.45 * R.label;
+    const entryW = e => keyLen + keyGap + textWidth(e.label, R.label, S.font);
+    const key = (e, kx, ky) => {
+      if (e.kind === "line") return `<line x1="${kx}" y1="${ky}" x2="${kx + keyLen}" y2="${ky}" stroke="${e.color}" stroke-width="${e.width}"${e.dash ? ` stroke-dasharray="${e.dash}"` : ""}/>`;
+      if (e.kind === "band") return `<rect x="${kx}" y="${ky - R.label * 0.22}" width="${keyLen}" height="${R.label * 0.44}" fill="${e.color}"/>`;
+      return `<rect x="${kx + keyLen - R.label * 0.75}" y="${ky - R.label * 0.38}" width="${R.label * 0.75}" height="${R.label * 0.75}" fill="${e.color}"/>`;
+    };
+    const drawEntry = (e, ex, ey) => key(e, ex, ey) + `<text x="${ex + keyLen + keyGap}" y="${ey + R.label * 0.35}" font-family="${ff(S.font)}" font-weight="300" font-size="${R.label}" fill="${c.text}">${esc(e.label)}</text>`;
+    function rows(maxW) {
+      const out = [[]]; let w = 0;
+      for (const e of entries) {
+        const ew = entryW(e);
+        if (out[out.length - 1].length && w + colGap + ew > maxW) { out.push([]); w = 0; }
+        w += (out[out.length - 1].length ? colGap : 0) + ew; out[out.length - 1].push(e);
+      }
+      return entries.length ? out : [];
+    }
+    const rowWidth = row => row.reduce((s, e, i) => s + entryW(e) + (i ? colGap : 0), 0);
+
+    let headingBottom = m + blockH;
+    if (S.legend === "heading" && entries.length) {
+      const avail = Math.max(W - m - headingRight - 4 * R.label, W * 0.3);
+      const rs = rows(avail);
+      const total = rs.length * rowH;
+      let ry = m + Math.max((blockH - total) / 2, 0) + rowH / 2;
+      if (W - m - headingRight - 4 * R.label < rowWidth(rs[0] || [])) ry = m + blockH + rowH * 0.6;
+      rs.forEach(row => {
+        let ex = W - m - rowWidth(row);
+        row.forEach(e => { parts.push(drawEntry(e, ex, ry)); ex += entryW(e) + colGap; });
+        ry += rowH;
+      });
+      headingBottom = Math.max(headingBottom, ry - rowH / 2 + R.label * 0.5);
+    }
+    let top = headingBottom + 0.12 * 72 * R.k;
+
+    // Notes, wrapped to the figure's inner width
+    let bottom = H - m;
+    if (S.notes && spec.notes) {
+      const lines = wrap(spec.notes, R.notes, S.font, W - m - plotLeft, S.notes_italic);
+      const lh = R.notes * 1.25;
+      bottom -= lines.length * lh;
+      lines.forEach((l, i) => parts.push(`<text x="${plotLeft}" y="${bottom + lh * (i + 0.8)}" font-family="${ff(S.font)}" font-weight="300"${S.notes_italic ? ' font-style="italic"' : ""} font-size="${R.notes}" fill="${c.text}">${esc(l)}</text>`));
+      bottom -= 0.06 * 72 * R.k;
+    }
+    let right = W - m;
+    if (S.legend === "bottom" && entries.length) {
+      const rs = rows(W - 2 * m);
+      let ry = bottom - rs.length * rowH + rowH / 2;
+      rs.forEach(row => { let ex = plotLeft; row.forEach(e => { parts.push(drawEntry(e, ex, ry)); ex += entryW(e) + colGap; }); ry += rowH; });
+      bottom -= rs.length * rowH + R.label * 0.6;
+    }
+    if (S.legend === "right" && entries.length) {
+      const widest = Math.max(...entries.map(entryW));
+      let ry = top + rowH / 2;
+      entries.forEach(e => { parts.push(drawEntry(e, W - m - widest, ry)); ry += rowH; });
+      right -= widest + 2 * R.label;
+    }
+    return { parts, top, bottom, right };
+  }
+
+  // The axis lines that are switched on: x is the bottom one, y the sides.
+  function spines(R, segments) {
+    const d = segments.filter(s => (s.axis === "x" ? S.x_line : S.y_line)).map(s => s.d).join("");
+    return d ? `<path d="${d}" stroke="${R.c.text}" stroke-width="${R.axisW}" fill="none"/>` : "";
+  }
+  function tickMarks(R, ax, positions, orient) {
+    if (orient === "bottom" ? !S.x_ticks : !S.y_ticks) return "";
+    const out = [], len = R.tickLen * (S.ticks === "in" ? 1 : -1);
+    for (const p of positions) {
+      if (orient === "left") out.push(`M${ax} ${p}h${len}`);
+      if (orient === "right") out.push(`M${ax} ${p}h${-len}`);
+      if (orient === "bottom") out.push(`M${p} ${ax}v${-len}`);
+    }
+    return `<path d="${out.join("")}" stroke="${R.c.text}" stroke-width="${R.axisW}" fill="none"/>`;
+  }
+  function textAt(R, x, y, s, anchor = "start", size = R.tick, extra = "") {
+    return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${ff(S.font)}" font-weight="300" font-size="${size}" fill="${R.c.text}"${extra}>${esc(s)}</text>`;
+  }
+  function svgOpen(R) {
+    const bg = R.c.background ? `<rect width="${R.W}" height="${R.H}" fill="${R.c.background}"/>` : "";
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${R.W} ${R.H}" width="${R.W * PX_PER_PT}" height="${R.H * PX_PER_PT}" role="img">${bg}`;
+  }
+
+  // ---- The three charts ----
+  function drawLine() {
+    const R = resolve(), { c } = R;
+    const shown = LINE.series.map((s, i) => ({ ...s, i })).filter(s => S[`show${s.i + 1}`]);
+    const legend = shown.map(s => ({ label: s.name, kind: "line", color: c.series[s.i], width: s.i ? R.otherW : R.seriesW }));
+    if (S.periods && S.period_legend) legend.push({ label: "Drawdown", kind: "band", color: c.period });
+    const all = shown.length ? shown.flatMap(s => s.values) : [100];
+    const Y = axis(Math.min(...all), Math.max(...all), 5, S.end_on_ticks, S.reference ? 100 : undefined, [S.line_ymin, S.line_ymax]);
+    noteDrawn("line_y", S.line_ymin !== null || S.line_ymax !== null, fmt(Y.lo, decimals(Y.step)), fmt(Y.hi, decimals(Y.step)), Y.swapped);
+    const yd = decimals(Y.step);
+    const yLabels = Y.ticks.map(v => fmt(v, yd));
+    const yLabelW = Math.max(...yLabels.map(l => textWidth(l, R.tick, S.font)));
+    const lead = shown[0];
+    const last = lead ? lead.values.at(-1) : NaN, lastLabel = lead ? fmt(last, 1) : "";
+    const left = R.m + R.axisTitle * 1.25 + yLabelW + R.pad + (S.ticks === "out" ? R.tickLen : 0);
+    const F = frame(R, { title: "Beacon Global Quality", subtitle: "Growth of 100 against its index and peers", legend,
+      notes: "Notes: Source: Synthetic data, weekly closes from 1 January 2021 to 31 December 2025. Net of a 0.40% annual fee." }, left);
+    const right = F.right - (S.label_last ? textWidth(lastLabel, R.label, S.font) + R.label * 0.9 : 0);
+    const bottom = F.bottom - R.tick * 1.3 - R.pad - (S.ticks === "out" ? R.tickLen : 0);
+    const top = F.top + (S.periods && S.period_labels ? R.label * 1.4 : 0);
+    const tLast = LINE.dates.at(-1).getTime();
+    const parse = s => (s ? new Date(s + "T00:00:00").getTime() : null);
+    const from = parse(S.line_xfrom), to = parse(S.line_xto);
+    let t0 = from ?? LINE.dates[0].getTime(), t1 = to ?? tLast;
+    const datesSwapped = from !== null && to !== null && from > to;
+    if (datesSwapped) [t0, t1] = [t1, t0];
+    if (!(t1 > t0)) t1 = t0 + 864e5 * 30;
+    // With axes ending on their ticks, the dates run out to the nearest
+    // January either side.
+    const jan = (t, up) => { const d = new Date(t); const y = d.getFullYear(); const j = new Date(y, 0, 1).getTime(); return up && j < t ? new Date(y + 1, 0, 1).getTime() : j; };
+    if (S.end_on_ticks) { if (from !== null) t0 = jan(t0, false); t1 = jan(t1, true); }
+    const yearTicks = [];
+    for (let y = new Date(t0).getFullYear(); y <= new Date(t1).getFullYear() + 1; y++) yearTicks.push(new Date(y, 0, 1).getTime());
+    const iso = t => { const d = new Date(t); return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`; };
+    noteDrawn("line_x", from !== null || to !== null, iso(t0), iso(t1), datesSwapped);
+    const sx = t => left + (t - t0) / (t1 - t0) * (right - left);
+    const sy = v => bottom - (v - Y.lo) / (Y.hi - Y.lo) * (bottom - top);
+    const out = [svgOpen(R), ...F.parts, clip("line", left, F.top, right, bottom), `<g clip-path="url(#clip-line)">`];
+    if (S.periods) {
+      PERIODS.forEach(p => {
+        const a = sx(p.from.getTime()), b = sx(p.to.getTime());
+        out.push(`<rect x="${a}" y="${F.top}" width="${b - a}" height="${bottom - F.top}" fill="${c.period}"/>`);
+        if (S.period_labels) out.push(`<text x="${(a + b) / 2}" y="${F.top + R.label * 0.95}" text-anchor="middle" font-family="${ff(S.font)}" font-weight="300" font-size="${R.label}" fill="${c.periodLabel}">${esc(p.label)}</text>`);
+      });
+    }
+    const years = yearTicks.filter(t => t >= t0 && t <= t1);
+    if (S.grid === "y" || S.grid === "both") out.push(`<path d="${Y.ticks.map(v => `M${left} ${sy(v)}H${right}`).join("")}" stroke="${c.grid}" stroke-width="${0.6 * R.k}"/>`);
+    if (S.grid === "x" || S.grid === "both") out.push(`<path d="${years.map(t => `M${sx(t)} ${top}V${bottom}`).join("")}" stroke="${c.grid}" stroke-width="${0.6 * R.k}"/>`);
+    if (S.reference) out.push(`<line x1="${left}" x2="${right}" y1="${sy(100)}" y2="${sy(100)}" stroke="${c.reference}" stroke-width="${R.refW}"/>`);
+    [...shown].reverse().forEach(s => {
+      const i = s.i;
+      const d = s.values.map((v, j) => `${j ? "L" : "M"}${sx(LINE.dates[j].getTime()).toFixed(2)} ${sy(v).toFixed(2)}`).join("");
+      out.push(`<path d="${d}" fill="none" stroke="${c.series[i]}" stroke-width="${i ? R.otherW : R.seriesW}" stroke-linejoin="round"/>`);
+    });
+    out.push("</g>");
+    if (S.label_last && lead && tLast <= t1 && last >= Y.lo && last <= Y.hi) {
+      const lx = sx(tLast), ly = sy(last);
+      out.push(`<circle cx="${lx}" cy="${ly}" r="${1.6 * R.k}" fill="${c.series[lead.i]}"/>`);
+      out.push(textAt(R, lx + R.label * 0.6, ly + R.label * 0.35, lastLabel, "start", R.label));
+    }
+    // Axes: y ends on its outermost ticks; x runs over the dates
+    const yTop = S.end_on_ticks ? sy(Y.hi) : top;
+    out.push(spines(R, [{ axis: "y", d: `M${left} ${yTop}V${bottom}` }, { axis: "x", d: `M${left} ${bottom}H${right}` }]));
+    out.push(tickMarks(R, left, Y.ticks.map(sy), "left"));
+    out.push(tickMarks(R, bottom, years.map(sx), "bottom"));
+    const lx = left - R.pad - (S.ticks === "out" ? R.tickLen : 0);
+    Y.ticks.forEach((v, i) => { if (!(S.blank_lowest && i === 0)) out.push(textAt(R, lx, sy(v) + R.tick * 0.35, yLabels[i], "end")); });
+    const ty = bottom + R.pad + (S.ticks === "out" ? R.tickLen : 0) + R.tick * 0.9;
+    years.forEach(t => out.push(textAt(R, sx(t), ty, String(new Date(t).getFullYear()), "middle")));
+    const mid = (top + bottom) / 2;
+    out.push(textAt(R, R.m + R.axisTitle * 0.85, mid, "Level (rebased to 100)", "middle", R.axisTitle, ` transform="rotate(-90 ${R.m + R.axisTitle * 0.85} ${mid})"`));
+    out.push("</svg>");
+    const hover = { type: "x", xs: LINE.dates.map(d => sx(d.getTime())), plot: { left, right, top, bottom },
+      at: i => ({
+        head: `${LINE.dates[i].getDate()} ${MONTHS[LINE.dates[i].getMonth()]} ${LINE.dates[i].getFullYear()}`,
+        rows: shown.map(s => ({ label: s.name, value: fmt(s.values[i], 1), color: c.series[s.i], kind: "line" })),
+        dots: shown.map(s => ({ x: sx(LINE.dates[i].getTime()), y: sy(s.values[i]), color: c.series[s.i] }))
+          .filter(d => d.y >= top - 1 && d.y <= bottom + 1),
+      }) };
+    return { svg: out.join(""), R, hover };
+  }
+
+  function drawBar() {
+    const R = resolve(), { c } = R;
+    const vals = BAR.map(b => b[1]);
+    const X = axis(Math.min(...vals), Math.max(...vals), 6, S.end_on_ticks, 0, [S.bar_xmin, S.bar_xmax]);
+    noteDrawn("bar_x", S.bar_xmin !== null || S.bar_xmax !== null, fmt(X.lo, decimals(X.step)), fmt(X.hi, decimals(X.step)), X.swapped);
+    const xd = decimals(X.step);
+    const catW = Math.max(...BAR.map(b => textWidth(b[0], R.tick, S.font)));
+    const left = R.m + catW + R.pad * 1.5 + (S.ticks === "out" ? R.tickLen : 0);
+    const F = frame(R, { title: "Sector positioning", subtitle: "Active weight against the benchmark, 31 December 2025", legend: [],
+      notes: "Notes: Source: Synthetic data. Active weight is the fund's weight less the benchmark's, in percentage points." }, left);
+    const vlab = S.value_labels ? textWidth("−2.1", R.label, S.font) + R.label : 0;
+    const right = F.right - vlab * 0.6;
+    const bottom = F.bottom - R.axisTitle * 1.35 - R.tick * 1.3 - R.pad - (S.ticks === "out" ? R.tickLen : 0);
+    const top = F.top;
+    const sx = v => left + (v - X.lo) / (X.hi - X.lo) * (right - left);
+    const band = (bottom - top) / BAR.length, bh = band * (1 - S.bar_gap);
+    const out = [svgOpen(R), ...F.parts, clip("bar", left, top, right, bottom)];
+    if (S.grid === "x" || S.grid === "both") out.push(`<path d="${X.ticks.map(v => `M${sx(v)} ${top}V${bottom}`).join("")}" stroke="${c.grid}" stroke-width="${0.6 * R.k}"/>`);
+    BAR.forEach(([name, v], i) => {
+      const y = top + band * i + (band - bh) / 2, a = sx(Math.min(0, v)), b = sx(Math.max(0, v));
+      out.push(`<rect x="${a}" y="${y}" width="${Math.max(b - a, 0.2)}" height="${bh}" fill="${S.bar_signed ? (v >= 0 ? c.bar.up : c.bar.down) : c.bar.one}" clip-path="url(#clip-bar)"/>`);
+      out.push(textAt(R, left - R.pad * 1.5, top + band * (i + 0.5) + R.tick * 0.35, name, "end"));
+      if (S.value_labels) {
+        const lx = v >= 0 ? b + R.label * 0.4 : a - R.label * 0.4;
+        out.push(textAt(R, lx, top + band * (i + 0.5) + R.label * 0.35, (v > 0 ? "+" : "") + fmt(v, 1), v >= 0 ? "start" : "end", R.label));
+      }
+    });
+    if (S.reference) out.push(`<line x1="${sx(0)}" x2="${sx(0)}" y1="${top}" y2="${bottom}" stroke="${c.reference}" stroke-width="${R.refW}"/>`);
+    const x0 = S.end_on_ticks ? sx(X.lo) : left, x1 = S.end_on_ticks ? sx(X.hi) : right;
+    out.push(spines(R, [{ axis: "y", d: `M${left} ${top}V${bottom}` }, { axis: "x", d: `M${x0} ${bottom}H${x1}` }]));
+    out.push(tickMarks(R, left, BAR.map((b, i) => top + band * (i + 0.5)), "left"));
+    out.push(tickMarks(R, bottom, X.ticks.map(sx), "bottom"));
+    const ty = bottom + R.pad + (S.ticks === "out" ? R.tickLen : 0) + R.tick * 0.9;
+    X.ticks.forEach(v => out.push(textAt(R, sx(v), ty, (v > 0 ? "+" : "") + fmt(v, xd), "middle")));
+    out.push(textAt(R, (left + right) / 2, ty + R.tick * 0.6 + R.axisTitle * 1.1, "Active weight (percentage points)", "middle", R.axisTitle));
+    out.push("</svg>");
+    const hover = { type: "band", bands: BAR.map((b, i) => [top + band * i, top + band * (i + 1)]), plot: { left, right, top, bottom },
+      at: i => ({
+        head: BAR[i][0],
+        rows: [{ label: "Active weight", value: `${BAR[i][1] > 0 ? "+" : ""}${fmt(BAR[i][1], 1)} pts`, color: S.bar_signed ? (BAR[i][1] >= 0 ? c.bar.up : c.bar.down) : c.bar.one, kind: "patch" }],
+        dots: [],
+      }) };
+    return { svg: out.join(""), R, hover };
+  }
+
+  function drawCombo() {
+    const R = resolve(), { c } = R;
+    const dash = null;
+    const L = axis(Math.min(...COMBO.flows), Math.max(...COMBO.flows), 5, S.end_on_ticks, 0, [S.combo_ymin, S.combo_ymax]);
+    const A = axis(Math.min(...COMBO.aum), Math.max(...COMBO.aum), 5, S.end_on_ticks, undefined, [S.combo_y2min, S.combo_y2max]);
+    noteDrawn("combo_y", S.combo_ymin !== null || S.combo_ymax !== null, fmt(L.lo, decimals(L.step)), fmt(L.hi, decimals(L.step)), L.swapped);
+    noteDrawn("combo_y2", S.combo_y2min !== null || S.combo_y2max !== null, fmt(A.lo, Math.max(decimals(A.step), 1)), fmt(A.hi, Math.max(decimals(A.step), 1)), A.swapped);
+    const ld = decimals(L.step), ad = decimals(A.step);
+    const lLab = L.ticks.map(v => fmt(v, ld)), aLab = A.ticks.map(v => fmt(v, Math.max(ad, 1)));
+    const lw = Math.max(...lLab.map(l => textWidth(l, R.tick, S.font))), aw = Math.max(...aLab.map(l => textWidth(l, R.tick, S.font)));
+    const outT = S.ticks === "out" ? R.tickLen : 0;
+    const left = R.m + R.axisTitle * 1.25 + lw + R.pad + outT;
+    const F = frame(R, { title: "Flows and assets", subtitle: "Monthly net flows and assets under management",
+      legend: [{ label: "Net flows", kind: "patch", color: S.combo_signed ? c.columns.up : c.columns.one }, { label: "Assets under management", kind: "line", color: c.series[0], width: R.seriesW, dash }],
+      notes: "Notes: Source: Synthetic data, January 2024 to December 2025. Flows are subscriptions less redemptions, at month end." }, left);
+    const right = F.right - R.axisTitle * 1.25 - aw - R.pad - outT;
+    const bottom = F.bottom - R.tick * 2.4 - R.pad - outT;
+    const top = F.top;
+    const n = COMBO.months.length, band = (right - left) / n, bw = band * (1 - S.combo_gap);
+    const syL = v => bottom - (v - L.lo) / (L.hi - L.lo) * (bottom - top);
+    const syA = v => bottom - (v - A.lo) / (A.hi - A.lo) * (bottom - top);
+    const cx = i => left + band * (i + 0.5);
+    const out = [svgOpen(R), ...F.parts, clip("combo", left, top, right, bottom)];
+    if (S.grid === "y" || S.grid === "both") out.push(`<path d="${L.ticks.map(v => `M${left} ${syL(v)}H${right}`).join("")}" stroke="${c.grid}" stroke-width="${0.6 * R.k}"/>`);
+    if (S.grid === "x" || S.grid === "both") out.push(`<path d="${COMBO.months.map((d, i) => d.getMonth() % 3 === 0 ? `M${left + band * i} ${top}V${bottom}` : "").join("")}" stroke="${c.grid}" stroke-width="${0.6 * R.k}"/>`);
+    COMBO.flows.forEach((v, i) => {
+      const a = syL(Math.max(v, 0)), b = syL(Math.min(v, 0));
+      out.push(`<rect x="${cx(i) - bw / 2}" y="${a}" width="${bw + (S.combo_gap === 0 ? 0.3 : 0)}" height="${Math.max(b - a, 0.2)}" fill="${S.combo_signed ? (v >= 0 ? c.columns.up : c.columns.down) : c.columns.one}" clip-path="url(#clip-combo)"/>`);
+    });
+    if (S.reference) out.push(`<line x1="${left}" x2="${right}" y1="${syL(0)}" y2="${syL(0)}" stroke="${c.reference}" stroke-width="${R.refW}"/>`);
+    out.push(`<path d="${COMBO.aum.map((v, i) => `${i ? "L" : "M"}${cx(i)} ${syA(v)}`).join("")}" fill="none" stroke="${c.series[0]}" stroke-width="${R.seriesW}"${dash ? ` stroke-dasharray="${dash}"` : ""} stroke-linejoin="round" clip-path="url(#clip-combo)"/>`);
+    const yTopL = S.end_on_ticks ? syL(L.hi) : top, yTopA = S.end_on_ticks ? syA(A.hi) : top;
+    const yBotL = S.end_on_ticks ? syL(L.lo) : bottom;
+    out.push(spines(R, [{ axis: "y", d: `M${left} ${yTopL}V${yBotL}M${right} ${yTopA}V${S.end_on_ticks ? syA(A.lo) : bottom}` },
+                        { axis: "x", d: `M${left} ${bottom}H${right}` }]));
+    out.push(tickMarks(R, left, L.ticks.map(syL), "left"));
+    out.push(tickMarks(R, right, A.ticks.map(syA), "right"));
+    const ticksAt = COMBO.months.map((d, i) => [d, i]).filter(([d]) => d.getMonth() % 3 === 0);
+    out.push(tickMarks(R, bottom, ticksAt.map(([, i]) => left + band * i), "bottom"));
+    L.ticks.forEach((v, i) => { if (!(S.blank_lowest && i === 0)) out.push(textAt(R, left - R.pad - outT, syL(v) + R.tick * 0.35, lLab[i], "end")); });
+    A.ticks.forEach((v, i) => { if (!(S.blank_lowest && i === 0)) out.push(textAt(R, right + R.pad + outT, syA(v) + R.tick * 0.35, aLab[i], "start")); });
+    const ty = bottom + R.pad + outT + R.tick * 0.9;
+    ticksAt.forEach(([d, i]) => {
+      out.push(textAt(R, left + band * i, ty, MONTHS[d.getMonth()], "start"));
+      if (d.getMonth() === 0) out.push(textAt(R, left + band * i, ty + R.tick * 1.15, String(d.getFullYear()), "start"));
+    });
+    const mid = (top + bottom) / 2, lx = R.m + R.axisTitle * 0.85, rx = F.right - R.axisTitle * 0.35;
+    out.push(textAt(R, lx, mid, "Net flows (£m)", "middle", R.axisTitle, ` transform="rotate(-90 ${lx} ${mid})"`));
+    out.push(textAt(R, rx, mid, "AUM (£bn)", "middle", R.axisTitle, ` transform="rotate(90 ${rx} ${mid})"`));
+    out.push("</svg>");
+    const hover = { type: "x", xs: COMBO.months.map((d, i) => cx(i)), plot: { left, right, top, bottom },
+      at: i => ({
+        head: `${MONTHS[COMBO.months[i].getMonth()]} ${COMBO.months[i].getFullYear()}`,
+        rows: [{ label: "Net flows", value: `${COMBO.flows[i] < 0 ? "\u2212" : ""}\u00a3${Math.abs(COMBO.flows[i]).toFixed(1)}m`, color: S.combo_signed ? (COMBO.flows[i] >= 0 ? c.columns.up : c.columns.down) : c.columns.one, kind: "patch" },
+               { label: "AUM", value: `\u00a3${COMBO.aum[i].toFixed(2)}bn`, color: c.series[0], kind: "line" }],
+        dots: [{ x: cx(i), y: syA(COMBO.aum[i]), color: c.series[0] }].filter(d => d.y >= top - 1 && d.y <= bottom + 1),
+      }) };
+    return { svg: out.join(""), R, hover };
+  }
+
+  // Sample performance table: returns, risk and size for eight funds.
+  const TABLE = {
+    groups: [["Return (%)", ["1M", "3M", "YTD", "1Y", "3Y p.a."]], ["Risk", ["Volatility (%)", "Max drawdown (%)", "Sharpe"]], ["Size", ["AUM (\u00a3m)"]]],
+    rows: [
+      ["Beacon Global Quality", 1.8, 4.6, 12.4, 14.9, 9.8, 13.2, -18.4, 0.71, 1842.6],
+      ["Index", 1.2, 3.9, 10.8, 12.7, 8.1, 14.1, -21.3, 0.55, null],
+      ["Peer median", 0.9, 3.1, 9.6, 11.2, 7.4, 14.6, -22.8, 0.47, 965.0],
+      ["Global Value", -0.6, 1.4, 6.2, 8.1, 6.9, 15.2, -19.7, 0.41, 2310.4],
+      ["Global Growth", 2.7, 6.8, 16.1, 18.4, 8.8, 18.9, -31.2, 0.44, 3104.9],
+      ["World Small Cap", -1.4, -0.8, 3.7, 5.2, 2.1, 19.6, -28.4, 0.08, 712.3],
+      ["Emerging Markets", -2.3, -3.1, 1.8, 3.4, -0.7, 17.8, -27.5, -0.06, 1288.1],
+      ["Quality Income", 0.7, 2.2, 7.9, 9.3, 6.3, 11.4, -15.1, 0.53, 1567.8],
+    ],
+  };
+  TABLE.rowGroups = [["This fund", ["Beacon Global Quality", "Index", "Peer median"]],
+                     ["Peer funds", ["Global Value", "Global Growth", "World Small Cap", "Emerging Markets", "Quality Income"]]];
+  let tableSort = { col: null, dir: 1 };
+
+  function inkOn(hex) {
+    const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    return lum > 0.6 ? "#1c1a16" : "#ffffff";
+  }
+  function tableNumber(v, d, opts = {}) {
+    if (v === null || v === undefined) return "\u2013";
+    let s = Math.abs(v).toFixed(d);
+    if (opts.thousands) { const [a, b] = s.split("."); s = a.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (b ? "." + b : ""); }
+    if (opts.percent) s += "%";
+    if (v < 0 && Math.abs(v) >= 0.5 * Math.pow(10, -d)) s = S.tbl_negatives === "brackets" ? `(${s})` : "\u2212" + s;
+    return s;
+  }
+
+  // The table in the Beacon frame, as HTML: the heading and notes as the
+  // charts draw them, the values in a table under the table style.
+  function drawTable(interactive) {
+    const R = resolve(), { c, hs } = R;
+    const ink = themeInk(S.theme);
+    const tc = k => (S[k] && validHex(S[k]) ? normHex(S[k]) : null);
+    // The rules are drawn in the column headings' colour unless given one.
+    const headC = tc("table_header_color") || c.muted;
+    const ruleC = tc("table_rule_color") || headC, rowC = tc("table_row_rule_color") || ink.grid;
+    const stripeC = tc("table_stripe_color") || ink.grid;
+    const px = v => (v * PX_PER_PT).toFixed(2) + "px";
+    const scale = S.scale;
+    const body = S.table_body_size * scale * S.text_scale, head = S.table_header_size * scale * S.text_scale, grp = S.table_group_size * scale * S.text_scale;
+    const pv = S.table_row_padding * scale, ph = S.table_cell_padding * scale;
+    const rw = S.table_rule_width * R.k, rrw = S.table_row_rule_width * R.k, bw = S.table_box_width * R.k;
+    const m = R.m, titleSize = S.title_size * hs, subSize = S.subtitle_size * hs, mh = 13.8 * hs, mw = mh * BETA_W / BETA_H;
+    const indent = S.mark ? mw + 5 * hs : 0;
+
+    const cols = TABLE.groups.flatMap(([g, cs], gi) => cs.map((name, ci) => ({ name, g, gi, first: ci === 0, last: ci === cs.length - 1 })));
+    // Boxes around column groups: a narrow empty column keeps neighbouring
+    // boxes apart, so their edges do not merge into one heavy line.
+    const gb = S.table_group_boxes, withHeads = S.table_group_box_scope === "headings";
+    const gap = (tag, col) => (gb && col.first && col.gi > 0 ? `<${tag} aria-hidden="true" style="width:${px(ph * 2)};padding:0;border:0"></${tag}>` : "");
+    const groupBox = (col, where, firstBody, lastBody) => {
+      if (!gb || (where === "head" && !withHeads)) return "";
+      const line = `${px(bw)} solid ${ruleC}`;
+      return [col.first ? `border-left:${line};` : "", col.last ? `border-right:${line};` : "",
+              where === "head" || (firstBody && !withHeads) ? `border-top:${line};` : "",
+              lastBody ? `border-bottom:${line};` : ""].join("");
+    };
+    const decimals = col => col.g === "Return (%)" ? S.tbl_dec_returns : col.name === "Sharpe" ? S.tbl_dec_sharpe : col.g === "Size" ? S.tbl_dec_aum : S.tbl_dec_risk;
+    let rows = TABLE.rows.map((r, i) => ({ r, i }));
+    if (interactive && tableSort.col !== null) rows = [...rows].sort((a, b) => ((a.r[tableSort.col + 1] ?? -Infinity) - (b.r[tableSort.col + 1] ?? -Infinity)) * tableSort.dir);
+
+    const numAlign = S.table_number_align, headAlign = S.table_header_align === "center" ? "center" : numAlign;
+    const groupStart = col => S.table_column_rules && col.first && col.gi > 0 ? `border-left:${px(rrw)} solid ${rowC};` : "";
+    const cell = (ci, col) => `padding:${px(pv)} ${px(ph)};${groupStart(col)}`;
+
+    const flipMark = S.mark ? `<svg viewBox="0 0 ${BETA_W} ${BETA_H}" style="width:${px(mw)};height:${px(mh)};flex:none" aria-hidden="true"><path d="${BETA}" fill="${c.text}" transform="translate(0 ${BETA_H}) scale(1 -1)"/></svg>` : "";
+    const heading = `<div style="display:flex;align-items:center;gap:${px(5 * hs)};margin-bottom:${px(10 * R.k)}">${flipMark}
+      ${S.accent_bar ? `<span style="align-self:stretch;width:${px(2.5 * hs)};background:${c.accentBar};flex:none"></span>` : ""}
+      <div style="display:grid;gap:${px(0.5 * hs)};padding-left:${S.accent_bar ? px(0) : px(0)}">
+        <div style="font-family:${ff(S.title_font)};font-weight:400;font-size:${px(titleSize)};line-height:1.1;color:${c.text}">Performance and risk</div>
+        <div style="font-family:${ff(S.subtitle_font)};font-weight:350;${S.subtitle_italic ? "font-style:italic;" : ""}font-size:${px(subSize)};line-height:1.15;color:${c.muted}">To 31 December 2025, against the index and peers</div>
+      </div></div>`;
+
+    const side = S.tbl_row_heads, sg = ph * 1.5, ns = S.table_name_space * scale;
+    const corner = side ? `<th aria-hidden="true" style="padding:0;border:0"></th><th aria-hidden="true" style="width:${px(sg)};padding:0;border:0"></th>` : "";
+    const groupRow = S.tbl_groups ? `<tr>${corner}<th style="${cell(0, {})}width:0"></th>${TABLE.groups.map(([g, cs], gi) =>
+      (gb && gi > 0 ? `<th aria-hidden="true" style="padding:0;border:0"></th>` : "") + `<th colspan="${cs.length}" style="padding:${px(pv)} ${px(ph)} ${px(pv * 0.5)};text-align:center;font-weight:400;font-size:${px(grp)};color:${c.text};${S.table_column_rules && gi > 0 ? `border-left:${px(rrw)} solid ${rowC};` : ""}${S.table_group_rules ? `background:linear-gradient(${rowC},${rowC}) no-repeat right bottom / calc(100% - ${px(ph * 3)}) ${px(rrw)};` : ""}">${esc(g)}</th>`).join("")}</tr>` : "";
+    const headRow = `<tr>${corner}<th style="${cell(0, {})}width:0;text-align:${S.table_name_align};${S.table_header_rule ? `border-bottom:${px(rw)} solid ${ruleC};` : ""}"></th>${cols.map((col, ci) => {
+      const sorted = interactive && tableSort.col === ci ? ` aria-sort="${tableSort.dir > 0 ? "ascending" : "descending"}"` : "";
+      return gap("th", col) + `<th data-col="${ci}"${sorted} style="${cell(ci + 1, col)}${groupBox(col, "head")}text-align:${headAlign};font-weight:${S.table_header_weight};font-size:${px(head)};color:${headC};${S.table_header_rule ? `border-bottom:${px(rw)} solid ${ruleC};` : ""}${interactive ? "cursor:pointer;" : ""}">${esc(col.name)}</th>`;
+    }).join("")}</tr>`;
+    // Rows in their groups; sorting keeps each group together.
+    const rb = S.table_row_boxes, heads = S.tbl_row_heads;
+    const nCols = cols.length + 1 + (gb ? TABLE.groups.length - 1 : 0) + (side ? 2 : 0);
+    const line = `${px(bw)} solid ${ruleC}`;
+    const groupsOfRows = TABLE.rowGroups.map(([label, names]) => ({ label, rows: rows.filter(x => names.includes(x.r[0])) }));
+
+    // The heatmap: each cell's colour from its column's values, or its
+    // whole group's, optionally centred on zero.
+    const heatOn = col => S.tbl_heat !== "none" && (col.g === S.tbl_heat || col.name === S.tbl_heat);
+    const oneColumn = cols.some(x => x.name === S.tbl_heat);
+    const range = col => {
+      const idx = oneColumn || S.tbl_heat_scale === "per column" ? [cols.indexOf(col)] : cols.map((x, i) => (x.g === col.g ? i : -1)).filter(i => i >= 0);
+      const vs = TABLE.rows.flatMap(r => idx.map(i => r[i + 1])).filter(v => v !== null);
+      let lo = Math.min(...vs), hi = Math.max(...vs);
+      if (S.tbl_heat_zero) { const mx = Math.max(Math.abs(lo), Math.abs(hi)); lo = -mx; hi = mx; }
+      return [lo, hi === lo ? lo + 1 : hi];
+    };
+    // A cell's fill and the ink its number is written in. Faded, a cell is
+    // its end of the colour map at an opacity that grows from the neutral
+    // point, so the neutral point is the table's own background, whatever it is.
+    const ground = c.background || (THEMES[S.theme].mode === "dark" ? "#232323" : "#ffffff");
+    const over = (hex, alpha) => {
+      const a = [1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16)), b = [1, 3, 5].map(k => parseInt(ground.slice(k, k + 2), 16));
+      return "#" + a.map((v, k) => Math.round(v * alpha + b[k] * (1 - alpha)).toString(16).padStart(2, "0")).join("");
+    };
+    const heatFill = (col, v) => {
+      const [lo, hi] = range(col), tt = Math.min(Math.max((v - lo) / (hi - lo), 0), 1);
+      if (!S.tbl_heat_fade) { const bg = cmapColor(S.tbl_cmap, tt, S.tbl_cmap_reverse); return { bg, ink: inkOn(bg) }; }
+      // A diverging map (lighter in the middle than at either end) fades from
+      // the middle out to each end's colour. A one-way map fades from its
+      // light end to its deep end, whichever way round it is: taking the end
+      // the scale points at drew a reversed map in its near-white end.
+      const e0 = cmapColor(S.tbl_cmap, 0, S.tbl_cmap_reverse), e1 = cmapColor(S.tbl_cmap, 1, S.tbl_cmap_reverse);
+      const lum = hex => { const n = parseInt(hex.slice(1), 16); return (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255; };
+      const diverging = lum(cmapColor(S.tbl_cmap, 0.5, S.tbl_cmap_reverse)) > Math.max(lum(e0), lum(e1));
+      const centred = S.tbl_heat_zero;
+      let end, alpha;
+      if (diverging) { end = tt < 0.5 ? e0 : e1; alpha = Math.abs(tt - 0.5) * 2; }
+      else {
+        const lightAtTop = lum(e1) > lum(e0);
+        end = lightAtTop ? e0 : e1;
+        alpha = centred ? Math.abs(tt - 0.5) * 2 : (lightAtTop ? 1 - tt : tt);
+      }
+      const [r, g, b] = [1, 3, 5].map(k => parseInt(end.slice(k, k + 2), 16));
+      return { bg: `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`, ink: alpha < 0.45 ? c.text : inkOn(over(end, alpha)) };
+    };
+    // Blended shading: each cell runs from the colour halfway to its
+    // neighbour on one side to the colour halfway to the other.
+    const fills = {};
+    // Ungrouped, rows blend down the whole table rather than within each group.
+    const flatG = { rows: groupsOfRows.flatMap(G => G.rows) };
+    const grouped = S.table_row_boxes || S.tbl_row_heads;
+    groupsOfRows.forEach(G => G.rows.forEach(({ r }) => cols.forEach((col, ci) => {
+      const v = r[ci + 1];
+      if (heatOn(col) && v !== null) fills[`${r[0]}|${ci}`] = heatFill(col, v);
+    })));
+    // Whole-group blending: each block of heatmap cells (a row group by the
+    // heatmap's columns) is one small image, smoothed as the browser scales
+    // it up behind the cells, so each colour blends into all its neighbours.
+    const heatCols = cols.map((col, ci) => (heatOn(col) ? ci : -1)).filter(ci => ci >= 0);
+    const whole = S.tbl_heat_shading === "blended" && S.tbl_heat_blend === "whole group" && heatCols.length;
+    const blocks = {};
+    if (whole) (grouped ? groupsOfRows : [flatG]).forEach((G, bi) => {
+      blocks["b" + bi] = { rows: G.rows.length, cols: heatCols.length,
+        colors: G.rows.flatMap(({ r }) => heatCols.map(ci => (fills[`${r[0]}|${ci}`] || {}).bg || null)) };
+    });
+    const blockOf = name => (grouped ? groupsOfRows.findIndex(G => G.rows.some(x => x.r[0] === name)) : 0);
+    const blendOf = (G, ri, ci) => {
+      const me = fills[`${G.rows[ri].r[0]}|${ci}`];
+      if (S.tbl_heat_shading !== "blended") return me.bg;
+      if (whole) return "transparent";
+      const across = S.tbl_heat_blend === "across columns";
+      const near = d => across ? fills[`${G.rows[ri].r[0]}|${ci + d}`] : (G.rows[ri + d] ? fills[`${G.rows[ri + d].r[0]}|${ci}`] : null);
+      const mid = n => (n ? `color-mix(in srgb, ${me.bg}, ${n.bg})` : me.bg);
+      return `linear-gradient(${across ? 90 : 180}deg, ${mid(near(-1))} 0%, ${me.bg} 50%, ${mid(near(1))} 100%)`;
+    };
+
+    let bodyRows = "", seen = 0;
+    groupsOfRows.forEach((G, gi) => {
+      // The heading sits over the row names, aligned as they are.
+      if (rb && gi > 0) bodyRows += `<tr aria-hidden="true" class="rgroup"><td colspan="${nCols}" style="height:${px(pv * 2)};padding:0;border:0"></td></tr>`;
+      G.rows.forEach(({ r }, ri) => {
+        const firstAll = seen === 0, lastAll = seen === rows.length - 1;
+        seen++;
+        const firstG = ri === 0, lastG = ri === G.rows.length - 1;
+        const lead = S.tbl_lead && r[0] === TABLE.rows[0][0];
+        const stripe = S.table_stripes && (grouped ? ri : seen - 1) % 2 === 1 ? `background:${stripeC};` : "";
+        const ruled = S.table_row_rules && !firstAll && !(grouped && firstG && !side);
+        const rule = ruled ? `border-top:${px(rrw)} solid ${rowC};` : "";
+        const bottom = lastAll && S.table_bottom_rule ? `border-bottom:${px(rw)} solid ${ruleC};` : "";
+        const box = (ci, n) => !S.table_box ? "" : [
+          firstAll ? `border-top:${line};` : "", lastAll ? `border-bottom:${line};` : "",
+          ci === 0 ? `border-left:${line};` : "", ci === n - 1 ? `border-right:${line};` : ""].join("");
+        // Boxes by column group, by row group, or both (a box per block).
+        const blockBox = (col, ci) => {
+          if (!gb && !rb) return "";
+          const left = gb ? col.first : ci === 0, right = gb ? col.last : ci === cols.length - 1;
+          const top = rb ? firstG : (firstAll && !withHeads), bottomEdge = rb ? lastG : lastAll;
+          return [left ? `border-left:${line};` : "", right ? `border-right:${line};` : "",
+                  top ? `border-top:${line};` : "", bottomEdge ? `border-bottom:${line};` : ""].join("");
+        };
+        const label = side && firstG ? `<td rowspan="${G.rows.length}" style="padding:0 ${px(sg)};text-align:center;vertical-align:middle;font-weight:400;font-size:${px(grp)};color:${c.text};white-space:nowrap;${gi > 0 && S.table_group_rules ? `border-top:${px(rrw)} solid ${rowC};` : ""}">${esc(G.label)}</td>` : "";
+        const space = side ? `<td aria-hidden="true" style="padding:0;border:0"></td>` : "";
+        const name = `${label}${space}<td style="${cell(0, {})}padding-left:${px(ns)};width:0;${stripe}${rule}${bottom}text-align:${S.table_name_align};font-weight:${lead ? 500 : S.table_name_weight};color:${side ? headC : c.text};white-space:nowrap">${esc(r[0])}</td>`;
+        const values = cols.map((col, ci) => {
+          const v = r[ci + 1];
+          const fillOf = fills[`${r[0]}|${ci}`];
+          const tag = fillOf && whole ? ` data-hb="b${blockOf(r[0])}" data-hr="${grouped ? ri : seen - 1}" data-hc="${heatCols.indexOf(ci)}"` : "";
+          const heat = fillOf ? (grouped ? blendOf(G, ri, ci) : blendOf(flatG, seen - 1, ci)) : null;
+          const signed = !heat && S.tbl_signed && col.g === "Return (%)" && v !== null;
+          const colour = heat ? (S.tbl_heat_values ? fillOf.ink : "transparent") : signed ? (v >= 0 ? c.up : c.down) : c.text;
+          const text = tableNumber(v, decimals(col), { thousands: col.g === "Size" && S.tbl_thousands, percent: col.g === "Return (%)" && S.tbl_percent });
+          return gap("td", col) + `<td${tag} style="${cell(ci + 1, col)}${heat ? `background:${heat};` : stripe}${rule}${bottom}${box(ci, cols.length)}${blockBox(col, ci)}text-align:${numAlign};color:${colour};font-weight:${lead ? 500 : 300};white-space:nowrap">${text}</td>`;
+        }).join("");
+        bodyRows += `<tr>${name}${values}</tr>`;
+      });
+    });
+
+    const notes = S.notes ? `<div style="margin-top:${px(6 * R.k)};font-family:${ff(S.font)};font-weight:300;${S.notes_italic ? "font-style:italic;" : ""}font-size:${px(R.notes)};color:${c.text}">Notes: Source: Synthetic data. Returns in GBP, net of fees; 3Y annualised. Volatility and Sharpe over three years of weekly returns.</div>` : "";
+    const width = R.W * PX_PER_PT;
+    const html = `<div class="tframe${interactive ? " live-table" : ""}" style="width:${width}px;padding:${px(m)};box-sizing:border-box;${c.background ? `background:${c.background};` : ""}color:${c.text};font-family:${ff(S.font)};font-weight:300;line-height:1.25;--row-hover:${ink.grid}">
+      ${heading}
+      <div style="padding-left:${px(indent)};overflow-x:auto"><table data-heat-blocks='${JSON.stringify(blocks)}' style="border-collapse:${S.table_box || gb ? "separate" : "collapse"};border-spacing:0;width:100%;font-size:${px(body)};color:${c.text};font-variant-numeric:tabular-nums">
+        <thead>${groupRow}${headRow}</thead><tbody>${bodyRows}</tbody></table>${notes.replace("margin-top", "margin-top")}</div>
+    </div>`;
+    return { svg: html, R, hover: null, height: null };
+  }
+
+  // Sample correlations: eight funds' weekly returns, from two factors.
+  const HEAT = (() => {
+    const names = ["Fund", "Index", "Value", "Growth", "Small Cap", "Emerging", "Income", "Low Vol"];
+    const load = [[0.92, 0.25], [0.95, 0.1], [0.85, -0.35], [0.88, 0.38], [0.8, -0.1], [0.7, -0.05], [0.75, -0.4], [0.6, -0.3]];
+    const m = load.map((a, i) => load.map((b, j) => (i === j ? 1 : Math.round((a[0] * b[0] + a[1] * b[1]) * 100) / 100)));
+    return { names, m };
+  })();
+
+  // Drawn twice: once in the full frame to find the cell size, then in a frame
+  // cropped to what the chart draws, so a square matrix does not leave the
+  // 4:3 frame's width empty. Every size in points is unchanged.
+  function drawHeatmap(fixed) {
+    const R = resolve(), { c } = R;
+    if (fixed) { R.W = fixed.W; R.H = fixed.H; }
+    const n = HEAT.names.length;
+    const labW = Math.max(...HEAT.names.map(s => textWidth(s, R.tick, S.font)));
+    const left = R.m + labW + R.pad * 1.5;
+    const F = frame(R, { title: "Correlation", subtitle: "Weekly returns, 2021 to 2025", legend: [],
+      notes: "Notes: Source: Synthetic data. Pearson correlation of weekly returns." }, left);
+    const off = HEAT.m.flatMap((row, i) => row.filter((_, j) => j !== i));
+    const [lo, hi] = S.heat_domain === "data" ? [Math.min(...off), Math.max(...off)] : S.heat_domain === "0.2 to 1" ? [0.2, 1] : [-1, 1];
+    const fill = v => cmapColor(S.cmap, (v - lo) / (hi - lo || 1), S.cmap_reverse);
+    const dec = S.heat_decimals;
+    const barRoom = S.heat_bar ? R.label * 1.6 + textWidth(fmt(hi, dec), R.label, S.font) + R.label * 1.2 : 0;
+    const xLabRoom = labW * 0.75 + R.pad * 2;
+    const size = fixed ? fixed.size : Math.max(Math.min(F.right - left - barRoom, F.bottom - F.top - xLabRoom), 40);
+    if (!fixed) {
+      const barRight = S.heat_bar ? left + size + R.label * 2.6 + Math.max(textWidth(fmt(hi, dec), R.label, S.font), textWidth(fmt(lo, dec), R.label, S.font)) : left + size;
+      const hs = R.hs, headLeft = left + (S.accent_bar ? 5 * hs : 0);
+      const headRight = headLeft + Math.max(textWidth("Correlation", S.title_size * hs, S.title_font, 400),
+                                            textWidth("Weekly returns, 2021 to 2025", S.subtitle_size * hs, S.subtitle_font, 350, S.subtitle_italic));
+      const W = Math.min(R.W, Math.max(barRight, headRight) + R.m);
+      const notes = "Notes: Source: Synthetic data. Pearson correlation of weekly returns.";
+      const lines = S.notes ? wrap(notes, R.notes, S.font, W - R.m - left, S.notes_italic).length : 0;
+      const H = Math.min(R.H, F.top + size + xLabRoom + (lines ? lines * R.notes * 1.25 + 0.06 * 72 * R.k : 0) + R.m);
+      return drawHeatmap({ W, H, size });
+    }
+    const cell = size / n, top = F.top, g = cell * S.heat_gap;
+    const out = [svgOpen(R), ...F.parts];
+    const shown = (i, j) => !S.heat_lower || j <= i;
+    if (S.heat_shading === "blended") {
+      const cv = document.createElement("canvas"); cv.width = n; cv.height = n;
+      const cx = cv.getContext("2d");
+      HEAT.m.forEach((row, i) => row.forEach((v, j) => { cx.fillStyle = fill(v); cx.fillRect(j, i, 1, 1); }));
+      out.push(`<image href="${cv.toDataURL()}" x="${left}" y="${top}" width="${size}" height="${size}" preserveAspectRatio="none" style="image-rendering:auto"/>`);
+      if (S.heat_lower && R.c.background) out.push(`<path d="${HEAT.m.map((row, i) => `M${left + (i + 1) * cell} ${top + i * cell}H${left + size}V${top + (i + 1) * cell}H${left + (i + 1) * cell}Z`).join("")}" fill="${R.c.background}"/>`);
+    } else {
+      HEAT.m.forEach((row, i) => row.forEach((v, j) => {
+        // With no gap, each square overlaps its neighbours slightly: squares that
+        // only meet leave an anti-aliased seam the background shows through.
+        const e = g === 0 ? 0.4 : 0;
+        if (shown(i, j)) out.push(`<rect x="${left + j * cell + g / 2}" y="${top + i * cell + g / 2}" width="${cell - g + (j < n - 1 ? e : 0)}" height="${cell - g + (i < n - 1 ? e : 0)}" fill="${fill(v)}"/>`);
+      }));
+    }
+    if (S.heat_values) HEAT.m.forEach((row, i) => row.forEach((v, j) => {
+      if (shown(i, j)) out.push(`<text x="${left + (j + 0.5) * cell}" y="${top + (i + 0.5) * cell + R.label * 0.35}" text-anchor="middle" font-family="${ff(S.font)}" font-weight="300" font-size="${R.label}" fill="${inkOn(fill(v))}">${fmt(v, dec)}</text>`);
+    }));
+    HEAT.names.forEach((s, i) => {
+      out.push(textAt(R, left - R.pad, top + (i + 0.5) * cell + R.tick * 0.35, s, "end"));
+      const x = left + (i + 0.5) * cell, y = top + size + R.pad + R.tick * 0.4;
+      out.push(textAt(R, x, y, s, "end", R.tick, ` transform="rotate(-45 ${x} ${y})"`));
+    });
+    if (S.heat_bar) {
+      const bx = left + size + R.label * 1.2, bw = R.label * 0.9;
+      out.push(`<defs><linearGradient id="hm-grad" x1="0" y1="1" x2="0" y2="0">${Array.from({ length: 11 }, (_, k) => `<stop offset="${k / 10}" stop-color="${cmapColor(S.cmap, k / 10, S.cmap_reverse)}"/>`).join("")}</linearGradient></defs>`);
+      out.push(`<rect x="${bx}" y="${top}" width="${bw}" height="${size}" fill="url(#hm-grad)"/>`);
+      out.push(textAt(R, bx + bw + R.label * 0.5, top + R.label * 0.75, fmt(hi, dec), "start", R.label));
+      out.push(textAt(R, bx + bw + R.label * 0.5, top + size, fmt(lo, dec), "start", R.label));
+    }
+    out.push("</svg>");
+    const hover = { type: "cell", plot: { left, right: left + size, top, bottom: top + size },
+      find: (x, y) => { const j = Math.floor((x - left) / cell), i = Math.floor((y - top) / cell);
+        return i >= 0 && j >= 0 && i < n && j < n && shown(i, j) ? i * n + j : -1; },
+      at: k => { const i = Math.floor(k / n), j = k % n, v = HEAT.m[i][j];
+        return { head: `${HEAT.names[i]} and ${HEAT.names[j]}`, rows: [{ label: "Correlation", value: fmt(v, 2), color: fill(v), kind: "patch" }], dots: [] }; } };
+    return { svg: out.join(""), R, hover };
+  }
+
+  const CHARTS = [
+    { id: "line", name: "Line", note: "with marked periods", draw: drawLine },
+    { id: "bar", name: "Bar", note: "signed, by category", draw: drawBar },
+    { id: "combo", name: "Combo", note: "columns and a line on two axes", draw: drawCombo },
+    { id: "heatmap", name: "Heatmap", note: "colour maps, values and shading", draw: () => drawHeatmap() },
+    { id: "table", name: "Table", note: "formats, rules and spacing", draw: () => drawTable(false), live: () => drawTable(true), table: true },
+  ];
+
+  // ---- Hex colours ----
+  function validHex(v) { return /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.test((v || "").trim()); }
+  function normHex(v) {
+    let h = v.trim().replace(/^#/, "").toLowerCase();
+    if (h.length === 3) h = h.split("").map(x => x + x).join("");
+    return "#" + h;
+  }
+  function themeHex(key) {
+    const ink = themeInk(S.theme);
+    const map = { up: ink.up, down: ink.down, period_label: ink.text,
+                  cmap_low: "#4ca56b", cmap_mid: "#d9b34c", cmap_high: "#ca5851",
+                  table_rule_color: ink.muted, table_row_rule_color: ink.grid, table_stripe_color: ink.grid, table_header_color: ink.muted,
+                  bar_color: ink.series[GREY_4], bar_up: ink.up, bar_down: ink.down,
+                  combo_color: ink.series[GREY_4], combo_up: ink.up, combo_down: ink.down,
+                  accent_bar_color: ink.accent_bar, period: ink.period, text: ink.text, muted: ink.muted, background: ink.background };
+    const series = /^series(\d)$/.exec(key);
+    return series ? ink.series[+series[1] - 1] : map[key];
+  }
+
+  // ---- Building the form ----
+  const groupsEl = document.getElementById("groups");
+  function fieldHTML(f) {
+    const id = "f-" + f.key;
+    const name = f.tree ? f.tree.filter(p => typeof p === "string").join(".") : f.arg + "=";
+    const swatch = f.swatch !== undefined ? `<span class="lsw" id="${id}-lsw" aria-hidden="true"></span>` : "";
+    const lab = `<label for="${id}">${swatch}${f.label}<span class="name">${f.swatch !== undefined ? `series ${f.swatch + 1}, ${SERIES_NAMES[f.swatch].toLowerCase()}` : name}</span></label>`;
+    let control = "";
+    if (f.type === "range") control = `<div class="range"><input type="range" id="${id}" min="${f.min}" max="${f.max}" step="${f.step}"><output for="${id}" id="${id}-out"></output></div>`;
+    if (f.type === "select") control = `<select id="${id}">${f.options.map(o => `<option value="${o}">${o}</option>`).join("")}</select>`;
+    if (f.cmap) control = `<div class="hex">${control}<span class="cstrip" id="${id}-strip" aria-hidden="true"></span></div>`;
+    if (f.type === "toggle") control = `<span class="toggle"><input type="checkbox" id="${id}"></span>`;
+    if (f.type === "num") control = `<input type="text" inputmode="decimal" class="num" id="${id}" placeholder="auto" spellcheck="false">`;
+    if (f.type === "date") control = `<input type="date" class="num" id="${id}">`;
+    const drawn = f.drawn ? `<p class="help drawn" id="drawn-${f.drawn}" hidden></p>` : "";
+    if (f.type === "seg") return `<div class="field" data-key="${f.key}"><span class="lab" id="${id}-lab">${f.label}<span class="name">${name}</span></span><div class="seg" role="group" aria-labelledby="${id}-lab" id="${id}">${f.options.map(o => `<button type="button" data-v="${o}">${o}</button>`).join("")}</div>${f.help ? `<p class="help">${f.help}</p>` : ""}</div>`;
+    if (f.type === "hex") control = `<div class="hex"><input type="text" id="${id}" spellcheck="false" maxlength="7" aria-describedby="${id}-err"><span class="swatch" id="${id}-sw" aria-hidden="true"></span><button type="button" class="reset-one" data-reset="${f.key}" aria-label="Back to the theme's colour">↺</button></div><p class="err" id="${id}-err" hidden></p>`;
+    return `<div class="field" data-key="${f.key}">${lab}${control}${f.help ? `<p class="help">${f.help}</p>` : ""}${drawn}</div>`;
+  }
+  groupsEl.innerHTML = GROUPS.map(g => `<details${g.open ? " open" : ""}><summary>${g.title}<span class="tree">${g.tree}</span></summary><div class="fields">${g.help ? `<p class="help" style="margin:0">${g.help}</p>` : ""}${g.fields.map(fieldHTML).join("")}</div></details>`).join("");
+
+  function show(f) {
+    const el = document.getElementById("f-" + f.key), v = S[f.key];
+    if (f.type === "range") { el.value = v; document.getElementById(`f-${f.key}-out`).textContent = (+v).toFixed((String(f.step).split(".")[1] || "").length); }
+    if (f.type === "select") el.value = String(v);
+    if (f.cmap) document.getElementById(`f-${f.key}-strip`).style.background = cmapGradient(v, S[f.cmap]);
+    if (f.type === "toggle") el.checked = !!v;
+    if ((f.type === "num" || f.type === "date") && document.activeElement !== el) el.value = v === null ? "" : v;
+    if (f.type === "seg") el.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v))));
+    if (f.type === "hex") {
+      if (document.activeElement !== el) el.value = v;
+      el.placeholder = themeHex(f.key) || "none";
+      const ok = !v || validHex(v);
+      const sw = document.getElementById(`f-${f.key}-sw`), err = document.getElementById(`f-${f.key}-err`);
+      el.classList.toggle("bad", !ok); sw.classList.toggle("bad", !ok);
+      const shown = ok ? (v ? normHex(v) : themeHex(f.key)) : null;
+      sw.style.background = shown || "transparent";
+      sw.title = shown || "";
+      err.hidden = ok; err.textContent = ok ? "" : "Use a hex code: # then 3 or 6 of 0–9 and a–f, such as #4a88c7.";
+    }
+    const changed = f.type === "hex" ? (v && validHex(v)) : v !== base[f.key];
+    el.closest(".field").classList.toggle("changed", !!changed);
+    if (f.swatch !== undefined) document.getElementById(`f-${f.key}-lsw`).style.background = resolve().c.series[f.swatch];
+  }
+  function showAll() { FIELDS.forEach(show); }
+
+  groupsEl.addEventListener("input", e => {
+    const f = BY_KEY[e.target.id.replace(/^f-/, "")]; if (!f || f.type === "select") return;
+    if (f.type === "range") S[f.key] = +e.target.value;
+    if (f.type === "toggle") S[f.key] = e.target.checked;
+    if (f.type === "hex") S[f.key] = e.target.value.trim();
+    if (f.type === "date") S[f.key] = e.target.value;
+    if (f.type === "num") {
+      const raw = e.target.value.trim().replace("\u2212", "-");
+      const v = raw === "" ? null : Number(raw);
+      e.target.classList.toggle("bad", raw !== "" && !Number.isFinite(v));
+      if (raw !== "" && !Number.isFinite(v)) return;
+      S[f.key] = v;
+    }
+    update(f);
+  });
+  groupsEl.addEventListener("change", e => {
+    const f = BY_KEY[e.target.id.replace(/^f-/, "")]; if (!f || f.type !== "select") return;
+    S[f.key] = f.key === "dpi" ? +e.target.value : e.target.value;
+    update(f, true);
+  });
+  groupsEl.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.reset) { S[b.dataset.reset] = ""; update(BY_KEY[b.dataset.reset]); document.getElementById("f-" + b.dataset.reset).value = ""; return; }
+    const seg = b.closest(".seg"); if (!seg) return;
+    const f = BY_KEY[seg.id.replace(/^f-/, "")]; S[f.key] = b.dataset.v;
+    if (f.key === "table_preset") {
+      // Each preset sets every rule and box. Plain has none at all: no rules
+      // under the headings or the group headings, and no boxes.
+      const keys = ["table_header_rule", "table_row_rules", "table_bottom_rule", "table_group_rules",
+                    "table_column_rules", "table_box", "table_group_boxes", "table_row_boxes"];
+      const rules = { lines: [true, true, true, true, false, false, false, false],
+                      plain: [false, false, false, false, false, false, false, false],
+                      boxed: [false, false, false, true, false, true, false, false] }[b.dataset.v];
+      keys.forEach((k, i) => { S[k] = rules[i]; });
+      return update(f, true);
+    }
+    update(f);
+  });
+  document.getElementById("preset").addEventListener("change", e => { base = PRESETS[e.target.value]; S = { ...base }; showAll(); render(); });
+  document.getElementById("reset-all").addEventListener("click", () => { S = { ...base }; showAll(); render(); });
+
+  let pending = 0;
+  function update(f, all) {
+    if (all) showAll(); else show(f);
+    if (f.key === "theme") HEX_KEYS.forEach(k => show(BY_KEY[k]));
+    if (f.type === "hex") FIELDS.filter(x => x.swatch !== undefined || x.cmap).forEach(show);
+    if (/reverse/.test(f.key)) FIELDS.filter(x => x.cmap).forEach(show);
+    cancelAnimationFrame(pending);
+    pending = requestAnimationFrame(render);
+  }
+
+  // ---- The charts on the page ----
+  // ---- Colour blocks: each palette on the canvas it is drawn on ----
+  function inkOnUnused(hex) {
+    const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    return lum > 0.6 ? "#1c1a16" : "#ffffff";
+  }
+  function blocks(items, canvas) {
+    return `<div class="blocks" style="background:${canvas}">${items.map(([n, name, hex, note]) =>
+      `<div class="block" style="background:${hex};color:${inkOn(hex)}"><span class="n">${n}${note ? ` \u00b7 ${note}` : ""}</span><span><span class="nm">${name}</span><br><span class="hx">${hex}</span></span></div>`).join("")}</div>`;
+  }
+  document.getElementById("palette").innerHTML = [
+    `<div class="pal-row"><h3>Series, light themes <span>beacon-light, white, transparent-dark-axes</span></h3>${blocks(PALETTE.light.slice(0, COLOURS).map((h, i) => [i + 1, SERIES_NAMES[i], h]), TOKENS.light.canvas)}${blocks(PALETTE.light.slice(COLOURS).map((h, i) => [COLOURS + i + 1, SERIES_NAMES[COLOURS + i], h]), TOKENS.light.canvas)}</div>`,
+    `<div class="pal-row"><h3>Series, dark themes <span>beacon-dark, github-dark, transparent-light-axes</span></h3>${blocks(PALETTE.dark.slice(0, COLOURS).map((h, i) => [i + 1, SERIES_NAMES[i], h, PROPOSED_DARK.has(i) ? "proposed" : ""]), TOKENS.dark.canvas)}${blocks(PALETTE.dark.slice(COLOURS).map((h, i) => [COLOURS + i + 1, SERIES_NAMES[COLOURS + i], h]), TOKENS.dark.canvas)}</div>`,
+    `<div class="pal-row"><h3>Colour maps <span>for the heatmap, and for a heatmap column group in a table</span></h3><div class="blocks" style="grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:12px;background:${TOKENS.light.canvas}">${
+      Object.keys(CMAPS).map(nm => `<div style="display:grid;gap:4px;color:#2a2419;font-size:12px"><span class="cbar" style="background:${cmapGradient(nm, false)}"></span><span style="font-family:var(--mono)">${nm}</span></div>`).join("")}</div></div>`,
+    `<div class="pal-row"><h3>Today's order, for comparison <span>0.7.0: accent, series-2, series-3, then text-secondary</span></h3>${blocks([[1, "Accent", TOKENS.light.accent], [2, "Series 2", TOKENS.light["series-2"]], [3, "Series 3 (orange)", TOKENS.light["series-3"]], [4, "Text secondary", TOKENS.light["text-secondary"]]], TOKENS.light.canvas)}</div>`,
+    `<div class="pal-row"><h3>Meanings, not series <span>never used for a line</span></h3>${blocks([["up", "Gain", TOKENS.light.success], ["down", "Loss", TOKENS.light.danger], ["bar", "Accent bar", TOKENS.light.accent], ["box", "Marked period", "#e7dabb"]], TOKENS.light.canvas)}${blocks([["up", "Gain", TOKENS.dark.success], ["down", "Loss", TOKENS.dark.danger], ["bar", "Accent bar", TOKENS.dark.accent], ["box", "Marked period", TOKENS.dark.divider]], TOKENS.dark.canvas)}</div>`,
+  ].join("");
+
+  const chartsEl = document.getElementById("charts");
+  chartsEl.innerHTML = `<div class="viewbar"><span class="vlabel" id="view-label">Show</span><div class="seg" role="group" aria-labelledby="view-label" id="views">${
+      ["both", "static", "interactive"].map(v => `<button type="button" data-view="${v}" aria-pressed="${v === "both"}">${v[0].toUpperCase() + v.slice(1)}</button>`).join("")
+    }</div><span class="vhint">Hover an interactive chart to read its values.</span></div>` + CHARTS.map(ch => `<figure>
+      <figcaption><span>${ch.name} <span style="text-transform:none;letter-spacing:0">\u00b7 ${ch.note}</span></span><span class="dims" id="dims-${ch.id}"></span></figcaption>
+      <div class="pair">
+        <div class="cell is-static"><p class="cap">Static <code>.save("${ch.id}.png")</code></p><div class="stage" id="stage-${ch.id}"></div></div>
+        <div class="cell is-live"><p class="cap">Interactive <code>.interactive()</code></p><div class="stage" id="live-${ch.id}"><div class="live-wrap" id="wrap-${ch.id}"></div></div></div>
+      </div></figure>`).join("");
+  document.body.dataset.view = "both";
+  document.getElementById("views").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    document.body.dataset.view = b.dataset.view;
+    render();
+    document.querySelectorAll("#views button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  });
+
+  // The hover popup: Beacon desktop's popover glass, tinted for the page the
+  // chart sits on, with the app's dashed crosshair and a dot on each line.
+  const GLASS = {
+    "beacon-light": { bg: "rgba(255, 237, 216, 0.72)", border: "#ddd2b8", ink: "#2a2419", ink2: "#6b6455", hair: "#8b8577" },
+    "beacon-dark": { bg: "rgba(35, 35, 35, 0.72)", border: "#3d392f", ink: "#ede6d6", ink2: "#b5ad9a", hair: "#8a8371" },
+    "white": { bg: "rgba(255, 255, 255, 0.75)", border: "#d0d7de", ink: "#2a2419", ink2: "#6b6455", hair: "#8b8577" },
+    "github-dark": { bg: "rgba(21, 27, 35, 0.8)", border: "#3d444d", ink: "#e6edf3", ink2: "#9198a1", hair: "#9198a1" },
+  };
+  GLASS["transparent-dark-axes"] = GLASS.white;
+  GLASS["transparent-light-axes"] = GLASS["github-dark"];
+  const MODELS = {};
+
+  function mountLive(ch, svg, hover) {
+    const wrap = document.getElementById("wrap-" + ch.id);
+    wrap.innerHTML = svg + `<div class="hl" aria-hidden="true"><div class="hair v" hidden></div><div class="dots"></div><div class="glass-tip" hidden></div></div>`;
+    MODELS[ch.id] = hover;
+    if (wrap.dataset.bound) return;
+    wrap.dataset.bound = "1";
+    wrap.addEventListener("pointermove", e => point(ch.id, e));
+    wrap.addEventListener("pointerleave", () => hide(ch.id));
+  }
+  // Whole-group blending: each block of heatmap cells is painted as one image
+  // at its real size, every pixel blended between the colours at the centres
+  // of the four cells around it. Done here rather than by stretching a tiny
+  // image, which some browsers draw with no smoothing, as flat squares.
+  function colourParts(c) {
+    if (!c) return null;
+    if (c[0] === "#") return [...[1, 3, 5].map(k => parseInt(c.slice(k, k + 2), 16)), 255];
+    const n = (c.match(/[\d.]+/g) || []).map(Number);
+    return [n[0], n[1], n[2], n.length > 3 ? n[3] * 255 : 255];
+  }
+  function layHeatBlocks(root) {
+    root.querySelectorAll("table[data-heat-blocks]").forEach(table => {
+      Object.entries(JSON.parse(table.dataset.heatBlocks || "{}")).forEach(([id, B]) => {
+        const cells = [...table.querySelectorAll(`td[data-hb="${id}"]`)];
+        if (!cells.length) return;
+        const rects = cells.map(td => td.getBoundingClientRect());
+        if (!rects[0].width) return;
+        const l = Math.min(...rects.map(r => r.left)), t = Math.min(...rects.map(r => r.top));
+        const w = Math.max(...rects.map(r => r.right)) - l, h = Math.max(...rects.map(r => r.bottom)) - t;
+        const xc = new Array(B.cols).fill(0), yc = new Array(B.rows).fill(0);
+        cells.forEach((td, i) => {
+          xc[+td.dataset.hc] = (rects[i].left + rects[i].right) / 2 - l;
+          yc[+td.dataset.hr] = (rects[i].top + rects[i].bottom) / 2 - t;
+        });
+        // A missing value takes its nearest neighbour's colour, so the blend
+        // does not run towards black.
+        const grid = B.colors.map(colourParts);
+        grid.forEach((g, k) => {
+          if (g) return;
+          const r = Math.floor(k / B.cols), c = k % B.cols;
+          const near = [[r, c - 1], [r, c + 1], [r - 1, c], [r + 1, c]].map(([a, b]) => (a >= 0 && b >= 0 && a < B.rows && b < B.cols ? grid[a * B.cols + b] : null)).find(Boolean);
+          grid[k] = near ? [...near.slice(0, 3), 0] : [0, 0, 0, 0];
+        });
+        const dpr = Math.min(window.devicePixelRatio || 1, 2), W = Math.max(1, Math.round(w * dpr)), H = Math.max(1, Math.round(h * dpr));
+        const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+        const ctx = cv.getContext("2d"), img = ctx.createImageData(W, H), d = img.data;
+        const seg = (cs, v) => {
+          const n = cs.length;
+          if (n === 1 || v <= cs[0]) return [0, 0, 0];
+          if (v >= cs[n - 1]) return [n - 1, n - 1, 0];
+          let j = 0; while (j < n - 2 && v > cs[j + 1]) j++;
+          return [j, j + 1, (v - cs[j]) / (cs[j + 1] - cs[j] || 1)];
+        };
+        const across = Array.from({ length: W }, (_, px) => seg(xc, (px + 0.5) / dpr));
+        for (let py = 0; py < H; py++) {
+          const [r0, r1, fy] = seg(yc, (py + 0.5) / dpr);
+          for (let px = 0; px < W; px++) {
+            const [c0, c1, fx] = across[px];
+            const a = grid[r0 * B.cols + c0], b = grid[r0 * B.cols + c1], c = grid[r1 * B.cols + c0], e = grid[r1 * B.cols + c1];
+            const o = (py * W + px) * 4;
+            for (let k = 0; k < 4; k++) {
+              const top = a[k] + (b[k] - a[k]) * fx, bottom = c[k] + (e[k] - c[k]) * fx;
+              d[o + k] = top + (bottom - top) * fy;
+            }
+          }
+        }
+        ctx.putImageData(img, 0, 0);
+        const url = cv.toDataURL();
+        cells.forEach((td, i) => Object.assign(td.style, {
+          backgroundImage: `url(${url})`, backgroundSize: `${w}px ${h}px`, backgroundRepeat: "no-repeat",
+          backgroundPosition: `${l - rects[i].left}px ${t - rects[i].top}px` }));
+      });
+    });
+  }
+  function mountTable(ch) {
+    const wrap = document.getElementById("wrap-" + ch.id);
+    wrap.innerHTML = ch.live().svg;
+    layHeatBlocks(wrap);
+    if (wrap.dataset.bound) return;
+    wrap.dataset.bound = "1";
+    wrap.addEventListener("click", e => {
+      const th = e.target.closest("th[data-col]"); if (!th) return;
+      const col = +th.dataset.col;
+      tableSort = tableSort.col === col ? { col, dir: -tableSort.dir } : { col, dir: -1 };
+      wrap.innerHTML = ch.live().svg;
+      layHeatBlocks(wrap);
+    });
+  }
+  function hide(id) {
+    const wrap = document.getElementById("wrap-" + id);
+    wrap.querySelectorAll(".hair, .glass-tip").forEach(el => (el.hidden = true));
+    wrap.querySelector(".dots").innerHTML = "";
+  }
+  function point(id, e) {
+    const wrap = document.getElementById("wrap-" + id), svg = wrap.querySelector("svg"), M = MODELS[id];
+    if (!svg || !M) return;
+    const box = svg.getBoundingClientRect(), k = box.width / svg.viewBox.baseVal.width;
+    const x = (e.clientX - box.left) / k, y = (e.clientY - box.top) / k, P = M.plot;
+    if (x < P.left - 4 || x > P.right + 4 || y < P.top - 4 || y > P.bottom + 4) return hide(id);
+    let i = 0;
+    if (M.type === "x") {
+      let best = Infinity;
+      M.xs.forEach((v, j) => { if (v < P.left - 1 || v > P.right + 1) return; const d = Math.abs(v - x); if (d < best) { best = d; i = j; } });
+      if (best === Infinity) return hide(id);
+    } else if (M.type === "cell") {
+      i = M.find(x, y);
+      if (i < 0) return hide(id);
+    } else {
+      i = M.bands.findIndex(([a, b]) => y >= a && y < b);
+      if (i < 0) return hide(id);
+    }
+    const info = M.at(i), g = GLASS[S.theme];
+    const hair = wrap.querySelector(".hair.v"), tip = wrap.querySelector(".glass-tip");
+    if (M.type === "x") {
+      hair.hidden = false;
+      Object.assign(hair.style, { left: `${M.xs[i] * k}px`, top: `${P.top * k}px`, height: `${(P.bottom - P.top) * k}px`, borderColor: g.hair });
+    } else hair.hidden = true;
+    wrap.querySelector(".dots").innerHTML = info.dots.map(d => `<span class="dot" style="left:${d.x * k}px;top:${d.y * k}px;background:${d.color}"></span>`).join("");
+    tip.style.setProperty("--g-bg", g.bg); tip.style.setProperty("--g-border", g.border);
+    tip.style.setProperty("--g-ink", g.ink); tip.style.setProperty("--g-ink2", g.ink2);
+    tip.style.fontFamily = ff(S.font);
+    tip.innerHTML = `<div class="tip-head">${esc(info.head)}</div><div class="tip-rows">${info.rows.map(r =>
+      `<span class="sw ${r.kind}" style="background:${r.color}"></span><span class="lab">${esc(r.label)}</span><span class="val">${esc(r.value)}</span>`).join("")}</div>`;
+    tip.hidden = false;
+    const px = e.clientX - wrap.getBoundingClientRect().left, py = e.clientY - wrap.getBoundingClientRect().top;
+    const tw = tip.offsetWidth, th = tip.offsetHeight, W = wrap.offsetWidth, H = wrap.offsetHeight;
+    let left = px + 14; if (left + tw > W - 4) left = px - tw - 14;
+    const top = Math.min(Math.max(py - th / 2, 4), H - th - 4);
+    tip.style.transform = `translate(${Math.max(left, 4)}px, ${top}px)`;
+  }
+
+  function render() {
+    const stage = THEMES[S.theme].stage || "";
+    CHARTS.forEach(ch => {
+      const { svg, R, hover } = ch.draw();
+      const el = document.getElementById("stage-" + ch.id), live = document.getElementById("live-" + ch.id);
+      el.className = live.className = "stage " + (R.c.background ? "" : stage);
+      el.innerHTML = svg;
+      if (ch.table) { layHeatBlocks(el); mountTable(ch); } else mountLive(ch, svg, hover);
+      const w = R.W / 72, h = ch.table ? Math.max(el.firstElementChild.offsetHeight, document.getElementById("wrap-table").offsetHeight) / PX_PER_PT / 72 : R.H / 72;
+      document.getElementById("dims-" + ch.id).textContent = `${w.toFixed(2)} × ${h.toFixed(2)} in · ${Math.round(w * S.dpi)} × ${Math.round(h * S.dpi)} px at ${S.dpi} dpi`;
+    });
+    for (const [key, text] of Object.entries(DRAWN)) {
+      const el = document.getElementById("drawn-" + key);
+      if (el) { el.textContent = text; el.hidden = !text; }
+    }
+    renderCode();
+  }
+
+  // ---- The code ----
+  function py(v) {
+    if (typeof v === "boolean") return v ? "True" : "False";
+    if (typeof v === "number") return String(+v.toFixed(3));
+    if (Array.isArray(v)) return "[" + v.map(py).join(", ") + "]";
+    if (v === null) return "None";
+    return JSON.stringify(v);
+  }
+  function fontValue(f) { return FONT_FILES[f] || f; }
+  function overrides() {
+    const out = [];
+    for (const f of FIELDS) {
+      if (!f.tree) continue;
+      const v = S[f.key];
+      if (f.type === "hex") {
+        if (f.tree[0] === "table" && v && validHex(v)) out.push([f, normHex(v)]);
+        continue;
+      }
+      // Weights are numbers in the library, though their buttons show text.
+      const value = typeof v === "string" && /^\d+$/.test(v) ? Number(v) : v;
+      if (v !== base[f.key]) out.push([f, (f.key.endsWith("_font") || f.key === "font") ? fontValue(v) : value]);
+    }
+    return out;
+  }
+  function colourOverrides() {
+    const ok = k => S[k] && validHex(S[k]);
+    const col = {};
+    const seriesKeys = SERIES_NAMES.map((_, i) => `series${i + 1}`);
+    if (seriesKeys.some(ok)) col.series = seriesKeys.map(k => ok(k) ? normHex(S[k]) : themeHex(k));
+    [["up", "up"], ["down", "down"], ["accent_bar_color", "accent_bar"], ["period", "period"], ["period_label", "period_label"], ["text", "text"], ["muted", "muted"], ["background", "background"]]
+      .forEach(([k, name]) => { if (ok(k)) col[name] = normHex(S[k]); });
+    return col;
+  }
+  // Flat keyword names for configure(): the tree path joined, with the
+  // common ones shortened.
+  const FLAT = { "size.scale": "scale", "size.width": "width", "size.aspect": "aspect", "size.dpi": "dpi", "theme": "theme",
+    "heading.mark": "mark", "heading.accent_bar": "accent_bar", "heading.scale": "heading_scale", "heading.title_font": "title_font",
+    "heading.title_size": "title_size", "heading.subtitle_font": "subtitle_font", "heading.subtitle_size": "subtitle_size",
+    "heading.subtitle_italic": "subtitle_italic", "text.font": "font", "text.scale": "text_scale",
+    "axes.title_size": "axis_title_size", "axes.tick_label_size": "tick_label_size", "axes.tick_length": "tick_length",
+    "axes.x_line": "x_axis_line", "axes.y_line": "y_axis_line", "text.label_size": "label_size", "lines.series_width": "series_width",
+    "lines.secondary_width": "secondary_width", "lines.axis_width": "axis_width", "lines.reference_width": "reference_width",
+    "axes.grid": "grid", "axes.tick_direction": "tick_direction",
+    "axes.x_ticks": "x_ticks", "axes.y_ticks": "y_ticks", "axes.blank_lowest_label": "blank_lowest_label", "axes.end_on_ticks": "end_on_ticks", "axes.reference": "reference_lines",
+    "legend.position": "legend", "notes.show": "notes", "notes.size": "notes_size", "notes.italic": "notes_italic" };
+  const C = s => `<span class="c">${esc(s)}</span>`;
+  const STR = s => `<span class="s">${esc(s)}</span>`;
+  function call(head, args) {
+    if (!args.length) return esc(head) + ")";
+    const indent = " ".repeat(head.length);
+    return esc(head) + args.map((a, i) => (i ? ",\n" + indent : "") + a).join("") + ")";
+  }
+  function kw(name, value) { return `${esc(name)}=${typeof value === "string" && value.startsWith("<") ? value : esc(py(value))}`; }
+
+  function chartCalls() {
+    const cols = LINE_NAMES.filter((n, i) => S[`show${i + 1}`]);
+    const lim = (a, b) => `(${a === null || a === "" ? "None" : (typeof a === "string" ? STR(JSON.stringify(a)) : py(a))}, ${b === null || b === "" ? "None" : (typeof b === "string" ? STR(JSON.stringify(b)) : py(b))})`;
+    const lineArgs = [cols.join() === LINE_NAMES.slice(0, 3).join() ? "levels" : `levels[${STR(py(cols))}]`, `title=${STR('"Beacon Global Quality"')}`, `subtitle=${STR('"Growth of 100 against its index and peers"')}`];
+    if (S.line_ymin !== null || S.line_ymax !== null) lineArgs.push(`ylim=${lim(S.line_ymin, S.line_ymax)}`);
+    if (S.line_xfrom || S.line_xto) lineArgs.push(`xlim=${lim(S.line_xfrom, S.line_xto)}`);
+    if (S.periods) {
+      lineArgs.push("periods=drawdowns");
+      if (!S.period_labels) lineArgs.push("period_labels=False");
+      if (S.period_legend) lineArgs.push(`period_legend=${STR('"Drawdown"')}`);
+    }
+    if (S.label_last) lineArgs.push("label_last=True");
+    const barArgs = ["active_weights", `title=${STR('"Sector positioning"')}`];
+    if (S.bar_gap !== BEACON.bar_gap) barArgs.push(`gap=${py(S.bar_gap)}`);
+    if (S.value_labels) barArgs.push("value_labels=True");
+    const hexArg = (key, name) => { if (S[key] && validHex(S[key])) return `${name}=${STR(JSON.stringify(normHex(S[key])))}`; return null; };
+    if (!S.bar_signed) barArgs.push("signed=False");
+    [[S.bar_signed ? null : "bar_color", "color"], ["bar_up", "up_color"], ["bar_down", "down_color"]]
+      .forEach(([k, n]) => { const a = k && hexArg(k, n); if (a) barArgs.push(a); });
+    if (S.bar_xmin !== null || S.bar_xmax !== null) barArgs.push(`xlim=${lim(S.bar_xmin, S.bar_xmax)}`);
+    const comboArgs = ["flows", "aum", `title=${STR('"Flows and assets"')}`, `ylabel=${STR('"Net flows (£m)"')}`, `ylabel_secondary=${STR('"AUM (£bn)"')}`];
+    if (S.combo_gap !== BEACON.combo_gap) comboArgs.push(`gap=${py(S.combo_gap)}`);
+    if (!S.combo_signed) comboArgs.push("signed=False");
+    [[S.combo_signed ? null : "combo_color", "color"], ["combo_up", "up_color"], ["combo_down", "down_color"]]
+      .forEach(([k, n]) => { const a = k && hexArg(k, n); if (a) comboArgs.push(a); });
+    if (S.combo_ymin !== null || S.combo_ymax !== null) comboArgs.push(`ylim=${lim(S.combo_ymin, S.combo_ymax)}`);
+    if (S.combo_y2min !== null || S.combo_y2max !== null) comboArgs.push(`ylim_secondary=${lim(S.combo_y2min, S.combo_y2max)}`);
+    const formats = [["Return (%)", `{:.${S.tbl_dec_returns}f}${S.tbl_percent ? "%" : ""}`], ["Volatility (%)", `{:.${S.tbl_dec_risk}f}`],
+                     ["Max drawdown (%)", `{:.${S.tbl_dec_risk}f}`], ["Sharpe", `{:.${S.tbl_dec_sharpe}f}`], ["AUM (\u00a3m)", `{:${S.tbl_thousands ? "," : ""}.${S.tbl_dec_aum}f}`]];
+    const tableArgs = ["performance", `title=${STR('"Performance and risk"')}`,
+      `formats={${formats.map(([k, v]) => `${STR(JSON.stringify(k))}: ${STR(JSON.stringify(v))}`).join(",\n" + " ".repeat(15))}}`];
+    if (S.tbl_signed) tableArgs.push(`signed=${STR(py(TABLE.groups[0][1]))}`);
+    if (S.tbl_groups) tableArgs.push(`groups={${TABLE.groups.map(([g, cs]) => `${STR(JSON.stringify(g))}: ${STR(py(cs))}`).join(",\n" + " ".repeat(14))}}`);
+    if (S.tbl_negatives === "brackets") tableArgs.push(`negatives=${STR('"brackets"')}`);
+    if (S.tbl_lead) tableArgs.push(`highlight=${STR('["Beacon Global Quality"]')}`);
+    const cmapArg = (name, rev, custom) => name === "custom"
+      ? STR(py(stopsOf("custom")))
+      : STR(JSON.stringify(rev ? name + "_r" : name));
+    const heatArgs = ["correlations", `title=${STR('"Correlation"')}`, `colormap=${cmapArg(S.cmap, S.cmap_reverse)}`];
+    if (S.heat_domain !== "data") heatArgs.push(`vmin=${S.heat_domain === "0.2 to 1" ? "0.2" : "-1"}`, "vmax=1");
+    if (S.heat_shading === "blended") heatArgs.push(`shading=${STR('"blended"')}`);
+    if (S.heat_gap !== BEACON.heat_gap) heatArgs.push(`gap=${py(S.heat_gap)}`);
+    if (!S.heat_values) heatArgs.push("values=False"); else if (S.heat_decimals !== 2) heatArgs.push(`decimals=${S.heat_decimals}`);
+    if (S.heat_lower) heatArgs.push("lower=True");
+    if (!S.heat_bar) heatArgs.push("colorbar=False");
+    if (S.tbl_row_heads || S.table_row_boxes) tableArgs.push(`row_groups={${TABLE.rowGroups.map(([g, rs]) => `${STR(JSON.stringify(g))}: ${STR(py(rs))}`).join(",\n" + " ".repeat(18))}}`);
+    if (S.tbl_row_heads) tableArgs.push("row_group_headings=True");
+    if (S.tbl_heat !== "none") {
+      const isGroup = TABLE.groups.some(([g]) => g === S.tbl_heat);
+      const opts = [`${STR(JSON.stringify(isGroup ? "group" : "column"))}: ${STR(JSON.stringify(S.tbl_heat))}`,
+                    `${STR('"colormap"')}: ${cmapArg(S.tbl_cmap, S.tbl_cmap_reverse)}`];
+      if (isGroup) opts.push(`${STR('"scale"')}: ${STR(JSON.stringify(S.tbl_heat_scale === "per column" ? "column" : "group"))}`);
+      if (S.tbl_heat_zero) opts.push(`${STR('"center"')}: 0`);
+      if (S.tbl_heat_fade) opts.push(`${STR('"fade"')}: True`);
+      if (!S.tbl_heat_values) opts.push(`${STR('"values"')}: False`);
+      if (S.tbl_heat_shading === "blended") opts.push(`${STR('"shading"')}: ${STR('"blended"')}`, `${STR('"blend"')}: ${STR(JSON.stringify({ "across columns": "columns", "down rows": "rows", "whole group": "both" }[S.tbl_heat_blend]))}`);
+      tableArgs.push(`heatmap={${opts.join(",\n" + " ".repeat(15))}}`);
+    }
+    return [call("Line(", lineArgs) + ".show()", call("Bar(", barArgs) + ".show()", call("Combo(", comboArgs) + ".show()",
+            call("Heatmap(", heatArgs) + ".show()", call("Table(", tableArgs) + ".show()"].join("\n\n");
+  }
+
+  function renderCode() {
+    const ov = overrides(), col = colourOverrides(), preset = document.getElementById("preset").value;
+    const fontNote = [...new Set(ov.filter(([f]) => /font/.test(f.key)).map(([, v]) => v).filter(v => v.endsWith(".ttf")))];
+    let text;
+    if (tab === "configure") {
+      const args = [];
+      if (preset !== "beacon") args.push(`preset=${STR(`"${preset}"`)}`);
+      ov.forEach(([f, v]) => args.push(kw(FLAT[f.tree.join(".")] || f.key, typeof v === "string" ? STR(JSON.stringify(v)) : v)));
+      if (col.series) args.push(`series_colors=${STR(py(col.series))}`);
+      Object.entries(col).forEach(([k, v]) => { if (k !== "series") args.push(`${k === "background" ? "background" : k + "_color"}=${STR(py(v))}`); });
+      text = `<span class="k">import</span> beacon.plot <span class="k">as</span> bp\n<span class="k">from</span> beacon.plot <span class="k">import</span> Bar, Combo, Heatmap, Line, Table\n\n`;
+      text += args.length ? call("bp.configure(", args) : C("# Every setting is at Beacon's default: nothing to configure.");
+    } else {
+      const groups = {};
+      ov.forEach(([f, v]) => {
+        const path = f.tree;
+        if (path.length === 1) { (groups._top = groups._top || []).push([path[0], v]); return; }
+        (groups[path[0]] = groups[path[0]] || []).push([path[1], v]);
+      });
+      if (Object.keys(col).length) groups.colors = Object.entries(col);
+      const args = [];
+      const start = preset === "plain" ? "Style.plain()" : "Style.beacon()";
+      const opener = `${start}.replace(`;
+      (groups._top || []).forEach(([k, v]) => args.push(kw(k, typeof v === "string" ? STR(JSON.stringify(v)) : v)));
+      Object.entries(groups).forEach(([g, items]) => {
+        if (g === "_top") return;
+        const inner = items.map(([k, v]) => `${STR(JSON.stringify(k))}: ${typeof v === "string" || Array.isArray(v) ? STR(py(v)) : esc(py(v))}`);
+        const head = `${g}={`;
+        args.push(esc(head) + inner.join(",\n" + " ".repeat(opener.length + head.length)) + "}");
+      });
+      text = `<span class="k">import</span> beacon.plot <span class="k">as</span> bp\n<span class="k">from</span> beacon.plot <span class="k">import</span> Bar, Combo, Heatmap, Line, Style, Table\n\n`;
+      if (args.length) {
+        text += `house = ${call(opener, args).replace(/\n/g, "\n        ")}\n`;
+      } else {
+        text += `house = ${start}\n`;
+      }
+      text += `bp.configure(house)\nhouse.save(${STR('"house.toml"')})   ${C("# load it again with Style.load(...)")}`;
+    }
+    if (fontNote.length) text += `\n\n${C("# A font that is not bundled is given as its file, so its text")}\n${C("# can be measured: " + fontNote.join(", "))}`;
+    text += `\n\n${chartCalls()}`;
+    document.getElementById("code").innerHTML = text;
+  }
+
+  document.getElementById("code-tabs").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    tab = b.dataset.tab;
+    document.querySelectorAll("#code-tabs button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    renderCode();
+  });
+  document.getElementById("copy").addEventListener("click", () => {
+    const pre = document.getElementById("code"), note = document.getElementById("copied");
+    const done = () => { note.textContent = "Copied"; setTimeout(() => (note.textContent = ""), 1600); };
+    try {
+      navigator.clipboard.writeText(pre.textContent).then(done, () => selectCode(pre, note));
+    } catch { selectCode(pre, note); }
+  });
+  function selectCode(pre, note) {
+    const range = document.createRange(); range.selectNodeContents(pre);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    note.textContent = "Selected: press Ctrl+C or ⌘C";
+  }
+
+  showAll();
+  render();
+  // Text is measured in the chart fonts, so draw again once they have loaded.
+  if (document.fonts && document.fonts.ready) {
+    Promise.all(["300 10px 'Inter Tight'", "400 10px 'Inter Tight'", "italic 350 10px 'Source Serif 4'", "300 10px 'IBM Plex Sans'"]
+      .map(f => document.fonts.load(f).catch(() => null))).then(render);
+    document.fonts.ready.then(render);
+  }
+})();
+</script>

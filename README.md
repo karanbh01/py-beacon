@@ -23,7 +23,8 @@ pip install py-beacon-kit
 
 In code, import it as `beacon`. The core installs pandas, numpy, pydantic and
 exchange_calendars. Optional features are extras: `data` (Yahoo Finance
-downloads), `excel`, `postgres`, `optimise`, `plot`, `pdf` and `server`.
+downloads), `excel`, `postgres`, `optimise`, `plot`, `plot-interactive`, `pdf`
+and `server`.
 Install them as `pip install "py-beacon-kit[plot,optimise]"`. The
 [documentation](https://pybeacon.dev/library/#install) lists what each one
 adds.
@@ -164,6 +165,15 @@ result.plot.performance()
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/karanbh01/py-beacon/main/docs/images/quickstart-performance.dark.png">
   <img alt="The portfolio's growth of 100 over 2024, ending at 113.4, with its drawdown beneath, deepest at about 11 percent." src="https://raw.githubusercontent.com/karanbh01/py-beacon/main/docs/images/quickstart-performance.light.png" width="720">
 </picture>
+
+Any chart becomes interactive: `.interactive()` returns a plotly figure drawn
+from the same layout, with a popup under the pointer giving each series' value
+on the date there. Its HTML carries its fonts and plotly.js, so it works
+offline (this needs the `plot-interactive` extra).
+
+```python
+result.plot.performance().interactive().write_html("performance.html")
+```
 
 `result.index.target` holds the index the run aimed at, and
 `result.portfolio` holds the simulated portfolio: its NAV, positions, cash and

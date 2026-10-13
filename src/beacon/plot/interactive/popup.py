@@ -161,5 +161,10 @@ SCRIPT = r"""
     popup.style.top = Math.max(0, y) + "px";
   });
   gd.on("plotly_unhover", clear);
+  // Drawn again once the chart's fonts arrive, so text plotly measured in a
+  // stand-in font is placed in its own.
+  if (document.fonts && window.Plotly) {
+    document.fonts.ready.then(function () { window.Plotly.redraw(gd); });
+  }
 })();
 """

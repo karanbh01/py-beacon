@@ -276,6 +276,34 @@ class TestHtml:
         assert (tmp_path / "plotly.min.js").exists()
         assert "beacon-popup" in (tmp_path / "chart.html").read_text(encoding="utf-8")
 
+    def test_fit_fills_the_frame(self, prices):
+        figure = CHARTS["line"](prices).interactive()
+        html = figure.to_html(include_plotlyjs=False, fit=True)
+
+        assert '"responsive": true' in html
+        assert "html,body{margin:0;height:100%" in html
+        # The figure keeps its own size for anything drawn afterwards.
+        assert figure.layout.width is not None and not figure.layout.autosize
+
+    def test_fonts_linked_rather_than_embedded(self, prices):
+        html = CHARTS["line"](prices).interactive().to_html(include_plotlyjs=False,
+                                                            fonts="fonts.css")
+
+        assert '<link rel="stylesheet" href="fonts.css">' in html
+        assert "base64" not in html
+
+    def test_font_files_for_a_shared_stylesheet(self, prices, tmp_path):
+        from beacon.plot.interactive.html import figure_fonts
+        from beacon.plot.webfonts import font_faces, font_files
+
+        used = figure_fonts(CHARTS["line"](prices).interactive())
+        written = font_files(used, tmp_path / "fonts")
+        css = font_faces(used, base="fonts/")
+
+        assert {path.name for path in written} >= {"InterTight-Light.ttf",
+                                                   "SourceSerif4-Italic350.ttf"}
+        assert "url(fonts/InterTight-Light.ttf)" in css
+
     def test_table_has_no_figure(self, prices):
         with pytest.raises(TypeError, match="to_html"):
             Table(prices.iloc[:3, :2]).interactive()

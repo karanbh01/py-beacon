@@ -31,8 +31,8 @@ Everything else is an extra, so a plain install stays small:
 | `excel` | openpyxl | Excel reports, and importing data from Excel workbooks |
 | `postgres` | psycopg | Reading a data store from a Postgres database |
 | `optimise` | scipy | Solving optimised indices and portfolios |
-| `plot` | matplotlib | Charts drawn from result objects |
-| `plot-interactive` | plotly | Reserved for interactive charts; nothing uses it yet |
+| `plot` | matplotlib | Charts and tables drawn as images, from results or any data |
+| `plot-interactive` | plotly | Interactive charts: `.interactive()` and the HTML it writes |
 | `pdf` | reportlab | Rendering PDF reports |
 | `server` | fastapi, uvicorn, orjson, websockets, platformdirs, plus `optimise`, `pdf` and `excel` | The local API server |
 
@@ -174,6 +174,15 @@ result.plot.performance()
 
 ![The portfolio's growth of 100 over 2024, ending at 113.4, with its drawdown beneath, deepest at about 11 percent.](images/quickstart-performance.light.png)
 ![The portfolio's growth of 100 over 2024, ending at 113.4, with its drawdown beneath, deepest at about 11 percent.](images/quickstart-performance.dark.png)
+
+Any chart becomes interactive: `.interactive()` returns a plotly figure drawn
+from the same layout, with a popup under the pointer giving each series' value
+on the date there. Its HTML carries its fonts and plotly.js, so it works
+offline (this needs the `plot-interactive` extra).
+
+```python
+result.plot.performance().interactive().write_html("performance.html")
+```
 
 `result.index.target` holds the index the run aimed at, and
 `result.portfolio` holds the simulated portfolio: its NAV, positions, cash and

@@ -62,9 +62,10 @@ plot-interactive = ["plotly", "fonttools"]
 server = ["fastapi", "uvicorn[standard]", "orjson", "websockets", "platformdirs",
           "py-beacon-kit[optimise]", "py-beacon-kit[pdf]", "py-beacon-kit[excel]"]
 # The gallery renders the frontier and optimiser charts, so building the
-# docs needs the optimiser as well as matplotlib.
+# docs needs the optimiser as well as matplotlib, and plotly for the live
+# versions beside them and the interactive charts' reference.
 docs = ["mkdocs-material", "mkdocstrings[python]", "py-beacon-kit[plot]",
-        "py-beacon-kit[optimise]"]
+        "py-beacon-kit[optimise]", "py-beacon-kit[plot-interactive]"]
 dev = [
   "py-beacon-kit[server]",   # the server tests exercise the real app
   "py-beacon-kit[optimise]", # and the optimiser tests solve real problems

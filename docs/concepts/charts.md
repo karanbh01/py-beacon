@@ -1,6 +1,6 @@
 ---
 title: Charts
-description: "Drawing each chart from a result, comparing results, and the light and dark styles."
+description: "Results that draw themselves, chart classes for any data, tables, interactive charts, and every setting of the chart design."
 ---
 
 # Charts
@@ -9,7 +9,9 @@ Results draw themselves. Each result object has a `.plot` accessor whose
 methods each return a chart, drawn with matplotlib the first time it is
 shown or saved. [`beacon.plot.compare`](#comparing-results) puts several
 results on one chart, the [chart classes](#chart-classes) draw any DataFrame
-or Series in the same frame, and the themes match Beacon desktop.
+or Series in the same frame, [`Table`](#tables) sets a DataFrame as a table,
+every chart becomes an [interactive chart](#interactive-charts) with
+`.interactive()`, and every part of the design is a [setting](#styles).
 
 Charts need the `plot` extra (matplotlib):
 
@@ -21,7 +23,9 @@ pip install "py-beacon-kit[plot]"
 chart. It is loaded the first time a chart is drawn, so code that never
 plots never needs it.
 
-Pictures of every chart, in both styles, are in the [Gallery](../gallery.md).
+Pictures of every chart, in every theme, beside a live interactive version,
+are in the [Gallery](../gallery.md). The [chart styles page](../chart-styles.html)
+changes every setting on sample charts and shows the code for each change.
 
 ## What each result can draw
 
@@ -168,35 +172,405 @@ installing anything.
 ## Chart classes
 
 The result charts are built on chart classes, which draw any DataFrame or
-Series in the same frame: `Line`, `Area`, `Column`, `Bar`, `Combo`,
-`Scatter`, `Histogram` and `Heatmap`. Each takes `title=`, `subtitle=`,
-`notes=`, `source=` and `style=`, and returns a chart like the result
-methods do.
+Series in the same frame. Each takes `title=`, `subtitle=`, `notes=`,
+`source=` and `style=`, and returns a chart like the result methods do: it is
+drawn the first time it is shown, saved or asked for its figure, and
+`.interactive()` makes it a [plotly figure](#interactive-charts).
+
+| Class | Draws |
+| --- | --- |
+| [`Line`](#line) | One or more series over dates or numbers, with an optional second axis |
+| [`Area`](#area) | Parts of a whole stacked, or one series filled from zero |
+| [`Column` and `Bar`](#column-and-bar) | Values by category, upright or across |
+| [`Combo`](#combo) | Columns on the left axis and a line on the right |
+| [`Scatter`](#scatter) | One measure against another, with a fitted line or a curve |
+| [`Histogram`](#histogram) | Counts in equal bins, with a normal curve and marked values |
+| [`Heatmap`](#heatmap) | A table of values as colour |
+| [`Grid`](#grids) | Several charts under one heading |
+| [`Table`](#tables) | A DataFrame as a table, as an image or as HTML |
+
+Every chart has a figure of its own and is always framed. Charts are not
+drawn into an axes you laid out; `chart.figure` is an ordinary matplotlib
+figure, so anything else can be done with it. Pictures of every class, in
+every theme and live, are in the [Gallery](../gallery.md).
+
+The examples below draw from the sample dataset.
 
 ```python
-from beacon.plot import Column, Line
+import pandas as pd
 
-levels = dataset.prices().loc[:END, ["AAA", "BBB"]]
-Line(levels / levels.iloc[0] * 100,
-     title="Two holdings",
+from beacon.plot import Area, Bar, Column, Combo, Heatmap, Histogram, Line, Scatter
+
+prices = dataset.prices().loc[:END]
+rebased = prices / prices.iloc[0] * 100
+```
+
+### Line
+
+![Three holdings, each rebased to 100, the first in the accent colour with its last value labelled.](../gallery/line.light.png)
+![Three holdings, each rebased to 100, the first in the accent colour with its last value labelled.](../gallery/line.dark.png)
+
+```python
+Line(rebased[["AAA", "BBB", "CCC"]],
+     title="Three holdings",
      subtitle="Each rebased to 100",
      ylabel="Level",
      reference=100,
      label_last=True,
-     source="Synthetic data").save("two-holdings.png", dpi=110)
-
-yearly = levels.resample("YE").last().pct_change().dropna()
-yearly.index = yearly.index.year
-Column(yearly,
-       title="Calendar-year returns",
-       ylabel="Return",
-       percent=True,
-       value_labels=True).save("calendar-years.png", dpi=110)
+     periods={"First half": ("2023-03-01", "2023-06-30")},
+     source="Synthetic data").save("line.png", dpi=110)
 ```
 
-Every chart has a figure of its own and is always framed. Charts are not
-drawn into an axes you laid out; `chart.figure` is an ordinary matplotlib
-figure, so anything else can be done with it.
+The first series is drawn in the accent colour and heavier, over the others.
+
+- `reference=` draws a line the chart is read against, such as 100.
+- `label_last=` dots and labels the last value: `True` for the first series,
+  or the names of the series to label. `end_names=` writes series' names at
+  their lines' ends instead of a legend.
+- `secondary=` takes series measured on a second axis on the right, drawn
+  lighter, with `ylabel_secondary=` as its title.
+- `periods=` marks periods as boxes from the bottom of the plot to the top,
+  behind the series: `{label: (start, end)}`. Each is labelled at its top
+  unless `period_labels=False`, and `period_legend=` names them once in the
+  legend.
+- `percent=True` writes shares as percentages with as few decimals as tell
+  the ticks apart (5%, 10%, 15%), and `invert=True` runs the axis from high at
+  the bottom to low at the top.
+- `xlim=`, `ylim=` and `ylim_secondary=` set an axis's (low, high); either may
+  be `None`. While axes end on their ticks a limit moves out to the nearest
+  tick, never in.
+- `colors=` sets each series' colour, by token name or hex.
+
+### Area
+
+![Four holdings' shares of the whole, stacked to 100 percent.](../gallery/area.light.png)
+![Four holdings' shares of the whole, stacked to 100 percent.](../gallery/area.dark.png)
+
+```python
+held = prices[["AAA", "BBB", "CCC", "DDD"]]
+shares = held.div(held.sum(axis=1), axis=0)
+
+Area(shares, title="Shares", subtitle="Each holding's share of the four",
+     ylabel="Share", percent=True).save("area.png", dpi=110)
+
+drawdown = prices["AAA"] / prices["AAA"].cummax() - 1
+Area(drawdown.rename("Drawdown"), title="Drawdown", percent=True).save("drawdown.png", dpi=110)
+```
+
+Several series are stacked one on another; `stacked=False` fills each from
+zero. One series, such as a drawdown, is filled from zero with its line on
+top. The horizontal axis runs from the first value to the last, so the fill
+meets the axes.
+
+### Column and Bar
+
+![Calendar-year returns for two holdings, side by side.](../gallery/column.light.png)
+![Calendar-year returns for two holdings, side by side.](../gallery/column.dark.png)
+
+![The largest holdings' weights as bars across, with a dashed cap at 8 percent.](../gallery/bar.light.png)
+![The largest holdings' weights as bars across, with a dashed cap at 8 percent.](../gallery/bar.dark.png)
+
+```python
+monthly = prices["CCC"].resample("ME").last().pct_change().dropna().loc["2024"]
+monthly.index = monthly.index.strftime("%b")
+
+Column(monthly.rename("CCC"), title="Monthly returns", subtitle="CCC in 2024",
+       ylabel="Return", percent=True).save("column.png", dpi=110)
+
+weights = pd.Series([0.0792, 0.0741, 0.0688, 0.0617],
+                    index=["Northwind Systems", "Halcyon Health", "Arden Industrials",
+                           "Meridian Software"], name="Weight")
+Bar(weights, title="Largest holdings", subtitle="Capped at 8%", percent=True,
+    value_labels=True, decimals=2, cap=0.08).save("bar.png", dpi=110)
+```
+
+`Column` draws values upright and `Bar` across; both take a Series or a
+DataFrame whose index names the categories. Several series are grouped side
+by side in their own colours.
+
+- One series takes the signed colours, green up and red down.
+  `signed=False` gives every bar one colour, grey by default or `color=`, and
+  `up_color=` and `down_color=` change the signs' colours for one chart.
+- `gap=` sets the space between categories and `inner_gap=` between the bars
+  in one, each as a share; both can be 0.
+- `value_labels=True` writes each value at its bar's end, with `decimals=`
+  decimals, and `cap=` marks a limit with a dashed line.
+- Categories that do not fit side by side are labelled every few (every
+  other, every third: a year's quarters), staying level.
+
+### Combo
+
+![Daily net flows as green and red columns, with assets as a line on the right axis.](../gallery/combo.light.png)
+![Daily net flows as green and red columns, with assets as a line on the right axis.](../gallery/combo.dark.png)
+
+```python
+flows = prices["AAA"].diff().loc["2024"].rename("Net flows")
+assets = prices["BBB"].loc["2024"].rename("Assets")
+
+Combo(flows, assets, gap=0, title="Daily flows and assets",
+      ylabel="Net flows", ylabel_secondary="Assets").save("combo.png", dpi=110)
+```
+
+Columns on the left axis and a line on the right, for a flow and a stock on
+one calendar. The columns are signed by default. On daily data with `gap=0`
+each column runs to the next trading day, so the columns meet edge to edge.
+
+### Scatter
+
+![AAA's daily returns against DDD's, with a fitted line and its slope and fit written on the chart.](../gallery/scatter.light.png)
+![AAA's daily returns against DDD's, with a fitted line and its slope and fit written on the chart.](../gallery/scatter.dark.png)
+
+```python
+returns = prices[["AAA", "DDD"]].pct_change().dropna().loc["2024"]
+
+Scatter(returns, x="DDD", y="AAA", fit="linear", percent=True,
+        title="Sensitivity", subtitle="AAA's daily returns against DDD's").save(
+    "scatter.png", dpi=110)
+
+bets = pd.DataFrame({"Active weight": [-0.0003, 0.0049, -0.0041, 0.0007],
+                     "Excess return": [0.12, 0.07, -0.05, -0.04]},
+                    index=["AAA", "DDD", "CCC", "EEE"])
+Scatter(bets, x="Active weight", y="Excess return", labels=bets.index.to_series(),
+        axes="origin", signed=True, percent=True,
+        quadrants=["Over, ahead", "Under, ahead", "Under, behind", "Over, behind"],
+        title="Did the bets pay off?").save("bets.png", dpi=110)
+```
+
+`x=` and `y=` name two columns, or pass two Series.
+
+- `labels=` names the points, and `name=` says what they are in the legend.
+- `fit="linear"` draws a fitted line and writes its slope (beta) and R² on
+  the chart. `curve=` draws a curve through the same axes, such as a frontier,
+  with `curve_label=` in the legend.
+- `axes="origin"` draws the axes through zero, for a chart read as four
+  quadrants, with optional `quadrants=` names from the top right
+  anticlockwise. `signed=True` colours each point by whether its two values
+  share a sign.
+- `percent=` is `True` for both axes, or `"x"` or `"y"` for one.
+
+### Histogram
+
+![Daily returns in 40 bins, with the normal curve of the same mean and deviation and a dashed line at the 95 percent VaR.](../gallery/histogram.light.png)
+![Daily returns in 40 bins, with the normal curve of the same mean and deviation and a dashed line at the 95 percent VaR.](../gallery/histogram.dark.png)
+
+```python
+daily = prices["AAA"].pct_change().dropna().rename("Daily return")
+
+Histogram(daily, bins=40, normal=True, percent=True,
+          mark={"95% VaR": float(daily.quantile(0.05))},
+          title="Daily returns", subtitle="How often AAA moved by each amount").save(
+    "histogram.png", dpi=110)
+```
+
+Counts in `bins=` equal bins. `normal=True` draws the normal curve with the
+values' mean and standard deviation, and `mark=` marks values with a dashed
+line and names them, such as a VaR.
+
+### Heatmap
+
+![Six holdings' correlations as coloured squares, each value written in its cell, with the colour scale beside.](../gallery/heatmap.light.png)
+![Six holdings' correlations as coloured squares, each value written in its cell, with the colour scale beside.](../gallery/heatmap.dark.png)
+
+```python
+correlation = prices.pct_change().dropna().corr()
+
+Heatmap(correlation, title="Correlation", subtitle="Between daily returns",
+        colormap="beacon_corr", vmin=0.2, vmax=1.0).save("heatmap.png", dpi=110)
+```
+
+A table of values as colour: the index names the rows, top to bottom, and the
+columns the columns. The chart is cropped to what it draws at the same scale,
+so a square table does not leave the frame's width empty.
+
+- `colormap=` takes a [colour map's name](#colour-maps) (`_r` on the end
+  reverses it) or a list of hex colours from low to high. By default values
+  either side of zero diverge about it in `blue-red`, and others take
+  `blues`. `vmin=` and `vmax=` set the map's ends.
+- `values=` writes each value in its cell, in dark or light text to read on
+  the cell, with `decimals=` decimals; `percent=True` writes shares as
+  percentages.
+- `lower=True` draws the lower triangle of a symmetric table.
+- `shading="blended"` blends each colour into the next; `gap=` sets the space
+  between cells, and `gap=0` leaves no seam.
+- `colorbar=` draws the scale beside, labelled at its two ends.
+
+## Grids
+
+![Four panels under one heading: volatility, drawdown, beta and tracking error, each titled.](../gallery/grid.light.png)
+![Four panels under one heading: volatility, drawdown, beta and tracking error, each titled.](../gallery/grid.dark.png)
+
+`Grid` puts several charts in rows and columns under one heading and one
+notes line. Each chart draws one panel, titled with its own title.
+
+```python
+from beacon.plot import Grid
+
+growth = Line(rebased[["AAA", "BBB"]], title="Growth of 100", reference=100)
+ranks = Bar(prices.loc["2024"].iloc[[0, -1]].pct_change().iloc[-1].rename("2024"),
+            title="Returns in 2024", percent=True, value_labels=True)
+falls = Area(drawdown.rename("Drawdown"), title="AAA's drawdown", percent=True)
+
+Grid([[growth, ranks],
+      [falls, ranks]],
+     heights=(3, 1),
+     title="Two holdings",
+     subtitle="A tall chart beside two").save("grid.png", dpi=110)
+```
+
+- Rows run top to bottom, each left to right. `None` leaves a cell empty, and
+  one chart named in a rectangle of cells spans them, as `ranks` does here.
+- `heights=` and `widths=` set the rows' and columns' shares, such as
+  `heights=(3, 1)` for a tall panel over a short one.
+- Each column is given the room its labels take and each row room for its
+  titles and tick labels, and the heading and legend line up with the outer
+  panels.
+- `sharex=True` runs every panel on dates over the same dates. A panel with
+  another on dates directly beneath it leaves its dates to that one.
+- One legend is shown, in the heading band, when every panel's legend names
+  the same series, and none otherwise.
+
+`BacktestResult.plot.performance()` is such a grid: its level over its
+drawdown, three to one.
+
+## Tables
+
+![A table of returns and risk under the Beacon heading, with column groups and green and red returns.](../gallery/table.light.png)
+![A table of returns and risk under the Beacon heading, with column groups and green and red returns.](../gallery/table.dark.png)
+
+`Table` draws a DataFrame under the same frame as a chart: the mark, the
+heading, the table and the notes line. `.save()` and `.show()` draw it as an
+image, for reports; `.to_html()` writes it as HTML, which is also what a
+notebook shows.
+
+```python
+from beacon.plot import Table
+
+performance = pd.DataFrame(
+    {"1Y": [8.42, 7.91, 6.10, -2.35], "3Y": [5.12, 4.80, 3.95, 0.40],
+     "Volatility": [14.2, 13.8, 15.1, 18.4], "Sharpe": [0.61, 0.58, 0.44, -0.12]},
+    index=["Beacon Global", "MSCI World", "Peer median", "Peer low"])
+
+table = Table(performance,
+              title="Performance and risk",
+              subtitle="To 31 December 2024",
+              groups={"Return (%)": ["1Y", "3Y"], "Risk": ["Volatility", "Sharpe"]},
+              formats={"Return (%)": "{:.1f}", "Risk": "{:.2f}"},
+              signed=["Return (%)"],
+              highlight=["Beacon Global"],
+              row_groups={"Ours": ["Beacon Global", "MSCI World"],
+                          "Peers": ["Peer median", "Peer low"]},
+              row_group_headings=True,
+              source="Synthetic data")
+table.save("table.png", dpi=110)
+
+with open("table.html", "w", encoding="utf-8") as page:
+    page.write(table.to_html())
+```
+
+- **Formats.** `formats=` takes a format per column or per column group: a
+  format string such as `"{:,.1f}"`, a mapping of `decimals`, `prefix`,
+  `suffix`, `thousands` and `percent`, or a function. Negatives take a true
+  minus sign, or brackets with `negatives="brackets"`; a value that rounds to
+  zero has no sign, and a missing value is a dash.
+- **Signs and emphasis.** `signed=` colours columns or groups green and red by
+  sign, and `highlight=` sets rows in bold.
+- **Column groups.** `groups=` puts columns under headings, as
+  `{heading: [columns]}` or `{heading: how many columns}` in order. Each
+  heading is centred over its columns on a rule that starts a little in from
+  the group's left, so neighbouring groups' rules stay apart.
+- **Row groups.** `row_groups=` keeps rows together, and sorting the HTML
+  keeps each group together. `row_group_headings=True` names each group in a
+  column at the left, centred beside its rows, with a rule between the
+  headings that stops short of the rows' rule; the row names then take the
+  column headings' colour, so the group headings stand out.
+- **Heatmap.** `heatmap=` colours a column, `{"column": name}`, or a column
+  group, `{"group": heading}`, by value. It also takes `colormap`,
+  `reverse`, `scale` (`"column"` or `"group"`), `center` (such as 0), `fade`
+  (near-neutral cells take the table's background, so no pale cell stands
+  out on a dark page), `values` (`False` hides the numbers), and `shading`
+  (`"squares"` or `"blended"`) with `blend` (`"columns"`, `"rows"` or
+  `"both"`). Text on a heatmap cell is dark or light to read on it.
+
+The look is the style's `table` group, so a saved style carries it.
+`preset=` chooses the rules and boxes:
+
+| Preset | Draws |
+| --- | --- |
+| `lines` (the default) | A rule under the header, light rules between rows, a rule under the table, and rules under the column group headings |
+| `plain` | No rules or boxes at all |
+| `boxed` | A box around the values, with the row names to its left and the headings above, and the group headings' rules |
+
+Each rule and box can still be changed on its own, after the preset:
+`table_header_rule`, `table_row_rules`, `table_bottom_rule`,
+`table_group_rules`, `table_column_rules`, `table_box`, `table_group_boxes`
+(a box around each column group, with a narrow gap so neighbouring boxes do
+not merge) and `table_row_boxes` (a box around each row group).
+
+```python
+boxed = Table(performance, title="Boxed by group", preset="boxed",
+              groups={"Return (%)": ["1Y", "3Y"], "Risk": ["Volatility", "Sharpe"]},
+              style={"table_box": False, "table_group_boxes": True, "table_stripes": True})
+boxed.save("table-boxed.png", dpi=110)
+```
+
+The row names' column is as wide as its names need, with `table_name_space`
+before the longest, and the value columns share the rest. In HTML a column's
+values sort when its heading is clicked. The HTML is laid out as the image
+is: its columns take the image's widths, its rules take no room, and it
+carries the fonts it is set in, so it looks the same offline and wherever it
+is opened. That makes each table's HTML about 1.4MB.
+
+A [report](reports.md) holds a chart or a table as an image block:
+`beacon.report.blocks.Chart.of(table, "table.png")` saves it and returns the
+block.
+
+## Interactive charts
+
+Every chart's `.interactive()` returns a plotly figure drawn from the same
+layout as its image, so the two look the same. It needs the
+`plot-interactive` extra (plotly):
+
+```bash
+pip install "py-beacon-kit[plot-interactive]"
+```
+
+```python
+figure = Line(rebased[["AAA", "BBB", "CCC"]], title="Three holdings",
+              subtitle="Each rebased to 100", reference=100).interactive()
+
+figure.write_html("three-holdings.html")
+figure.write_html("three-holdings-light.html", include_plotlyjs="directory")
+```
+
+- **The same chart.** The figure is the image's size; each axis takes the
+  image's domain, range, ticks and labels; and the mark, heading, legend and
+  notes are where the image puts them. Zooming and the toolbar are off: the
+  figure is the chart as designed.
+- **The popup.** Moving the pointer over a chart shows a popup in the style
+  of Beacon desktop's popovers, a blurred glass fill with a hairline edge, in
+  the chart's theme, with the app's crosshair: a dashed line down through
+  the date under the pointer with a dot on each line, or both ways through a
+  scatter's point. It says what the pointer is on, with the units the axis
+  writes (see the table below).
+- **Offline.** `.write_html()` and `.to_html()` carry the chart's fonts,
+  plotly.js and the popup's script, so the file looks and works the same
+  offline. Each file is about 5MB; `include_plotlyjs="directory"` writes
+  plotly.js once beside several files instead.
+- **Notebooks.** A figure that is a cell's last value is shown by plotly.
+  Where the notebook does not run the popup's script, plotly's own labels
+  show instead.
+
+| Chart | The popup shows |
+| --- | --- |
+| Time series | The date and every series' value |
+| Columns and bars | The category and each series |
+| Scatter | The point's name and both values |
+| Heatmap | The cell and its value |
+| Histogram | The bin's range and its count |
+
+A chart is built and drawn without plotly; only `.interactive()` needs it, and
+without it raises an error naming the extra to install. A table's interactive
+form is its HTML, so `Table.interactive()` points to `to_html()`.
 
 ## Attribution, optimisation and risk
 
@@ -331,11 +705,9 @@ plt.close("all")
 ```
 
 `palette` returns `canvas` (`"none"` for a transparent theme), `surface`,
-`border`, `divider`, `text-primary`,
-`text-secondary`, `text-muted`, `accent`, `success`, `danger`, `series-2` and
-`series-3`. The series colour cycle is accent, `series-2`, `series-3`, then
-`text-secondary`. Green and red are left out of it because they mean up and
-down elsewhere in the application.
+`border`, `divider`, `period`, `text-primary`, `text-secondary`,
+`text-muted`, `accent`, `success`, `danger`, `series-2` and `series-3`. The
+series colours are the [series palette](#the-series-palette).
 
 ## Styles
 
@@ -365,15 +737,12 @@ The most specific wins: a chart's `style=`, then a `settings()` block, then
 from beacon.plot import Style, configure, reset, settings
 
 configure(mark=False, heading_scale=1.2)
-ax = index.plot.level()
-plt.close("all")
+index.plot.level().save("level-no-mark.png", dpi=110)
 
 with settings(theme="white", legend="bottom"):
-    ax = index.plot.level()
-plt.close("all")
+    index.plot.level().save("level-white.png", dpi=110)
 
-ax = index.plot.level(style={"scale": 1.25, "series_width": 2.0})
-plt.close("all")
+index.plot.level(style={"scale": 1.25, "series_width": 2.0}).save("level-larger.png", dpi=110)
 
 house = Style.plain().replace(lines={"series_width": 2.0}, axes={"grid": "y"})
 house.save("house.toml")
@@ -414,18 +783,48 @@ group each lives in for `Style.replace()`:
 | `up_color`, `down_color` | colors | the theme's | Gains and losses. |
 | `accent_bar_color`, `period_color`, `period_label_color` | colors | the theme's | |
 | `text_color`, `muted_color`, `background` | colors | the theme's | |
+| `table_preset` | table | `lines` | A table's rules and boxes: `lines`, `plain` or `boxed` (see [Tables](#tables)). |
+| `table_header_rule`, `table_row_rules`, `table_bottom_rule`, `table_group_rules`, `table_column_rules` | table | the preset's | Each rule on its own. |
+| `table_box`, `table_group_boxes`, `table_row_boxes`, `table_group_box_scope` | table | the preset's, `values` | Boxes round the values, each column group or each row group; a column group's box encloses the `values` or the `headings` too. |
+| `table_rule_width`, `table_row_rule_width`, `table_box_width` | table | 0.48pt, 0.48pt, 0.36pt | |
+| `table_row_padding`, `table_cell_padding`, `table_name_space` | table | 2pt, 3pt, 3pt | Above and below each row, either side of each cell, and before the longest row name. |
+| `table_body_size`, `table_header_size`, `table_group_size` | table | 6.3pt, 5.5pt, 5.5pt | The values, the column headings and the group headings. |
+| `table_header_weight`, `table_name_weight` | table | 300, 400 | |
+| `table_number_align`, `table_header_align`, `table_name_align` | table | center, center, right | `table_header_align="numbers"` aligns the headings as the numbers. |
+| `table_stripes` | table | off | Every other row shaded. |
+| `table_rule_color`, `table_row_rule_color`, `table_stripe_color`, `table_header_color` | table | the column headings', the theme's divider, the divider, muted text | |
 
 Sizes are in points as designed. A font that is not bundled is given as the
 path of its file (`.ttf` or `.otf`), so its text can be measured.
 
+### The series palette
+
 Series take the palette in order: blue, deep blue, magenta, pink, lime, green,
 olive, red and oxblood, then black (white on a dark canvas) and five greys for
 context lines such as peers. `beacon.plot.themes.SERIES` holds both modes'
-lists.
+lists, and `series_colors` replaces them. Green and red for gains and losses
+are separate (`up_color` and `down_color`), so a series never reads as a
+sign.
 
-## Interactive charts
+### Colour maps
 
-There is no interactive backend yet. The `plot-interactive` extra is a
-placeholder: it installs plotly, but nothing in py-beacon uses it.
+Heatmaps and a table's heatmap take a colour map by name, `_r` on the end to
+reverse it, or a list of hex colours from low to high:
+
+| Name | Runs |
+| --- | --- |
+| `beacon_corr` | Green through amber to red, the same in every theme: correlations |
+| `blue-red` | Blue through a light middle to red: values either side of zero |
+| `blues`, `greens`, `purples`, `greys` | Light to deep in one colour: values of one sign |
+| `viridis` | Dark blue through green to yellow |
+
+`beacon.plot.colormaps.names()` lists them.
+
+### Trying every setting
+
+The [chart styles page](../chart-styles.html) draws sample charts and a table
+and changes them as each setting changes, showing the code for the look on
+screen. It is a sketch in the browser of what the library draws, not the
+library itself, so check a look in Python before relying on it.
 
 The full API is in the [Charts reference](../reference/plot.md).
