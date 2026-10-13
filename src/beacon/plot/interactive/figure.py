@@ -12,9 +12,10 @@ from ..._optional import require
 from .. import design
 from ..layout import ColourBarLayout, Description, Layout, PanelLayout
 from ..marks import BarMark, CellsMark, Mark, PointMark
-from .axes import Names, axis, axis_line, domain, origin, tick_labels, tick_marks
+from .axes import Names, axis, domain, origin, tick_labels
 from .frame import Frame
 from .popup import glass
+from .spines import Spines
 from .traces import Marks
 from .units import PT, PX, Paint
 
@@ -117,13 +118,10 @@ class _Builder:
             x_base = origin(0.0, [0.0, 1.0], laid.y.low, laid.y.high)
             y_base = origin(0.0, [0.0, 1.0], laid.x.low, laid.x.high)
 
-        wide, tall = laid.box.width * PX, laid.box.height * PX
         # A grid of cells has no axis lines, as the image draws it.
-        if not any(isinstance(mark, CellsMark) and mark.panel == index for mark in self.marks):
-            self.ticks += axis_line((x, y), True, x_base, wide, self.paint)
-            self.ticks += axis_line((y, x), False, y_base, tall, self.paint)
-        self.ticks += tick_marks(laid.x, (x, y), True, tall, x_base, self.paint)
-        self.ticks += tick_marks(laid.y, (y, x), False, wide, y_base, self.paint)
+        cells = any(isinstance(mark, CellsMark) and mark.panel == index for mark in self.marks)
+        self.ticks += Spines(laid, self.layout.width, self.layout.height, self.paint,
+                             lines=not cells).shapes()
         self.labels += tick_labels(laid.x, (x, y), "bottom", x_base, self.paint)
         self.labels += tick_labels(laid.y, (y, x), "left", y_base, self.paint)
 
@@ -137,10 +135,6 @@ class _Builder:
             right = axis(laid.y2, up, x, self.paint, False, False)
             right.update(overlaying=y, side="right")
             self.axes[Names.key(second)] = right
-            self.ticks += axis_line((second, x), False, 1.0, tall, self.paint)
-            self.ticks += [{**mark, "x0": 1.0 - mark["x0"], "x1": 1.0 - mark["x1"]}
-                           for mark in tick_marks(laid.y2, (second, x), False, wide, 0.0,
-                                                  self.paint)]
             self.labels += tick_labels(laid.y2, (second, x), "right", 1.0, self.paint)
 
         if laid.colour_bar is not None:

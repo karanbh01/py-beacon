@@ -168,12 +168,25 @@ class TestFrame:
 
     def test_tick_marks_include_the_ends(self, prices):
         chart = CHARTS["line"](prices)
-        figure, laid = chart.interactive(), chart.layout.panels[0]
-        ticks = [shape for shape in figure.layout.shapes
-                 if shape.type == "line" and shape.xref == "x" and shape.x0 == shape.x1]
+        figure, layout = chart.interactive(), chart.layout
+        laid = layout.panels[0]
+        ticks = [shape.path for shape in figure.layout.shapes if shape.name == "beacon-ticks"]
+        across = ticks[0].count("V")
+        first = float(ticks[0][1:].split(",")[0])
 
-        assert sorted(shape.x0 for shape in ticks) == pytest.approx(
-            sorted(tick.value * DAY_MS for tick in laid.x.ticks))
+        # One mark for every tick the layout has, the first at the plot's edge.
+        assert across == len(laid.x.ticks)
+        assert first == pytest.approx(laid.box.left / layout.width, abs=1e-6)
+        assert ticks[1].count("H") == len(laid.y.ticks)
+
+    def test_axis_lines_join_at_the_corner(self, prices):
+        chart = CHARTS["line"](prices)
+        figure, layout = chart.interactive(), chart.layout
+        box = layout.panels[0].box
+        (spine,) = [shape.path for shape in figure.layout.shapes if shape.name == "beacon-axes"]
+
+        assert spine == (f"M{box.left / layout.width:.6f},{box.top / layout.height:.6f}"
+                         f"V{box.bottom / layout.height:.6f}H{box.right / layout.width:.6f}")
 
     def test_mark_and_accent_bar(self, prices):
         figure = CHARTS["line"](prices).interactive()
@@ -189,11 +202,9 @@ class TestFrame:
 
     def test_heatmap_has_no_axis_lines(self, prices):
         figure = CHARTS["heatmap"](prices).interactive()
-        lines = [shape for shape in figure.layout.shapes
-                 if shape.type == "line" and "domain" in str(shape.xref)
-                 and "domain" in str(shape.yref)]
 
-        assert lines == []
+        assert not [shape for shape in figure.layout.shapes
+                    if shape.name in ("beacon-axes", "beacon-ticks")]
 
 
 class TestPopup:

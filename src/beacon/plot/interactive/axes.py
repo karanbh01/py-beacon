@@ -67,11 +67,10 @@ def axis(laid: AxisLayout,
         # Tick labels are drawn as annotations (tick_labels), where the image
         # puts them, rather than where plotly would.
         "showticklabels": False,
-        # Tick marks are drawn as shapes (tick_marks): plotly leaves out the
-        # ones at an axis's two ends.
+        # The axis line and tick marks are drawn as shapes (spines): plotly
+        # leaves out the ticks at an axis's two ends, and draws its line
+        # snapped to the pixel outside the plot, so the two do not meet.
         "ticks": "",
-        # The axis line too is a shape (axis_line), so it and its tick marks
-        # are drawn alike and meet.
         "showline": False,
         "showgrid": grid,
         "gridcolor": paint.ink("divider"),
@@ -81,77 +80,6 @@ def axis(laid: AxisLayout,
         "layer": "above traces",
         "hoverformat": "%-d %b %Y" if laid.kind == "date" else "",
     }
-
-
-def axis_line(refs: tuple[str, str],
-              across: bool,
-              base: float,
-              length: float,
-              paint: Paint) -> list[dict[str, Any]]:
-    """An axis line, centred on the plot's edge (or on zero), run on past its
-    ends by half its width so two lines meet square at a corner.
-
-    Args:
-        refs: Its own reference and the other axis's, such as ("x", "y").
-        across: Whether it is a horizontal axis.
-        base: Where it sits on the other axis, as a share of its domain.
-        length: Its length, in pixels.
-        paint: The chart's inks and sizes.
-    """
-    axes = paint.style.axes
-    if not (axes.x_line if across else axes.y_line) or length <= 0:
-        return []
-
-    width = paint.style.lines.axis_width * paint.k * PT
-    over = width / 2.0 / length
-    own, other = refs
-    ends = ({"x0": -over, "x1": 1.0 + over, "y0": base, "y1": base} if across
-            else {"x0": base, "x1": base, "y0": -over, "y1": 1.0 + over})
-
-    return [{"type": "line", "layer": "above", "xref": f"{own if across else other} domain",
-             "yref": f"{other if across else own} domain",
-             "line": {"color": paint.ink("text-primary"), "width": width}, **ends}]
-
-
-def tick_marks(laid: AxisLayout,
-               refs: tuple[str, str],
-               across: bool,
-               length: float,
-               base: float,
-               paint: Paint) -> list[dict[str, Any]]:
-    """An axis's tick marks, every one the layout has, ends included.
-
-    Args:
-        laid: The axis.
-        refs: Its own reference and the other axis's, such as ("x", "y").
-        across: Whether it is a horizontal axis.
-        length: The panel's size across the ticks, in pixels.
-        base: Where the axis line sits on the other axis, as a share of its
-            domain: 0 at the plot's edge.
-        paint: The chart's inks and sizes.
-    """
-    axes = paint.style.axes
-    shown = (axes.x_ticks if across else axes.y_ticks) and laid.kind not in ("names", "fixed")
-    if not shown or length <= 0:
-        return []
-
-    reach = axes.tick_length * paint.k * PT / length
-    tip = base + (reach if axes.tick_direction == "in" else -reach)
-    scale = DAY_MS if laid.kind == "date" else 1.0
-    line = {"color": paint.ink("text-primary"),
-            "width": paint.style.lines.axis_width * paint.k * PT}
-    own, other = refs
-    marks = []
-
-    for tick in laid.ticks:
-        at = tick.value * scale
-        ends = ({"x0": at, "x1": at, "y0": base, "y1": tip} if across
-                else {"x0": base, "x1": tip, "y0": at, "y1": at})
-        marks.append({"type": "line", "layer": "above", "line": line,
-                      "xref": own if across else f"{other} domain",
-                      "yref": f"{other} domain" if across else own, **ends})
-
-    return marks
 
 
 def tick_labels(laid: AxisLayout,
