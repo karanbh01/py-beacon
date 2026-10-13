@@ -13,7 +13,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
-from beacon.plot import Area, Line, reset
+from beacon.plot import Area, Bar, Column, Combo, Line, reset
 from beacon.testing import dataset
 from beacon.tokens import DARK, LIGHT
 
@@ -93,3 +93,47 @@ class TestAreaImages:
         return Area(shares, title="Shares", subtitle="Each holding's share of the four",
                     ylabel="Share", percent=True, ylim=(0, 1),
                     style={"theme": theme}).figure
+
+
+@pytest.mark.parametrize("theme", THEMES)
+class TestBarImages:
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_column_grouped(self, prices, theme):
+        yearly = prices[["AAA", "BBB"]].resample("YE").last()
+        returns = yearly.pct_change().dropna()
+        returns.index = returns.index.year
+
+        return Column(returns, title="Calendar-year returns", subtitle="Two holdings by year",
+                      ylabel="Return", percent=True, value_labels=True,
+                      style={"theme": theme}).figure
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_column_signed(self, prices, theme):
+        monthly = prices["CCC"].resample("ME").last().pct_change().dropna().loc["2024"]
+        monthly.index = monthly.index.strftime("%b")
+
+        return Column(monthly, title="Monthly returns", subtitle="CCC in 2024",
+                      ylabel="Return", percent=True, style={"theme": theme}).figure
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_bar_capped(self, theme):
+        weights = pd.Series([0.0792, 0.0741, 0.0688, 0.0617, 0.0583, 0.0526],
+                            index=["Northwind Systems", "Halcyon Health", "Arden Industrials",
+                                   "Meridian Software", "Corvid Semiconductors",
+                                   "Larkspur Pharma"])
+
+        return Bar(weights, title="Largest holdings", subtitle="Capped at 8%",
+                   xlabel="Weight", percent=True, decimals=2, cap=0.08, value_labels=True,
+                   signed=False, color="accent", style={"theme": theme}).figure
+
+    @pytest.mark.mpl_image_compare(tolerance=TOLERANCE)
+    def test_combo_daily(self, prices, theme):
+        returns = prices["AAA"].pct_change().dropna().loc["2024"]
+        flows = (returns * 40).rename("Net flows")
+        assets = (300 + flows.cumsum()).rename("Assets")
+
+        return Combo(flows, assets, gap=0, title="Daily flows and assets",
+                     subtitle="Each column runs to the next trading day",
+                     ylabel="Net flows", ylabel_secondary="Assets",
+                     style={"theme": theme}).figure

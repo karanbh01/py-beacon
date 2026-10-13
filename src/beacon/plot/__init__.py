@@ -29,13 +29,16 @@ matplotlib-specific, which is what keeps an interactive backend possible later
 without changing any call site.
 """
 from .base import ChartMethods, PlotAccessor
-from .charts import Area, Chart, Line
+from .charts import Area, Bar, Chart, Column, Combo, Line
 from .design import Style, configure, current, reset, settings
 
 __all__ = [
     "Area",
+    "Bar",
     "Chart",
     "ChartMethods",
+    "Column",
+    "Combo",
     "Line",
     "PlotAccessor",
     "Style",

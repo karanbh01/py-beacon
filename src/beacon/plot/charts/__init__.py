@@ -6,7 +6,8 @@ drawing it inside the Beacon frame.
 Building a chart only describes it; it is drawn when it is shown, saved, or
 its figure is asked for. So these import without matplotlib.
 """
+from .bars import Bar, Column, Combo
 from .base import Chart, Plan
 from .lines import Area, Line
 
-__all__ = ["Area", "Chart", "Line", "Plan"]
+__all__ = ["Area", "Bar", "Chart", "Column", "Combo", "Line", "Plan"]

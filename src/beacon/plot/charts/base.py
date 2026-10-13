@@ -18,7 +18,7 @@ from .. import design
 from ..arrange import lay_out
 from ..design import Style, StyleArgument
 from ..layout import Description, Layout
-from ..marks import Mark
+from ..marks import Mark, Side
 from ..style import figure_size
 
 # The size a chart is drawn at in a notebook: its pixels per inch.
@@ -36,11 +36,14 @@ class Plan:
         marks: Drawn in order, by layer.
         grid: The chart's own gridlines, "x", "y", "both" or "none"; the
             style's grid replaces them where it sets one.
+        front: Where a panel has a second axis, which side's marks are drawn
+            over the other's.
     """
 
     description: Description
     marks: tuple[Mark, ...]
     grid: str = "none"
+    front: Side = "left"
 
 
 class Chart:

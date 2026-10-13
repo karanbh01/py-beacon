@@ -19,9 +19,17 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
-from beacon.plot import Area, Chart, Line, configure, reset
+from beacon.plot import Area, Bar, Chart, Column, Combo, Line, configure, reset
 from beacon.plot.charts.data import limited
-from beacon.plot.marks import AreaMark, LineMark, PointMark, RuleMark, SpanMark, TextMark
+from beacon.plot.marks import (
+    AreaMark,
+    BarMark,
+    LineMark,
+    PointMark,
+    RuleMark,
+    SpanMark,
+    TextMark,
+)
 
 DAYS = pd.bdate_range("2024-01-02", "2024-12-31")
 RNG = np.random.default_rng(299)
@@ -219,3 +227,84 @@ class TestDrawing:
         drawn = [label.get_text() for label in chart.ax.get_yticklabels()]
 
         assert drawn == [tick.label for tick in chart.layout.panels[0].y.ticks]
+
+
+ANNUAL = pd.DataFrame({"Fund": [0.12, -0.05, 0.21], "Benchmark": [0.10, -0.03, 0.18]},
+                      index=[2022, 2023, 2024])
+
+
+class TestBars:
+
+    def test_one_series_is_signed(self):
+        bars = marks_of(Column(ANNUAL["Fund"]), BarMark)
+
+        assert bars[0].colours == ("success", "danger", "success")
+
+    def test_unsigned_bars_take_one_colour(self):
+        bars = marks_of(Column(ANNUAL["Fund"], signed=False), BarMark)
+        accent = marks_of(Column(ANNUAL["Fund"], signed=False, color="accent"), BarMark)
+
+        assert set(bars[0].colours) == {"palette-14"}
+        assert set(accent[0].colours) == {"accent"}
+
+    def test_the_signs_colours_can_change(self):
+        bars = marks_of(Column(ANNUAL["Fund"], up_color="#000000", down_color="#ffffff"), BarMark)
+
+        assert bars[0].colours == ("#000000", "#ffffff", "#000000")
+
+    def test_several_series_are_grouped(self):
+        chart = Column(ANNUAL, gap=0.2, inner_gap=0.0)
+        fund, benchmark = marks_of(chart, BarMark)
+
+        assert fund.thickness[0] == pytest.approx(0.4)
+        assert benchmark.positions[0] - fund.positions[0] == pytest.approx(0.4)
+        assert [entry.key for entry in chart.layout.legend.entries] == ["patch", "patch"]
+
+    def test_a_zero_line_where_values_fall_below_it(self):
+        assert [rule.value for rule in marks_of(Column(ANNUAL), RuleMark)] == [0.0]
+        assert not marks_of(Column(ANNUAL.abs()), RuleMark)
+
+    def test_value_labels_have_room(self):
+        chart = Column(ANNUAL["Fund"], percent=True, value_labels=True)
+        panel = chart.layout.panels[0]
+
+        assert [text.text for text in marks_of(chart, TextMark)] == ["12.0%", "\N{MINUS SIGN}5.0%",
+                                                                     "21.0%"]
+        assert panel.y.low < -0.05 and panel.y.high > 0.21
+
+    def test_bars_run_top_to_bottom(self):
+        weights = pd.Series([0.3, 0.2, 0.1], index=["A", "B", "C"])
+        panel = Bar(weights).layout.panels[0]
+
+        assert [(tick.value, tick.label) for tick in panel.y.ticks] == [(2.0, "A"), (1.0, "B"),
+                                                                       (0.0, "C")]
+
+    def test_a_cap(self):
+        chart = Bar(pd.Series([0.07, 0.05], index=["A", "B"]), cap=0.08, percent=True)
+        rule = marks_of(chart, RuleMark)[0]
+
+        assert (rule.value, rule.vertical, rule.dashed) == (0.08, True, True)
+        assert [text.text for text in marks_of(chart, TextMark)] == ["cap 8.0%"]
+        assert chart.layout.panels[0].x.high >= 0.08
+
+
+class TestCombo:
+
+    def test_columns_on_the_left_and_a_line_on_the_right(self):
+        flows = pd.Series([1.0, -2.0, 3.0], index=["Jan", "Feb", "Mar"], name="Flows")
+        chart = Combo(flows, (100 + flows.cumsum()).rename("Assets"))
+        line = marks_of(chart, LineMark)[0]
+
+        assert line.side == "right" and chart.plan.front == "right"
+        assert chart.layout.panels[0].y2 is not None
+        assert [entry.label for entry in chart.layout.legend.entries] == ["Flows",
+                                                                          "Assets (right)"]
+
+    def test_daily_columns_meet_with_no_gap(self):
+        days = pd.bdate_range("2024-01-01", periods=10)
+        flows = pd.Series(np.arange(10.0) - 4, index=days)
+        bars = marks_of(Combo(flows, flows.cumsum(), gap=0), BarMark)[0]
+
+        assert bars.edge and bars.seamless
+        assert all(left + width == pytest.approx(right) for left, width, right in
+                   zip(bars.positions, bars.thickness, bars.positions[1:], strict=False))

@@ -98,7 +98,7 @@ def paint(plan: Plan,
         figure = (make or _figure)(figsize=(layout.width, layout.height))
         remember(figure, figure.get_facecolor())
         painter = _Painter(figure, layout, theme, style)
-        axes, right = painter.panels()
+        axes, right = painter.panels(plan.front)
         painter.marks(plan.marks, axes, right)
         for ax, twin, panel in zip(axes, right, layout.panels, strict=True):
             painter.dress(ax, twin, panel, plan.grid)
@@ -152,15 +152,17 @@ class _Painter:
 
         return (box.left / width, box.bottom / height, box.width / width, box.height / height)
 
-    def panels(self) -> tuple[list[Axes], list[Axes | None]]:
-        """Each panel's axes, and its second axes where it has one."""
+    def panels(self,
+               front: str) -> tuple[list[Axes], list[Axes | None]]:
+        """Each panel's axes, and its second axes where it has one, with the
+        *front* side's drawn over the other's."""
         axes: list[Axes] = []
         right: list[Axes | None] = []
 
         for panel in self.layout.panels:
             ax = self.figure.add_axes(self.fractions(panel.box))
             twin = ax.twinx() if panel.y2 is not None else None
-            if twin is not None:
+            if twin is not None and front == "left":
                 # The main axes over the second, so the leading series and
                 # its labels are drawn over those measured on the right.
                 ax.set_zorder(twin.get_zorder() + 1)
