@@ -63,13 +63,13 @@ class TestHeading:
 
     def test_the_bar_starts_at_the_y_axis(self,
                                          index_result):
-        ax = index_result.plot.level()
+        ax = index_result.plot.level().ax
 
         assert bar_of(ax.figure).get_x() == pytest.approx(ax.get_position().x0)
 
     def test_the_mark_sits_left_of_the_bar_and_beside_the_heading(self,
                                                                   index_result):
-        ax = index_result.plot.level()
+        ax = index_result.plot.level().ax
         bar, mark = bar_of(ax.figure), mark_of(ax.figure).get_position()
         middle = (mark.y0 + mark.y1) / 2.0
 
@@ -97,7 +97,7 @@ class TestLegend:
 
     def test_it_ends_where_the_x_axis_does_above_the_plot(self,
                                                           index_result):
-        ax = index_result.plot.level(benchmark=dataset.prices()["CCC"].loc[:END])
+        ax = index_result.plot.level(benchmark=dataset.prices()["CCC"].loc[:END]).ax
         legend = window(ax.get_legend(), ax.figure)
         plot = window(ax, ax.figure)
 
@@ -106,7 +106,7 @@ class TestLegend:
 
     def test_one_row_sits_level_with_the_subtitle(self,
                                                   index_result):
-        ax = index_result.plot.level(benchmark=dataset.prices()["CCC"].loc[:END])
+        ax = index_result.plot.level(benchmark=dataset.prices()["CCC"].loc[:END]).ax
         legend = window(ax.get_legend(), ax.figure)
         bar_bottom = bar_of(ax.figure).get_y() * ax.figure.bbox.height
 
@@ -118,7 +118,7 @@ class TestLegend:
         ax = compare(index_result, backtest,
                      labels=["An index with a very long name indeed",
                              "A backtest with an even longer name than that"],
-                     title="A title long enough to fill the heading on its own")
+                     title="A title long enough to fill the heading on its own").ax
         legend = window(ax.get_legend(), ax.figure)
         bar_bottom = bar_of(ax.figure).get_y() * ax.figure.bbox.height
 
@@ -143,7 +143,7 @@ class TestAxes:
                 "contributions": attribution.plot.contributions,
                 "frontier": lambda: optimisation.plot.frontier(frontier),
                 "exposures": optimisation.plot.exposures}[chart]
-        ax = draw()
+        ax = draw().ax
         scale = ax.xaxis if axis == "x" else ax.yaxis
         low, high = sorted(ax.get_xlim() if axis == "x" else ax.get_ylim())
         ticks = list(scale.get_majorticklocs())
@@ -153,8 +153,7 @@ class TestAxes:
 
     def test_the_corner_label_is_blank_where_both_axes_measure(self,
                                                                index_result):
-        ax = index_result.plot.level()
-        ax.figure.canvas.draw()
+        ax = index_result.plot.level().ax
         labels = [label.get_text() for label in ax.get_yticklabels()]
 
         assert labels[0] == ""
@@ -162,21 +161,20 @@ class TestAxes:
 
     def test_an_axis_of_names_keeps_every_label(self,
                                                 attribution):
-        ax = attribution.plot.contributions()
-        ax.figure.canvas.draw()
+        ax = attribution.plot.contributions().ax
 
         assert all(label.get_text() for label in ax.get_yticklabels())
 
     def test_the_axes_are_in_the_titles_colour(self,
                                                index_result):
-        ax = index_result.plot.level()
+        ax = index_result.plot.level().ax
 
         assert to_hex(ax.spines["left"].get_edgecolor()) == colour("text-primary", LIGHT)
 
     def test_the_bar_charts_have_no_gridlines(self,
                                               index_result,
                                               attribution):
-        for ax in (index_result.plot.weights(), attribution.plot.contributions()):
+        for ax in (index_result.plot.weights().ax, attribution.plot.contributions().ax):
             assert not any(line.get_visible() for line in ax.get_xgridlines())
 
 
@@ -195,8 +193,8 @@ class TestSizes:
         level = index_result.plot.level(benchmark=dataset.prices()["CCC"].loc[:END])
         performance = backtest.plot.performance()
 
-        def tall(ax):
-            return ax.get_position().height * ax.figure.get_size_inches()[1]
+        def tall(chart):
+            return chart.layout.panels[0].box.height
 
         assert tall(performance) == pytest.approx(tall(level), abs=0.03)
 
@@ -241,7 +239,7 @@ class TestThemes:
     def test_a_chart_keeps_the_theme_it_was_drawn_in(self,
                                                      index_result):
         use("transparent-light-axes")
-        ax = index_result.plot.level()
+        ax = index_result.plot.level().ax
         use(LIGHT)
 
         assert ink(ax, "text-primary") == colour("text-primary", DARK)
@@ -254,15 +252,20 @@ class TestThemes:
 class TestCorrelationShading:
     """BN-294."""
 
-    @pytest.mark.parametrize("shading, interpolation", [("squares", "nearest"),
-                                                        ("blended", "bicubic")])
+    @pytest.mark.parametrize("shading, blended", [("squares", False), ("blended", True)])
     def test_each_shading(self,
                           shading,
-                          interpolation,
+                          blended,
                           risk_model):
-        ax = risk_model.plot.correlation(shading=shading)
+        """BN-299: squares are drawn as cells of their own, blended as one
+        image."""
+        from beacon.plot.marks import CellsMark
 
-        assert ax.get_images()[0].get_interpolation() == interpolation
+        chart = risk_model.plot.correlation(shading=shading)
+        cells = next(mark for mark in chart.plan.marks if isinstance(mark, CellsMark))
+
+        assert cells.blended is blended
+        assert bool(chart.ax.get_images()) is blended
 
     def test_an_unknown_shading_is_refused(self,
                                            risk_model):
@@ -271,7 +274,7 @@ class TestCorrelationShading:
 
     def test_the_heatmap_has_no_tick_marks(self,
                                            risk_model):
-        ax = risk_model.plot.correlation()
+        ax = risk_model.plot.correlation().ax
 
         assert all(tick.tick1line.get_markersize() == 0
                    for tick in ax.xaxis.get_major_ticks())
@@ -282,8 +285,7 @@ class TestReadableText:
 
     def test_dates_are_the_year_and_the_month(self,
                                               index_result):
-        ax = index_result.plot.level()
-        ax.figure.canvas.draw()
+        ax = index_result.plot.level().ax
         labels = [label.get_text() for label in ax.get_xticklabels()]
 
         assert labels[0] == "2023"
@@ -315,7 +317,7 @@ class TestReadableText:
 
     def test_the_legend_and_line_labels_share_a_size(self,
                                                      index_result):
-        ax = index_result.plot.level(benchmark=dataset.prices()["CCC"].loc[:END])
+        ax = index_result.plot.level(benchmark=dataset.prices()["CCC"].loc[:END]).ax
         sizes = {text.get_fontsize() for text in ax.get_legend().get_texts()}
         value = next(text for text in ax.texts if text.get_text().replace(".", "").isdigit())
 
@@ -331,7 +333,7 @@ class TestTheOldModeKeyword:
         with pytest.warns(DeprecationWarning, match=r"use\(theme=...\)"):
             use(mode=DARK)
 
-        ax = index_result.plot.level()
+        ax = index_result.plot.level().ax
 
         assert to_hex(text_with(ax.figure, "beacon-title").get_color()) == (
             colour("text-primary", DARK))

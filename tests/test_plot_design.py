@@ -179,35 +179,35 @@ class TestChoosingAStyle:
 class TestTheFrame:
 
     def test_the_mark_and_accent_bar_can_be_turned_off(self, index_result):
-        on = index_result.plot.level().get_figure()
-        off = index_result.plot.level(style={"mark": False, "accent_bar": False}).get_figure()
+        on = index_result.plot.level().figure
+        off = index_result.plot.level(style={"mark": False, "accent_bar": False}).figure
 
         assert mark(on) and by_gid(on, "beacon-accent-bar")
         assert not mark(off) and not by_gid(off, "beacon-accent-bar")
 
     def test_the_heading_scales_on_its_own(self, index_result):
-        figure = index_result.plot.level(style={"heading_scale": 1.5}).get_figure()
+        figure = index_result.plot.level(style={"heading_scale": 1.5}).figure
         title = by_gid(figure, "beacon-title")[0]
 
         assert title.get_fontsize() == pytest.approx(13.5)
         assert tuple(figure.get_size_inches()) == pytest.approx(style.figure_size("level"))
 
     def test_scale_zooms_the_figure(self, index_result):
-        figure = index_result.plot.level(style={"scale": 1.25}).get_figure()
+        figure = index_result.plot.level(style={"scale": 1.25}).figure
 
         assert figure.get_size_inches()[0] == pytest.approx(6.0 * 0.8 * 1.25)
 
     def test_width_and_aspect_set_the_size(self, index_result):
-        figure = index_result.plot.level(style={"width": 8.0, "aspect": "16:9"}).get_figure()
+        figure = index_result.plot.level(style={"width": 8.0, "aspect": "16:9"}).figure
         width, height = figure.get_size_inches()
 
         assert width == pytest.approx(8.0 * 0.8)
         assert width / height == pytest.approx(16 / 9)
 
     def test_the_notes_can_be_turned_off_or_restyled(self, index_result):
-        hidden = index_result.plot.level(style={"notes": False}).get_figure()
+        hidden = index_result.plot.level(style={"notes": False}).figure
         upright = index_result.plot.level(style={"notes_italic": False,
-                                                 "notes_size": 6.0}).get_figure()
+                                                 "notes_size": 6.0}).figure
         note = by_gid(upright, "beacon-notes")[0]
 
         assert not by_gid(hidden, "beacon-notes")
@@ -231,20 +231,20 @@ class TestTheFrame:
 class TestTheAxes:
 
     def test_axis_lines_and_ticks_can_be_turned_off(self, index_result):
-        ax = index_result.plot.level(style={"x_axis_line": False, "y_ticks": False})
+        ax = index_result.plot.level(style={"x_axis_line": False, "y_ticks": False}).ax
 
         assert not ax.spines["bottom"].get_visible()
         assert ax.spines["left"].get_visible()
         assert all(tick.tick1line.get_markersize() == 0 for tick in ax.yaxis.get_major_ticks())
 
     def test_gridlines_follow_the_style(self, index_result):
-        ax = index_result.plot.level(style={"grid": "y"})
+        ax = index_result.plot.level(style={"grid": "y"}).ax
 
         assert any(line.get_visible() for line in ax.get_ygridlines())
         assert not any(line.get_visible() for line in ax.get_xgridlines())
 
     def test_reference_lines_can_be_left_out(self, index_result):
-        ax = index_result.plot.level(style={"reference_lines": False})
+        ax = index_result.plot.level(style={"reference_lines": False}).ax
 
         assert not [line for line in ax.get_lines() if line.get_gid() == REFERENCE_ID]
 
@@ -253,7 +253,7 @@ class TestTheAxes:
         kept = compared(style={"blank_lowest_label": False})
 
         def lowest(ax):
-            ax.get_figure().canvas.draw()
+            ax.figure.canvas.draw()
             return ax.yaxis.get_major_formatter()(min(ax.get_ylim()), 0)
 
         assert lowest(blank) == ""
@@ -267,17 +267,18 @@ class TestColours:
         colours = [matplotlib.colors.to_hex(line.get_color()) for line in ax.get_lines()
                    if line.get_gid() != REFERENCE_ID]
 
-        assert colours[:2] == list(SERIES[LIGHT][:2])
+        # The leading series is drawn last, over the others.
+        assert colours[::-1][:2] == list(SERIES[LIGHT][:2])
 
     def test_series_colours_can_be_replaced(self, compared):
         ax = compared(style={"series_colors": ["#112233", "#445566"]})
         colours = [matplotlib.colors.to_hex(line.get_color()) for line in ax.get_lines()
                    if line.get_gid() != REFERENCE_ID]
 
-        assert colours[:2] == ["#112233", "#445566"]
+        assert colours[::-1][:2] == ["#112233", "#445566"]
 
     def test_the_accent_bar_colour_can_be_set(self, index_result):
-        figure = index_result.plot.level(style={"accent_bar_color": "#ff0000"}).get_figure()
+        figure = index_result.plot.level(style={"accent_bar_color": "#ff0000"}).figure
 
         bar = by_gid(figure, "beacon-accent-bar")[0]
 
@@ -290,7 +291,7 @@ class TestPrecedence:
         configure(mark=False)
         before = dict(matplotlib.rcParams)
 
-        drawn = index_result.plot.level(style={"mark": True, "scale": 1.3}).get_figure()
+        drawn = index_result.plot.level(style={"mark": True, "scale": 1.3}).figure
 
         assert mark(drawn)
         assert current().heading.mark is False
@@ -301,14 +302,14 @@ class TestPrecedence:
         configure(mark=False)
 
         with settings(mark=True):
-            assert mark(index_result.plot.level().get_figure())
-            assert not mark(index_result.plot.level(style={"mark": False}).get_figure())
+            assert mark(index_result.plot.level().figure)
+            assert not mark(index_result.plot.level(style={"mark": False}).figure)
 
-        assert not mark(index_result.plot.level().get_figure())
+        assert not mark(index_result.plot.level().figure)
 
     def test_configure_takes_effect_at_the_next_chart(self, index_result):
         configure(series_width=2.0)
-        ax = index_result.plot.level()
+        ax = index_result.plot.level().ax
         index_line = next(line for line in ax.get_lines() if line.get_gid() != REFERENCE_ID)
 
         assert index_line.get_linewidth() == pytest.approx(2.0 * 0.8)
@@ -318,7 +319,7 @@ class TestPrecedence:
 def compared(index_result):
     """A compare chart of the index against a copy of itself, drawn on demand."""
     def draw(style=None):
-        return compare(index_result, index_result, labels=["One", "Two"], style=style)
+        return compare(index_result, index_result, labels=["One", "Two"], style=style).ax
 
     return draw
 
@@ -328,7 +329,7 @@ def test_levels_are_unchanged_by_a_style(index_result):
     plain = index_result.plot.level()
     zoomed = index_result.plot.level(style={"scale": 1.4, "theme": "white"})
 
-    def first(ax):
-        return next(line for line in ax.get_lines() if line.get_gid() != REFERENCE_ID)
+    def first(chart):
+        return next(line for line in chart.ax.get_lines() if line.get_gid() != REFERENCE_ID)
 
     assert list(first(plain).get_ydata()) == list(first(zoomed).get_ydata())

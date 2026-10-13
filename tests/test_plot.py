@@ -146,10 +146,33 @@ class TestLazyAccessor:
 
         assert completed.returncode == 0, completed.stderr
 
-    def test_touching_the_accessor_imports_matplotlib(self,
-                                                      index_result):
-        """The other half: it does resolve when asked."""
-        assert index_result.plot is not None
+    def test_building_a_result_chart_does_not_import_matplotlib(self):
+        """BN-299: a result's chart is described when it is built and drawn
+        only when it is used, so describing and laying it out need nothing
+        heavy."""
+        script = ("import sys\n"
+                  "class Blocker:\n"
+                  "    def find_spec(self, name, path=None, target=None):\n"
+                  "        if name.split('.')[0] == 'matplotlib':\n"
+                  "            raise ImportError(name)\n"
+                  "        return None\n"
+                  "sys.meta_path.insert(0, Blocker())\n"
+                  "import pandas as pd\n"
+                  "from beacon.plot.accessors import IndexPlots\n"
+                  "class Result:\n"
+                  "    index_id = 'CANON'\n"
+                  "    _data_fetcher = None\n"
+                  "    index_levels = pd.Series([1000.0, 1010.0, 1005.0],\n"
+                  "        index=pd.bdate_range('2024-01-01', periods=3))\n"
+                  "chart = IndexPlots(Result()).level()\n"
+                  "assert chart.layout.panels\n"
+                  "print('ok')\n")
+
+        completed = subprocess.run([sys.executable, "-c", script],
+                                   capture_output=True, text=True, check=False)
+
+        assert completed.returncode == 0, completed.stderr
+        assert "ok" in completed.stdout
 
     def test_the_accessor_lists_its_charts(self,
                                            index_result):
@@ -259,11 +282,20 @@ class TestStyle:
 
 
 def data_lines(ax) -> list:
-    """The lines a chart drew from data, without a level chart's reference
-    line at 100."""
+    """The lines a chart drew from data, in the order drawn, without a level
+    chart's reference line at 100 or the dot on a last value. The leading
+    series is drawn last, over the others."""
     from beacon.plot.frame import REFERENCE_ID
 
-    return [line for line in ax.get_lines() if line.get_gid() != REFERENCE_ID]
+    return [line for line in ax.get_lines()
+            if line.get_gid() != REFERENCE_ID and line.get_linestyle() not in ("None", "")]
+
+
+def line_marks(chart) -> list:
+    """A chart's lines as it describes them, in the order drawn."""
+    from beacon.plot.marks import LineMark
+
+    return [mark for mark in chart.plan.marks if isinstance(mark, LineMark)]
 
 
 def panels(figure) -> list:
@@ -284,28 +316,27 @@ class TestCoreCharts:
 
     def test_level_draws_the_index(self,
                                    index_result):
-        ax = index_result.plot.level()
+        chart = index_result.plot.level()
 
         from beacon.plot import frame_text
 
-        assert len(data_lines(ax)) >= 1
-        assert frame_text(ax, "title") == "Index level"
+        assert len(data_lines(chart.ax)) >= 1
+        assert frame_text(chart, "title") == "Index level"
 
     def test_level_rebases_to_one_hundred(self,
                                           index_result):
-        ax = index_result.plot.level()
-        first = ax.get_lines()[0].get_ydata()[0]
+        index_line = line_marks(index_result.plot.level())[-1]
 
-        assert first == pytest.approx(100.0, abs=1e-9)
+        assert index_line.y[0] == pytest.approx(100.0, abs=1e-9)
 
     def test_level_uses_the_accent_colour(self,
                                           index_result):
         from matplotlib.colors import to_hex
 
         use(LIGHT)
-        ax = index_result.plot.level()
+        ax = index_result.plot.level().ax
 
-        assert to_hex(data_lines(ax)[0].get_color()) == colour("accent", LIGHT)
+        assert to_hex(data_lines(ax)[-1].get_color()) == colour("accent", LIGHT)
 
     def test_level_draws_a_benchmark_subordinate(self,
                                                  index_result):
@@ -314,55 +345,58 @@ class TestCoreCharts:
 
         use(LIGHT)
         benchmark = dataset.prices()["CCC"].loc[:END]
-        ax = index_result.plot.level(benchmark=benchmark)
+        ax = index_result.plot.level(benchmark=benchmark).ax
 
         lines = data_lines(ax)
         benchmark_line = next(line for line in lines
                               if to_hex(line.get_color())
                               == colour("text-secondary", LIGHT))
+        index_line = next(line for line in lines
+                          if to_hex(line.get_color()) == colour("accent", LIGHT))
 
-        assert benchmark_line.get_linewidth() < lines[0].get_linewidth()
+        assert benchmark_line.get_linewidth() < index_line.get_linewidth()
 
     def test_level_marks_the_last_value(self,
                                         index_result):
-        ax = index_result.plot.level()
+        ax = index_result.plot.level().ax
 
         assert ax.texts, "expected a last-value annotation"
 
     def test_weights_draws_a_bar_per_constituent(self,
                                                  index_result):
-        ax = index_result.plot.weights()
+        ax = index_result.plot.weights().ax
 
         assert len(ax.patches) == len(dataset.UNIVERSE)
 
     def test_weights_marks_the_cap(self,
                                    index_result):
-        ax = index_result.plot.weights()
+        """BN-299: the cap's label is drawn too; it sat outside the axes and
+        was clipped before."""
+        ax = index_result.plot.weights().ax
         vertical = [line for line in ax.get_lines()
                     if line.get_linestyle() == "--"]
 
         assert vertical, "expected a cap marker"
         assert vertical[0].get_xdata()[0] == pytest.approx(CAP)
+        assert [text.get_text() for text in ax.texts] == [f"cap {CAP:.1%}"]
 
     def test_weights_at_a_chosen_rebalance(self,
                                            index_result):
         first = min(index_result.weight_snapshots)
-        ax = index_result.plot.weights(date=first)
+        chart = index_result.plot.weights(date=first)
 
-        assert f"{first:%d/%m/%Y}" in notes(ax)
+        assert f"{first:%d/%m/%Y}" in notes(chart)
 
     def test_performance_draws_two_linked_panels(self,
                                                  backtest):
-        ax = backtest.plot.performance()
-        figure = ax.get_figure()
+        figure = backtest.plot.performance().figure
 
         assert len(panels(figure)) == 2
         assert panels(figure)[1].get_ylabel() == "Drawdown"
 
     def test_the_drawdown_panel_is_never_positive(self,
                                                   backtest):
-        ax = backtest.plot.performance()
-        lower = ax.get_figure().get_axes()[1]
+        lower = backtest.plot.performance().axes[1]
         values = lower.get_lines()[0].get_ydata()
 
         assert max(values) <= 1e-12
@@ -370,8 +404,7 @@ class TestCoreCharts:
     def test_the_panels_share_an_x_axis(self,
                                         backtest):
         """A drawdown is only meaningful against the path that produced it."""
-        ax = backtest.plot.performance()
-        upper, lower = panels(ax.get_figure())
+        upper, lower = backtest.plot.performance().axes
 
         assert upper.get_xlim() == lower.get_xlim()
 
@@ -380,14 +413,14 @@ class TestCoreCharts:
         from matplotlib.colors import to_hex
 
         use(LIGHT)
-        ax = backtest.plot.annual_returns()
+        ax = backtest.plot.annual_returns().ax
         colours = {to_hex(patch.get_facecolor()) for patch in ax.patches}
 
         assert colours <= {colour("success", LIGHT), colour("danger", LIGHT)}
 
     def test_annual_returns_has_a_bar_per_year(self,
                                                backtest):
-        ax = backtest.plot.annual_returns()
+        ax = backtest.plot.annual_returns().ax
 
         assert len(ax.patches) == 2  # 2023 and 2024
 
@@ -407,7 +440,7 @@ class TestCoreCharts:
                             strict=True):
             portfolio._history.record(day, {}, nav)
 
-        ax = BacktestResult(portfolio=portfolio).plot.annual_returns()
+        ax = BacktestResult(portfolio=portfolio).plot.annual_returns().ax
         heights = [patch.get_height() for patch in ax.patches]
 
         assert heights == pytest.approx([10_200.0 / 10_000.0 - 1.0,
@@ -430,19 +463,17 @@ class TestConstituentsChart:
         from matplotlib.colors import to_hex
 
         use(LIGHT)
-        ax = index_result.plot.constituents()
-        named = {text.get_text() for text in ax.texts}
-        index_line = next(line for line in data_lines(ax)
-                          if line.get_label() == "Index")
+        chart = index_result.plot.constituents()
+        named = {text.get_text() for text in chart.ax.texts}
+        index_line = line_marks(chart)[-1]
 
         assert set(dataset.UNIVERSE) <= named
-        assert to_hex(index_line.get_color()) == colour("accent", LIGHT)
-        assert index_line.get_linewidth() == max(
-            line.get_linewidth() for line in data_lines(ax))
+        assert index_line.width == max(line.width for line in line_marks(chart))
+        assert to_hex(data_lines(chart.ax)[-1].get_color()) == colour("accent", LIGHT)
 
     def test_every_line_starts_at_one_hundred(self,
                                               index_result):
-        ax = index_result.plot.constituents()
+        ax = index_result.plot.constituents().ax
         series = [line for line in data_lines(ax) if len(line.get_ydata()) > 1]
 
         assert len(series) == len(dataset.UNIVERSE) + 1
@@ -454,20 +485,20 @@ class TestConstituentsChart:
         latest = index_result.weight_snapshots[max(index_result.weight_snapshots)]
         largest = sorted(latest, key=lambda name: latest[name], reverse=True)[:3]
 
-        ax = index_result.plot.constituents(limit=3)
-        named = {text.get_text() for text in ax.texts} & set(dataset.UNIVERSE)
+        chart = index_result.plot.constituents(limit=3)
+        named = {text.get_text() for text in chart.ax.texts} & set(dataset.UNIVERSE)
 
         assert named == set(largest)
-        assert f"{len(latest) - 3} smaller constituent(s) not shown" in notes(ax)
+        assert f"{len(latest) - 3} smaller constituent(s) not shown" in notes(chart)
 
     def test_a_backtest_draws_the_index_it_tracked(self,
                                                    backtest):
         from beacon.plot import frame_text
 
-        ax = backtest.plot.constituents()
+        chart = backtest.plot.constituents()
 
-        assert frame_text(ax, "title") == "The index and its constituents"
-        assert "CANON" in frame_text(ax, "subtitle")
+        assert frame_text(chart, "title") == "The index and its constituents"
+        assert "CANON" in frame_text(chart, "subtitle")
 
     def test_it_needs_the_data_the_index_came_from(self,
                                                    index_result):
@@ -485,7 +516,7 @@ class TestAttributionChart:
 
     def test_it_draws_a_bar_per_constituent(self,
                                             attribution):
-        ax = attribution.plot.contributions()
+        ax = attribution.plot.contributions().ax
 
         assert len(ax.patches) == len(dataset.UNIVERSE)
 
@@ -494,10 +525,10 @@ class TestAttributionChart:
         """The acceptance criterion, and the reason the renderer recomputes it:
         an annotation claiming a total that does not match the bars beside it
         is worse than no annotation."""
-        ax = attribution.plot.contributions()
-        drawn = sum(patch.get_width() for patch in ax.patches)
+        chart = attribution.plot.contributions()
+        drawn = sum(patch.get_width() for patch in chart.ax.patches)
 
-        stated = float(notes(ax).split("sum to ")[1].split("%")[0]) / 100.0
+        stated = float(notes(chart).split("sum to ")[1].split("%")[0]) / 100.0
 
         assert stated == pytest.approx(drawn, abs=5e-5)
 
@@ -515,7 +546,7 @@ class TestAttributionChart:
 
     def test_the_total_matches_the_result(self,
                                           attribution):
-        ax = attribution.plot.contributions()
+        ax = attribution.plot.contributions().ax
         drawn = sum(patch.get_width() for patch in ax.patches)
 
         assert drawn == pytest.approx(attribution.total_return, abs=1e-9)
@@ -534,7 +565,7 @@ class TestAttributionChart:
         from matplotlib.colors import to_hex
 
         use(LIGHT)
-        ax = attribution.plot.contributions()
+        ax = attribution.plot.contributions().ax
 
         for patch in ax.patches:
             expected = colour("success" if patch.get_width() >= 0 else "danger",
@@ -548,7 +579,7 @@ class TestCompare:
     def test_it_draws_a_line_per_result(self,
                                         index_result,
                                         backtest):
-        ax = compare(index_result, backtest)
+        ax = compare(index_result, backtest).ax
 
         assert len(data_lines(ax)) == 2
 
@@ -557,7 +588,7 @@ class TestCompare:
                                               backtest):
         """The acceptance criterion: rebased on the common window, so the
         comparison is of shape rather than of span."""
-        ax = compare(index_result, backtest)
+        ax = compare(index_result, backtest).ax
 
         for line in data_lines(ax):
             assert line.get_ydata()[0] == pytest.approx(100.0, abs=1e-9)
@@ -565,7 +596,7 @@ class TestCompare:
     def test_the_lines_cover_the_same_dates(self,
                                             index_result,
                                             backtest):
-        ax = compare(index_result, backtest)
+        ax = compare(index_result, backtest).ax
         first, second = (line.get_xdata() for line in data_lines(ax))
 
         assert len(first) == len(second)
@@ -575,15 +606,15 @@ class TestCompare:
     def test_the_notes_say_how_much_history_it_rests_on(self,
                                                         index_result,
                                                         backtest):
-        ax = compare(index_result, backtest)
+        chart = compare(index_result, backtest)
 
-        assert "shared observations" in notes(ax)
-        assert not ax.texts, "the metrics table was removed"
+        assert "shared observations" in notes(chart)
+        assert not chart.ax.texts, "the metrics table was removed"
 
     def test_labels_can_be_supplied(self,
                                     index_result,
                                     backtest):
-        ax = compare(index_result, backtest, labels=["Index", "Portfolio"])
+        ax = compare(index_result, backtest, labels=["Index", "Portfolio"]).ax
 
         assert [text.get_text() for text in ax.get_legend().get_texts()] == [
             "Index", "Portfolio"]
@@ -618,7 +649,7 @@ class TestOptimiserCharts:
 
     def test_exposures_draws_a_tilt_per_name(self,
                                              optimisation):
-        ax = optimisation.plot.exposures()
+        ax = optimisation.plot.exposures().ax
 
         assert len(ax.patches) == len(dataset.UNIVERSE)
 
@@ -627,7 +658,7 @@ class TestOptimiserCharts:
         from matplotlib.colors import to_hex
 
         use(LIGHT)
-        ax = optimisation.plot.exposures()
+        ax = optimisation.plot.exposures().ax
 
         for patch in ax.patches:
             expected = colour("success" if patch.get_width() >= 0 else "danger",
@@ -637,7 +668,7 @@ class TestOptimiserCharts:
     def test_the_tilts_sum_to_zero(self,
                                    optimisation):
         """Both sides fully invested, so rearranging cannot create weight."""
-        ax = optimisation.plot.exposures()
+        ax = optimisation.plot.exposures().ax
 
         assert sum(patch.get_width() for patch in ax.patches) == pytest.approx(
             0.0, abs=1e-9)
@@ -645,7 +676,7 @@ class TestOptimiserCharts:
     def test_frontier_draws_the_curve_and_the_named_points(self,
                                                            optimisation,
                                                            frontier):
-        ax = optimisation.plot.frontier(frontier, risk_free_rate=RISK_FREE)
+        ax = optimisation.plot.frontier(frontier, risk_free_rate=RISK_FREE).ax
         labels = {text.get_text() for text in ax.get_legend().get_texts()}
 
         assert {"Frontier", "Capital market line", "Minimum variance",
@@ -659,7 +690,7 @@ class TestOptimiserCharts:
         `x or 0.0 - rf` parses as `x or (0.0 - rf)`, which silently drops the
         risk-free rate and leaves a plausible line tangent to nothing.
         """
-        ax = optimisation.plot.frontier(frontier, risk_free_rate=RISK_FREE)
+        ax = optimisation.plot.frontier(frontier, risk_free_rate=RISK_FREE).ax
         line = next(entry for entry in ax.get_lines()
                     if entry.get_linestyle() == "--")
 
@@ -673,7 +704,7 @@ class TestOptimiserCharts:
     def test_the_capital_market_line_starts_at_the_risk_free_rate(self,
                                                                    optimisation,
                                                                    frontier):
-        ax = optimisation.plot.frontier(frontier, risk_free_rate=RISK_FREE)
+        ax = optimisation.plot.frontier(frontier, risk_free_rate=RISK_FREE).ax
         line = next(entry for entry in ax.get_lines()
                     if entry.get_linestyle() == "--")
 
@@ -683,7 +714,7 @@ class TestOptimiserCharts:
                                                                    optimisation,
                                                                    frontier):
         """BN-259: it started at 0% unless the rate was passed again."""
-        ax = optimisation.plot.frontier(frontier)
+        ax = optimisation.plot.frontier(frontier).ax
         line = next(entry for entry in ax.get_lines()
                     if entry.get_linestyle() == "--")
 
@@ -693,7 +724,7 @@ class TestOptimiserCharts:
     def test_the_tangency_sharpe_is_annotated(self,
                                               optimisation,
                                               frontier):
-        ax = optimisation.plot.frontier(frontier, risk_free_rate=RISK_FREE)
+        ax = optimisation.plot.frontier(frontier, risk_free_rate=RISK_FREE).ax
         annotations = " ".join(text.get_text() for text in ax.texts)
 
         assert "Sharpe" in annotations
@@ -725,94 +756,55 @@ class TestCorrelationChart:
 
     def test_the_heatmap_is_symmetric(self,
                                       risk_model):
-        """The acceptance criterion, checked on the array that was drawn."""
+        """The acceptance criterion, checked on the cells that are drawn."""
         import numpy as np
 
-        ax = risk_model.plot.correlation()
-        values = ax.images[0].get_array()
+        values = np.array(cells(risk_model.plot.correlation()).values, dtype=float)
 
         assert np.allclose(values, values.T, atol=1e-12)
 
     def test_the_diagonal_is_at_the_top_of_the_scale(self,
                                                      risk_model):
-        """Unit correlation, so it renders in the hottest colour — the red
+        """Unit correlation, so it renders in the hottest colour: the red
         diagonal the acceptance criterion asks for."""
         import numpy as np
 
-        ax = risk_model.plot.correlation()
-        values = np.asarray(ax.images[0].get_array())
+        drawn = cells(risk_model.plot.correlation())
+        values = np.array(drawn.values, dtype=float)
 
         assert np.allclose(np.diag(values), 1.0, atol=1e-12)
-        assert ax.images[0].get_clim()[1] == pytest.approx(1.0)
+        assert drawn.high == pytest.approx(1.0)
 
     def test_the_scale_starts_above_zero(self,
                                          risk_model):
         """Below 0.2 the difference between 0.05 and 0.1 is noise on any real
         estimate, and giving it colour implies a precision it does not have."""
-        ax = risk_model.plot.correlation()
-
-        assert ax.images[0].get_clim()[0] == pytest.approx(
+        assert cells(risk_model.plot.correlation()).low == pytest.approx(
             style.CORRELATION_DOMAIN[0])
 
     def test_it_is_labelled_by_asset(self,
                                      risk_model):
-        ax = risk_model.plot.correlation()
+        ax = risk_model.plot.correlation().ax
         labels = [text.get_text() for text in ax.get_yticklabels()]
 
         assert labels == list(dataset.UNIVERSE)
 
-    def test_the_colorbar_says_what_the_colours_mean(self,
-                                                     risk_model):
-        ax = risk_model.plot.correlation()
-        bar_axes = [axis for axis in ax.get_figure().get_axes() if axis is not ax]
+    def test_the_colour_bar_says_what_its_ends_are(self,
+                                                   risk_model):
+        """BN-299: labelled at its two ends with the values there."""
+        chart = risk_model.plot.correlation()
+        bar = chart.layout.panels[0].colour_bar
 
-        words = {text.get_text() for text in bar_axes[0].texts}
+        assert bar is not None
+        assert [tick.label for tick in bar.axis.ticks] == ["0.20", "1.00"]
+        assert len(panels(chart.figure)) == 2
 
-        assert bar_axes
-        assert {"less correlated", "more correlated"} <= words
 
+def cells(chart):
+    """A heatmap's cells as it describes them."""
+    from beacon.plot.marks import CellsMark
 
-class TestComposition:
-    """Every chart honours `ax=`, so it composes into a caller's figure."""
-
-    @pytest.mark.parametrize("kind", ["level", "weights", "annual_returns",
-                                      "contributions", "exposures",
-                                      "correlation"])
-    def test_a_supplied_axes_is_drawn_on(self,
-                                         kind,
-                                         index_result,
-                                         backtest,
-                                         attribution,
-                                         optimisation,
-                                         risk_model):
-        figure, axes = plt.subplots(1, 2)
-
-        call = {
-            "level": lambda ax: index_result.plot.level(ax=ax),
-            "weights": lambda ax: index_result.plot.weights(ax=ax),
-            "annual_returns": lambda ax: backtest.plot.annual_returns(ax=ax),
-            "contributions": lambda ax: attribution.plot.contributions(ax=ax),
-            "exposures": lambda ax: optimisation.plot.exposures(ax=ax),
-            "correlation": lambda ax: risk_model.plot.correlation(ax=ax),
-        }[kind]
-
-        returned = call(axes[1])
-
-        assert returned is axes[1]
-        assert returned.get_figure() is figure
-
-    def test_performance_says_it_ignores_a_supplied_axes(self,
-                                                         backtest,
-                                                         caplog):
-        """It owns a two-panel figure. Silently ignoring the argument would be
-        worse than saying so."""
-        _, ax = plt.subplots()
-
-        with caplog.at_level("WARNING"):
-            returned = backtest.plot.performance(ax=ax)
-
-        assert returned is not ax
-        assert "ignored" in caplog.text
+    return next(mark for mark in chart.plan.marks if isinstance(mark, CellsMark))
 
 
 class TestBothStyles:
@@ -843,23 +835,23 @@ class TestBothStyles:
         ]
 
         for chart in charts:
-            assert chart() is not None
+            assert chart().figure is not None
             plt.close("all")
 
         use(LIGHT)
 
-    def test_charts_pick_up_the_mode_from_their_own_figure(self,
-                                                           index_result):
-        """Read off the axes rather than from global state, so a caller can
-        style one figure without affecting another."""
+    def test_a_chart_draws_in_its_own_style(self,
+                                            index_result):
+        """BN-299: a chart's theme is set when it is built, by style= or the
+        current style, so one chart can be dark without the next being."""
         from matplotlib.colors import to_hex
 
         use(LIGHT)
+        dark = index_result.plot.level(style={"theme": DARK}).ax
+        light = index_result.plot.level().ax
 
-        with plt.style.context(style.BEACON_DARK):
-            ax = index_result.plot.level()
-
-            assert to_hex(data_lines(ax)[0].get_color()) == colour("accent", DARK)
+        assert to_hex(data_lines(dark)[-1].get_color()) == colour("accent", DARK)
+        assert to_hex(data_lines(light)[-1].get_color()) == colour("accent", LIGHT)
 
 
 class TestTruncation:
@@ -880,10 +872,10 @@ class TestTruncation:
             [1.0 / len(names) + (0.001 * index) for index in range(len(names))],
             index=names)
 
-        ax = wide.plot.exposures()
+        chart = wide.plot.exposures()
 
-        assert len(ax.patches) == MAX_BARS
-        assert "10 smaller tilt(s) not shown" in notes(ax)
+        assert len(chart.ax.patches) == MAX_BARS
+        assert "10 smaller tilt(s) not shown" in notes(chart)
 
     def test_truncation_keeps_the_largest_by_magnitude(self):
         """The names worth seeing are the extremes, in either direction."""
@@ -915,24 +907,13 @@ class TestTruncation:
             latest: {f"N{index:02d}": 1.0 / count for index in range(count)}}
         crowded.cap_reports = {}
 
-        ax = crowded.plot.weights()
+        chart = crowded.plot.weights()
 
-        assert len(ax.patches) == MAX_BARS
-        assert "4 smaller holding(s) not shown" in notes(ax)
+        assert len(chart.ax.patches) == MAX_BARS
+        assert "4 smaller holding(s) not shown" in notes(chart)
 
 
 class TestDegenerateSeries:
-
-    def test_an_empty_series_draws_no_marker(self):
-        """Nothing to mark, and indexing an empty series would raise."""
-        import pandas as pd
-
-        from beacon.plot.accessors import _mark_last
-
-        _, ax = plt.subplots()
-        _mark_last(ax, pd.Series(dtype=float))
-
-        assert len(ax.texts) == 0
 
     def test_a_result_without_an_identifier_is_labelled_by_position(self):
         """So a comparison of anonymous results still has a legend."""
@@ -952,23 +933,23 @@ class TestBeforeAStyleIsApplied:
         import matplotlib.pyplot as plt
         from matplotlib.colors import to_hex
 
-        from beacon.plot.accessors import _ink
+        from beacon.plot.frame import ink
 
         with plt.style.context("default"):
             _, ax = plt.subplots()
 
-        assert _ink(ax, "accent") == colour("accent", LIGHT)
+        assert ink(ax, "accent") == colour("accent", LIGHT)
         assert to_hex(ax.get_figure().get_facecolor()) == "#ffffff"
 
     def test_the_dark_style_still_reads_as_dark(self):
         import matplotlib.pyplot as plt
 
-        from beacon.plot.accessors import _ink
+        from beacon.plot.frame import ink
 
         with plt.style.context(style.BEACON_DARK):
             _, ax = plt.subplots()
 
-        assert _ink(ax, "accent") == colour("accent", DARK)
+        assert ink(ax, "accent") == colour("accent", DARK)
 
 
 class TestRegistrationIsSelfSufficient:

@@ -22,7 +22,6 @@ from .layout import (
     Description,
     Label,
     Panel,
-    PanelLayout,
     Text,
     Tick,
 )
@@ -334,37 +333,3 @@ def _drawn(spans: Iterable[tuple[float, float] | None]) -> list[tuple[float, flo
 def _unit() -> AxisState:
     """An axis from 0 to 1, for text placed at fractions of a box."""
     return AxisState(Axis("fixed", 0.0, 1.0), 0.0, 1.0)
-
-
-def lay_out_panel(panel: Panel,
-                  box: Box,
-                  style: Style,
-                  tick_label_size: float | None = None) -> PanelLayout:
-    """One panel on a figure the caller laid out: its measuring axes ended on
-    their ticks at the size it has, with nothing framed around it.
-
-    Args:
-        panel: What it draws.
-        box: Where it is, in inches.
-        style: The settings it is drawn in.
-        tick_label_size: Its tick labels' size, where the caller's figure
-            sets its own.
-    """
-    sizes = Sizes.of(style)
-    if tick_label_size is not None:
-        sizes = dataclasses.replace(sizes, tick_label=tick_label_size)
-
-    x = AxisState(panel.x, panel.x.low, panel.x.high)
-    y = AxisState(panel.y, panel.y.low, panel.y.high)
-    blank = None
-
-    if style.axes.end_on_ticks:
-        x_ended = panels.end(x, box.width, sizes, True)
-        y_ended = panels.end(y, box.height, sizes, False)
-        if x_ended and y_ended and style.axes.blank_lowest_label:
-            blank = min(y.low, y.high)
-
-    x_ticks, x_offset = panels.axis_ticks(x, box.width, sizes, True)
-    y_ticks, y_offset = panels.axis_ticks(y, box.height, sizes, False, blank)
-
-    return PanelLayout(box, _axis(x, x_ticks, x_offset), _axis(y, y_ticks, y_offset))

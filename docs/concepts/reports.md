@@ -54,8 +54,6 @@ This example draws a correlation chart to a PNG, then lays out a one-page
 factsheet around it. The chart needs the `plot` extra.
 
 ```python
-import matplotlib.pyplot as plt
-
 import beacon.plot
 from beacon.report import (
     BarChart, Chart, Header, PageSetup, ReportTemplate,
@@ -67,9 +65,7 @@ from beacon.testing import dataset
 risk = estimate_risk_model(dataset.returns(), intensity=0.1)
 
 beacon.plot.use("light")
-ax = risk.plot.correlation()
-ax.figure.savefig("correlation.png", dpi=150)
-plt.close("all")
+risk.plot.correlation().save("correlation.png", dpi=150)
 
 weights = dataset.equal_weights()
 

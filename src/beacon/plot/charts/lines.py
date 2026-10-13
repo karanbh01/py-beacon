@@ -39,6 +39,9 @@ REFERENCE_ID = "beacon-reference"
 LAST_GAP = 6.0
 LAST_DOT = 3.0
 
+# How far a series' name sits from its line's end, in points before scaling.
+END_NAME_GAP = 4.0
+
 # How far a marked period's label sits below the plot's top, in points before
 # scaling.
 PERIOD_LABEL_DROP = 3.0
@@ -110,6 +113,9 @@ class Line(Chart):
             a line across it.
         label_last: Dot and label the last value: True for the first series,
             or the names of the series to label.
+        end_names: Write series' names at their lines' ends: True for every
+            series but the first, or the names of the series to name.
+        legend: Whether several series are named in a legend.
         periods: Marked periods, as boxes from the bottom of the plot to the
             top behind the series: {label: (start, end)}, or a list of
             (start, end) or (start, end, label).
@@ -141,6 +147,8 @@ class Line(Chart):
                  xlabel: str = "",
                  reference: float | None = None,
                  label_last: bool | str | Sequence[str] = False,
+                 end_names: bool | Sequence[str] = False,
+                 legend: bool = True,
                  periods: Periods = None,
                  period_labels: bool = True,
                  period_legend: str | None = None,
@@ -159,6 +167,8 @@ class Line(Chart):
         self.xlabel = xlabel
         self.reference = reference
         self.label_last = label_last
+        self.end_names = end_names
+        self.legend = legend
         self.periods = _periods(periods)
         self.period_labels = period_labels
         self.period_legend = period_legend
@@ -203,6 +213,7 @@ class Line(Chart):
                                       side="right"))
 
         marks.extend(self._last_marks(left, right))
+        marks.extend(self._end_names(left))
 
         return Plan(self._description(dates, x, left, right, marks), tuple(marks))
 
@@ -254,6 +265,23 @@ class Line(Chart):
 
         return marks
 
+    def _end_names(self, left: list[str]) -> list[Mark]:
+        """Series' names at their lines' ends, in their lines' colours."""
+        chosen = left[1:] if self.end_names is True else _chosen(left, self.end_names or False)
+        marks: list[Mark] = []
+
+        for name in chosen:
+            found = _last(self.data[name])
+            if found is None:
+                continue
+            when, value = found
+            at = number(when) if is_dates(self.data.index) else float(when)
+            marks.append(TextMark(name, at, value, self._colour(left.index(name)),
+                                  sizes.label_size(), dx=sizes.scaled(END_NAME_GAP),
+                                  ha="left", va="center"))
+
+        return marks
+
     def _description(self,
                      dates: bool,
                      x: tuple[float, ...],
@@ -287,7 +315,7 @@ class Line(Chart):
                 right: list[str]) -> tuple[LegendItem, ...]:
         items = []
 
-        if len(left) + len(right) > 1:
+        if self.legend and len(left) + len(right) > 1:
             items = [LegendItem(name, self._colour(index)) for index, name in enumerate(left)]
             items += [LegendItem(f"{name} (right)" if left else name,
                                  self._colour(len(left) + index))

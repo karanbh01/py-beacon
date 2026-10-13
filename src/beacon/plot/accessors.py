@@ -2,85 +2,117 @@
 """
 The chart methods reached through `result.plot`.
 
-Every method takes an optional `ax=` and returns the `Axes` it drew on, so a
-chart composes into a figure the caller laid out rather than insisting on its
-own. That is also what keeps the signatures backend-agnostic: nothing here
-returns a matplotlib-specific wrapper, so an interactive backend can offer the
-same names later without the call sites changing.
-
-Sizes come from `style.figure_size()` per kind (a level chart is wide because time
-is the long axis, a weights chart tall because names stack) and only apply
-when this module creates the figure. A caller passing `ax=` has already decided.
+Each method builds one of the chart classes in `beacon.plot` from a result
+and returns it, so a result's chart has the same options as any other:
+`.show()`, `.save(path)`, its `.figure` and `.ax`, and `style=`. A chart is
+drawn only when it is used, so these methods need no matplotlib.
 
 ## Where the numbers come from
 
 Nowhere here. Every method reads a result object and draws it; the arithmetic
 belongs to the analysis layer and is tested there. The one exception is the
-reconciliation total annotated on the contributions chart, which the renderer
-recomputes from the bars it actually drew, because an annotation claiming a
-total that does not match the bars beside it is worse than no annotation, and
-the only way to be sure is to add up what is on the page.
+reconciliation total in the contributions chart's notes, recomputed from the
+bars actually drawn, because a total that does not match the bars beside it
+is worse than none.
 """
+import dataclasses
 import logging
 
 import pandas as pd
 
-from .._optional import require
-from . import style as beacon_style
 from .base import ChartMethods
+from .charts import Area, Bar, Column, Line
+from .charts.base import Chart, Plan
+from .charts.stack import Stacked
 from .design import StyleArgument
-from .drawing import (
-    MAX_BARS,
-    MAX_LINES,
-    MINIMUM_BAR,
-    _axes,
-    _finish,
-    _given,
-    _ink,
-    _mark_last,
-    _rebase,
-    _reference_at,
-    _series,
-    _signed_colours,
-    _truncate,
-    styled,
-)
-from .frame import new_figure, provenance, sentences
-
-require("matplotlib", "Charting")
-
-from matplotlib.axes import Axes  # noqa: E402
-from matplotlib.ticker import MaxNLocator, PercentFormatter  # noqa: E402
+from .notes import provenance, sentences
+from .ticks import Spacing
 
 logger = logging.getLogger(__name__)
 
-# The tick steps a drawdown panel may use, as multiples of a power of ten.
-DRAWDOWN_STEPS = [1, 2, 2.5, 5, 10]
+# Bars thinner than this are invisible; a near-zero contribution still needs to
+# show that it exists and which way it points.
+MINIMUM_BAR = 1e-4
 
-# Imported by name elsewhere (the tests read MAX_BARS and the helpers here).
-__all__ = ["MAX_BARS", "MINIMUM_BAR", "AttributionPlots", "BacktestPlots",
-           "IndexPlots", "OptimisationPlots", "RiskPlots", "_ink", "_mark_last",
-           "_truncate"]
+# How many names a weights or contributions chart shows before it stops being
+# readable. Beyond this the labels collide and the chart says less than a table.
+MAX_BARS = 25
+
+# How many constituents a constituents chart draws. More lines than this are a
+# tangle in which no one line can be followed.
+MAX_LINES = 8
+
+# A drawdown panel is short, so it has room for few ticks; steps of 2.5% and
+# 5% as well as 10% keep it from rounding a 10% drawdown out to 20%.
+DRAWDOWN_SPACING = Spacing(bins=4, steps=(1.0, 2.0, 2.5, 5.0, 10.0))
+
+__all__ = ["MAX_BARS", "MINIMUM_BAR", "AttributionPlots", "BacktestPlots", "IndexPlots",
+           "OptimisationPlots", "RiskPlots", "_truncate"]
+
+
+def _given(value: str | None,
+           default: str) -> str:
+    """A caller's title, subtitle or notes, or the chart's own when None.
+    An empty string is kept: it is how a caller turns one off."""
+    return default if value is None else value
+
+
+def _series(payload: pd.Series) -> pd.Series:
+    """A result's series as floats."""
+    return payload.astype(float)
+
+
+def _rebase(series: pd.Series,
+            base: float = 100.0) -> pd.Series:
+    """A level series rescaled to start at *base*."""
+    first = float(series.iloc[0])
+
+    return series / first * base if first else series
+
+
+def _truncate(labels: list[str],
+              values: list[float],
+              limit: int = MAX_BARS) -> tuple[list[str], list[float], int]:
+    """Keep the largest *limit* entries by magnitude, reporting what was cut.
+
+    Silently dropping the tail would make a chart of thirty names look like a
+    chart of twenty-five. The count comes back so the caller can say so on the
+    page.
+    """
+    if len(labels) <= limit:
+        return labels, values, 0
+
+    order = sorted(range(len(values)), key=lambda i: abs(values[i]), reverse=True)
+    kept = sorted(order[:limit], key=lambda i: values[i], reverse=True)
+
+    return ([labels[i] for i in kept], [values[i] for i in kept],
+            len(labels) - limit)
+
+
+def _largest_first(names: list[str],
+                   values: list[float]) -> pd.Series:
+    """Bars from the largest at the top, kept to the most a chart can show."""
+    names, values, _ = _truncate(names, values)
+    ordered = sorted(zip(names, values, strict=True), key=lambda item: item[1], reverse=True)
+
+    return pd.Series([value for _, value in ordered], index=[name for name, _ in ordered])
 
 
 class IndexPlots(ChartMethods):
     """Charts for an `IndexResult`."""
 
-    @styled
     def level(self,
               benchmark: pd.Series | None = None,
-              ax: Axes | None = None,
               label: str = "Index",
               title: str | None = None,
               subtitle: str | None = None,
               notes: str | None = None,
-              style: StyleArgument = None) -> Axes:
+              style: StyleArgument = None) -> Chart:
         """The index level over time, rebased to 100.
 
         Args:
             benchmark: Optional comparison series, drawn subordinate.
-            ax: Axes to draw on. A new figure is created when absent.
-            label: Legend label for the index.
+            label: The index's name in the legend.
             title: The heading. Defaults to the chart's own.
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
@@ -90,40 +122,30 @@ class IndexPlots(ChartMethods):
                 current style (beacon.plot.configure).
 
         Returns:
-            Axes: What was drawn on.
+            Chart: The chart, drawn when it is used.
         """
-        ax = _axes(ax, "level")
         result = self._result
-        levels = _rebase(_series(result.index_levels))
-
-        ax.plot(levels.index, levels.to_numpy(), color=_ink(ax, "accent"),
-                linewidth=beacon_style.series_width(), label=label)
-        _mark_last(ax, levels)
-        _reference_at(ax, 100.0)
+        levels = _rebase(_series(result.index_levels)).rename(label)
+        lines = levels.to_frame()
+        colours = ["palette-1"]
 
         if benchmark is not None and len(benchmark):
-            rebased = _rebase(_series(benchmark))
-            ax.plot(rebased.index, rebased.to_numpy(),
-                    color=_ink(ax, "text-secondary"),
-                    linewidth=beacon_style.secondary_width(), label="Benchmark")
-            ax.legend(loc="upper left")
+            lines["Benchmark"] = _rebase(_series(benchmark)).reindex(levels.index)
+            colours.append("text-secondary")
 
-        return _finish(ax,
-                       _given(title, "Index level"),
-                       _given(subtitle, f"{result.index_id}, rebased to 100"),
-                       "Level",
-                       _given(notes, sentences(
-                           provenance(result, "index", levels.index),
-                           "Rebased to 100 at the first observation.")))
+        return Line(lines, reference=100.0, label_last=label, ylabel="Level", colors=colours,
+                    title=_given(title, "Index level"),
+                    subtitle=_given(subtitle, f"{result.index_id}, rebased to 100"),
+                    notes=_given(notes, sentences(provenance(result, "index", levels.index),
+                                                  "Rebased to 100 at the first observation.")),
+                    style=style)
 
-    @styled
     def constituents(self,
                      limit: int = MAX_LINES,
-                     ax: Axes | None = None,
                      title: str | None = None,
                      subtitle: str | None = None,
                      notes: str | None = None,
-                     style: StyleArgument = None) -> Axes:
+                     style: StyleArgument = None) -> Chart:
         """The index among its constituents, each rebased to 100.
 
         The constituents are the names held at the latest rebalance, each
@@ -133,7 +155,6 @@ class IndexPlots(ChartMethods):
         Args:
             limit: How many constituents to draw, the largest by weight at
                 the latest rebalance. The notes say how many were left out.
-            ax: Axes to draw on.
             title: The heading. Defaults to the chart's own.
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
@@ -143,7 +164,7 @@ class IndexPlots(ChartMethods):
                 current style (beacon.plot.configure).
 
         Returns:
-            Axes: What was drawn on.
+            Chart: The chart, drawn when it is used.
 
         Raises:
             ValueError: If the result is bound to no data to read the
@@ -158,13 +179,12 @@ class IndexPlots(ChartMethods):
                 "calculated from, and this result has none bound; call "
                 "result.with_data(fetcher) first.")
 
-        ax = _axes(ax, "constituents")
         levels = _rebase(_series(result.index_levels))
         start, end = levels.index[0], levels.index[-1]
-
         latest = result.weight_snapshots[max(result.weight_snapshots)]
         names = sorted(latest, key=lambda name: latest[name], reverse=True)
         drawn = names[:limit]
+        lines = pd.DataFrame({"Index": levels})
 
         for name in drawn:
             closes = fetcher.fetch_market_data(name, start, end)["CLOSE"]
@@ -176,52 +196,34 @@ class IndexPlots(ChartMethods):
                                name, start.date(), end.date())
                 continue
 
-            rebased = _rebase(closes)
-            ax.plot(rebased.index, rebased.to_numpy(),
-                    color=_ink(ax, "text-muted"),
-                    linewidth=beacon_style.secondary_width(), alpha=0.7)
-            ax.annotate(name, xy=(rebased.index[-1], rebased.iloc[-1]),
-                        xytext=(beacon_style.scaled(4), 0),
-                        textcoords="offset points", va="center",
-                        fontsize=beacon_style.label_size(),
-                        color=_ink(ax, "text-muted"))
-
-        ax.plot(levels.index, levels.to_numpy(), color=_ink(ax, "accent"),
-                linewidth=beacon_style.series_width() * 1.6, label="Index",
-                zorder=4)
-        _mark_last(ax, levels)
-        _reference_at(ax, 100.0)
+            lines[name] = _rebase(closes)
 
         left_out = len(names) - len(drawn)
         note = sentences(
             provenance(result, "index", levels.index),
             "Each constituent's close, rebased to 100 on the index's first day.",
             f"{left_out} smaller constituent(s) not shown." if left_out else "")
+        shown = (f"{result.index_id} among its {len(drawn)} largest constituents, rebased to 100"
+                 if left_out else f"{result.index_id} among its constituents, rebased to 100")
 
-        return _finish(ax,
-                       _given(title, "The index and its constituents"),
-                       _given(subtitle, f"{result.index_id} among its "
-                                        f"{len(drawn)} largest constituents, "
-                                        f"rebased to 100"
-                              if left_out else
-                              f"{result.index_id} among its constituents, "
-                              f"rebased to 100"),
-                       "Level",
-                       _given(notes, note))
+        return _ConstituentLines(lines, reference=100.0, label_last="Index", end_names=True,
+                                 legend=False,
+                                 ylabel="Level",
+                                 colors=["palette-1", *["text-muted"] * (len(lines.columns) - 1)],
+                                 title=_given(title, "The index and its constituents"),
+                                 subtitle=_given(subtitle, shown), notes=_given(notes, note),
+                                 style=style)
 
-    @styled
     def weights(self,
                 date: pd.Timestamp | None = None,
-                ax: Axes | None = None,
                 title: str | None = None,
                 subtitle: str | None = None,
                 notes: str | None = None,
-                style: StyleArgument = None) -> Axes:
-        """Constituent weights at a rebalance, with cap markers.
+                style: StyleArgument = None) -> Chart:
+        """Constituent weights at a rebalance, largest first, with the cap.
 
         Args:
             date: Which rebalance. Defaults to the latest.
-            ax: Axes to draw on.
             title: The heading. Defaults to the chart's own.
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
@@ -231,65 +233,48 @@ class IndexPlots(ChartMethods):
                 current style (beacon.plot.configure).
 
         Returns:
-            Axes: What was drawn on.
+            Chart: The chart, drawn when it is used.
         """
-        ax = _axes(ax, "weights")
-
         snapshots = self._result.weight_snapshots
         when = date if date is not None else max(snapshots)
         weights = snapshots[when]
-
-        ordered = sorted(weights.items(), key=lambda item: item[1])
-        labels, values, dropped = _truncate([name for name, _ in ordered],
-                                            [value for _, value in ordered])
-
-        ax.barh(labels, values, color=_ink(ax, "accent"), height=0.68)
-
+        names = list(weights)
+        bars = _largest_first(names, [float(weights[name]) for name in names])
+        dropped = len(names) - len(bars)
         report = self._result.cap_reports.get(when)
-        cap = report.cap if report else None
-        if cap is not None:
-            ax.axvline(cap, color=_ink(ax, "danger"),
-                       linewidth=beacon_style.scaled(1.0),
-                       linestyle="--", zorder=4)
-            ax.annotate(f"cap {cap:.1%}", xy=(cap, len(labels) - 0.5),
-                        xytext=(beacon_style.scaled(4), 0),
-                        textcoords="offset points",
-                        fontsize=beacon_style.label_size(), color=_ink(ax, "danger"),
-                        va="top")
-
-        ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
-        ax.grid(visible=False)
 
         note = sentences(provenance(self._result, "weights", pd.Index([when])),
                          f"{dropped} smaller holding(s) not shown." if dropped else "")
 
-        return _finish(ax,
-                       _given(title, "Constituent weights"),
-                       _given(subtitle, f"{self._result.index_id} at its "
-                                        f"{pd.Timestamp(when):%d %B %Y} rebalance"),
-                       "",
-                       _given(notes, note))
+        return Bar(bars, percent=True, cap=report.cap if report else None, signed=False,
+                   color="accent", title=_given(title, "Constituent weights"),
+                   subtitle=_given(subtitle, f"{self._result.index_id} at its "
+                                             f"{pd.Timestamp(when):%d %B %Y} rebalance"),
+                   notes=_given(notes, note), style=style)
+
+
+class _ConstituentLines(Line):
+    """A level chart with its constituents' lines lighter, under the
+    index's."""
+
+    kind = "constituents"
 
 
 class BacktestPlots(ChartMethods):
     """Charts for a `BacktestResult`."""
 
-    @styled
     def performance(self,
-                    ax: Axes | None = None,
                     title: str | None = None,
                     subtitle: str | None = None,
                     notes: str | None = None,
-                    style: StyleArgument = None) -> Axes:
+                    style: StyleArgument = None) -> Chart:
         """Growth of 100 with a drawdown panel beneath it.
 
-        The two share an x axis and sit in one gridspec, because a drawdown is
-        only meaningful against the path that produced it, and reading them
-        side by side would mean matching dates by eye.
+        The two share a horizontal axis, because a drawdown is only
+        meaningful against the path that produced it, and reading them side
+        by side would mean matching dates by eye.
 
         Args:
-            ax: Ignored for this chart, which owns a two-panel figure. Accepted
-                so every method has the same signature.
             title: The heading. Defaults to the chart's own.
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
@@ -299,63 +284,31 @@ class BacktestPlots(ChartMethods):
                 current style (beacon.plot.configure).
 
         Returns:
-            Axes: The upper (level) panel.
+            Chart: The chart, drawn when it is used.
         """
-        beacon_style.register()
-
-        if ax is not None:
-            logger.warning(
-                "performance() draws two linked panels and creates its own "
-                "figure; the supplied ax is ignored.")
-
-        figure = new_figure(beacon_style.figure_size("performance"))
-        grid = figure.add_gridspec(2, 1, height_ratios=(3, 1), hspace=0.12)
-
-        upper = figure.add_subplot(grid[0])
-        lower = figure.add_subplot(grid[1], sharex=upper)
-
         # A unit's NAV when money flowed, so a flow is not drawn as a gain
         # (BN-267); the NAV itself otherwise.
-        levels = _rebase(_series(self._result.performance_levels()))
-        upper.plot(levels.index, levels.to_numpy(), color=_ink(upper, "accent"),
-                   linewidth=beacon_style.series_width())
-        _mark_last(upper, levels)
-        _reference_at(upper, 100.0)
-        upper.tick_params(labelbottom=False)
+        levels = _rebase(_series(self._result.performance_levels())).rename("Level")
+        drawdown = (levels / levels.cummax() - 1.0).rename("Drawdown")
 
-        drawdown = levels / levels.cummax() - 1.0
-        lower.fill_between(drawdown.index, drawdown.to_numpy(), 0.0,
-                           color=_ink(lower, "danger"), alpha=0.28, linewidth=0)
-        lower.plot(drawdown.index, drawdown.to_numpy(),
-                   color=_ink(lower, "danger"), linewidth=beacon_style.scaled(1.0))
-        # As many decimals as the tick step needs: whole percents rounded a
-        # 2.5% step to "-2%" and "-8%".
-        lower.yaxis.set_major_formatter(PercentFormatter(1.0))
-        # A short panel has room for few ticks; steps of 2.5% and 5% as well
-        # as 10% keep it from rounding a 10% drawdown out to 20%.
-        lower.yaxis.set_major_locator(MaxNLocator(nbins=4, steps=DRAWDOWN_STEPS))
-        lower.set_ylabel("Drawdown")
-        # The two panels' axis titles in one column, whatever their labels'
-        # widths.
-        figure.align_ylabels([upper, lower])
-        lower.grid(visible=False)
+        return _Performance([Line(levels, reference=100.0, label_last=True, ylabel="Level",
+                                  style=style),
+                             Area(drawdown, percent=True, ylabel="Drawdown",
+                                  colors=["danger"], style=style)],
+                            weights=(3.0, 1.0),
+                            title=_given(title, "Growth of 100"),
+                            subtitle=_given(subtitle, "The portfolio, with its drawdown"),
+                            notes=_given(notes, sentences(
+                                provenance(self._result, "backtest", levels.index),
+                                "Drawdown is the level against its running peak.")),
+                            kind="performance", style=style)
 
-        return _finish(upper,
-                       _given(title, "Growth of 100"),
-                       _given(subtitle, "The portfolio, with its drawdown"),
-                       "Level",
-                       _given(notes, sentences(
-                           provenance(self._result, "backtest", levels.index),
-                           "Drawdown is the level against its running peak.")))
-
-    @styled
     def constituents(self,
                      limit: int = MAX_LINES,
-                     ax: Axes | None = None,
                      title: str | None = None,
                      subtitle: str | None = None,
                      notes: str | None = None,
-                     style: StyleArgument = None) -> Axes:
+                     style: StyleArgument = None) -> Chart:
         """The index the backtest tracked, among its constituents.
 
         The same chart as `IndexResult.plot.constituents()`, for the index
@@ -363,7 +316,6 @@ class BacktestPlots(ChartMethods):
 
         Args:
             limit: How many constituents to draw, the largest by weight.
-            ax: Axes to draw on.
             title: The heading. Defaults to the chart's own.
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
@@ -373,7 +325,7 @@ class BacktestPlots(ChartMethods):
                 current style (beacon.plot.configure).
 
         Returns:
-            Axes: What was drawn on.
+            Chart: The chart, drawn when it is used.
 
         Raises:
             ValueError: If the run tracked weights rather than an index.
@@ -385,23 +337,17 @@ class BacktestPlots(ChartMethods):
                 "this backtest tracked weights rather than a calculated "
                 "index, so it has no constituents to draw.")
 
-        return IndexPlots(source).constituents(limit=limit,
-                                               ax=ax,
-                                               title=title,
-                                               subtitle=subtitle,
-                                               notes=notes)
+        return IndexPlots(source).constituents(limit=limit, title=title, subtitle=subtitle,
+                                               notes=notes, style=style)
 
-    @styled
     def annual_returns(self,
-                       ax: Axes | None = None,
                        title: str | None = None,
                        subtitle: str | None = None,
                        notes: str | None = None,
-                       style: StyleArgument = None) -> Axes:
-        """Calendar-year returns as signed bars.
+                       style: StyleArgument = None) -> Chart:
+        """Calendar-year returns as signed columns.
 
         Args:
-            ax: Axes to draw on.
             title: The heading. Defaults to the chart's own.
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
@@ -411,61 +357,58 @@ class BacktestPlots(ChartMethods):
                 current style (beacon.plot.configure).
 
         Returns:
-            Axes: What was drawn on.
+            Chart: The chart, drawn when it is used.
         """
-        ax = _axes(ax, "annual_returns")
-
         # BN-259: each year ran from its own first close, so every year after
         # the first lost its first day's return.
-        returns = self._result.get_annual_returns()
+        returns = self._result.get_annual_returns().astype(float)
+        returns.index = [str(year) for year in returns.index]
 
-        labels = [str(year) for year in returns.index]
-        values = returns.to_numpy(dtype=float)
+        return Column(returns.rename("Return"), percent=True, ylabel="Return",
+                      title=_given(title, "Annual returns"),
+                      subtitle=_given(subtitle, "The portfolio's return in each calendar year"),
+                      notes=_given(notes, sentences(
+                          provenance(self._result, "backtest",
+                                     _series(self._result.performance_levels()).index),
+                          "Each year runs from the previous year's close, and "
+                          "the first from the initial capital.")),
+                      style=style)
 
-        ax.bar(labels, values, color=_signed_colours(ax, values), width=0.62)
-        ax.grid(visible=False)
 
-        # A zero line only when a year falls below it; otherwise it would sit
-        # on the axis itself.
-        if (values < 0).any() and beacon_style.reference_lines():
-            ax.axhline(0.0, color=_ink(ax, "border"),
-                       linewidth=beacon_style.reference_width())
-        ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
+class _Performance(Stacked):
+    """A level over its drawdown, the drawdown's panel spaced for its few
+    ticks."""
 
-        return _finish(ax,
-                       _given(title, "Annual returns"),
-                       _given(subtitle, "The portfolio's return in each calendar year"),
-                       "Return",
-                       _given(notes, sentences(
-                           provenance(self._result, "backtest",
-                                      _series(self._result.performance_levels()).index),
-                           "Each year runs from the previous year's close, and "
-                           "the first from the initial capital.")))
+    def _build(self) -> Plan:
+        plan = super()._build()
+        upper, lower = plan.description.panels
+        lower = dataclasses.replace(lower, y=dataclasses.replace(lower.y,
+                                                                 spacing=DRAWDOWN_SPACING))
+        description = dataclasses.replace(plan.description, panels=(upper, lower))
+
+        return dataclasses.replace(plan, description=description)
 
 
 class AttributionPlots(ChartMethods):
     """Charts for an `AttributionResult`."""
 
-    @styled
     def contributions(self,
-                      ax: Axes | None = None,
                       title: str | None = None,
                       subtitle: str | None = None,
                       notes: str | None = None,
-                      style: StyleArgument = None) -> Axes:
-        """Per-constituent contributions as diverging bars.
+                      style: StyleArgument = None) -> Chart:
+        """Per-constituent contributions as diverging bars, largest first.
 
-        The drags are stated in the chart's note rather than drawn as bars,
+        The drags are stated in the chart's notes rather than drawn as bars,
         because they are comparisons against a counterfactual rather than
         terms in the decomposition: adding them to the same total would mix
         two different questions.
 
-        The annotated total is recomputed from the bars actually drawn. An
-        annotation claiming a total that does not match what is beside it is
-        worse than none, and adding up the page is the only way to be sure.
+        The total in the notes is recomputed from the bars actually drawn. A
+        total that does not match what is beside it is worse than none, and
+        adding up the page is the only way to be sure.
 
         Args:
-            ax: Axes to draw on.
             title: The heading. Defaults to the chart's own.
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
@@ -475,21 +418,13 @@ class AttributionPlots(ChartMethods):
                 current style (beacon.plot.configure).
 
         Returns:
-            Axes: What was drawn on.
+            Chart: The chart, drawn when it is used.
         """
-        ax = _axes(ax, "contributions")
         result = self._result
-
-        items = sorted(result.contributions, key=lambda item: item.contribution)
-        labels, values, dropped = _truncate([item.asset_id for item in items],
-                                            [item.contribution for item in items])
-
-        ax.barh(labels, values, color=_signed_colours(ax, values), height=0.68)
-        if beacon_style.reference_lines():
-            ax.axvline(0.0, color=_ink(ax, "border"),
-                       linewidth=beacon_style.reference_width())
-        ax.xaxis.set_major_formatter(lambda value, _: f"{value:.1%}")
-        ax.grid(visible=False)
+        items = result.contributions
+        bars = _largest_first([item.asset_id for item in items],
+                              [item.contribution for item in items])
+        dropped = len(items) - len(bars)
 
         # A residual inside the result's own reconciliation tolerance is
         # rounding, and printed as a number it was noise that changed with the
@@ -498,9 +433,7 @@ class AttributionPlots(ChartMethods):
         # So it reads 0 when the result says it reconciles, and the number
         # only when there is something left over worth seeing.
         residual = "0" if result.reconciles() else f"{result.residual:.1e}"
-
-        drawn = sum(values)
-        note = (f"Contributions shown sum to {drawn:.2%}"
+        note = (f"Contributions shown sum to {float(bars.sum()):.2%}"
                 f"{f'; {dropped} smaller not shown' if dropped else ''}"
                 f". Total return {result.total_return:.2%}, "
                 f"residual {residual}.")
@@ -509,14 +442,11 @@ class AttributionPlots(ChartMethods):
                  (("Cap drag", result.cap_drag), ("Cost drag", result.cost_drag))
                  if value is not None]
         if drags:
-            note += ("  " + "  ".join(f"{name} {value:.2%}"
-                                      for name, value in drags))
+            note += ("  " + "  ".join(f"{name} {value:.2%}" for name, value in drags))
 
-        return _finish(ax,
-                       _given(title, "Contribution to return"),
-                       _given(subtitle, "Each constituent's share of the return"),
-                       "",
-                       _given(notes, note))
+        return Bar(bars, percent=True, title=_given(title, "Contribution to return"),
+                   subtitle=_given(subtitle, "Each constituent's share of the return"),
+                   notes=_given(notes, note), style=style)
 
 
 # The optimiser and risk charts live in their own module; the lazy accessor

@@ -124,8 +124,8 @@ def _draw(charts,
     plt.close("all")
     use(mode)
 
-    axes = charts[name]()
-    figure = axes.get_figure()
+    # A chart is drawn in the style it was built in, so it is built here.
+    figure = charts[name]().figure
 
     use(LIGHT)
 

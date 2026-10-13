@@ -25,17 +25,12 @@ from typing import Any
 
 import pandas as pd
 
-from .._optional import require
-from . import style as beacon_style
+from .charts import Line
+from .charts.base import Chart
 from .design import StyleArgument
-from .drawing import styled
-from .frame import REFERENCE_ID, finish, ink, new_figure
-
-require("matplotlib", "Charting")
-
-from matplotlib.axes import Axes  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
 
 def _level_of(result: Any) -> pd.Series:
     """The level series a result carries, whichever kind it is: a
@@ -74,21 +69,18 @@ def _label_of(result: Any,
     return f"Series {position + 1}"
 
 
-@styled
 def compare(*results: Any,
             labels: list[str] | None = None,
-            ax: Axes | None = None,
             title: str | None = None,
             subtitle: str | None = None,
             notes: str | None = None,
-            style: StyleArgument = None) -> Axes:
+            style: StyleArgument = None) -> Chart:
     """Plot several results on one rebased axis.
 
     Args:
         *results: Two or more `IndexResult` or `BacktestResult` objects.
         labels: Display names. Defaults to each result's own identifier
             (its index id or portfolio id), or "Series N" when it has none.
-        ax: Axes to draw on. A new figure is created when absent.
         title: The heading. Defaults to "Comparison".
         subtitle: Beneath the heading. Defaults to what the lines are.
         notes: The notes line, after "Notes:". Defaults to how many shared
@@ -98,7 +90,7 @@ def compare(*results: Any,
             current style (beacon.plot.configure).
 
     Returns:
-        Axes: What was drawn on.
+        Chart: The chart, drawn when it is used.
 
     Raises:
         ValueError: If fewer than two results are given, or they share no dates.
@@ -106,8 +98,6 @@ def compare(*results: Any,
     if len(results) < 2:
         raise ValueError(
             f"comparing needs at least two results, got {len(results)}.")
-
-    beacon_style.register()
 
     series = [_level_of(result) for result in results]
     names = labels or [_label_of(result, position)
@@ -123,29 +113,13 @@ def compare(*results: Any,
             "them over.")
 
     window = window.sort_values()
-
-    if ax is None:
-        ax = new_figure(beacon_style.figure_size("compare")).add_subplot()
-
-    for name, values in zip(names, series, strict=True):
-        clipped = values.loc[window]
-        rebased = clipped / float(clipped.iloc[0]) * 100.0
-
-        ax.plot(rebased.index, rebased.to_numpy(),
-                linewidth=beacon_style.series_width(), label=name)
-
-    # A level chart's one line, at the shared start, in place of gridlines.
-    ax.grid(visible=False)
-    if beacon_style.reference_lines():
-        ax.axhline(100.0, color=ink(ax, "border"),
-                   linewidth=beacon_style.reference_width(), zorder=1, gid=REFERENCE_ID)
-    ax.legend(loc="upper left")
+    lines = pd.DataFrame({name: values.loc[window] / float(values.loc[window].iloc[0]) * 100.0
+                          for name, values in zip(names, series, strict=True)})
 
     shared = (f"Aligned on {len(window)} shared observations, rebased to 100 on "
               f"the first.")
 
-    return finish(ax,
-                  "Comparison" if title is None else title,
-                  "Each result rebased to 100" if subtitle is None else subtitle,
-                  "Level",
-                  shared if notes is None else notes)
+    return Line(lines, reference=100.0, ylabel="Level",
+                title="Comparison" if title is None else title,
+                subtitle="Each result rebased to 100" if subtitle is None else subtitle,
+                notes=shared if notes is None else notes, style=style)

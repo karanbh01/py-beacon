@@ -25,8 +25,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt
-
 from beacon.analysis import attribute, drifted_weights
 from beacon.backtest.engine import BacktestEngine
 from beacon.index.calculation import IndexCalculator
@@ -162,9 +160,7 @@ def render_all(directory: Path) -> list[str]:
         suffix = ".light" if mode == LIGHT else ".dark"
 
         for name, call in calls.items():
-            call()
-            plt.savefig(directory / f"{name}{suffix}.png", dpi=DPI)
-            plt.close("all")
+            call().save(directory / f"{name}{suffix}.png", dpi=DPI)
 
     use(LIGHT)
 

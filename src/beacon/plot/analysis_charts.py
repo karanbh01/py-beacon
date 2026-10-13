@@ -3,45 +3,51 @@
 The chart methods for an `OptimisationResult` and a `RiskModel`, reached
 through `result.plot` like the others in `accessors`.
 """
-from typing import Any
+import dataclasses
+from typing import Any, Literal
 
-import numpy as np
+import pandas as pd
 
-from .._optional import require
-from . import style as beacon_style
+from . import style as sizes
 from .base import ChartMethods
+from .charts import Bar, Heatmap, Scatter
+from .charts.base import Chart, Plan
 from .design import StyleArgument
-from .drawing import _axes, _finish, _given, _ink, _signed_colours, _truncate, styled
+from .layout import LegendItem
+from .marks import LineMark, PointMark, TextMark
 
-require("matplotlib", "Charting")
-
-from matplotlib.axes import Axes  # noqa: E402
-
-# Inches kept under a heatmap for its slanted asset names.
-SLANTED_LABEL_ROOM = 0.5
-
-# How much of the accent's brightness the tangency point keeps, per style.
-DEEP_ACCENT = {"light": 0.6, "dark": 0.7}
+# Correlation is shaded from 0.2 upward: below that the distinction between
+# 0.05 and 0.1 is noise on any real estimate, and giving it a fifth of the
+# colour range implies a precision the number does not have.
+CORRELATION_DOMAIN = (0.2, 1.0)
 
 # How a correlation heatmap is shaded: each pair its own square, or the
 # colours blended from cell to cell.
-SHADINGS = {"squares": "nearest", "blended": "bicubic"}
+SHADINGS = ("squares", "blended")
+
+# The named portfolios on a frontier, and the Sharpe ratio's label beside the
+# tangency, in points before scaling.
+NAMED_POINT = 5.0
+SHARPE_OFFSET = (8.0, -10.0)
+
+
+def _given(value: str | None,
+           default: str) -> str:
+    return default if value is None else value
 
 
 class OptimisationPlots(ChartMethods):
     """Charts for an `OptimisationResult`."""
 
-    @styled
     def exposures(self,
-                  ax: Axes | None = None,
                   title: str | None = None,
                   subtitle: str | None = None,
                   notes: str | None = None,
-                  style: StyleArgument = None) -> Axes:
-        """Active weights as sign-coloured tilts against the index.
+                  style: StyleArgument = None) -> Chart:
+        """Active weights as sign-coloured tilts against the index, largest
+        first.
 
         Args:
-            ax: Axes to draw on.
             title: The heading. Defaults to the chart's own.
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
@@ -51,20 +57,14 @@ class OptimisationPlots(ChartMethods):
                 current style (beacon.plot.configure).
 
         Returns:
-            Axes: What was drawn on.
+            Chart: The chart, drawn when it is used.
         """
-        ax = _axes(ax, "exposures")
+        from .accessors import _largest_first
 
-        active = self._result.active_weights.sort_values()
-        labels, values, dropped = _truncate([str(name) for name in active.index],
-                                            [float(value) for value in active])
-
-        ax.barh(labels, values, color=_signed_colours(ax, values), height=0.68)
-        if beacon_style.reference_lines():
-            ax.axvline(0.0, color=_ink(ax, "border"),
-                       linewidth=beacon_style.reference_width())
-        ax.xaxis.set_major_formatter(lambda value, _: f"{value:+.1%}")
-        ax.grid(visible=False)
+        active = self._result.active_weights
+        bars = _largest_first([str(name) for name in active.index],
+                              [float(value) for value in active])
+        dropped = len(active) - len(bars)
 
         note = (f"Optimal minus index. Tracking error "
                 f"{self._result.tracking_error():.2%}, turnover "
@@ -72,29 +72,25 @@ class OptimisationPlots(ChartMethods):
         if dropped:
             note += f" {dropped} smaller tilt(s) not shown."
 
-        return _finish(ax,
-                       _given(title, "Active weights"),
-                       _given(subtitle, "The optimal portfolio's tilts from the index"),
-                       "",
-                       _given(notes, note))
+        return Bar(bars, percent=True, title=_given(title, "Active weights"),
+                   subtitle=_given(subtitle, "The optimal portfolio's tilts from the index"),
+                   notes=_given(notes, note), style=style)
 
-    @styled
     def frontier(self,
                  frontier: Any,
                  risk_free_rate: float | None = None,
-                 ax: Axes | None = None,
                  title: str | None = None,
                  subtitle: str | None = None,
                  notes: str | None = None,
-                 style: StyleArgument = None) -> Axes:
-        """The efficient frontier, with the named points and the capital line.
+                 style: StyleArgument = None) -> Chart:
+        """The efficient frontier, with the named portfolios and the capital
+        market line.
 
         Args:
             frontier: An `EfficientFrontier` over the same universe.
             risk_free_rate: Where the capital market line starts. None uses
                 the rate the frontier was traced at, which is the one its
                 tangency portfolio is tangent from.
-            ax: Axes to draw on.
             title: The heading. Defaults to the chart's own.
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
@@ -104,106 +100,114 @@ class OptimisationPlots(ChartMethods):
                 current style (beacon.plot.configure).
 
         Returns:
-            Axes: What was drawn on.
+            Chart: The chart, drawn when it is used.
         """
-        ax = _axes(ax, "frontier")
-
         # BN-259: defaulted to 0.0, so a frontier traced at another rate got a
         # line that was not tangent to it.
         if risk_free_rate is None:
             risk_free_rate = float(getattr(frontier, "risk_free_rate", 0.0))
 
-        volatilities = [point.volatility for point in frontier.points]
-        returns = [point.expected_return or 0.0 for point in frontier.points]
+        return _Frontier(frontier, risk_free_rate,
+                         title=_given(title, "Efficient frontier"),
+                         subtitle=_given(subtitle, "Expected return against volatility"),
+                         notes=_given(notes, "Expected return and volatility, both annualised."),
+                         style=style)
 
-        ax.plot(volatilities, returns, color=_ink(ax, "accent"),
-                linewidth=beacon_style.series_width(), zorder=3, label="Frontier")
 
-        tangency = frontier.tangency
-        minimum = frontier.minimum_variance
+class _Frontier(Scatter):
+    """The frontier as a curve, its two named portfolios as points, and the
+    capital market line from the risk-free rate through the tangency."""
 
-        # The capital market line: from the risk-free rate through the tangency
-        # portfolio and a little beyond, which is what makes the tangency point
-        # look like a tangency rather than an arbitrary dot.
-        #
-        # The slope is the tangency Sharpe ratio, and the excess return is
-        # computed on its own line on purpose. Written inline as
-        # `tangency.expected_return or 0.0 - risk_free_rate`, `or` binds looser
-        # than `-` and the expression silently becomes the raw return — a line
-        # that still looks plausible and is not tangent to anything.
+    kind = "frontier"
+
+    def __init__(self,
+                 frontier: Any,
+                 risk_free_rate: float,
+                 title: str,
+                 subtitle: str,
+                 notes: str,
+                 style: StyleArgument):
+        self.frontier = frontier
+        self.risk_free_rate = risk_free_rate
+        named = [frontier.minimum_variance, frontier.tangency]
+        points = pd.DataFrame({"Volatility": [point.volatility for point in named],
+                               "Expected return": [point.expected_return or 0.0
+                                                   for point in named]})
+        curve = pd.Series([point.expected_return or 0.0 for point in frontier.points],
+                          index=[point.volatility for point in frontier.points],
+                          name="Frontier")
+        super().__init__(points, x="Volatility", y="Expected return", curve=curve,
+                         percent=True, title=title, subtitle=subtitle, notes=notes,
+                         style=style)
+
+    def _build(self) -> Plan:
+        plan = super()._build()
+        frontier = self.frontier
+        tangency, minimum = frontier.tangency, frontier.minimum_variance
+        # The named portfolios replace the plain points, each in its own colour.
+        marks: list[Any] = [mark for mark in plan.marks if not isinstance(mark, PointMark)]
+        legend = [LegendItem("Frontier", "palette-1")]
+        lows: list[float] = []
+
+        # The capital market line: from the risk-free rate through the
+        # tangency portfolio and a little beyond, which is what makes the
+        # tangency point look like a tangency rather than an arbitrary dot.
+        # The excess return is computed on its own line on purpose. Written
+        # inline as `tangency.expected_return or 0.0 - risk_free_rate`, `or`
+        # binds looser than `-` and the expression silently becomes the raw
+        # return: a line that still looks plausible and is not tangent.
         if tangency.volatility > 0:
-            reach = max(volatilities) * 1.05
-            excess = (tangency.expected_return or 0.0) - risk_free_rate
+            reach = max(point.volatility for point in frontier.points) * 1.05
+            excess = (tangency.expected_return or 0.0) - self.risk_free_rate
             slope = excess / tangency.volatility
+            marks.insert(0, LineMark((0.0, reach), (self.risk_free_rate,
+                                                    self.risk_free_rate + slope * reach),
+                                     "text-muted", sizes.scaled(1.0), dashed=True, layer=2.0))
+            legend.append(LegendItem("Capital market line", "text-muted", "dashed"))
+            lows = [0.0, self.risk_free_rate, self.risk_free_rate + slope * reach]
 
-            ax.plot([0.0, reach], [risk_free_rate, risk_free_rate + slope * reach],
-                    color=_ink(ax, "text-muted"),
-                    linewidth=beacon_style.scaled(1.0), linestyle="--",
-                    zorder=2, label="Capital market line")
-
-        tangency_ink = _deep_accent(ax)
-
-        for point, name, ink in ((minimum, "Minimum variance", _ink(ax, "series-2")),
-                                 (tangency, "Tangency", tangency_ink)):
-            ax.plot([point.volatility], [point.expected_return or 0.0],
-                    marker="o", markersize=beacon_style.scaled(5),
-                    color=ink, zorder=5,
-                    label=name)
+        for point, name, colour in ((minimum, "Minimum variance", "palette-3"),
+                                    (tangency, "Tangency", "palette-2")):
+            marks.append(PointMark((point.volatility,), (point.expected_return or 0.0,),
+                                   colour, sizes.scaled(NAMED_POINT)))
+            legend.append(LegendItem(name, colour, "marker"))
 
         if tangency.sharpe_ratio is not None:
-            ax.annotate(f"Sharpe {tangency.sharpe_ratio:.2f}",
-                        xy=(tangency.volatility, tangency.expected_return or 0.0),
-                        xytext=(beacon_style.scaled(8), beacon_style.scaled(-10)),
-                        textcoords="offset points", fontsize=beacon_style.label_size(),
-                        color=tangency_ink, fontweight="bold")
+            marks.append(TextMark(f"Sharpe {tangency.sharpe_ratio:.2f}", tangency.volatility,
+                                  tangency.expected_return or 0.0, "palette-2",
+                                  sizes.label_size(), weight=400,
+                                  dx=sizes.scaled(SHARPE_OFFSET[0]),
+                                  dy=sizes.scaled(SHARPE_OFFSET[1]), va="center"))
 
-        ax.xaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
-        ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
-        ax.set_xlabel("Volatility")
-        ax.grid(visible=False)
-        ax.legend(loc="lower right")
+        description = plan.description
+        if lows:
+            panel = description.panels[0]
+            x, y = panel.x, panel.y
+            panel = dataclasses.replace(
+                panel, x=dataclasses.replace(x, low=min(x.low, 0.0)),
+                y=dataclasses.replace(y, low=min(y.low, *lows), high=max(y.high, *lows)))
+            description = dataclasses.replace(description, panels=(panel,))
 
-        return _finish(ax,
-                       _given(title, "Efficient frontier"),
-                       _given(subtitle, "Expected return against volatility"),
-                       "Expected return",
-                       _given(notes, "Expected return and volatility, both "
-                                     "annualised."))
-
-
-def _deep_accent(ax: Axes) -> str:
-    """The accent blue, deepened: the tangency point's colour, set apart from
-    the frontier's line in the same family rather than in a colour the theme
-    does not use. Less deep in the dark style, so it still shows on the dark
-    ground."""
-    from matplotlib.colors import to_hex, to_rgb
-
-    from .frame import mode_of
-
-    depth = DEEP_ACCENT[mode_of(ax)]
-    red, green, blue = to_rgb(_ink(ax, "accent"))
-
-    return str(to_hex((red * depth, green * depth, blue * depth)))
+        return dataclasses.replace(plan, marks=tuple(marks),
+                                   description=dataclasses.replace(description,
+                                                                   legend=tuple(legend)))
 
 
 class RiskPlots(ChartMethods):
     """Charts for a `RiskModel`."""
 
-    @styled
     def correlation(self,
                     shading: str = "squares",
-                    ax: Axes | None = None,
                     title: str | None = None,
                     subtitle: str | None = None,
                     notes: str | None = None,
-                    style: StyleArgument = None) -> Axes:
+                    style: StyleArgument = None) -> Chart:
         """The correlation matrix as a heatmap.
 
         Args:
             shading: "squares" draws each pair as its own cell; "blended"
                 runs the colours smoothly from cell to cell, which shows the
                 shape of the matrix rather than each value.
-            ax: Axes to draw on.
             title: The heading. Defaults to the chart's own.
             subtitle: Beneath the heading. Defaults to what the chart shows.
             notes: The notes line, after "Notes:". Defaults to the data's
@@ -213,7 +217,7 @@ class RiskPlots(ChartMethods):
                 current style (beacon.plot.configure).
 
         Returns:
-            Axes: What was drawn on.
+            Chart: The chart, drawn when it is used.
 
         Raises:
             ValueError: If *shading* is not "squares" or "blended".
@@ -222,50 +226,13 @@ class RiskPlots(ChartMethods):
             raise ValueError(f"shading must be one of {', '.join(SHADINGS)}, "
                              f"not {shading!r}")
 
-        ax = _axes(ax, "correlation")
+        low, high = CORRELATION_DOMAIN
+        kind: Literal["squares", "blended"] = "blended" if shading == "blended" else "squares"
 
-        matrix = self._result.correlation
-        values = matrix.to_numpy(dtype=float)
-        names = [str(label) for label in matrix.index]
-
-        low, high = beacon_style.CORRELATION_DOMAIN
-        image = ax.imshow(values, cmap=beacon_style.CORRELATION_COLORMAP,
-                          vmin=low, vmax=high, aspect="equal",
-                          interpolation=SHADINGS[shading])
-
-        ax.set_xticks(np.arange(len(names)), names, rotation=45, ha="right")
-        ax.set_yticks(np.arange(len(names)), names)
-        ax.tick_params(length=0)
-        ax.grid(visible=False)
-
-        figure = ax.get_figure()
-        assert figure is not None  # _axes() always attaches one
-
-        bar = figure.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
-        # matplotlib's stubs type `outline` loosely enough that strict mypy
-        # cannot see the method; the attribute is a Spine at runtime.
-        outline: Any = bar.outline
-        if outline is not None:
-            outline.set_visible(False)
-        bar.ax.tick_params(labelsize=beacon_style.tick_label_size(), length=0)
-
-        # What the two ends of the scale mean, each at its own end of the bar
-        # and reading up it, beyond the numbers.
-        for end, words, align in ((0.0, "less correlated", "bottom"),
-                                  (1.0, "more correlated", "top")):
-            bar.ax.annotate(words, xy=(1.0, end), xycoords="axes fraction",
-                            xytext=(beacon_style.scaled(20), 0),
-                            textcoords="offset points", rotation=90, ha="left",
-                            va=align, fontsize=beacon_style.scaled(7),
-                            color=_ink(ax, "text-muted"))
-
-        return _finish(ax,
-                       _given(title, "Correlation"),
-                       _given(subtitle, "Between the assets' returns"),
-                       "",
-                       _given(notes, f"Shaded from {low:.0%}; below that the "
-                                     f"differences are noise on any real "
-                                     f"estimate."),
-                       # The asset names are slanted, so they hang lower than
-                       # a row of dates does.
-                       bottom_room=beacon_style.scaled(SLANTED_LABEL_ROOM))
+        return Heatmap(self._result.correlation, colormap="beacon_corr", vmin=low, vmax=high,
+                       values=kind == "squares", shading=kind,
+                       title=_given(title, "Correlation"),
+                       subtitle=_given(subtitle, "Between the assets' returns"),
+                       notes=_given(notes, f"Shaded from {low:.0%}; below that the "
+                                           f"differences are noise on any real estimate."),
+                       style=style)

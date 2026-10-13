@@ -24,18 +24,11 @@ from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextPath
 from matplotlib.ticker import MaxNLocator, PercentFormatter, ScalarFormatter
 
-import test_plot
 from beacon.plot import dateticks, design, metrics, style, ticks, use
 from beacon.plot.arrange import MARK_ASPECT, lay_out, wrap
-from beacon.plot.frame import frame_text
 from beacon.plot.layout import Axis, Description, LegendItem, Panel
 from beacon.plot.mark import beta_outline
-from beacon.plot.render import describe
 from beacon.tokens import LIGHT
-
-index_result = test_plot.index_result
-backtest = test_plot.backtest
-risk_model = test_plot.risk_model
 
 FIGURE = (4.8, 3.6)
 
@@ -276,32 +269,3 @@ class TestWithoutMatplotlib:
         assert found["matplotlib"] is False
         assert found["labels"][0] == ""
         assert found["labels"][1:]
-
-
-class TestRenderer:
-    """A drawn chart is the layout it was drawn from."""
-
-    @pytest.mark.parametrize("chart_name", ["level", "performance", "correlation"])
-    def test_the_figure_is_where_the_layout_puts_it(self,
-                                                    chart_name,
-                                                    index_result,
-                                                    backtest,
-                                                    risk_model):
-        draw = {"level": index_result.plot.level,
-                "performance": backtest.plot.performance,
-                "correlation": risk_model.plot.correlation}[chart_name]
-        ax = draw()
-        figure = ax.figure
-        figure.canvas.draw()
-        described, panels = describe(ax, frame_text(ax, "title"), frame_text(ax, "subtitle"),
-                                     frame_text(ax, "notes"),
-                                     0.5 * style.SCALE if chart_name == "correlation" else None)
-        laid = lay_out(described, design.current())
-        width, height = figure.get_size_inches()
-
-        for axes, panel in zip(panels, laid.panels, strict=True):
-            box = axes.get_position()
-            assert (box.x0 * width, box.y0 * height) == pytest.approx(
-                (panel.box.left, panel.box.bottom), abs=1e-9)
-            drawn = [label.get_text() for label in axes.get_yticklabels()]
-            assert drawn == [tick.label for tick in panel.y.ticks]

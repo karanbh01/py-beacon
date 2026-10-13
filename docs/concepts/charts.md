@@ -6,9 +6,10 @@ description: "Drawing each chart from a result, comparing results, and the light
 # Charts
 
 Results draw themselves. Each result object has a `.plot` accessor whose
-methods draw one chart with matplotlib and return the `Axes` they drew on.
-[`beacon.plot.compare`](#comparing-results) puts several results on one
-chart, and two styles, light and dark, match Beacon desktop.
+methods each return a chart, drawn with matplotlib the first time it is
+shown or saved. [`beacon.plot.compare`](#comparing-results) puts several
+results on one chart, the [chart classes](#chart-classes) draw any DataFrame
+or Series in the same frame, and the themes match Beacon desktop.
 
 Charts need the `plot` extra (matplotlib):
 
@@ -16,8 +17,9 @@ Charts need the `plot` extra (matplotlib):
 pip install "py-beacon-kit[plot]"
 ```
 
-`import beacon` does not import matplotlib. It is loaded the first time a
-chart is drawn, so code that never plots never needs it.
+`import beacon` does not import matplotlib, and neither does building a
+chart. It is loaded the first time a chart is drawn, so code that never
+plots never needs it.
 
 Pictures of every chart, in both styles, are in the [Gallery](../gallery.md).
 
@@ -25,19 +27,20 @@ Pictures of every chart, in both styles, are in the [Gallery](../gallery.md).
 
 | Result | Method | Draws |
 | --- | --- | --- |
-| `IndexResult` | `level(benchmark=None, ax=None, label="Index")` | The index level rebased to 100, with an optional benchmark series |
-| `IndexResult` | `constituents(limit=8, ax=None)` | The index drawn over its constituents' closes, all rebased to 100, each constituent named at its line's end; the largest `limit` by weight |
-| `IndexResult` | `weights(date=None, ax=None)` | Constituent weights at a rebalance (the latest by default), with the weight cap marked |
-| `BacktestResult` | `performance(ax=None)` | Growth of 100 with a linked drawdown panel beneath |
-| `BacktestResult` | `constituents(limit=8, ax=None)` | The same chart for the index the run tracked |
-| `BacktestResult` | `annual_returns(ax=None)` | Calendar-year returns as green and red bars, each year from the previous year's close and the first from the initial capital (the same figures as `get_annual_returns()`) |
-| `AttributionResult` | `contributions(ax=None)` | Each constituent's contribution to return, with the cap and cost drags in the notes |
-| `OptimisationResult` | `exposures(ax=None)` | Active weights (optimal minus target), with tracking error and turnover |
-| `OptimisationResult` | `frontier(frontier, risk_free_rate=None, ax=None)` | An efficient frontier, its minimum-variance and tangency points and the capital market line |
-| `RiskModel` | `correlation(shading="squares", ax=None)` | The correlation matrix as a heatmap, each pair a square or, with `shading="blended"`, the colours blended from cell to cell |
+| `IndexResult` | `level(benchmark=None, label="Index")` | The index level rebased to 100, with an optional benchmark series |
+| `IndexResult` | `constituents(limit=8)` | The index drawn over its constituents' closes, all rebased to 100, each constituent named at its line's end; the largest `limit` by weight |
+| `IndexResult` | `weights(date=None)` | Constituent weights at a rebalance (the latest by default), with the weight cap marked |
+| `BacktestResult` | `performance()` | Growth of 100 with a linked drawdown panel beneath |
+| `BacktestResult` | `constituents(limit=8)` | The same chart for the index the run tracked |
+| `BacktestResult` | `annual_returns()` | Calendar-year returns as green and red bars, each year from the previous year's close and the first from the initial capital (the same figures as `get_annual_returns()`) |
+| `AttributionResult` | `contributions()` | Each constituent's contribution to return, with the cap and cost drags in the notes |
+| `OptimisationResult` | `exposures()` | Active weights (optimal minus target), with tracking error and turnover |
+| `OptimisationResult` | `frontier(frontier, risk_free_rate=None)` | An efficient frontier, its minimum-variance and tangency points and the capital market line |
+| `RiskModel` | `correlation(shading="squares")` | The correlation matrix as a heatmap, each pair a square or, with `shading="blended"`, the colours blended from cell to cell |
 
 Every method, and `compare`, also takes `title=`, `subtitle=` and `notes=`,
-described [below](#titles-notes-and-the-mark). Typing `result.plot` at a
+described [below](#titles-notes-and-the-mark), and `style=` for that chart
+alone ([Styles](#styles)). Typing `result.plot` at a
 prompt lists the methods, and `result.plot.methods()` returns their names.
 
 Bar charts of weights, contributions and exposures show at most 25 bars, the
@@ -86,20 +89,19 @@ backtest = BacktestEngine(start_date=dataset.START,
 beacon.plot.use("light")
 print(index.plot)
 
-ax = index.plot.level(benchmark=dataset.prices()["CCC"].loc[:END])
-ax.figure.savefig("level.png", dpi=110)
-plt.close(ax.figure)
+chart = index.plot.level(benchmark=dataset.prices()["CCC"].loc[:END])
+chart.save("level.png", dpi=110)
 
-ax = backtest.plot.performance()
-ax.figure.savefig("performance.png", dpi=110)
-plt.close("all")
+backtest.plot.performance().save("performance.png", dpi=110)
 ```
 
-Every method returns an `Axes`, so save through `ax.figure.savefig(...)` or
-`plt.savefig(...)`. Close figures you are done with (`plt.close("all")`),
-since matplotlib keeps each one in memory until then.
+Every method returns a chart. `.save(path)` writes it as a PNG, SVG or PDF,
+`.show()` shows it, and in a notebook a chart that is a cell's last value is
+shown beneath the cell. `.figure` and `.ax` are its matplotlib figure and its
+top panel's axes, for anything else matplotlib can do. A chart is drawn the
+first time one of these is used, in the style in force when it was built.
 
-When a method creates the figure, its size is fixed per chart kind. Every
+A chart's size is fixed per chart kind. Every
 chart is designed 6in wide: 6 by 4.5 for the time series, annual returns and
 the bar charts of names, and 6 by 5.5 for the frontier and the correlation
 heatmap. The performance chart is taller, so its upper panel matches the
@@ -112,12 +114,12 @@ saved image's pixel size depends only on the figure size and `dpi`; save at
 
 ## Titles, notes and the mark
 
-A chart that creates its own figure is framed the way Beacon desktop frames
-one:
+Every chart is framed the way Beacon desktop frames one:
 
 - **A title and a subtitle** at the top left: the title in Inter Tight and the
   subtitle beneath it in Source Serif 4 italic, with a thin accent bar down
-  their left, level with the y axis.
+  their left, level with the y axis. A title with no subtitle is centred on
+  the bar, which is the same height either way.
 - **The beta mark**, the glyph Beacon desktop shows in its menu bar, just left
   of the accent bar.
 - **The legend**, when the chart has one, at the right of the heading, ending
@@ -133,18 +135,17 @@ one:
 
 Each chart has its own title and subtitle. Pass `title=`, `subtitle=` or
 `notes=` to replace them, or an empty string to leave one out.
-`beacon.plot.frame_text(ax, part)` reads one back, with `part` one of
-`"title"`, `"subtitle"` or `"notes"`:
+`beacon.plot.frame_text(chart, part)` reads one back from a drawn chart, with
+`part` one of `"title"`, `"subtitle"` or `"notes"`:
 
 ```python
 from beacon.plot import frame_text
 
-ax = backtest.plot.performance(subtitle="The CANON tracker, 10 bps a trade",
-                               notes="Sample data. Costs of 10 bps on every trade.")
+chart = backtest.plot.performance(subtitle="The CANON tracker, 10 bps a trade",
+                                  notes="Sample data. Costs of 10 bps on every trade.")
 
-print(frame_text(ax, "subtitle"))
-print(frame_text(ax, "notes"))
-plt.close("all")
+print(frame_text(chart, "subtitle"))
+print(frame_text(chart, "notes"))
 ```
 
 Every axis that measures something (a level, a return, a date) ends on its
@@ -164,28 +165,38 @@ The fonts (Inter Tight and Source Serif 4) ship with py-beacon under the SIL
 Open Font License, so a chart looks the same on every machine without
 installing anything.
 
-## Composing figures
+## Chart classes
 
-Pass `ax=` to draw into a figure you laid out yourself:
+The result charts are built on chart classes, which draw any DataFrame or
+Series in the same frame: `Line`, `Area`, `Column`, `Bar`, `Combo`,
+`Scatter`, `Histogram` and `Heatmap`. Each takes `title=`, `subtitle=`,
+`notes=`, `source=` and `style=`, and returns a chart like the result
+methods do.
 
 ```python
-figure, (left, right) = plt.subplots(1, 2, figsize=(13, 4.5))
+from beacon.plot import Column, Line
 
-index.plot.level(ax=left)
-index.plot.weights(ax=right)
-backtest_axes = backtest.plot.annual_returns()
+levels = dataset.prices().loc[:END, ["AAA", "BBB"]]
+Line(levels / levels.iloc[0] * 100,
+     title="Two holdings",
+     subtitle="Each rebased to 100",
+     ylabel="Level",
+     reference=100,
+     label_last=True,
+     source="Synthetic data").save("two-holdings.png", dpi=110)
 
-figure.savefig("index-overview.png", dpi=110)
-backtest_axes.figure.savefig("annual-returns.png", dpi=110)
-plt.close("all")
+yearly = levels.resample("YE").last().pct_change().dropna()
+yearly.index = yearly.index.year
+Column(yearly,
+       title="Calendar-year returns",
+       ylabel="Return",
+       percent=True,
+       value_labels=True).save("calendar-years.png", dpi=110)
 ```
 
-A chart drawn into your own axes gets a plain title and its notes under the
-axes rather than the frame, because one figure can hold several charts.
-
-`performance()` is the exception. It always creates its own two-panel figure,
-because the drawdown panel shares the level panel's dates, and it logs a
-warning if you pass `ax`. It returns the upper (level) panel.
+Every chart has a figure of its own and is always framed. Charts are not
+drawn into an axes you laid out; `chart.figure` is an ordinary matplotlib
+figure, so anything else can be done with it.
 
 ## Attribution, optimisation and risk
 
@@ -232,8 +243,7 @@ charts = {
 }
 
 for filename, draw in charts.items():
-    draw().figure.savefig(filename, dpi=110)
-    plt.close("all")
+    draw().save(filename, dpi=110)
 ```
 
 A few details worth knowing:
@@ -254,16 +264,14 @@ A few details worth knowing:
 
 ## Comparing results
 
-`beacon.plot.compare(*results, labels=None, ax=None)` draws two or more
+`beacon.plot.compare(*results, labels=None)` draws two or more
 `IndexResult` or `BacktestResult` objects on one axis, and takes `title=`,
 `subtitle=` and `notes=` like the chart methods:
 
 ```python
 from beacon.plot import compare
 
-ax = compare(index, backtest, labels=["Index", "Fund"])
-ax.figure.savefig("compare.png", dpi=110)
-plt.close("all")
+compare(index, backtest, labels=["Index", "Fund"]).save("compare.png", dpi=110)
 ```
 
 Every series is cut to the dates they all share and rebased to 100 on the
@@ -276,7 +284,7 @@ Labels default to each result's index id or portfolio id. `compare` raises
 
 ## Themes
 
-`beacon.plot.use(theme)` applies a theme to every chart drawn afterwards,
+`beacon.plot.use(theme)` applies a theme to every chart built afterwards,
 changing nothing else in the [style](#styles):
 
 | Theme | Background | Text and axes |
@@ -290,9 +298,7 @@ changing nothing else in the [style](#styles):
 
 ```python
 beacon.plot.use("transparent-dark-axes")
-ax = index.plot.level()
-ax.figure.savefig("level-for-a-light-page.png", dpi=110)
-plt.close("all")
+index.plot.level().save("level-for-a-light-page.png", dpi=110)
 
 beacon.plot.use("light")
 ```
@@ -300,13 +306,11 @@ beacon.plot.use("light")
 Every theme draws in Beacon's accent, series and sign colours, which come
 from the same design tokens as Beacon desktop, so a chart matches the screen
 it sits on; only the background and the text change. A chart records the
-theme it was drawn in, so its own colours (the series accent, green and red
+theme it was built in, so its own colours (the series accent, green and red
 for signs, the cap marker, the frame) follow that theme even on a transparent
-background. A chart drawn on a figure py-beacon did not make reads the theme
-off the figure's background, so one drawn on matplotlib's white default still
-gets colours meant for a light page.
+background.
 
-Once any chart method, `use()` or `compare()` has run, each theme is
+Once a chart has been drawn, or `use()` has run, each theme is
 registered with matplotlib as a style (`beacon` and `beacon-dark` for the
 Beacon canvases, `beacon-github-dark`, `beacon-white`,
 `beacon-transparent-dark-axes` and `beacon-transparent-light-axes`), and the

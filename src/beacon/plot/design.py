@@ -377,7 +377,7 @@ def scoped(style: Style) -> Iterator[Style]:
 
     Unlike settings(), it leaves the version alone, so drawing the chart does
     not put the style into matplotlib's rcParams for good: the chart applies
-    it for itself (beacon.plot.drawing.styled).
+    it for itself (beacon.plot.paint).
     """
     before = current()
     _STATE["current"] = style
