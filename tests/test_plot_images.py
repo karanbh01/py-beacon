@@ -193,34 +193,65 @@ class TestGalleryScript:
 
         return module
 
-    def test_it_renders_every_chart_in_both_styles(self,
-                                                   tmp_path):
-        module = self._module()
+    def _calls(self, module):
+        results = module.build_results()
+        return {**module.result_calls(results), **module.class_calls(results["prices"])}
 
-        names = module.render_all(tmp_path)
+    def test_it_renders_every_chart_in_every_theme(self,
+                                                   tmp_path,
+                                                   monkeypatch):
+        module = self._module()
+        # The pictures' resolution is not under test; a low one keeps this quick.
+        monkeypatch.setattr(module, "DPI", 30)
+        calls = self._calls(module)
+
+        module.render_images(tmp_path, calls)
         images = sorted(path.name for path in tmp_path.glob("*.png"))
 
-        assert len(names) == 10
-        assert len(images) == 20
+        assert len(calls) == 20
+        assert len(images) == 20 * len(module.THEMES)
+        assert "line.light.png" in images and "line.transparent-light-axes.png" in images
 
     def test_every_chart_has_a_caption(self):
         """A gallery of unlabelled pictures says less than a list of names."""
         module = self._module()
 
-        assert set(module.CAPTIONS) == set(module.chart_calls(
-            module.build_results()))
+        assert set(module.RESULT_CHARTS) | set(module.CLASS_CHARTS) == set(self._calls(module))
 
-    def test_the_page_links_both_modes_for_each_chart(self,
-                                                      tmp_path):
+    def test_the_live_versions_fill_their_frames(self,
+                                                 tmp_path):
         module = self._module()
+        calls = {name: call for name, call in self._calls(module).items()
+                 if name in ("level", "table")}
 
-        names = module.render_all(tmp_path)
-        page = module.write_page(tmp_path, names)
+        shapes = module.render_live(tmp_path, calls)
+
+        assert set(shapes) == {"level", "table"}
+        assert (tmp_path / "plotly.min.js").exists() and (tmp_path / "fonts.css").exists()
+        assert any((tmp_path / "fonts").glob("*.ttf"))
+        live = (tmp_path / "level.light.html").read_text(encoding="utf-8")
+        assert '"responsive": true' in live and 'href="fonts.css"' in live
+        assert "<table" in (tmp_path / "table.dark.html").read_text(encoding="utf-8")
+
+    def test_the_page_links_both_modes_the_live_versions_and_every_theme(self,
+                                                                         tmp_path):
+        module = self._module()
+        names = [*module.RESULT_CHARTS, *module.CLASS_CHARTS]
+        directory = tmp_path / "gallery"
+        directory.mkdir()
+
+        page = module.write_page(directory, dict.fromkeys(names, (691.0, 518.0)))
         text = page.read_text(encoding="utf-8")
 
+        assert page == tmp_path / "gallery.md"
         for name in names:
-            assert f"gallery/{name}.light.png" in text
-            assert f"gallery/{name}.dark.png" in text
+            assert f"gallery/{name}.light.png){{ loading=lazy }}" in text
+            assert f"gallery/{name}.dark.png){{ loading=lazy }}" in text
+            # A bare name: the published page sits beside the gallery's files.
+            assert f'<iframe src="{name}.light.html"' in text
+            assert f'<iframe src="{name}.dark.html"' in text
+            assert f"gallery/{name}.github-dark.png" in text
+        assert 'style="aspect-ratio: 691 / 518"' in text
 
     def test_the_gallery_covers_every_chart_the_accessors_offer(self):
         """A chart added without a gallery entry would go undocumented, and
@@ -237,4 +268,12 @@ class TestGalleryScript:
 
         # compare() is a free function rather than an accessor method, so it is
         # in the gallery without being in this set.
-        assert offered <= set(module.CAPTIONS)
+        assert offered <= set(module.RESULT_CHARTS)
+
+    def test_the_gallery_covers_every_chart_class(self):
+        module = self._module()
+        from beacon.plot import charts
+
+        classes = {name.lower() for name in charts.__all__ if name not in ("Chart", "Plan")}
+
+        assert classes <= set(module.CLASS_CHARTS)
