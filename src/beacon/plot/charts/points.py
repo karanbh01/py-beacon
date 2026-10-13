@@ -32,9 +32,6 @@ MANY_ALPHA = 0.55
 # corner, in points before scaling.
 NAME_GAP = 3.0
 
-# A title's line, as a multiple of its size.
-TITLE_LINE = 1.2
-
 # Where the fitted line's summary is written, as fractions of the plot.
 SUMMARY_AT = (0.02, 0.97)
 
@@ -175,13 +172,9 @@ class Scatter(Chart):
                       y=Axis("number", y_low, y_high, labels=y_format,
                              title="" if self.origin else self.ylabel),
                       labels=labels_of(marks, self.style.text.font), origin=self.origin)
-        # Room above the plot for the vertical axis's title, over its top.
-        top_room = ((sizes.axis_title_size() * TITLE_LINE + self._over_top()) / 72.0
-                    if self.origin and self.ylabel else 0.0)
         description = Description(size=self._size(), title=self.title, subtitle=self.subtitle,
                                   notes=self._notes(), panels=(panel,), legend=tuple(legend),
-                                  bottom_room=_room(self.origin, bool(self.xlabel)),
-                                  top_room=top_room)
+                                  bottom_room=_room(self.origin, bool(self.xlabel)))
 
         return Plan(description, tuple(marks))
 
@@ -261,21 +254,22 @@ class Scatter(Chart):
 
     def _inline_titles(self) -> list[Mark]:
         """Axis titles along the axes through zero: over the horizontal one's
-        right end, clear of its tick marks, and above the vertical one's
-        top."""
-        gap = sizes.scaled(NAME_GAP)
-        ticks = sizes.scaled(self.style.axes.tick_length) if self.style.axes.x_ticks else 0.0
+        right end and beside the vertical one's top, each clear of the tick
+        marks, which point into the plot."""
+        clear = self._clear_of_ticks()
         size = sizes.axis_title_size()
 
-        return [TextMark(self.xlabel, 1.0, 0.0, "text-primary", size, dy=ticks + gap,
-                         ha="right", va="bottom", coords="ydata"),
-                TextMark(self.ylabel, 0.0, 1.0, "text-primary", size, dy=self._over_top(),
-                         ha="center", va="bottom", coords="xdata")]
+        return [TextMark(self.xlabel, 1.0, 0.0, "text-primary", size, dy=clear, ha="right",
+                         va="bottom", coords="ydata"),
+                TextMark(self.ylabel, 0.0, 1.0, "text-primary", size, dx=clear, ha="left",
+                         va="top", coords="xdata")]
 
-    def _over_top(self) -> float:
-        """How far above the vertical axis's top its title sits, in points:
-        clear of the top tick's label, which is centred on the axis's end."""
-        return sizes.tick_label_size() / 2.0 + sizes.scaled(NAME_GAP)
+    def _clear_of_ticks(self) -> float:
+        """How far an axis title sits from its axis, in points: past the tick
+        marks and a gap."""
+        ticks = sizes.scaled(self.style.axes.tick_length)
+
+        return ticks + sizes.scaled(NAME_GAP)
 
 
 def _measure(data: pd.DataFrame | None,
