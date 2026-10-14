@@ -8,6 +8,14 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-14
+
+Documentation only: the library is unchanged from 0.8.0.
+
+### Changed
+
+- Each chart in the gallery has a switch between its image and its live interactive version, and a list of the six themes. A chart starts as its image in the theme matching the page's light or dark setting. The live versions are now drawn in every theme, not only the two Beacon themes, and the row of the other four themes under each chart is gone.
+
 ## [0.8.0] - 2026-10-13
 
 Charts for any data: chart classes (`Line`, `Area`, `Column`, `Bar`, `Combo`, `Scatter`, `Histogram`, `Heatmap`, `Grid` and `Table`), every part of their design a setting in a `Style`, and an interactive version of every chart that looks the same as its image. A plain install now draws charts, writes PDF and Excel reports, solves optimisations and reads Postgres stores; only the server and Yahoo Finance downloads are extras. The result charts return a chart rather than a matplotlib `Axes`, and `ax=` is gone.
@@ -301,7 +309,8 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/karanbh01/py-beacon/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/karanbh01/py-beacon/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/karanbh01/py-beacon/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/karanbh01/py-beacon/compare/v0.5.0...v0.6.0
