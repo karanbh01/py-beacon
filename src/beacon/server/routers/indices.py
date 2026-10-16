@@ -33,7 +33,6 @@ from ..definitions import (
 from ..documents import load_document, raw, read_collection, stored, validated
 from ..errors import FindingsError
 from ..index_level import IndexLevelView, build_index_level, calculate_index
-from ..jobs import JobRegistry
 from ..preview import build_preview
 from ..schemas import (
     CalendarList,
@@ -190,18 +189,16 @@ def _cascade(store: DocumentStore,
 
 
 def _delete_one(store: DocumentStore,
-                registry: JobRegistry,
-                records: DocumentStore,
                 index_id: str,
                 derived_from: str | None) -> DeletedIndex:
-    """Put one index through the full cascade and report what went."""
+    """Delete one index of the cascade and report it.
+
+    Runs belong to strategies since BN-313, and an index a strategy holds is
+    never deleted, so no run goes with an index.
+    """
     store.delete(index_id)
 
-    return DeletedIndex(index_id=index_id,
-                        derived_from=derived_from,
-                        backtest_record_deleted=records.delete(index_id),
-                        backtest_results_deleted=registry.forget(
-                            f"backtest:{index_id}"))
+    return DeletedIndex(index_id=index_id, derived_from=derived_from)
 
 
 LevelStartQuery = Annotated[
@@ -429,32 +426,27 @@ def build_indices_router() -> APIRouter:
                   index_id: Identifier) -> IndexDocument:
         return load_index(request, index_id)
 
-    # The results cascade is BN-157's; cascading to optimised children was
-    # the owner's call for BN-168.
+    # Cascading to optimised children was the owner's call for BN-168. Runs
+    # stopped going with an index in BN-313: they belong to strategies.
     @router.delete("/{index_id}", response_model=IndexDeletion)
     def delete_index(request: Request,
                      index_id: Identifier) -> IndexDeletion:
-        """Remove a stored index definition, its optimised children, and the
-        backtest results of every one of them.
+        """Remove a stored index definition and its optimised children.
 
-        The first cascade is deliberate: results are keyed
-        `backtest:{index_id}`, and orphaning them would leave records
-        addressable by an id that no longer resolves (the overview route
-        404s on the definition load before it ever reaches them).
-
-        The second follows from how an optimised index is stored: it
+        The cascade follows from how an optimised index is stored: it
         *references* its source rather than copying it, so a child left behind
         would be a methodology with no methodology, and could never be
-        calculated again. Each child goes through the identical cascade, and
-        the chain is followed recursively. The confirmation warning stays
-        client-side: documents carry `source_index_id`, so the UI computes the
-        blast radius from the catalogue before sending. This response then
-        says what actually went, which is what the client reports.
+        calculated again. The chain is followed recursively. The confirmation
+        warning stays client-side: documents carry `source_index_id`, so the
+        UI computes the blast radius from the catalogue before sending. This
+        response then says what actually went, which is what the client
+        reports.
 
         One refusal: a stored strategy that holds the index, or any child
         the cascade would take, answers 409 `IN_USE` with the strategies in
         `detail.used_by`. A strategy is somebody's work rather than something
-        derived from the index, so it is never deleted with it. Otherwise,
+        derived from the index, so it is never deleted with it, and since runs
+        belong to strategies, no run goes with an index either. Otherwise,
         unlike universes, no index is seeded: every stored definition was
         created by somebody, so every one may be deleted.
         """
@@ -464,24 +456,16 @@ def build_indices_router() -> APIRouter:
             raise DataNotFoundError(f"index '{index_id}'",
                                     source="DocumentStore")
 
-        registry: JobRegistry = request.app.state.jobs
-        # The record store too (BN-158), or the delete leaves exactly the
-        # orphan it exists to prevent: a nested record readable by an id
-        # whose definition no longer resolves.
-        records: DocumentStore = request.app.state.backtest_record_store
-
         cascade = _cascade(store, index_id)
-        # A strategy is somebody's work, not something derived from the index,
-        # so it is never deleted with it (BN-312). A strategy holding any index
-        # the cascade would remove refuses the whole delete.
+        # A strategy holding any index the cascade would remove refuses the
+        # whole delete (BN-312).
         holders = strategies_using(request.app.state.strategy_store,
                                    {target for target, _ in cascade})
 
         if holders:
             raise DocumentInUseError(f"index '{index_id}'", used_by=holders)
 
-        removed = [_delete_one(store, registry, records, target, parent)
-                   for target, parent in cascade]
+        removed = [_delete_one(store, target, parent) for target, parent in cascade]
 
         return IndexDeletion(index_id=index_id, deleted=removed)
 

@@ -40,6 +40,7 @@ from beacon.server.schemas import (
     metrics_from,
 )
 from beacon.testing import dataset
+from conftest import submit_backtest
 
 TOKEN = "test-token-value"
 INDEX_ID = "canon"
@@ -72,7 +73,7 @@ SELF_EVIDENT_FIELDS = {"index_id", "name"}
 # case that made BN-181 worth filing: a NEW field shipping silent, where two
 # components can hold different meanings for it indefinitely and the divergence
 # surfaces only when behaviour changes underneath both.
-SILENT_FIELD_CEILING = 170
+SILENT_FIELD_CEILING = 168
 
 # The date- and time-shaped fields BN-181 described, written out rather than
 # derived so that losing one is a failure rather than a number that still adds
@@ -219,8 +220,7 @@ def client():
                         headers=auth())
             started.put(f"/optimise/constraint-sets/{SET_ID}",
                         json=constraint_set(), headers=auth())
-            started.post(f"/beacon/{INDEX_ID}/backtest",
-                         json={"start": START, "end": END}, headers=auth())
+            submit_backtest(started, INDEX_ID, {"start": START, "end": END}, auth())
             started.portal.call(started.app.state.jobs.drain)
 
             yield started
@@ -287,7 +287,7 @@ class TestErrorEnvelope:
             client.get("/risk-models/nope", headers=auth()),
             client.get("/optimise/constraint-sets/nope", headers=auth()),
             client.get("/reports/templates/nope", headers=auth()),
-            client.get(f"/beacon/{INDEX_ID}/assets/NOPE", headers=auth()),
+            client.get(f"/strategies/{INDEX_ID}/assets/NOPE", headers=auth()),
         ]
 
         for response in failures:
@@ -324,7 +324,7 @@ class TestSpec:
                 if isinstance(operation, dict)
                 for tag in operation.get("tags", [])}
 
-        assert {"data", "coverage", "indices", "jobs", "beacon", "optimise",
+        assert {"data", "coverage", "indices", "jobs", "strategies", "backtests", "optimise",
                 "risk", "derivatives", "reports"} <= tags
 
     def test_every_operation_documents_the_error_envelope(self,
@@ -432,7 +432,7 @@ class TestReconciliationIdentities:
 
     def test_attribution_contributions_sum_to_the_total(self,
                                                         client):
-        payload = client.get(f"/beacon/{INDEX_ID}/attribution",
+        payload = client.get(f"/strategies/{INDEX_ID}/attribution",
                              headers=auth()).json()
         explained = sum(item["contribution"] for item in payload["contributions"])
 
@@ -458,7 +458,7 @@ class TestReconciliationIdentities:
         dollars, so the exchange-rate return was missing. 43.76% is the index
         level's own return over the window, to the last digit.
         """
-        payload = client.get(f"/beacon/{INDEX_ID}/attribution",
+        payload = client.get(f"/strategies/{INDEX_ID}/attribution",
                              headers=auth()).json()
 
         assert payload["total_return"] == pytest.approx(0.4376, abs=5e-4)
@@ -473,7 +473,7 @@ class TestReconciliationIdentities:
         extrapolation — the canonical dataset runs to 2025 while this backtest
         stops in mid-2024, so the two differ by a lot.
         """
-        payload = client.get(f"/beacon/{INDEX_ID}/attribution",
+        payload = client.get(f"/strategies/{INDEX_ID}/attribution",
                              headers=auth()).json()
 
         assert payload["start"][:10] >= START
@@ -481,7 +481,7 @@ class TestReconciliationIdentities:
 
     def test_every_constituent_contributes(self,
                                            client):
-        payload = client.get(f"/beacon/{INDEX_ID}/attribution",
+        payload = client.get(f"/strategies/{INDEX_ID}/attribution",
                              headers=auth()).json()
 
         assert {item["asset_id"] for item in payload["contributions"]} == set(
@@ -489,7 +489,7 @@ class TestReconciliationIdentities:
 
     def test_the_weights_sum_to_one(self,
                                     client):
-        payload = client.get(f"/beacon/{INDEX_ID}/weights", headers=auth()).json()
+        payload = client.get(f"/strategies/{INDEX_ID}/weights", headers=auth()).json()
 
         assert sum(payload["weights"].values()) == pytest.approx(1.0, abs=1e-9)
 
@@ -497,7 +497,7 @@ class TestReconciliationIdentities:
                                                                 client):
         """Golden: six equally weighted names have an effective count of six.
         A different figure means the weighting changed, not the maths."""
-        payload = client.get(f"/beacon/{INDEX_ID}/weights", headers=auth()).json()
+        payload = client.get(f"/strategies/{INDEX_ID}/weights", headers=auth()).json()
 
         assert payload["concentration"]["effective_assets"] == pytest.approx(
             6.0, abs=1e-9)
@@ -740,7 +740,7 @@ class TestJobResultPayloadsArePublished:
     def test_submitting_a_backtest_declares_the_typed_status(self,
                                                             exported):
         spec, _ = exported
-        responses = spec["paths"]["/beacon/{index_id}/backtest"]["post"]["responses"]
+        responses = spec["paths"]["/strategies/{strategy_id}/backtest"]["post"]["responses"]
         schema = responses["202"]["content"]["application/json"]["schema"]
 
         assert schema == {"$ref": "#/components/schemas/BacktestJobStatus"}
@@ -749,7 +749,7 @@ class TestJobResultPayloadsArePublished:
                                                exported):
         """One arm per job kind. A plain union rather than a pydantic
         discriminated one because a kind carries its subject —
-        `backtest:my-index` — so the discriminating value is the prefix, which
+        `backtest:my-strategy` — so the discriminating value is the prefix, which
         pydantic cannot pin to a `Literal`. `JobStatus` last is the fallback
         for a kind nothing models yet."""
         spec, _ = exported

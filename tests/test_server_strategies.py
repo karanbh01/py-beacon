@@ -169,7 +169,10 @@ class TestDeleting:
         deleted = client.delete("/strategies/tracker", headers=auth())
 
         assert deleted.status_code == 200
-        assert deleted.json() == {"strategy_id": "tracker"}
+        # BN-313: with its runs, none here, as it was never backtested.
+        assert deleted.json() == {"strategy_id": "tracker",
+                                  "backtest_record_deleted": False,
+                                  "backtest_results_deleted": 0}
         assert client.get("/strategies/tracker", headers=auth()).status_code == 404
 
     def test_deleting_what_is_not_stored_is_not_found(self,

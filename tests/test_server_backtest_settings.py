@@ -4,7 +4,9 @@ modelling assumptions.
 
 Reuses test_server_backtest's two-name index and data. Runs go through the
 job, as a client's would; the settings are checked through
-`/backtest/validate`, which builds them without running.
+`/backtest/validate`, which builds them without running. Since BN-313 the
+strategy and implementation live on a stored strategy, so they are checked
+where it is saved.
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -23,12 +25,15 @@ def client(tmp_path_factory):
     with TestClient(create_app(config), raise_server_exceptions=False) as entered:
         assert entered.post("/indices", json=index_document(),
                             headers=auth()).status_code == 200
+        assert entered.put("/strategies/BT",
+                           json={"id": "BT", "name": "BT", "index_id": "BT"},
+                           headers=auth()).status_code == 200
         yield entered
 
 
 def validate(client,
              **body) -> dict:
-    response = client.post("/beacon/BT/backtest/validate", json=body, headers=auth())
+    response = client.post("/strategies/BT/backtest/validate", json=body, headers=auth())
     assert response.status_code == 200, response.text
 
     return response.json()
@@ -130,16 +135,25 @@ class TestValidation:
         validation = validate(client, vehicle={"preset": "uk_oeic", "settings": {
             "pricing": {"type": "SwingPricing", "params": {"threshold": -1}},
             "creation_unit": 10, "launch_price": None}},
-            flows=[{"type": "Tides", "params": {}}],
-            strategy={"type": "active"})
+            flows=[{"type": "Tides", "params": {}}])
 
         assert validation["valid"] is False
         assert paths(validation) == {
             "vehicle.settings.creation_unit": "not_applicable",
             "vehicle.settings.launch_price": "not_nullable",
             "flows.0.type": "unknown_type",
-            "strategy.signal": "missing_parameter",
         }
+
+    def test_a_strategy_s_findings_point_at_the_field_where_it_is_saved(self,
+                                                                       client):
+        """The same paths a backtest request gave them before BN-313."""
+        validation = client.post("/strategies/validate",
+                                 json={"id": "checked", "name": "Checked", "index_id": "BT",
+                                       "strategy": {"type": "active"}},
+                                 headers=auth()).json()
+
+        assert validation["valid"] is False
+        assert paths(validation) == {"strategy.signal": "missing_parameter"}
 
     def test_a_bad_parameter_is_found_inside_its_object(self,
                                                         client):
@@ -168,7 +182,7 @@ class TestValidation:
 
     def test_a_bad_request_is_refused_before_it_runs(self,
                                                      client):
-        response = client.post("/beacon/BT/backtest", headers=auth(),
+        response = client.post("/strategies/BT/backtest", headers=auth(),
                                json={"vehicle": {"preset": "cayman"}})
 
         assert response.status_code == 422
@@ -253,8 +267,9 @@ class TestRunning:
 
     def test_a_scored_construction_still_needs_a_signal(self,
                                                         client):
-        response = client.post("/beacon/BT/backtest", json={
-            "start": "2024-01-02", "end": "2024-03-28",
+        """Refused where the strategy is saved, before any backtest of it."""
+        response = client.put("/strategies/scored", json={
+            "id": "scored", "name": "Scored", "index_id": "BT",
             "strategy": {"type": "active", "construction": {"type": "TopN",
                                                             "params": {"n": 2}}}},
             headers=auth())
@@ -290,8 +305,8 @@ class TestRunning:
     def test_the_saved_run_lists_what_ran(self,
                                           client):
         run_backtest(client, vehicle=UK_OEIC)
-        rows = client.get("/beacon/backtests", headers=auth()).json()["backtests"]
-        row = next(row for row in rows if row["index_id"] == "BT")
+        rows = client.get("/strategies/runs", headers=auth()).json()["backtests"]
+        row = next(row for row in rows if row["strategy_id"] == "BT")
 
         assert (row["strategy"], row["vehicle"], row["vehicle_preset"], row["currency"]) == (
             "index", "UK OEIC", "uk_oeic", "USD")

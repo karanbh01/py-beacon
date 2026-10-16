@@ -91,3 +91,38 @@ def wire_fetch_price(provider,
         return {name: fetch_price(name, date, column) for name in identifiers}
 
     provider.prices_on.side_effect = prices_on
+
+
+def submit_backtest(client,
+                    index_id: str,
+                    body: dict | None,
+                    headers: dict[str, str],
+                    strategy_id: str | None = None,
+                    name: str | None = None):
+    """Backtest an index through a stored strategy, as BN-313 requires.
+
+    Runs are kept per stored strategy, so a test that backtested an index now
+    stores a strategy holding it (under the index's own id unless
+    *strategy_id* is given, and named *name* or its id) and backtests that.
+    A `strategy` or
+    `implementation` in *body* moves onto the stored strategy, where it now
+    lives; the rest is the backtest's body.
+
+    Returns:
+        The response to `POST /strategies/{id}/backtest`.
+    """
+    settings = dict(body or {})
+    strategy_id = strategy_id or index_id
+    document = {"id": strategy_id, "name": name or strategy_id, "index_id": index_id}
+
+    if settings.get("strategy") is not None:
+        document["strategy"] = settings.pop("strategy")
+    settings.pop("strategy", None)
+
+    if "implementation" in settings:
+        document["implementation"] = settings.pop("implementation")
+
+    stored = client.put(f"/strategies/{strategy_id}", json=document, headers=headers)
+    assert stored.status_code == 200, stored.text
+
+    return client.post(f"/strategies/{strategy_id}/backtest", json=settings, headers=headers)

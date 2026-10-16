@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from beacon.server import ServerConfig, create_app
 from beacon.testing import dataset
+from conftest import submit_backtest
 
 TOKEN = "test-token-value"
 INDEX_ID = "canon"
@@ -73,8 +74,7 @@ def client():
                         headers=auth())
             started.put(f"/optimise/constraint-sets/{SET_ID}",
                         json=constraint_set(), headers=auth())
-            started.post(f"/beacon/{INDEX_ID}/backtest",
-                         json={"start": START, "end": END}, headers=auth())
+            submit_backtest(started, INDEX_ID, {"start": START, "end": END}, auth())
             started.portal.call(started.app.state.jobs.drain)
 
             yield started
@@ -331,7 +331,7 @@ class TestRun:
                                                   result):
         for row in result["weights"]:
             assert row["active_weight"] == pytest.approx(
-                row["optimal_weight"] - row["index_weight"], abs=1e-12)
+                row["optimal_weight"] - row["target_weight"], abs=1e-12)
 
     def test_the_optimal_weights_are_fully_invested(self,
                                                     result):
@@ -392,17 +392,52 @@ class TestRun:
 
         assert response.status_code == 404
 
-    def test_an_index_without_a_backtest_is_a_404(self,
-                                                  client):
+    def test_an_index_target_needs_no_backtest(self,
+                                               client):
+        """An index's weights are calculated (BN-313), so an index nobody has
+        backtested can be optimised against."""
         client.put("/indices/unrun", json={**index_document(), "id": "unrun"},
                    headers=auth())
 
         response = client.post("/optimise/runs",
                                json={"index_id": "unrun",
+                                     "constraint_set_id": SET_ID,
+                                     "start": START, "end": END},
+                               headers=auth())
+        client.portal.call(client.app.state.jobs.drain)
+
+        assert response.status_code == 202, response.text
+        job = client.get(f"/jobs/{response.json()['job_id']}", headers=auth()).json()
+        assert job["status"] == "succeeded", job.get("error")
+        assert job["result"]["index_id"] == "unrun"
+        assert job["result"]["strategy_id"] is None
+
+    def test_a_strategy_without_a_backtest_is_a_404(self,
+                                                    client):
+        """A strategy's weights are what its run chose, so it needs a run."""
+        client.put("/strategies/unrun-strategy",
+                   json={"id": "unrun-strategy", "name": "Unrun", "index_id": INDEX_ID},
+                   headers=auth())
+
+        response = client.post("/optimise/runs",
+                               json={"strategy_id": "unrun-strategy",
                                      "constraint_set_id": SET_ID},
                                headers=auth())
 
         assert response.status_code == 404
+        assert "backtest" in response.json()["error"]["message"]
+
+    def test_the_target_must_be_exactly_one(self,
+                                            client):
+        neither = client.post("/optimise/runs", json={"constraint_set_id": SET_ID},
+                              headers=auth())
+        both = client.post("/optimise/runs",
+                           json={"index_id": INDEX_ID, "strategy_id": INDEX_ID,
+                                 "constraint_set_id": SET_ID},
+                           headers=auth())
+
+        assert neither.status_code == 422
+        assert both.status_code == 422
 
     def test_an_infeasible_set_fails_the_job_with_a_reason(self,
                                                            client):
@@ -630,30 +665,31 @@ class TestDerivationEdges:
         """Returning the first rebalance would target weights not yet in
         force."""
         from beacon.exceptions import DataNotFoundError
-        from beacon.server.optimisation import target_weights_from
+        from beacon.server.strategy_runs import strategy_weights
 
         backtest = client.app.state.jobs.latest_result(f"backtest:{INDEX_ID}")
 
         with pytest.raises(DataNotFoundError, match="a rebalance on or before"):
-            target_weights_from(backtest, "2019-01-01")
+            strategy_weights(backtest, "2019-01-01")
 
     def test_an_as_of_selects_the_rebalance_in_force(self,
                                                      client):
-        from beacon.server.optimisation import target_weights_from
+        from beacon.server.strategy_runs import strategy_weights
 
         backtest = client.app.state.jobs.latest_result(f"backtest:{INDEX_ID}")
 
-        weights = target_weights_from(backtest, "2023-08-15")
+        date, weights = strategy_weights(backtest, "2023-08-15")
 
+        assert date <= "2023-08-15"
         assert set(weights) == set(dataset.UNIVERSE)
         assert sum(weights.values()) == pytest.approx(1.0, abs=1e-9)
 
     def test_a_run_without_composition_is_refused(self):
         from beacon.exceptions import DataNotFoundError
-        from beacon.server.optimisation import target_weights_from
+        from beacon.server.strategy_runs import strategy_weights
 
-        with pytest.raises(DataNotFoundError, match="rebalance snapshots"):
-            target_weights_from({"level": {}}, None)
+        with pytest.raises(DataNotFoundError, match="weights this run's strategy chose"):
+            strategy_weights({"level": {}}, None)
 
 
 class TestWithoutADataSource:
@@ -671,10 +707,10 @@ class TestWithoutADataSource:
                                              "constraint_set_id": SET_ID},
                                        headers=auth())
 
-        # No backtest exists either, so this is a 404 before the data source is
-        # reached — which is the right order: the missing run is the nearer
-        # problem.
-        assert response.status_code == 404
+        # An index target is calculated (BN-313), so the missing data is the
+        # problem: the index exists in no data.
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "NO_DATA_LOADED"
 
 
 class TestSubmittingAnInvalidStoredSet:

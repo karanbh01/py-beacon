@@ -44,6 +44,9 @@ RESERVED_IDENTIFIERS = frozenset({
     "validate",
     "rule-types",
     "calendars",
+    # Beside /strategies/{strategy_id} (BN-313).
+    "compare",
+    "runs",
 })
 import platformdirs  # noqa: E402
 

@@ -159,7 +159,7 @@ class TestTheEngineViews:
                "level": {"index": [str(day.date()) for day in DAYS],
                          "data": [100.0] * len(DAYS)}}
 
-        view = build_asset_view("fx", "VOD", run, fetcher, "usd")
+        view = build_asset_view("fx", "fx", "VOD", run, fetcher, "usd")
 
         assert (view.currency, view.price_currency) == ("USD", "GBP")
         assert view.total_return == pytest.approx(RATES[-1] / RATES[0] - 1)

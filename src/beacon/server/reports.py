@@ -196,7 +196,7 @@ def build_render_job(render_id: str,
 
         result = RenderResult(render_id=render_id,
                               template_id=template.template_id,
-                              index_id=request.index_id,
+                              strategy_id=request.strategy_id,
                               name=template.name,
                               blocks=len(template.blocks),
                               bytes=destination.stat().st_size,

@@ -8,7 +8,6 @@ it from application state, so a request cannot outlive or contradict the
 process configuration.
 """
 from .backtest import build_backtest_router
-from .beacon import build_beacon_router
 from .coverage import build_coverage_router
 from .data import build_data_router
 from .derivatives import build_derivatives_router
@@ -21,13 +20,13 @@ from .reports import build_reports_router
 from .risk import build_risk_router
 from .stores import build_stores_router
 from .strategies import build_strategies_router
+from .strategy_runs import build_strategy_runs_router
 from .synthetic import build_synthetic_router
 from .universes import build_universes_router
 from .watchlists import build_watchlists_router
 
 __all__ = [
     "build_backtest_router",
-    "build_beacon_router",
     "build_coverage_router",
     "build_data_router",
     "build_derivatives_router",
@@ -41,6 +40,7 @@ __all__ = [
     "build_risk_router",
     "build_stores_router",
     "build_strategies_router",
+    "build_strategy_runs_router",
     "build_synthetic_router",
     "build_universes_router",
     "build_watchlists_router",

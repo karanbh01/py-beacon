@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from beacon.exceptions import DataNotFoundError
 from beacon.server import ServerConfig, create_app
 from beacon.testing import dataset
+from conftest import submit_backtest
 
 TOKEN = "test-token-value"
 INDEX_ID = "canon"
@@ -78,10 +79,11 @@ def client():
             for index_id, cap in ((INDEX_ID, None), (CAPPED_ID, 0.20)):
                 started.put(f"/indices/{index_id}",
                             json=definition(index_id, cap), headers=auth())
-                started.post(f"/beacon/{index_id}/backtest",
-                             json={"start": START, "end": END,
-                                   "transaction_cost_bps": 10.0},
-                             headers=auth())
+                submit_backtest(started,
+                                index_id,
+                                {"start": START, "end": END,
+                                 "transaction_cost_bps": 10.0},
+                                auth())
 
             started.portal.call(started.app.state.jobs.drain)
 
@@ -92,7 +94,7 @@ class TestOverview:
 
     def test_it_describes_the_run(self,
                                   client):
-        payload = client.get(f"/beacon/{INDEX_ID}/overview", headers=auth()).json()
+        payload = client.get(f"/strategies/{INDEX_ID}/overview", headers=auth()).json()
 
         assert payload["index_id"] == INDEX_ID
         assert payload["observations"] > 300
@@ -100,7 +102,7 @@ class TestOverview:
 
     def test_it_carries_the_headline_metrics(self,
                                              client):
-        metrics = client.get(f"/beacon/{INDEX_ID}/overview",
+        metrics = client.get(f"/strategies/{INDEX_ID}/overview",
                              headers=auth()).json()["metrics"]
 
         assert "total_return" in metrics
@@ -108,7 +110,7 @@ class TestOverview:
 
     def test_it_reports_concentration_of_the_latest_rebalance(self,
                                                               client):
-        payload = client.get(f"/beacon/{INDEX_ID}/overview", headers=auth()).json()
+        payload = client.get(f"/strategies/{INDEX_ID}/overview", headers=auth()).json()
         concentration = payload["concentration"]
 
         assert concentration["constituents"] == len(dataset.UNIVERSE)
@@ -124,7 +126,7 @@ class TestOverview:
         for one concept. They are dates rather than moments — the time
         component was always midnight.
         """
-        payload = client.get(f"/beacon/{INDEX_ID}/overview", headers=auth()).json()
+        payload = client.get(f"/strategies/{INDEX_ID}/overview", headers=auth()).json()
 
         assert payload["start"] == payload["start"][:10]
         assert payload["end"] == payload["end"][:10]
@@ -133,8 +135,8 @@ class TestOverview:
     def test_the_span_matches_the_form_compare_uses(self,
                                                     client):
         """The same concept on adjacent endpoints, now in the same shape."""
-        overview = client.get(f"/beacon/{INDEX_ID}/overview", headers=auth()).json()
-        compared = client.get("/beacon/compare",
+        overview = client.get(f"/strategies/{INDEX_ID}/overview", headers=auth()).json()
+        compared = client.get("/strategies/compare",
                               params={"ids": [INDEX_ID, CAPPED_ID]},
                               headers=auth()).json()
 
@@ -142,20 +144,20 @@ class TestOverview:
 
     def test_an_unknown_index_is_a_404(self,
                                        client):
-        response = client.get("/beacon/nope/overview", headers=auth())
+        response = client.get("/strategies/nope/overview", headers=auth())
 
         assert response.status_code == 404
 
     def test_it_requires_authentication(self,
                                         client):
-        assert client.get(f"/beacon/{INDEX_ID}/overview").status_code == 401
+        assert client.get(f"/strategies/{INDEX_ID}/overview").status_code == 401
 
 
 class TestWeights:
 
     def test_it_returns_the_latest_composition(self,
                                                client):
-        payload = client.get(f"/beacon/{INDEX_ID}/weights", headers=auth()).json()
+        payload = client.get(f"/strategies/{INDEX_ID}/weights", headers=auth()).json()
 
         assert set(payload["weights"]) == set(dataset.UNIVERSE)
         assert sum(payload["weights"].values()) == pytest.approx(1.0, abs=1e-9)
@@ -164,7 +166,7 @@ class TestWeights:
                                                               client):
         """An index holds the weights set at its last rebalance until the next,
         so the answer is dated earlier than the question."""
-        payload = client.get(f"/beacon/{INDEX_ID}/weights",
+        payload = client.get(f"/strategies/{INDEX_ID}/weights",
                              params={"asof": "2023-08-15"}, headers=auth()).json()
 
         assert payload["as_of"] == "2023-08-15"
@@ -173,7 +175,7 @@ class TestWeights:
     def test_a_date_before_the_first_rebalance_is_a_404(self,
                                                         client):
         """Returning the first rebalance would report weights not yet in force."""
-        response = client.get(f"/beacon/{INDEX_ID}/weights",
+        response = client.get(f"/strategies/{INDEX_ID}/weights",
                               params={"asof": "2020-01-01"}, headers=auth())
 
         assert response.status_code == 404
@@ -184,7 +186,7 @@ class TestWeights:
         every time, so that comparison would report zero drift forever. The
         question worth answering is how far prices have moved the held weights
         away from the targets since the last reset."""
-        payload = client.get(f"/beacon/{INDEX_ID}/weights",
+        payload = client.get(f"/strategies/{INDEX_ID}/weights",
                              params={"asof": "2023-08-15"}, headers=auth()).json()
 
         assert payload["drift"] is not None
@@ -196,7 +198,7 @@ class TestWeights:
                                                   client):
         """The weights were just set; reporting zeros would claim a
         measurement rather than the absence of one."""
-        first = client.get(f"/beacon/{INDEX_ID}/weights",
+        first = client.get(f"/strategies/{INDEX_ID}/weights",
                            params={"asof": BASE_SESSION}, headers=auth()).json()
 
         assert first["rebalance_date"] == BASE_SESSION
@@ -204,7 +206,7 @@ class TestWeights:
 
     def test_turnover_is_half_the_total_drift(self,
                                               client):
-        drift = client.get(f"/beacon/{INDEX_ID}/weights",
+        drift = client.get(f"/strategies/{INDEX_ID}/weights",
                            params={"asof": "2023-08-15"},
                            headers=auth()).json()["drift"]
 
@@ -212,7 +214,7 @@ class TestWeights:
 
     def test_an_uncapped_index_reports_no_cap(self,
                                               client):
-        payload = client.get(f"/beacon/{INDEX_ID}/weights", headers=auth()).json()
+        payload = client.get(f"/strategies/{INDEX_ID}/weights", headers=auth()).json()
 
         assert payload["cap"] is None
         assert payload["capped"] == []
@@ -225,7 +227,7 @@ class TestWeights:
         different statements about a methodology, so the figure is reported
         either way.
         """
-        payload = client.get(f"/beacon/{CAPPED_ID}/weights", headers=auth()).json()
+        payload = client.get(f"/strategies/{CAPPED_ID}/weights", headers=auth()).json()
 
         assert payload["cap"] == pytest.approx(0.20)
         assert all(weight <= 0.20 + 1e-9 for weight in payload["weights"].values())
@@ -233,7 +235,7 @@ class TestWeights:
     def test_a_binding_cap_names_what_it_held(self,
                                               client):
         """Market-cap weights are uneven, so the cap has something to bite on."""
-        payload = client.get(f"/beacon/{CAPPED_ID}/weights", headers=auth()).json()
+        payload = client.get(f"/strategies/{CAPPED_ID}/weights", headers=auth()).json()
 
         assert payload["capped"]
         assert payload["cap_redistributed"] > 0.0
@@ -244,7 +246,7 @@ class TestAttribution:
     @pytest.fixture(scope="class")
     def payload(self,
                 client):
-        return client.get(f"/beacon/{INDEX_ID}/attribution", headers=auth()).json()
+        return client.get(f"/strategies/{INDEX_ID}/attribution", headers=auth()).json()
 
     def test_contributions_reconcile(self,
                                      payload):
@@ -281,7 +283,7 @@ class TestAttribution:
 
     def test_a_capped_index_reports_a_cap_drag(self,
                                                client):
-        payload = client.get(f"/beacon/{CAPPED_ID}/attribution",
+        payload = client.get(f"/strategies/{CAPPED_ID}/attribution",
                              headers=auth()).json()
 
         assert payload["cap_drag"] is not None
@@ -289,7 +291,7 @@ class TestAttribution:
     def test_a_window_narrows_the_period_count(self,
                                                client,
                                                payload):
-        narrowed = client.get(f"/beacon/{INDEX_ID}/attribution",
+        narrowed = client.get(f"/strategies/{INDEX_ID}/attribution",
                               params={"start": "2023-06-01", "end": "2023-12-31"},
                               headers=auth()).json()
 
@@ -297,7 +299,7 @@ class TestAttribution:
 
     def test_a_windowed_attribution_still_reconciles(self,
                                                      client):
-        narrowed = client.get(f"/beacon/{INDEX_ID}/attribution",
+        narrowed = client.get(f"/strategies/{INDEX_ID}/attribution",
                               params={"start": "2023-06-01", "end": "2023-12-31"},
                               headers=auth()).json()
 
@@ -311,7 +313,7 @@ class TestAttribution:
         the request was published nowhere — so the only date available was one
         the shift had already moved.
         """
-        narrowed = client.get(f"/beacon/{INDEX_ID}/attribution",
+        narrowed = client.get(f"/strategies/{INDEX_ID}/attribution",
                               params={"start": "2023-06-01", "end": "2023-12-31"},
                               headers=auth()).json()
 
@@ -323,7 +325,7 @@ class TestAttribution:
         """The contribution shift drops the window's first row, so `start` is
         a trading day after `requested_start` — permanently, not occasionally.
         """
-        narrowed = client.get(f"/beacon/{INDEX_ID}/attribution",
+        narrowed = client.get(f"/strategies/{INDEX_ID}/attribution",
                               params={"start": "2023-06-01", "end": "2023-12-31"},
                               headers=auth()).json()
 
@@ -343,7 +345,7 @@ class TestAssetView:
     @pytest.fixture(scope="class")
     def payload(self,
                 client):
-        return client.get(f"/beacon/{INDEX_ID}/assets/AAA", headers=auth()).json()
+        return client.get(f"/strategies/{INDEX_ID}/assets/AAA", headers=auth()).json()
 
     def test_it_reports_the_weight_history(self,
                                            payload):
@@ -371,7 +373,7 @@ class TestAssetView:
 
     def test_a_name_the_index_never_held_is_a_404(self,
                                                   client):
-        response = client.get(f"/beacon/{INDEX_ID}/assets/NOT_HELD", headers=auth())
+        response = client.get(f"/strategies/{INDEX_ID}/assets/NOT_HELD", headers=auth())
 
         assert response.status_code == 404
 
@@ -381,13 +383,13 @@ class TestCompare:
     @pytest.fixture(scope="class")
     def payload(self,
                 client):
-        return client.get("/beacon/compare",
+        return client.get("/strategies/compare",
                           params={"ids": [INDEX_ID, CAPPED_ID]},
                           headers=auth()).json()
 
     def test_it_returns_an_entry_per_index(self,
                                            payload):
-        assert [entry["index_id"] for entry in payload["entries"]] == [
+        assert [entry["strategy_id"] for entry in payload["entries"]] == [
             INDEX_ID, CAPPED_ID]
 
     def test_every_series_covers_the_same_dates(self,
@@ -429,7 +431,7 @@ class TestCompare:
 
     def test_a_single_id_is_refused(self,
                                     client):
-        response = client.get("/beacon/compare", params={"ids": [INDEX_ID]},
+        response = client.get("/strategies/compare", params={"ids": [INDEX_ID]},
                               headers=auth())
 
         # The schema's minimum of two ids refuses it (BN-250).
@@ -440,7 +442,7 @@ class TestCompare:
                                                                     client):
         """BN-250, found by the nightly fuzz run: the items had no pattern, so
         `a/b` passed the schema and then the store refused it."""
-        response = client.get("/beacon/compare",
+        response = client.get("/strategies/compare",
                               params={"ids": [INDEX_ID, "a/b"]},
                               headers=auth())
 
@@ -450,15 +452,15 @@ class TestCompare:
     def test_an_unknown_id_is_a_404(self,
                                     client):
         """Naming the unknown id, rather than quietly comparing fewer."""
-        response = client.get("/beacon/compare",
+        response = client.get("/strategies/compare",
                               params={"ids": [INDEX_ID, "nope"]}, headers=auth())
 
         assert response.status_code == 404
 
-    def test_compare_is_not_captured_by_the_index_route(self,
+    def test_compare_is_not_captured_by_the_strategy_route(self,
                                                         client):
-        """`/beacon/compare` must not read as an index called "compare"."""
-        response = client.get("/beacon/compare",
+        """`/strategies/compare` must not read as a strategy called "compare"."""
+        response = client.get("/strategies/compare",
                               params={"ids": [INDEX_ID, CAPPED_ID]},
                               headers=auth())
 
@@ -481,8 +483,11 @@ class TestWithoutARun:
                             raise_server_exceptions=False) as client:
                 client.put(f"/indices/{INDEX_ID}", json=definition(INDEX_ID),
                            headers=auth())
+                client.put(f"/strategies/{INDEX_ID}",
+                           json={"id": INDEX_ID, "name": INDEX_ID, "index_id": INDEX_ID},
+                           headers=auth())
 
-                response = client.get(f"/beacon/{INDEX_ID}/overview", headers=auth())
+                response = client.get(f"/strategies/{INDEX_ID}/overview", headers=auth())
 
         assert response.status_code == 404
         assert "backtest" in response.json()["error"]["message"].lower()
@@ -494,11 +499,11 @@ class TestOpenApi:
                                                client):
         paths = client.app.openapi()["paths"]
 
-        for path in ("/beacon/{index_id}/overview",
-                     "/beacon/{index_id}/weights",
-                     "/beacon/{index_id}/attribution",
-                     "/beacon/{index_id}/assets/{identifier}",
-                     "/beacon/compare"):
+        for path in ("/strategies/{strategy_id}/overview",
+                     "/strategies/{strategy_id}/weights",
+                     "/strategies/{strategy_id}/attribution",
+                     "/strategies/{strategy_id}/assets/{identifier}",
+                     "/strategies/compare"):
             assert path in paths, path
 
 
@@ -552,10 +557,11 @@ class TestErrorPaths:
 
         empty = DataFetcher(MarketData.from_dataframe(pd.DataFrame(
             {"IDENTIFIER": ["OTHER"], "DATE": ["2024-01-01"], "CLOSE": [1.0]})))
-        run = client.get(f"/beacon/{INDEX_ID}/overview", headers=auth())
+        run = client.get(f"/strategies/{INDEX_ID}/overview", headers=auth())
 
         with pytest.raises(DataNotFoundError, match="prices for any constituent"):
             build_attribution(INDEX_ID,
+                              INDEX_ID,
                               client.app.state.jobs.latest_result(
                                   f"backtest:{INDEX_ID}"),
                               empty, None, None)
@@ -572,7 +578,7 @@ class TestErrorPaths:
             {"IDENTIFIER": ["OTHER"], "DATE": ["2024-01-01"], "CLOSE": [1.0]})))
 
         with pytest.raises(DataNotFoundError, match="prices for 'AAA'"):
-            build_asset_view(INDEX_ID, "AAA",
+            build_asset_view(INDEX_ID, INDEX_ID, "AAA",
                              client.app.state.jobs.latest_result(
                                  f"backtest:{INDEX_ID}"),
                              empty)
@@ -588,6 +594,7 @@ class TestErrorPaths:
             {"IDENTIFIER": ["OTHER"], "DATE": ["2024-01-01"], "CLOSE": [1.0]})))
 
         view = build_weights(INDEX_ID,
+                             INDEX_ID,
                              client.app.state.jobs.latest_result(
                                  f"backtest:{INDEX_ID}"),
                              "2023-08-15", empty)
@@ -609,7 +616,7 @@ class TestALateAttributionWindow:
 
     def test_the_cap_drag_is_computed(self,
                                       client):
-        response = client.get(f"/beacon/{CAPPED_ID}/attribution",
+        response = client.get(f"/strategies/{CAPPED_ID}/attribution",
                               params={"start": "2023-06-01",
                                       "end": "2023-12-31"},
                               headers=auth())

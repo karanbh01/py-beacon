@@ -20,6 +20,7 @@ from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
 from beacon.index.result import IndexResult
 from beacon.server import ServerConfig, create_app
+from conftest import submit_backtest
 
 DAYS = pd.bdate_range("2024-01-02", periods=40)
 RATES = np.linspace(1.25, 1.30, len(DAYS))
@@ -134,8 +135,10 @@ class TestTheEngineSaysItsCurrency:
 
         with TestClient(app, raise_server_exceptions=False) as client:
             client.put("/indices/gbp", json=document, headers=headers)
-            client.post("/beacon/gbp/backtest", headers=headers,
-                        json={"start": "2023-01-03", "end": "2023-03-31"})
+            submit_backtest(client,
+                            "gbp",
+                            {"start": "2023-01-03", "end": "2023-03-31"},
+                            headers)
             client.portal.call(client.app.state.jobs.drain)
             run_result = client.app.state.jobs.latest_result("backtest:gbp")
 

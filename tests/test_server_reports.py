@@ -8,10 +8,13 @@ from fastapi.testclient import TestClient
 
 from beacon.server import ServerConfig, create_app
 from beacon.testing import dataset
+from conftest import submit_backtest
 
 TOKEN = "test-token-value"
 INDEX_ID = "canon"
 INDEX_NAME = "Canonical Index"
+# The stored strategy that holds it, whose run a factsheet describes (BN-313).
+STRATEGY_NAME = "Canonical Strategy"
 FACTSHEET = "FACTSHEET-A4"
 
 START = "2023-01-02"
@@ -74,8 +77,11 @@ def client(storage):
 
     with TestClient(create_app(config), raise_server_exceptions=False) as started:
         started.put(f"/indices/{INDEX_ID}", json=index_document(), headers=auth())
-        started.post(f"/beacon/{INDEX_ID}/backtest",
-                     json={"start": START, "end": END}, headers=auth())
+        submit_backtest(started,
+                        INDEX_ID,
+                        {"start": START, "end": END},
+                        auth(),
+                        name=STRATEGY_NAME)
         started.portal.call(started.app.state.jobs.drain)
 
         yield started
@@ -207,16 +213,17 @@ class TestFactsheet:
     @pytest.fixture(scope="class")
     def rendered(self,
                  client):
-        return render(client, {"template_id": FACTSHEET, "index_id": INDEX_ID})
+        return render(client, {"template_id": FACTSHEET, "strategy_id": INDEX_ID})
 
     def test_it_renders(self,
                         rendered):
         assert rendered["template_id"] == FACTSHEET
         assert rendered["bytes"] > 0
 
-    def test_it_names_the_index(self,
-                                rendered):
-        assert INDEX_NAME in rendered["name"]
+    def test_it_names_the_strategy(self,
+                                   rendered):
+        assert STRATEGY_NAME in rendered["name"]
+        assert rendered["strategy_id"] == INDEX_ID
 
     def test_it_has_the_mock_s_structure(self,
                                          rendered):
@@ -246,8 +253,8 @@ class TestFactsheet:
     def test_two_renders_of_one_run_are_identical(self,
                                                   client):
         """Determinism carries through the endpoint, not only the renderer."""
-        first = render(client, {"template_id": FACTSHEET, "index_id": INDEX_ID})
-        second = render(client, {"template_id": FACTSHEET, "index_id": INDEX_ID})
+        first = render(client, {"template_id": FACTSHEET, "strategy_id": INDEX_ID})
+        second = render(client, {"template_id": FACTSHEET, "strategy_id": INDEX_ID})
 
         first_bytes = client.get(f"/reports/renders/{first['render_id']}",
                                  headers=auth()).content
@@ -256,8 +263,8 @@ class TestFactsheet:
 
         assert first_bytes == second_bytes
 
-    def test_a_built_in_needs_an_index(self,
-                                       client):
+    def test_a_built_in_needs_a_strategy(self,
+                                         client):
         """It is generated from a run, so there is nothing to generate without
         one."""
         response = client.post("/reports/render",
@@ -265,11 +272,25 @@ class TestFactsheet:
 
         assert response.status_code == 404
 
-    def test_an_index_without_a_backtest_is_a_404(self,
-                                                  client):
+    def test_a_strategy_without_a_backtest_is_a_404(self,
+                                                    client):
+        client.put("/strategies/never-run",
+                   json={"id": "never-run", "name": "Never run", "index_id": INDEX_ID},
+                   headers=auth())
+
         response = client.post("/reports/render",
                                json={"template_id": FACTSHEET,
-                                     "index_id": "never-run"},
+                                     "strategy_id": "never-run"},
+                               headers=auth())
+
+        assert response.status_code == 404
+        assert "backtest" in response.json()["error"]["message"]
+
+    def test_an_unknown_strategy_is_a_404(self,
+                                          client):
+        response = client.post("/reports/render",
+                               json={"template_id": FACTSHEET,
+                                     "strategy_id": "never-stored"},
                                headers=auth())
 
         assert response.status_code == 404
@@ -277,16 +298,20 @@ class TestFactsheet:
     def test_a_run_without_composition_is_refused(self,
                                                   client):
         """A factsheet without holdings is not a factsheet."""
+        client.put("/strategies/legacy",
+                   json={"id": "legacy", "name": "Legacy", "index_id": INDEX_ID},
+                   headers=auth())
         client.app.state.jobs._results.write(
             "legacy",
-            {"job_id": "legacy", "kind": "backtest:legacy-index",
+            {"job_id": "legacy", "kind": "backtest:legacy",
              "status": "succeeded", "completed_at": "2020-01-01T00:00:00+00:00",
              "result": {"level": {"index": [], "data": []},
-                        "metrics": {"total_return": 0.1}}})
+                        "metrics": {"total_return": 0.1},
+                        "settings": {"strategy_id": "legacy"}}})
 
         response = client.post("/reports/render",
                                json={"template_id": FACTSHEET,
-                                     "index_id": "legacy-index"},
+                                     "strategy_id": "legacy"},
                                headers=auth())
 
         assert response.status_code == 404
@@ -354,12 +379,12 @@ class TestRenderingAStoredTemplate:
         assert result["blocks"] == 4
         assert result["name"] == "Custom page"
 
-    def test_an_index_id_is_ignored_for_a_stored_template(self,
-                                                          client):
+    def test_a_strategy_id_is_ignored_for_a_stored_template(self,
+                                                            client):
         client.put("/reports/templates/ignores", json=template_document("ignores"),
                    headers=auth())
 
-        result = render(client, {"template_id": "ignores", "index_id": INDEX_ID})
+        result = render(client, {"template_id": "ignores", "strategy_id": INDEX_ID})
 
         assert result["name"] == "Custom page"
 

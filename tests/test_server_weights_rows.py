@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 
 from beacon.server import ServerConfig, create_app
 from beacon.testing import dataset
+from conftest import submit_backtest
 
 TOKEN = "test-token-value"
 INDEX_ID = "capped"
@@ -76,10 +77,11 @@ def client():
             for index_id, cap in ((INDEX_ID, CAP), (FLAT_ID, None)):
                 started.put(f"/indices/{index_id}",
                             json=definition(index_id, cap), headers=auth())
-                started.post(f"/beacon/{index_id}/backtest",
-                             json={"start": START, "end": END,
-                                   "transaction_cost_bps": 10.0},
-                             headers=auth())
+                submit_backtest(started,
+                                index_id,
+                                {"start": START, "end": END,
+                                 "transaction_cost_bps": 10.0},
+                                auth())
 
             started.portal.call(started.app.state.jobs.drain)
 
@@ -90,7 +92,7 @@ def weights(client: TestClient,
             index_id: str = INDEX_ID,
             **params) -> dict:
     """GET the weights pane."""
-    response = client.get(f"/beacon/{index_id}/weights", params=params,
+    response = client.get(f"/strategies/{index_id}/weights", params=params,
                           headers=auth())
 
     assert response.status_code == 200, response.text
@@ -288,7 +290,7 @@ class TestAssetDrilldown:
     """Raw alongside applied, per rebalance."""
 
     def _asset(self, client, identifier):
-        response = client.get(f"/beacon/{INDEX_ID}/assets/{identifier}",
+        response = client.get(f"/strategies/{INDEX_ID}/assets/{identifier}",
                               headers=auth())
 
         assert response.status_code == 200, response.text
@@ -326,7 +328,7 @@ class TestAssetDrilldown:
 
     def test_an_uncapped_index_has_matching_histories(self, client):
         identifier = weights(client, FLAT_ID)["rows"][0]["identifier"]
-        response = client.get(f"/beacon/{FLAT_ID}/assets/{identifier}",
+        response = client.get(f"/strategies/{FLAT_ID}/assets/{identifier}",
                               headers=auth())
         payload = response.json()
 

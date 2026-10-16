@@ -39,6 +39,7 @@ not be, and labelling one as such would be worse than not having it.
 """
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -181,11 +182,26 @@ def _momentum(prices: pd.DataFrame) -> pd.Series:
     return (recent / earlier - 1.0).astype(float)
 
 
+@dataclass(frozen=True)
+class OptimisationTarget:
+    """The weights an optimisation solves for, and where they came from.
+
+    Attributes:
+        index_id: The index targeted, or the one the targeted strategy holds.
+        date: The rebalance the weights were in force from, YYYY-MM-DD.
+        weights: The target's weights.
+    """
+    # BN-313: an index's weights, calculated, or a strategy's, from its run.
+    index_id: str
+    date: str
+    weights: dict[str, float]
+
+
 def build_optimisation_job(run_id: str,
                            request: OptimisationRunRequest,
                            constraint_set: ConstraintSet,
                            constraints: list[Any],
-                           target_weights: dict[str, float],
+                           target: OptimisationTarget,
                            label_for: dict[str, str],
                            fetcher: DataFetcher,
                            currency: str
@@ -193,12 +209,15 @@ def build_optimisation_job(run_id: str,
                                          Awaitable[dict[str, Any]]]:
     """Build the coroutine that runs an optimisation.
 
+    Args:
+        target: The weights solved for, and where they came from.
+
     Returns:
         A coroutine function suitable for JobRegistry.submit.
     """
     async def run(report: ProgressReporter) -> dict[str, Any]:
         await report(0.1, "Loading constituent prices.")
-        identifiers = sorted(target_weights)
+        identifiers = sorted(target.weights)
         prices = constituent_prices(fetcher, identifiers, request.start,
                                     request.end, currency)
 
@@ -207,11 +226,11 @@ def build_optimisation_job(run_id: str,
         risk_model = estimate_risk_model(returns, intensity=SHRINKAGE)
 
         await report(0.6, "Solving.")
-        result = minimise_tracking_error(target_weights, constraints, risk_model)
+        result = minimise_tracking_error(target.weights, constraints, risk_model)
 
         await report(0.85, "Assembling the result.")
         payload = assemble_optimisation(run_id, request, constraint_set,
-                                        result, target_weights, label_for,
+                                        result, target, label_for,
                                         prices, risk_model, fetcher,
                                         currency)
 
@@ -226,7 +245,7 @@ def assemble_optimisation(run_id: str,
                           request: OptimisationRunRequest,
                           constraint_set: ConstraintSet,
                           result: Any,
-                          target_weights: dict[str, float],
+                          target: OptimisationTarget,
                           label_for: dict[str, str],
                           prices: pd.DataFrame,
                           risk_model: Any,
@@ -242,7 +261,7 @@ def assemble_optimisation(run_id: str,
     active = result.active_weights
 
     rows = [WeightRow(asset_id=str(name),
-                      index_weight=float(target_weights.get(str(name), 0.0)),
+                      target_weight=float(target.weights.get(str(name), 0.0)),
                       optimal_weight=float(weights[name]),
                       active_weight=float(active[name]))
             for name in weights.index]
@@ -250,7 +269,9 @@ def assemble_optimisation(run_id: str,
 
     return OptimisationRunResult(
         run_id=run_id,
-        index_id=request.index_id,
+        index_id=target.index_id,
+        strategy_id=request.strategy_id,
+        target_date=target.date,
         constraint_set_id=constraint_set.id,
         currency=currency,
         start=str(prices.index[0].date()),
@@ -326,7 +347,9 @@ def build_exposures(run: dict[str, Any],
     model = fit_factor_model(returns, exposures)
 
     optimal = {row["asset_id"]: row["optimal_weight"] for row in run["weights"]}
-    index = {row["asset_id"]: row["index_weight"] for row in run["weights"]}
+    # A run saved before BN-313 called the target's weight `index_weight`.
+    index = {row["asset_id"]: row.get("target_weight", row.get("index_weight"))
+             for row in run["weights"]}
 
     decomposition = model.decompose_active_risk(optimal, index)
 
@@ -353,31 +376,3 @@ def _exposure_rows(exposures: pd.Series) -> list[FactorExposure]:
     """A factor exposure series on the wire."""
     return [FactorExposure(factor=str(name), exposure=float(value))
             for name, value in exposures.items()]
-
-
-def target_weights_from(run: dict[str, Any],
-                        as_of: str | None) -> dict[str, float]:
-    """The index weights an optimisation is measured against.
-
-    Reads the rebalance in force on *as_of* from a stored backtest, so the
-    optimiser and the weights pane agree about what the index held.
-    """
-    snapshots = run.get("rebalances")
-    if not snapshots:
-        raise DataNotFoundError(
-            "rebalance snapshots on this run",
-            source="the run predates composition being stored; re-run the backtest")
-
-    if as_of is None:
-        return dict(snapshots[-1]["weights"])
-
-    date = pd.Timestamp(as_of)
-    eligible = [entry for entry in snapshots
-                if pd.Timestamp(entry["date"]) <= date]
-
-    if not eligible:
-        raise DataNotFoundError(
-            f"a rebalance on or before {date.date()}",
-            source=f"the first rebalance is {snapshots[0]['date']}")
-
-    return dict(eligible[-1]["weights"])

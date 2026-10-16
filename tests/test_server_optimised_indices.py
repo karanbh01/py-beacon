@@ -6,8 +6,6 @@ and coherent on its own: everything here is about the *second* face of an index
 document — the one whose methodology is a derivation rather than a pipeline.
 """
 import copy
-import uuid
-from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
@@ -22,6 +20,7 @@ from beacon.server import ServerConfig, create_app
 from beacon.server import definitions as definitions_module
 from beacon.server.definitions import build_definition
 from beacon.server.schemas import IndexDocument
+from conftest import submit_backtest
 
 TOKEN = "test-token-value"
 
@@ -119,23 +118,6 @@ def optimise_body(index_id: str = CHILD_ID,
 def findings_from(response) -> list[dict]:
     """Pull the findings out of a rejected save."""
     return response.json()["error"]["detail"]["findings"]
-
-
-def persist_result(registry,
-                   kind,
-                   result) -> None:
-    """Write a succeeded result the way a finished job would."""
-    job_id = str(uuid.uuid4())
-    registry._results.write(job_id, {
-        "job_id": job_id,
-        "kind": kind,
-        "status": "succeeded",
-        "progress": 1.0,
-        "message": "done",
-        "result": result,
-        "error": None,
-        "completed_at": datetime.now(UTC).isoformat(),
-    })
 
 
 @pytest.fixture
@@ -613,25 +595,6 @@ class TestTheDeleteCascades:
             PARENT_ID, CHILD_ID]
         assert body["deleted"][1]["derived_from"] == PARENT_ID
 
-    def test_the_child_s_records_and_results_go_with_it(self,
-                                                        client):
-        client.post(f"/indices/{PARENT_ID}/optimise",
-                    json=optimise_body(), headers=auth())
-        registry = client.app.state.jobs
-        records = client.app.state.backtest_record_store
-
-        for index_id in (PARENT_ID, CHILD_ID):
-            persist_result(registry, f"backtest:{index_id}", {"level": [100.0]})
-            records.write(index_id, {"metrics": {}})
-
-        body = client.delete(f"/indices/{PARENT_ID}", headers=auth()).json()
-
-        assert registry.latest_result(f"backtest:{CHILD_ID}") is None
-        assert records.read(CHILD_ID) is None
-        assert all(entry["backtest_record_deleted"] for entry in body["deleted"])
-        assert all(entry["backtest_results_deleted"] == 1
-                   for entry in body["deleted"])
-
     def test_a_two_level_chain_goes_entirely(self,
                                              client):
         client.post(f"/indices/{PARENT_ID}/optimise",
@@ -688,9 +651,10 @@ def backtested(tmp_path_factory):
                                json=optimise_body(), headers=auth())
         assert derived.status_code == 200, derived.text
 
-        submitted = entered.post(f"/beacon/{CHILD_ID}/backtest",
-                                 json={"start": START, "end": END},
-                                 headers=auth())
+        submitted = submit_backtest(entered,
+                                    CHILD_ID,
+                                    {"start": START, "end": END},
+                                    auth())
         assert submitted.status_code == 202, submitted.text
 
         entered.portal.call(entered.app.state.jobs.drain)
@@ -703,11 +667,11 @@ def backtested(tmp_path_factory):
 
 
 class TestBacktestingAnOptimisedIndex:
-    """The acceptance criterion: it just works through the existing route."""
+    """The acceptance criterion: a strategy holding it backtests like any other."""
 
     def test_the_record_carries_both_books(self,
                                            backtested):
-        record = backtested.get(f"/beacon/{CHILD_ID}/record",
+        record = backtested.get(f"/strategies/{CHILD_ID}/record",
                                 headers=auth()).json()
 
         assert record["index"]["target"] is not None
@@ -718,7 +682,7 @@ class TestBacktestingAnOptimisedIndex:
         """`index.target` vs `index.optimised` is "what did the constraints
         cost?" — the child solves at the parent's snapshots, so the two books
         run over the same days and must not be the same numbers."""
-        record = backtested.get(f"/beacon/{CHILD_ID}/record",
+        record = backtested.get(f"/strategies/{CHILD_ID}/record",
                                 headers=auth()).json()
 
         target = record["index"]["target"]["levels"]
@@ -731,7 +695,7 @@ class TestBacktestingAnOptimisedIndex:
     def test_no_weight_exceeds_the_position_cap(self,
                                                 backtested):
         """The solve is what the record reports, not a claim about it."""
-        weights = backtested.get(f"/beacon/{CHILD_ID}/weights",
+        weights = backtested.get(f"/strategies/{CHILD_ID}/weights",
                                  headers=auth()).json()
 
         assert weights["weights"], "the run published no weights"
@@ -746,7 +710,7 @@ class TestBacktestingAnOptimisedIndex:
         the parent's own, so "what did the constraints cost?" is answerable
         from the durable record — at every rebalance, as preview answers it for
         one date."""
-        record = backtested.get(f"/beacon/{CHILD_ID}/record",
+        record = backtested.get(f"/strategies/{CHILD_ID}/record",
                                 headers=auth()).json()
 
         target = record["index"]["target"]["rebalances"]
@@ -772,7 +736,7 @@ class TestBacktestingAnOptimisedIndex:
 
         payload = backtested.get(f"/jobs/{child[0]['job_id']}",
                                  headers=auth()).json()["result"]
-        record = backtested.get(f"/beacon/{CHILD_ID}/record",
+        record = backtested.get(f"/strategies/{CHILD_ID}/record",
                                 headers=auth()).json()
 
         assert record["index"]["optimised"]["rebalances"] == payload["rebalances"]
@@ -780,14 +744,15 @@ class TestBacktestingAnOptimisedIndex:
     def test_the_parent_backtests_independently(self,
                                                 backtested):
         """The parent stays first-class: it is referenced, not consumed."""
-        submitted = backtested.post(f"/beacon/{PARENT_ID}/backtest",
-                                    json={"start": START, "end": END},
-                                    headers=auth())
+        submitted = submit_backtest(backtested,
+                                    PARENT_ID,
+                                    {"start": START, "end": END},
+                                    auth())
         assert submitted.status_code == 202, submitted.text
 
         backtested.portal.call(backtested.app.state.jobs.drain)
 
-        record = backtested.get(f"/beacon/{PARENT_ID}/record",
+        record = backtested.get(f"/strategies/{PARENT_ID}/record",
                                 headers=auth()).json()
 
         assert record["index"]["target"] is not None
@@ -807,11 +772,11 @@ class TestAnOptimisedIndexAsABenchmark:
                                                                     backtested):
         """The comparison the whole feature exists to make — what did the
         constraints cost? — asked the way a client asks it."""
-        submitted = backtested.post(
-            f"/beacon/{PARENT_ID}/backtest",
-            json={"start": START, "end": END,
-                  "benchmark": {"kind": "index", "id": CHILD_ID}},
-            headers=auth())
+        submitted = submit_backtest(backtested,
+                                    PARENT_ID,
+                                    {"start": START, "end": END,
+                                     "benchmark": {"kind": "index", "id": CHILD_ID}},
+                                    auth())
 
         assert submitted.status_code == 202, submitted.text
 
@@ -830,11 +795,11 @@ class TestAnOptimisedIndexAsABenchmark:
     def test_an_unknown_benchmark_index_still_404s(self,
                                                    backtested):
         """The widened resolution must not widen into accepting nothing."""
-        submitted = backtested.post(
-            f"/beacon/{PARENT_ID}/backtest",
-            json={"start": START, "end": END,
-                  "benchmark": {"kind": "index", "id": "NEVER-EXISTED"}},
-            headers=auth())
+        submitted = submit_backtest(backtested,
+                                    PARENT_ID,
+                                    {"start": START, "end": END,
+                                     "benchmark": {"kind": "index", "id": "NEVER-EXISTED"}},
+                                    auth())
 
         assert submitted.status_code == 202, submitted.text
 

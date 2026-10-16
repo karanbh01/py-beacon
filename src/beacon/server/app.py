@@ -29,7 +29,6 @@ from .jobs import JobRegistry  # noqa: E402
 from .methods import LiteralPathMethods  # noqa: E402
 from .routers import (  # noqa: E402
     build_backtest_router,
-    build_beacon_router,
     build_coverage_router,
     build_data_router,
     build_derivatives_router,
@@ -43,6 +42,7 @@ from .routers import (  # noqa: E402
     build_risk_router,
     build_stores_router,
     build_strategies_router,
+    build_strategy_runs_router,
     build_synthetic_router,
     build_universes_router,
     build_watchlists_router,
@@ -213,13 +213,13 @@ def create_app(config: ServerConfig) -> FastAPI:
     app.state.index_store = DocumentStore("indices", root=config.storage_root)
     # Beside the index definitions they hold (BN-312).
     app.state.strategy_store = DocumentStore("strategies", root=config.storage_root)
-    # One record per index: the nested BacktestResultSummary of its latest
-    # run, written by the backtest job and served by /beacon/{id}/record
-    # (BN-158). Kept beside the job registry's run payloads because the
-    # library BacktestResult exists only inside the job -- the record must be
-    # captured at completion, not recomputed later.
+    # One record per stored strategy: the nested BacktestResultSummary of its
+    # latest run, written by the backtest job and served by
+    # /strategies/{id}/record. A collection of its own since runs are kept per
+    # strategy (BN-313): the records filed under index ids before it are not
+    # read, so none is taken for a strategy of the same name.
     app.state.backtest_record_store = DocumentStore(
-        "backtest_records", root=config.storage_root)
+        "strategy_backtest_records", root=config.storage_root)
 
     # A dataset with no universe document is a dataset the editor cannot
     # select from, so one covering everything is written as soon as data is
@@ -285,6 +285,9 @@ def create_app(config: ServerConfig) -> FastAPI:
                    build_coverage_router(),
                    build_universes_router(),
                    build_indices_router(),
+                   # Before the strategies router: /strategies/compare and
+                   # /strategies/runs are not strategy ids.
+                   build_strategy_runs_router(),
                    build_strategies_router(),
                    build_jobs_router(),
                    build_optimise_router(),
@@ -295,7 +298,6 @@ def create_app(config: ServerConfig) -> FastAPI:
                    build_importing_router(),
                    build_reports_router(),
                    build_derivatives_router(),
-                   build_beacon_router(),
                    build_backtest_router()):
         app.include_router(router, dependencies=guard, responses=ERROR_RESPONSES)
 

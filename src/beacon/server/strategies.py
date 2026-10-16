@@ -11,7 +11,7 @@ about what is valid.
 from typing import Any
 
 from .backtest_settings import build as build_settings
-from .documents import read_collection, stored, validated
+from .documents import load_document, read_collection, stored, validated
 from .schemas import BacktestRequest, Finding, IndexDocument
 from .store import SCHEMA_VERSION_KEY, DocumentStore
 from .strategy_schemas import (
@@ -34,6 +34,12 @@ def read_strategy(document_id: str,
     fields = {key: value for key, value in document.items() if key != SCHEMA_VERSION_KEY}
 
     return StrategyDocument.model_validate(fields)
+
+
+def load_strategy(strategies: DocumentStore,
+                  strategy_id: str) -> StrategyDocument:
+    """A stored strategy, or not-found: absent and unreadable alike."""
+    return load_document(strategies, strategy_id, read_strategy, f"strategy '{strategy_id}'")
 
 
 def problem_of(document: StrategyDocument,

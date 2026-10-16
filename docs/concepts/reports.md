@@ -150,7 +150,7 @@ content from the report without saying so.
 The API server stores templates under `/reports/templates` and renders them
 as a job through `POST /reports/render`, with the PDF downloaded from
 `GET /reports/renders/{render_id}`. It also offers a built-in `FACTSHEET-A4`
-template generated from an index's latest run. See the
+template generated from a stored strategy's latest run. See the
 [Server guide](../server.md).
 
 ## Excel reports

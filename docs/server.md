@@ -95,8 +95,7 @@ A client needs three things from startup (the full sequence is in
 | `/data/watchlists` | Saved lists of identifiers. |
 | `/universes` | Saved universes: the pools of names an index selects from, and their members on a date. A `GLOBAL` universe covering the loaded data is kept up to date automatically and cannot be edited. |
 | `/indices` | Index definitions: save, validate, preview, the rebalance schedule, the rule types and calendars an editor can offer, deriving an optimised index from a saved one, and an index's level calculated on its own (`GET /indices/{id}/level`). |
-| `/strategies` | Stored strategies: what a backtest holds and how it trades. List, read, save, check without saving, and delete. See [Stored strategies](#stored-strategies). |
-| `/beacon` | Running a backtest of a saved index (a job), checking a backtest request without running it, and reading the results: the latest record, overview, weights, attribution, one asset, and a comparison of several indices. |
+| `/strategies` | Stored strategies: what a backtest holds and how it trades. List, read, save, check without saving, and delete; backtest one (a job), check a backtest request without running it, and read the results of its latest run: the record, overview, weights, attribution, one asset, a comparison of several strategies, and every strategy's latest run. See [Stored strategies](#stored-strategies) and [Backtest requests](#backtest-requests). |
 | `/backtest/options` | Everything a backtest request may carry: each family's types and fields, the vehicle presets, and the modelling assumptions with their defaults. See [Backtest requests](#backtest-requests). |
 | `/optimise` | Constraint sets, and optimisation runs (a job) with their frontier and exposures. |
 | `/risk-models` | Estimating a risk model (a job) and reading the estimated models. |
@@ -111,21 +110,22 @@ without data.
 
 ## Backtest requests
 
-`POST /beacon/{index_id}/backtest` takes the dates, the initial capital and
-the trading cost, and, optionally, every other part of a
+Every backtest runs a [stored strategy](#stored-strategies), which holds what
+is held, the index it is measured against and how it trades.
+`POST /strategies/{id}/backtest` takes the rest: the dates, the initial
+capital and the trading cost, and, optionally, every other part of a
 [backtest](concepts/backtest.md):
 
 | Field | What it says |
 | --- | --- |
-| `strategy` | What is held: `{"type": "index"}` (the default), `{"type": "index_tracking", "replication": {...}}`, or `{"type": "active", "signal": {...}, "construction": {...}, "constraints": [...]}`. The path's index is the one tracked, or an active strategy's benchmark. See [Strategies](concepts/strategies.md). |
-| `implementation` | Screens, capacity caps, a minimum position, market impact, execution limits, the redistribution rule, a cash buffer and what inflows buy. |
 | `flows` | Money arriving and leaving, as a list of scenarios. |
 | `vehicle` | A preset (`uk_oeic`, `ucits_etf`, ..., or null for the generic vehicle) and the settings to change. See [Fund vehicles and pricing](concepts/fund-vehicles.md). |
 | `modelling_assumptions` | What the run takes as given; each unset field takes the engine's default. |
 | `dividends`, `currency` | The dividend policy, and the book's currency. |
 
 A request without them runs exactly as one with only the dates, capital and
-cost. Configurable objects use one shape, `{"type": ..., "params": {...}}`,
+cost. A body carrying `strategy` or `implementation` is refused: those are
+the stored strategy's. Configurable objects use one shape, `{"type": ..., "params": {...}}`,
 and `GET /backtest/options` lists every type with its fields: their types,
 defaults, choices, units (`fraction` is shown as a percentage, `money` is in
 the book's currency) and bounds. It needs no data.
@@ -139,15 +139,25 @@ exchange-traded vehicles say so in `applies_to` and are refused on any other.
 A request whose settings cannot be built is refused with 422
 `INVALID_RULE` before any job starts, with a finding for each problem at its
 field's path, such as `vehicle.settings.pricing.params.threshold`.
-`POST /beacon/{index_id}/backtest/validate` takes the same body and answers
+`POST /strategies/{id}/backtest/validate` takes the same body and answers
 the fully resolved settings, or the findings, without running anything.
 
-The run's result carries its resolved `settings`, and, as the run uses them,
+The run's result carries its resolved `settings`, starting with the
+`strategy_id`, `strategy_name` and `index_id` it ran, and, as the run uses them,
 `nav_per_unit`, `units` and the `flows` ledger, an ETF's `market` quotes, the
 `replication` or `active` record of each rebalance, the implementation's
 `rebalance_steps` and the `unfilled` orders. `nav_per_unit`, `units` and every
 `market` series share `level`'s dates; with flows, `level` is NAV per unit,
 so a flow is not drawn as a gain.
+
+Runs are kept per strategy, so two strategies on one index each keep their
+own. `GET /strategies/{id}/overview`, `/record`, `/weights`, `/attribution`
+and `/assets/{identifier}` read the strategy's latest run, and answer 404
+until it has one. Each names the strategy and the index it holds.
+`GET /strategies/compare?ids=a&ids=b` puts several strategies' latest runs on
+one axis, and `GET /strategies/runs` lists every strategy's latest saved run,
+newest first. A strategy's weights view takes `benchmark`, an index to
+measure tracking error against, which is calculated on its own.
 
 ## An index on its own
 
@@ -201,7 +211,20 @@ the index is stored but cannot be read. It is null otherwise.
 An index a strategy holds cannot be deleted: `DELETE /indices/{id}` answers
 409 `IN_USE`, with the strategies in `detail.used_by`. The same goes for an
 index whose optimised child a strategy holds, since the delete would take the
-child with it.
+child with it. Deleting a strategy removes its runs with it, and the response
+says how many went.
+
+An optimisation run (`POST /optimise/runs`) solves for a target's weights on a
+rebalance date, and the target is an index or a strategy, exactly one of
+`index_id` and `strategy_id`. An index's weights are calculated, so it needs
+no backtest. A strategy's are what its latest run chose at that rebalance:
+the index's for a strategy that holds its index, the replication's for a
+tracker, the construction's for an active strategy. Each row of the result
+gives the `target_weight`, and the result names its target and
+`target_date`. A risk model without `identifiers` takes its names from an
+`index_id`, calculated, or from what a `strategy_id`'s latest run held. A
+built-in report template, such as the factsheet, is generated from a
+`strategy_id`'s latest run and named after the strategy.
 
 ## Jobs
 
@@ -211,7 +234,7 @@ engine.
 
 | Job kind | Started by | Result |
 | --- | --- | --- |
-| `backtest:{index_id}` | `POST /beacon/{index_id}/backtest` | The backtest run. |
+| `backtest:{strategy_id}` | `POST /strategies/{strategy_id}/backtest` | The backtest run. |
 | `optimise:{run_id}` | `POST /optimise/runs` | The solved portfolio. |
 | `risk:{model_id}` | `POST /risk-models/{model_id}/estimate` | The estimated model. |
 | `render:{render_id}` | `POST /reports/render` | Where the PDF is; download it from `GET /reports/renders/{render_id}`. |
@@ -246,18 +269,18 @@ Finished jobs are saved under `--documents`, so `GET /jobs/{job_id}` still
 answers after the engine restarts. A job still running when the engine
 stops is lost.
 
-Some endpoints read their answers from saved job results: an index's
+Some endpoints read their answers from saved job results: a strategy's
 overview, weights, attribution, asset and compare views (from its latest
 backtest), `/optimise/runs/{run_id}/...`, and `/risk-models`. An optimisation
-run also needs a saved backtest of its index. The result each of these reads
-is always kept: the latest successful backtest of each index, every
-successful optimisation run, and the latest estimate of each risk model. A
-backtest's result goes when its index is deleted or a newer backtest
-replaces it.
+run or a risk model aimed at a strategy reads its latest backtest too. The
+result each of these reads is always kept: the latest successful backtest of
+each strategy, every successful optimisation run, and the latest estimate of
+each risk model. A backtest's result goes when its strategy is deleted or a
+newer backtest replaces it.
 
 Of the other finished jobs, the engine keeps the 50 most recent and deletes
-older ones. `/beacon/{index_id}/record` and `/beacon/backtests` read a record
-kept per index, which the limit does not touch.
+older ones. `/strategies/{id}/record` and `/strategies/runs` read a record
+kept per strategy, which the limit does not touch.
 
 ## Events
 
@@ -413,7 +436,7 @@ print(answer.headers["Allow"], answer.json()["error"]["message"])
 A listing of saved documents leaves out any document it cannot read rather
 than failing as a whole, and says how many it left out. This applies to
 `GET /indices`, `/universes`, `/data/watchlists`,
-`/strategies`, `/optimise/constraint-sets`, `/reports/templates`, `/beacon/backtests`,
+`/strategies`, `/strategies/runs`, `/optimise/constraint-sets`, `/reports/templates`,
 `/jobs` and `/data/stores`.
 
 Each carries `skipped`, the number left out, and `skipped_causes`, the same

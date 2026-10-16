@@ -290,7 +290,7 @@ class JobRegistry:
 
         The *query* half of this registry's store access (BN-178).
         `latest_result` and `latest_results_by_kind` answer read endpoints —
-        `/beacon/{id}/overview` and the risk views — so one corrupt result must
+        `/strategies/{id}/overview` and the risk views — so one corrupt result must
         cost those endpoints that result, not the endpoint. Before this, a
         single truncated file in the results collection 500d every one of them.
 

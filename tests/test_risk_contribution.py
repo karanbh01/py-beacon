@@ -26,6 +26,7 @@ from beacon.risk.contribution import (
 )
 from beacon.server import ServerConfig, create_app
 from beacon.testing import dataset
+from conftest import submit_backtest
 
 TOKEN = "test-token-value"
 INDEX_ID = "risky"
@@ -201,7 +202,7 @@ class TestDegenerateInputs:
 
 
 class TestServedOnTheWeightsPane:
-    """`GET /beacon/{id}/weights?risk=true`."""
+    """`GET /strategies/{id}/weights?risk=true`."""
 
     @pytest.fixture(scope="class")
     def client(self):
@@ -225,16 +226,17 @@ class TestServedOnTheWeightsPane:
                                       "params": {}, "max_weight": None},
                         "treatment": {"corporate_actions": "ADJUST_DIVISOR"},
                     }}, headers=auth())
-                started.post(f"/beacon/{INDEX_ID}/backtest",
-                             json={"start": START, "end": END,
-                                   "transaction_cost_bps": 10.0},
-                             headers=auth())
+                submit_backtest(started,
+                                INDEX_ID,
+                                {"start": START, "end": END,
+                                 "transaction_cost_bps": 10.0},
+                                auth())
                 started.portal.call(started.app.state.jobs.drain)
 
                 yield started
 
     def weights(self, client, **params):
-        response = client.get(f"/beacon/{INDEX_ID}/weights", params=params,
+        response = client.get(f"/strategies/{INDEX_ID}/weights", params=params,
                               headers=auth())
 
         assert response.status_code == 200, response.text
@@ -416,17 +418,18 @@ class TestActiveRiskOnThePane:
                                           "params": {}, "max_weight": None},
                             "treatment": {"corporate_actions": "ADJUST_DIVISOR"},
                         }}, headers=auth())
-                    started.post(f"/beacon/{index_id}/backtest",
-                                 json={"start": START, "end": END,
-                                       "transaction_cost_bps": 10.0},
-                                 headers=auth())
+                    submit_backtest(started,
+                                    index_id,
+                                    {"start": START, "end": END,
+                                     "transaction_cost_bps": 10.0},
+                                    auth())
 
                 started.portal.call(started.app.state.jobs.drain)
 
                 yield started
 
     def weights(self, client, **params):
-        response = client.get("/beacon/active/weights", params=params,
+        response = client.get("/strategies/active/weights", params=params,
                               headers=auth())
 
         assert response.status_code == 200, response.text
@@ -488,7 +491,7 @@ class TestActiveRiskOnThePane:
         assert body["active_risk"] is None
 
     def test_an_unknown_benchmark_is_a_404(self, client):
-        response = client.get("/beacon/active/weights",
+        response = client.get("/strategies/active/weights",
                               params={"risk": "true", "benchmark": "nope"},
                               headers=auth())
 

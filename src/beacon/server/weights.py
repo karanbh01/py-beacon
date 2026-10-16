@@ -81,7 +81,8 @@ def concentration_of(weights: dict[str, float]) -> ConcentrationPayload:
         constituents=metrics.assets)
 
 
-def build_weights(index_id: str,
+def build_weights(strategy_id: str,
+                  index_id: str,
                   run: dict[str, Any],
                   as_of: str | None,
                   fetcher: DataFetcher,
@@ -92,7 +93,8 @@ def build_weights(index_id: str,
     """Composition at a date, with per-constituent rows, drift and cap flags.
 
     Args:
-        index_id: The index being read.
+        strategy_id: The strategy whose run is read.
+        index_id: The index it holds.
         run: The stored run, for context the snapshot does not carry.
         as_of: Date asked about; None means the latest rebalance.
         fetcher: Data source, for prices and shares outstanding.
@@ -118,6 +120,7 @@ def build_weights(index_id: str,
                                              benchmark_id, window, currency)
 
     return WeightsView(
+        strategy_id=strategy_id,
         index_id=index_id,
         as_of=as_of or snapshot.date,
         rebalance_date=snapshot.date,

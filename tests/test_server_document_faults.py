@@ -1,9 +1,10 @@
 # tests/test_server_document_faults.py
 """BN-174: what a listing and its detail route say about a document neither can read.
 
-Six pairs read six document stores. Four arrived with BN-174, which found them
-disagreeing in two different ways. `/beacon/backtests` skipped what it could not
-read while `/beacon/{id}/record` 500d on the same file, so a record could be
+Seven pairs read seven document stores. Four arrived with BN-174, which found
+them disagreeing in two different ways. The backtest listing (`/beacon/backtests`
+then, `/strategies/runs` since BN-313) skipped what it could not read while
+the record route 500d on the same file, so a record could be
 listed and then refused. `/indices`, `/universes` and `/optimise/constraint-sets`
 were consistent and brittle instead: one unreadable document 500d the ENTIRE
 listing, so the picker went blank and every other document became unreachable
@@ -16,8 +17,8 @@ property lived in a list of endpoints somebody had thought of. Where the
 *property* now lives so that a seventh pair cannot be missed is
 `test_server_listing_discovery.py`.
 
-The fix is one pattern applied to all six, so this is one parameterised matrix
-rather than six sets of near-identical tests — if a pair ever drifts, a row
+The fix is one pattern applied to all of them, so this is one parameterised
+matrix rather than seven sets of near-identical tests — if a pair ever drifts, a row
 here fails for that pair alone:
 
 | document state             | listing            | detail |
@@ -126,13 +127,13 @@ def template_document(document_id: str = GOOD) -> dict:
 
 
 def record_document(document_id: str = GOOD) -> dict:
-    """A valid stored backtest record.
+    """A valid stored backtest record of the strategy *document_id*.
 
     Assembled from the payload models rather than from a run: the subject is
     what the server does with a document, and a real backtest would cost a
-    calculation per test. The id is unused — a record is addressed by the index
-    it belongs to, and carries no id of its own, which is why the listing needs
-    the filename to build its row.
+    calculation per test. A record is filed under the strategy it belongs to,
+    and since BN-313 its settings say which strategy that is, which is what
+    the listing builds its row from.
     """
     return BacktestResultSummary(
         portfolio=PortfolioBookPayload(portfolio_id=document_id,
@@ -149,7 +150,15 @@ def record_document(document_id: str = GOOD) -> dict:
                                volatility=0.12,
                                sharpe_ratio=0.4,
                                max_drawdown=-0.08),
-        run_at="2025-01-01T00:00:00+00:00").model_dump(mode="json")
+        run_at="2025-01-01T00:00:00+00:00",
+        settings={"strategy_id": document_id, "strategy_name": document_id,
+                  "index_id": "tech", "strategy": {"type": "index"}}).model_dump(mode="json")
+
+
+def strategy_document(document_id: str = GOOD) -> dict:
+    """A valid stored strategy. Its index need not be stored: a strategy
+    whose index has gone still lists and reads, with a problem."""
+    return {"id": document_id, "name": f"Strategy {document_id}", "index_id": "tech"}
 
 
 # One row per listing/detail pair. `invalid` is a document that is valid JSON
@@ -181,15 +190,27 @@ PAIRS = [
                   "invalid": {"id": INVALID}},
                  id="constraint-sets"),
     pytest.param({"store": "backtest_record_store",
-                  "listing": "/beacon/backtests",
+                  "listing": "/strategies/runs",
                   "rows": "backtests",
-                  "detail": "/beacon/{id}/record",
-                  "row_id": "index_id",
+                  "detail": "/strategies/{id}/record",
+                  "row_id": "strategy_id",
+                  # A record is read through its strategy (BN-313), so each
+                  # detail read finds one stored.
+                  "parent": ("strategy_store", strategy_document),
                   "valid": record_document,
                   # The skeletal record from the issue, exactly: enough for the
                   # store, and nothing the record endpoint can serve.
                   "invalid": {"run_at": "2025-01-01T00:00:00+00:00"}},
                  id="backtest-records"),
+    # BN-312.
+    pytest.param({"store": "strategy_store",
+                  "listing": "/strategies",
+                  "rows": "strategies",
+                  "detail": "/strategies/{id}",
+                  "row_id": "id",
+                  "valid": strategy_document,
+                  "invalid": {"id": INVALID}},
+                 id="strategies"),
     # BN-178. The listing built its rows field by field off raw dicts, so a
     # document missing `name` raised KeyError -- which `UNREADABLE` does not
     # catch and could not have skipped. The row is built through the model now.
@@ -271,7 +292,11 @@ def listed_ids(body,
 def detail(client,
            pair,
            document_id: str):
-    """GET one document's detail route."""
+    """GET one document's detail route, with any parent it is read through."""
+    if "parent" in pair:
+        store, build = pair["parent"]
+        getattr(client.app.state, store).write(document_id, build(document_id))
+
     return client.get(pair["detail"].format(id=document_id), headers=HEADERS)
 
 
@@ -543,7 +568,7 @@ class TestTheJobsPair:
     def test_an_unreadable_result_does_not_take_out_the_overview(self,
                                                                  client):
         """`latest_result` is the caller that matters most: it backs
-        `/beacon/{id}/overview` and its siblings, so an unreadable result there
+        `/strategies/{id}/overview` and its siblings, so an unreadable result there
         used to 500 read endpoints that have nothing to do with jobs."""
         self.results(client).write("run", self.result_document("run"))
         (self.results(client).directory / "wreckage.json").write_text(

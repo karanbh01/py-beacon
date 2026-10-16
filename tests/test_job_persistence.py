@@ -343,7 +343,7 @@ class TestTheRegistrysOtherReadersOfTheSameCollection:
 
     def test_latest_result_skips_an_unreadable_result(self,
                                                       store):
-        """The caller with the widest blast radius: `/beacon/{id}/overview`,
+        """The caller with the widest blast radius: `/strategies/{id}/overview`,
         the compare view and the factsheet render all read through it, so one
         bad file used to 500 endpoints that are not about jobs at all."""
         store.write("good", result_document("good", "backtest:tech", "2025-01-01"))

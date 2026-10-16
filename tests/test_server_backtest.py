@@ -16,6 +16,7 @@ from beacon.server import ServerConfig, create_app
 from beacon.server.backtests import annual_returns
 from beacon.server.jobs import SUCCEEDED
 from beacon.server.schemas import MAX_REBALANCES, BacktestResultSummary
+from conftest import submit_backtest
 
 TOKEN = "test-token-value"
 # Spans a calendar-year boundary so the annual-return identity is exercised,
@@ -117,7 +118,7 @@ def module_client(tmp_path_factory):
 def run_backtest(client,
                  **body) -> dict:
     """Submit a backtest, wait for it, and return the job's result."""
-    response = client.post("/beacon/BT/backtest", json=body or {}, headers=auth())
+    response = submit_backtest(client, "BT", body, auth())
     assert response.status_code == 202, response.json()
     job_id = response.json()["job_id"]
 
@@ -139,16 +140,16 @@ class TestSubmission:
 
     def test_returns_a_job_immediately(self,
                                        client):
-        response = client.post("/beacon/BT/backtest", json={}, headers=auth())
+        response = submit_backtest(client, "BT", {}, auth())
 
         assert response.status_code == 202
         assert response.json()["kind"] == "backtest:BT"
         assert response.json()["job_id"]
 
-    def test_unknown_index_fails_before_a_job_is_created(self,
-                                                         client):
+    def test_unknown_strategy_fails_before_a_job_is_created(self,
+                                                            client):
         """Better a clean 404 than a job that fails a moment later."""
-        response = client.post("/beacon/ABSENT/backtest", json={}, headers=auth())
+        response = client.post("/strategies/ABSENT/backtest", json={}, headers=auth())
 
         assert response.status_code == 404
         assert client.get("/jobs", headers=auth()).json()["jobs"] == []
@@ -159,20 +160,18 @@ class TestSubmission:
         with TestClient(create_app(config), raise_server_exceptions=False) as bare:
             bare.post("/indices", json=index_document(), headers=auth())
 
-            response = bare.post("/beacon/BT/backtest", json={}, headers=auth())
+            response = submit_backtest(bare, "BT", {}, auth())
 
         assert response.status_code == 409
         assert response.json()["error"]["code"] == "NO_DATA_LOADED"
 
     def test_requires_authentication(self,
                                      client):
-        assert client.post("/beacon/BT/backtest", json={}).status_code == 401
+        assert client.post("/strategies/BT/backtest", json={}).status_code == 401
 
     def test_rejects_non_positive_capital(self,
                                           client):
-        response = client.post("/beacon/BT/backtest",
-                               json={"initial_capital": 0},
-                               headers=auth())
+        response = submit_backtest(client, "BT", {"initial_capital": 0}, auth())
 
         assert response.status_code == 422
 
@@ -321,7 +320,7 @@ class TestProgressOverTheSocket:
     def test_progress_frames_reach_a_subscriber(self,
                                                 client):
         with client.websocket_connect(f"/ws?token={TOKEN}") as socket:
-            client.post("/beacon/BT/backtest", json={}, headers=auth())
+            submit_backtest(client, "BT", {}, auth())
             # Let the job finish before reading. The socket subscribed before
             # submission, so every frame was published to its queue and is
             # waiting — this proves delivery without a receive that could
@@ -379,13 +378,13 @@ def record(module_client,
     Depends on `result` so the backtest has definitely completed before the
     record is read.
     """
-    response = module_client.get("/beacon/BT/record", headers=auth())
+    response = module_client.get("/strategies/BT/record", headers=auth())
     assert response.status_code == 200, response.text
     return response.json()
 
 
 class TestTheRecord:
-    """BN-158: `GET /beacon/{index_id}/record` — the books, finally served.
+    """BN-158: `GET /strategies/{strategy_id}/record` — the books, finally served.
 
     Found by the beacon-ui session after its BN-155 migration: the nested
     `BacktestResultSummary` was defined, exported and tested, but referenced
@@ -426,14 +425,14 @@ class TestTheRecord:
         assert record["benchmark"] is None
         assert "target_index" not in record
 
-    def test_a_never_backtested_index_404s_with_the_pointer(self,
-                                                            module_client):
+    def test_a_never_backtested_strategy_404s_with_the_pointer(self,
+                                                               module_client):
         created = module_client.post(
-            "/indices", json={**index_document(), "id": "NEVER-RUN",
-                              "name": "Never run"}, headers=auth())
+            "/strategies", json={"id": "NEVER-RUN", "name": "Never run",
+                                 "index_id": "BT"}, headers=auth())
         assert created.status_code == 200
 
-        response = module_client.get("/beacon/NEVER-RUN/record",
+        response = module_client.get("/strategies/NEVER-RUN/record",
                                      headers=auth())
 
         assert response.status_code == 404
@@ -441,7 +440,7 @@ class TestTheRecord:
 
     def test_it_requires_authentication(self,
                                         module_client):
-        assert module_client.get("/beacon/BT/record").status_code == 401
+        assert module_client.get("/strategies/BT/record").status_code == 401
 
     def test_the_route_is_in_the_spec(self,
                                       module_client):
@@ -449,21 +448,21 @@ class TestTheRecord:
         payload did. Now it must contain the path."""
         paths = module_client.get("/openapi.json").json()["paths"]
 
-        assert "/beacon/{index_id}/record" in paths
+        assert "/strategies/{strategy_id}/record" in paths
 
-    def test_deleting_the_index_deletes_the_record(self,
-                                                   module_client):
-        """BN-157's cascade extends to the record store, or the delete leaves
-        exactly the orphan it exists to prevent.
+    def test_deleting_the_strategy_deletes_the_record(self,
+                                                      module_client):
+        """The delete reaches the record store, or it leaves exactly the
+        orphan it exists to prevent. Runs belong to strategies since BN-313.
 
-        A dedicated index rather than the shared BT one: consuming the module
-        fixture's index would break sibling tests under randomised ordering.
+        A dedicated strategy rather than the shared BT one: consuming the
+        module fixture's would break sibling tests under randomised ordering.
         The record is seeded through the store the job writes to, which is
-        the layer the cascade must clean.
+        the layer the delete must clean.
         """
         created = module_client.post(
-            "/indices", json={**index_document(), "id": "DOOMED",
-                              "name": "Doomed"}, headers=auth())
+            "/strategies", json={"id": "DOOMED", "name": "Doomed",
+                                 "index_id": "BT"}, headers=auth())
         assert created.status_code == 200
 
         # A skeletal record: enough for the store, deliberately not enough
@@ -474,12 +473,12 @@ class TestTheRecord:
         records.write("DOOMED", {"portfolio": {"portfolio_id": "DOOMED"}})
         assert records.read("DOOMED") is not None
 
-        deleted = module_client.delete("/indices/DOOMED", headers=auth())
+        deleted = module_client.delete("/strategies/DOOMED", headers=auth())
         assert deleted.status_code == 200
-        assert deleted.json()["deleted"][0]["backtest_record_deleted"] is True
+        assert deleted.json()["backtest_record_deleted"] is True
 
         assert records.read("DOOMED") is None
-        response = module_client.get("/beacon/DOOMED/record", headers=auth())
+        response = module_client.get("/strategies/DOOMED/record", headers=auth())
 
         assert response.status_code == 404
 
@@ -640,22 +639,25 @@ class TestTheDecidedWeights:
         assert book["rebalances_total"] == 0
 
 
-def stamped_record(run_at) -> dict:
-    """A complete record, captured at a given moment.
+def stamped_record(strategy_id,
+                   run_at) -> dict:
+    """A complete record of a strategy's run, captured at a given moment.
 
     Complete rather than skeletal, which the seeded records here used to be.
     Since BN-174 the listing validates the whole record against the same model
     `/record` serves — that is what stops a row being offered and then refused —
     so a stub carrying only `run_at` is now a record the listing is right to
-    leave out.
+    leave out. Since BN-313 the record's settings say which strategy it is of.
     """
-    return {**built_record([pd.Timestamp(START)]), "run_at": run_at}
+    return {**built_record([pd.Timestamp(START)]), "run_at": run_at,
+            "settings": {"strategy_id": strategy_id, "strategy_name": strategy_id,
+                         "index_id": "BT", "strategy": {"type": "index"}}}
 
 
 class TestTheListing:
-    """BN-162: `GET /beacon/backtests` — which indices HAVE a record.
+    """BN-162: `GET /strategies/runs` — which indices HAVE a record.
 
-    The record endpoint answers per index, so a client wanting to offer
+    The record endpoint answers per strategy, so a client wanting to offer
     backtests as search results had no way to enumerate them. The listing is
     deliberately thin — id and capture time — because everything else is one
     `/record` call away, and names live in the catalogue the client already
@@ -668,7 +670,7 @@ class TestTheListing:
 
     def test_an_empty_store_lists_nothing(self,
                                           client):
-        response = client.get("/beacon/backtests", headers=auth())
+        response = client.get("/strategies/runs", headers=auth())
 
         assert response.status_code == 200
         assert response.json() == {"backtests": [],
@@ -684,8 +686,8 @@ class TestTheListing:
         3 days ago" is a row someone can judge, a flag is not."""
         from datetime import datetime
 
-        body = module_client.get("/beacon/backtests", headers=auth()).json()
-        ours = [row for row in body["backtests"] if row["index_id"] == "BT"]
+        body = module_client.get("/strategies/runs", headers=auth()).json()
+        ours = [row for row in body["backtests"] if row["strategy_id"] == "BT"]
 
         assert len(ours) == 1
         stamp = datetime.fromisoformat(ours[0]["run_at"])
@@ -698,14 +700,14 @@ class TestTheListing:
         function-scoped store: ordering is the subject, so the rows are
         arranged, not raced."""
         records = client.app.state.backtest_record_store
-        records.write("OLD", stamped_record("2020-01-01T00:00:00+00:00"))
-        records.write("NEW", stamped_record("2030-01-01T00:00:00+00:00"))
-        records.write("UNSTAMPED", stamped_record(None))
+        records.write("OLD", stamped_record("OLD", "2020-01-01T00:00:00+00:00"))
+        records.write("NEW", stamped_record("NEW", "2030-01-01T00:00:00+00:00"))
+        records.write("UNSTAMPED", stamped_record("UNSTAMPED", None))
 
-        body = client.get("/beacon/backtests", headers=auth()).json()
+        body = client.get("/strategies/runs", headers=auth()).json()
         rows = body["backtests"]
 
-        assert [row["index_id"] for row in rows] == ["NEW", "OLD", "UNSTAMPED"]
+        assert [row["strategy_id"] for row in rows] == ["NEW", "OLD", "UNSTAMPED"]
         assert rows[-1]["run_at"] is None
         assert body["skipped"] == 0
 
@@ -715,36 +717,38 @@ class TestTheListing:
         all its backtest rows to a single truncated write would report the
         store empty when it is merely imperfect."""
         records = client.app.state.backtest_record_store
-        records.write("GOOD", stamped_record("2025-01-01T00:00:00+00:00"))
+        records.write("GOOD", stamped_record("GOOD", "2025-01-01T00:00:00+00:00"))
         (records.directory / "BAD.json").write_text("{not json",
                                                     encoding="utf-8")
 
-        body = client.get("/beacon/backtests", headers=auth()).json()
+        body = client.get("/strategies/runs", headers=auth()).json()
 
-        assert [row["index_id"] for row in body["backtests"]] == ["GOOD"]
+        assert [row["strategy_id"] for row in body["backtests"]] == ["GOOD"]
         assert body["skipped"] == 1
 
-    def test_deleting_the_index_removes_the_row(self,
-                                                client):
-        """The acceptance case: the BN-157 cascade reaches the listing."""
+    def test_deleting_the_strategy_removes_the_row(self,
+                                                   client):
+        """The acceptance case: a strategy's delete reaches the listing."""
+        client.post("/strategies", json={"id": "BT", "name": "BT", "index_id": "BT"},
+                    headers=auth())
         records = client.app.state.backtest_record_store
-        records.write("BT", stamped_record("2025-01-01T00:00:00+00:00"))
+        records.write("BT", stamped_record("BT", "2025-01-01T00:00:00+00:00"))
 
-        deleted = client.delete("/indices/BT", headers=auth())
+        deleted = client.delete("/strategies/BT", headers=auth())
         assert deleted.status_code == 200
 
-        assert client.get("/beacon/backtests",
+        assert client.get("/strategies/runs",
                           headers=auth()).json()["backtests"] == []
 
     def test_it_requires_authentication(self,
                                         client):
-        assert client.get("/beacon/backtests").status_code == 401
+        assert client.get("/strategies/runs").status_code == 401
 
     def test_the_route_is_in_the_spec(self,
                                       client):
         paths = client.get("/openapi.json").json()["paths"]
 
-        assert "/beacon/backtests" in paths
+        assert "/strategies/runs" in paths
 
 
 class TestANarrowedCalendarReachesTheClient:
@@ -800,10 +804,10 @@ class TestANarrowedCalendarReachesTheClient:
             assert created.status_code == 200, created.json()
 
             run_backtest(client,
-                         start_date="1996-01-02",
-                         end_date="1998-12-31")
+                         start="1996-01-02",
+                         end="1998-12-31")
 
-            response = client.get("/beacon/BT/record", headers=auth())
+            response = client.get("/strategies/BT/record", headers=auth())
             assert response.status_code == 200, response.json()
 
             return response.json()

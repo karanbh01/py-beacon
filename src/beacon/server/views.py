@@ -59,7 +59,8 @@ from .weights import concentration_of, prices_for
 
 logger = logging.getLogger(__name__)
 
-def build_overview(index_id: str,
+def build_overview(strategy_id: str,
+                   index_id: str,
                    name: str,
                    run: dict[str, Any]) -> OverviewView:
     """Headline view of a completed run."""
@@ -73,6 +74,7 @@ def build_overview(index_id: str,
     # already emits plain dates, so a client reading both had two parsing
     # paths for one concept.
     return OverviewView(
+        strategy_id=strategy_id,
         index_id=index_id,
         name=name,
         start=str(level.index[0])[:10] if level.index else "",
@@ -85,7 +87,8 @@ def build_overview(index_id: str,
         level=level)
 
 
-def build_attribution(index_id: str,
+def build_attribution(strategy_id: str,
+                      index_id: str,
                       run: dict[str, Any],
                       fetcher: DataFetcher,
                       start: str | None,
@@ -134,6 +137,7 @@ def build_attribution(index_id: str,
     # published nowhere. The pair beside it carries the window as given, or as
     # defaulted, which is what a client labelling a range needs (BN-187).
     return AttributionView(
+        strategy_id=strategy_id,
         index_id=index_id,
         requested_start=start or span[0],
         requested_end=end or span[1],
@@ -234,7 +238,8 @@ def _constituent_prices(fetcher: DataFetcher,
     return prices
 
 
-def build_asset_view(index_id: str,
+def build_asset_view(strategy_id: str,
+                     index_id: str,
                      identifier: str,
                      run: dict[str, Any],
                      fetcher: DataFetcher,
@@ -278,6 +283,7 @@ def build_asset_view(index_id: str,
     metrics = relative_metrics(comparable, index_level)
 
     return AssetView(
+        strategy_id=strategy_id,
         index_id=index_id,
         identifier=identifier,
         weight_history=history,
@@ -296,7 +302,8 @@ def build_asset_view(index_id: str,
 
 
 def build_compare(runs: dict[str, dict[str, Any]]) -> CompareView:
-    """Several indices on one axis, over the window they all share.
+    """Several strategies' latest runs on one axis, over the window they all
+    share.
 
     Aligned rather than concatenated: two indices with different start dates
     would otherwise be compared over different periods, and the one with the
@@ -304,20 +311,20 @@ def build_compare(runs: dict[str, dict[str, Any]]) -> CompareView:
     Every level is rebased to 100 on the first shared date, so the lines start
     together and the comparison is of shape rather than of scale.
     """
-    levels = {index_id: _level_series(run) for index_id, run in runs.items()}
+    levels = {strategy_id: _level_series(run) for strategy_id, run in runs.items()}
     window = _common_window(levels)
 
     entries = []
-    for index_id, series in levels.items():
+    for strategy_id, series in levels.items():
         clipped = series.loc[window]
         rebased = clipped / clipped.iloc[0] * 100.0
 
         entries.append(CompareEntry(
-            index_id=index_id,
+            strategy_id=strategy_id,
             total_return=float(rebased.iloc[-1] / rebased.iloc[0] - 1.0),
             level=SeriesPayload.from_series(rebased)))
 
-    return CompareView(index_ids=list(runs),
+    return CompareView(strategy_ids=list(runs),
                        start=str(window[0].date()),
                        end=str(window[-1].date()),
                        observations=len(window),

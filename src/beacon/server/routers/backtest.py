@@ -2,8 +2,9 @@
 """
 The backtest's catalogue: `GET /backtest/options`.
 
-Backtests themselves are submitted against an index, at
-`POST /beacon/{index_id}/backtest`; this lists what such a request may carry.
+Backtests themselves are submitted for a stored strategy, at
+`POST /strategies/{strategy_id}/backtest`; this lists what such a request, and
+the strategy it runs, may carry.
 """
 # BN-272, phase 9 of decisions/0006.
 from ..._optional import require

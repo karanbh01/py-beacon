@@ -813,7 +813,7 @@ class BacktestResultSummary(BaseModel):
                     "serialised, within a second of the backtest completing. "
                     "**Not a market date, and not the period the backtest "
                     "covered**: that span is the index of `portfolio.nav`. "
-                    "`BacktestRecordRow.run_at` on `GET /beacon/backtests` is "
+                    "`BacktestRecordRow.run_at` on `GET /strategies/runs` is "
                     "the same stamp. Null only on records written by an older "
                     "engine that did not stamp them.")
 
@@ -959,11 +959,14 @@ def _book_payload(book: Any,
 class BacktestRecordRow(BaseModel):
     """One stored backtest record, as a listing knows it.
 
-    The row is deliberately thin: the id to fetch the record by, and when it
-    was captured. Names come from the index catalogue the client already
-    holds, and everything else from `/beacon/{index_id}/record`.
+    The row is deliberately thin: the strategy to fetch the record by, what
+    it holds, and when it was captured. Everything else comes from
+    `/strategies/{strategy_id}/record`.
     """
-    index_id: str
+    # BN-313: records are kept per strategy, not per index.
+    strategy_id: str = Field(description="The strategy the run was of.")
+    strategy_name: str = Field(description="Its name when it ran.")
+    index_id: str = Field(description="The index it held when it ran.")
     run_at: str | None = Field(
         default=None,
         description="ISO-8601 UTC capture time; null on records written "
@@ -971,7 +974,7 @@ class BacktestRecordRow(BaseModel):
     strategy: str | None = Field(
         default=None,
         description="The strategy's type: 'index', 'index_tracking' or "
-                    "'active'. Null on a record from before it was kept.")
+                    "'active'.")
     vehicle: str | None = Field(
         default=None, description="The vehicle's name; null for a plain backtest.")
     vehicle_preset: str | None = Field(
@@ -986,7 +989,7 @@ class BacktestRecordRow(BaseModel):
 # without saying how many is making the same class of false statement as a
 # listing that 500s: the client is told something complete that is not.
 class BacktestRecordCollection(TolerantCollection):
-    """Response of `GET /beacon/backtests`.
+    """Response of `GET /strategies/runs`.
 
     An envelope rather than a bare array, so the listing can say how many
     stored records it left out.
@@ -1755,11 +1758,6 @@ class DeletedIndex(BaseModel):
         default=None,
         description="The index this one was derived from, when it went as an "
                     "optimised child. Null for the index the request named.")
-    backtest_record_deleted: bool = Field(
-        description="Whether a stored backtest record went with it.")
-    backtest_results_deleted: int = Field(
-        description="How many job records and persisted run results were "
-                    "forgotten with it.")
 
 
 class IndexDeletion(BaseModel):
@@ -1843,11 +1841,13 @@ class RenderRequest(BaseModel):
     """Body of `POST /reports/render`."""
     template_id: Identifier = Field(
         description="A stored template, or a built-in such as FACTSHEET-A4.")
-    index_id: Identifier | None = Field(
+    # BN-313: a run is a strategy's, so a factsheet names the strategy.
+    strategy_id: Identifier | None = Field(
         default=None,
         description="Required for a built-in template, which is generated from "
-                    "that index's latest completed backtest. Ignored for a "
-                    "stored template, which is rendered exactly as saved.")
+                    "that stored strategy's latest completed backtest and named "
+                    "after it. Ignored for a stored template, which is rendered "
+                    "exactly as saved.")
 
 
 class RenderResult(BaseModel):
@@ -1855,7 +1855,10 @@ class RenderResult(BaseModel):
     render_id: str = Field(
         description="Fetch the PDF from GET /reports/renders/{render_id}.")
     template_id: str
-    index_id: str | None = None
+    strategy_id: str | None = Field(
+        default=None,
+        description="The strategy a built-in template was generated from; null "
+                    "for a stored template.")
     name: str
     blocks: int
     bytes: int = Field(description="Size of the rendered document.")
@@ -2128,12 +2131,17 @@ class RiskModelRequest(BaseModel):
     """Body of `POST /risk-models/{model_id}/estimate`."""
     identifiers: list[str] = Field(
         default_factory=list,
-        description="Names to estimate over. Empty uses the index named by "
-                    "`index_id`.")
+        description="Names to estimate over. Empty takes them from `index_id` "
+                    "or `strategy_id`.")
     index_id: str | None = Field(
         default=None,
-        description="Take the universe from this index's latest run instead of "
-                    "listing names.")
+        description="Take the names from this index's latest rebalance, "
+                    "calculated, instead of listing them.")
+    # BN-313.
+    strategy_id: str | None = Field(
+        default=None,
+        description="Take the names from what this stored strategy held at "
+                    "its latest run's last rebalance instead of listing them.")
     start: str | None = Field(default=None,
                               description="Start of the estimation window.")
     end: str | None = Field(default=None, description="End of that window.")
@@ -2158,6 +2166,15 @@ class RiskModelRequest(BaseModel):
                     "are converted into it first, so exchange-rate moves are "
                     "part of the risk. Null uses the index's currency when "
                     "`index_id` is given, otherwise USD.")
+
+    @model_validator(mode="after")
+    def _one_source(self) -> "RiskModelRequest":
+        """At most one of `index_id` and `strategy_id`."""
+        if self.index_id is not None and self.strategy_id is not None:
+            raise ValueError("give at most one of index_id and strategy_id to take "
+                             "the names from")
+
+        return self
 
 
 class RiskDiagnosticsPayload(BaseModel):
@@ -2426,8 +2443,21 @@ class ConstraintTypes(BaseModel):
 
 
 class OptimisationRunRequest(BaseModel):
-    """Body of `POST /optimise/runs`."""
-    index_id: Identifier = Field(description="Index whose weights are the target.")
+    """Body of `POST /optimise/runs`: the weights a target held on a date,
+    solved for under a constraint set.
+
+    The target is an index or a stored strategy, exactly one of the two. An
+    index's weights are calculated, so no backtest is needed; a strategy's are
+    what its latest run chose at that rebalance, so an active strategy's
+    answers how close a portfolio can get to it under the constraints.
+    """
+    # BN-313: a strategy as target, now that runs are kept per strategy.
+    index_id: Identifier | None = Field(
+        default=None, description="An index whose weights are the target.")
+    strategy_id: Identifier | None = Field(
+        default=None,
+        description="A stored strategy whose own weights, from its latest run, "
+                    "are the target.")
     constraint_set_id: Identifier = Field(
         description="Constraint set to solve under.")
     as_of: str | None = Field(
@@ -2442,21 +2472,36 @@ class OptimisationRunRequest(BaseModel):
         default=0.0,
         description="Used for the frontier's tangency point.")
 
+    @model_validator(mode="after")
+    def _one_target(self) -> "OptimisationRunRequest":
+        """Exactly one of `index_id` and `strategy_id`."""
+        if (self.index_id is None) == (self.strategy_id is None):
+            raise ValueError("give exactly one of index_id and strategy_id as the target")
+
+        return self
+
 
 class WeightRow(BaseModel):
-    """One name's index, optimal and active weight."""
+    """One name's target, optimal and active weight."""
     asset_id: str
-    index_weight: float
+    target_weight: float = Field(description="The target's weight.")
     optimal_weight: float
     active_weight: float = Field(
-        description="Optimal minus index. Sums to zero across the portfolio "
+        description="Optimal minus target. Sums to zero across the portfolio "
                     "whenever both sides are fully invested.")
 
 
 class OptimisationRunResult(BaseModel):
     """Result payload of a completed optimisation job."""
     run_id: str
-    index_id: str
+    index_id: str = Field(
+        description="The index targeted, or the index the targeted strategy holds.")
+    strategy_id: str | None = Field(
+        default=None, description="The strategy targeted; null for an index target.")
+    target_date: str | None = Field(
+        default=None,
+        description="The rebalance whose weights were the target, YYYY-MM-DD; "
+                    "for a strategy, from its latest run when the solve was asked for.")
     constraint_set_id: str
     currency: str | None = Field(
         default=None,
@@ -3332,12 +3377,17 @@ class ModellingAssumptionsSpec(BaseModel):
                     "under an execution limit.")
 
 
-class BacktestRequest(BaseModel):
-    """Body of `POST /beacon/{index_id}/backtest`.
+class StrategyBacktestRequest(BaseModel):
+    """Body of `POST /strategies/{strategy_id}/backtest`: everything a backtest
+    needs that the stored strategy does not hold.
 
     Every field past the first five is optional, and a request without them
-    runs exactly as one with only the dates, capital and cost does.
+    runs exactly as one with only the dates, capital and cost does. The
+    strategy and its implementation come from the stored strategy, so a body
+    carrying either is refused.
     """
+    # BN-313: the strategy and implementation moved to the stored strategy.
+    model_config = ConfigDict(extra="forbid")
     start: str | None = Field(
         default=None,
         description="Start date, YYYY-MM-DD. Defaults to the index base date.")
@@ -3361,18 +3411,23 @@ class BacktestRequest(BaseModel):
         default=None,
         description="What the run takes as given; each unset field takes the "
                     "engine's default.")
-    strategy: StrategySpec | None = Field(
-        default=None, description="What is held; the index in full when null.")
-    implementation: ImplementationSpec | None = Field(
-        default=None,
-        description="Screens, caps, costs and execution; none beyond stale "
-                    "prices when null.")
     flows: list[TypedSpec] = Field(
         default_factory=list,
         description="Money arriving and leaving, added together. Amounts are "
                     "in the book's currency.")
     vehicle: VehicleSpec | None = Field(
         default=None, description="Null for a plain backtest, with no fee.")
+
+
+class BacktestRequest(StrategyBacktestRequest):
+    """A backtest's settings with its strategy and implementation: what a
+    stored strategy's run is built from. Not a request body of its own."""
+    strategy: StrategySpec | None = Field(
+        default=None, description="What is held; the index in full when null.")
+    implementation: ImplementationSpec | None = Field(
+        default=None,
+        description="Screens, caps, costs and execution; none beyond stale "
+                    "prices when null.")
 
 
 class VehiclePreset(BaseModel):
@@ -3426,7 +3481,7 @@ class BacktestOptions(BaseModel):
 
 
 class BacktestValidation(BaseModel):
-    """Response of `POST /beacon/{index_id}/backtest/validate`."""
+    """Response of `POST /strategies/{strategy_id}/backtest/validate`."""
     valid: bool = Field(description="False when any finding is an error.")
     settings: dict[str, Any] | None = Field(
         default=None,
@@ -3463,8 +3518,9 @@ class DriftPayload(BaseModel):
 
 
 class OverviewView(BaseModel):
-    """Response of `GET /beacon/{index_id}/overview`."""
-    index_id: str
+    """Response of `GET /strategies/{strategy_id}/overview`."""
+    strategy_id: str = Field(description="The strategy whose latest run this reads.")
+    index_id: str = Field(description="The index the strategy holds.")
     name: str
     start: str = Field(
         description="First date the stored run's level series covers, "
@@ -3617,8 +3673,9 @@ class ActiveRiskPayload(BaseModel):
 
 
 class WeightsView(BaseModel):
-    """Response of `GET /beacon/{index_id}/weights`."""
-    index_id: str
+    """Response of `GET /strategies/{strategy_id}/weights`."""
+    strategy_id: str = Field(description="The strategy whose latest run this reads.")
+    index_id: str = Field(description="The index the strategy holds.")
     as_of: str = Field(description="Date asked about.")
     rebalance_date: str = Field(
         description="Rebalance in force on that date. An index holds the "
@@ -3664,14 +3721,15 @@ class ContributionPayload(BaseModel):
 
 
 class AttributionView(BaseModel):
-    """Response of `GET /beacon/{index_id}/attribution`.
+    """Response of `GET /strategies/{strategy_id}/attribution`.
 
     Contributions are Carino-linked, so they sum to the compounded total return
     rather than approximately to it. `residual` is reported regardless and
     should sit at machine epsilon; anything larger means an assumption broke
     upstream, which is worth surfacing rather than rounding away.
     """
-    index_id: str
+    strategy_id: str = Field(description="The strategy whose latest run this reads.")
+    index_id: str = Field(description="The index the strategy holds.")
     requested_start: str | None = Field(
         default=None,
         description="The window's first date **as asked for**, YYYY-MM-DD: the "
@@ -3720,8 +3778,9 @@ class AttributionView(BaseModel):
 
 
 class AssetView(BaseModel):
-    """Response of `GET /beacon/{index_id}/assets/{identifier}`."""
-    index_id: str
+    """Response of `GET /strategies/{strategy_id}/assets/{identifier}`."""
+    strategy_id: str = Field(description="The strategy whose latest run this reads.")
+    index_id: str = Field(description="The index the strategy holds.")
     identifier: str
     weight_history: dict[str, float] = Field(
         description="Rebalance date -> this name's applied weight. Only the "
@@ -3759,8 +3818,8 @@ class AssetView(BaseModel):
 
 
 class CompareEntry(BaseModel):
-    """One index within a comparison, on the shared window."""
-    index_id: str
+    """One strategy's latest run within a comparison, on the shared window."""
+    strategy_id: str = Field(description="The strategy.")
     total_return: float
     level: SeriesPayload = Field(
         description="Rebased to 100 on the first shared date, so lines start "
@@ -3768,15 +3827,15 @@ class CompareEntry(BaseModel):
 
 
 class CompareView(BaseModel):
-    """Response of `GET /beacon/compare`."""
-    index_ids: list[str]
+    """Response of `GET /strategies/compare`."""
+    strategy_ids: list[str] = Field(description="The strategies compared, as asked.")
     start: str = Field(
-        description="First date **every** index in `index_ids` covers, "
+        description="First date **every** run in `strategy_ids` covers, "
                     "YYYY-MM-DD: the intersection of their level series, not "
                     "the earliest start among them. Resolved: one index whose "
                     "history begins later moves this forward for all of them, "
                     "which is why each entry's level is rebased from here. "
-                    "Nothing was requested (`GET /beacon/compare` takes only "
+                    "Nothing was requested (`GET /strategies/compare` takes only "
                     "`ids`), so there is no window to echo. `end` is the other "
                     "end of the same shared span.")
     end: str = Field(
@@ -3996,7 +4055,7 @@ class JobStatus(JobStatusOf[Any]):
 
 
 class BacktestJobStatus(JobStatusOf[BacktestRunResult]):
-    """A `backtest:{index_id}` job. `result` is the run payload."""
+    """A `backtest:{strategy_id}` job. `result` is the run payload."""
 
 
 class OptimisationJobStatus(JobStatusOf[OptimisationRunResult]):

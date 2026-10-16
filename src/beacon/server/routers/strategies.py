@@ -13,9 +13,11 @@ from ...exceptions import DataNotFoundError, InvalidRuleError
 from ..definitions import has_errors
 from ..documents import load_document, read_collection, stored
 from ..errors import FindingsError
+from ..jobs import JobRegistry
 from ..schemas import Identifier, TolerantCollection, ValidationReport
 from ..store import DocumentStore
 from ..strategies import read_strategy, validate_strategy, with_problem
+from ..strategy_runs import backtest_kind
 from ..strategy_schemas import (
     SavedStrategy,
     StoredStrategy,
@@ -115,12 +117,20 @@ def build_strategies_router() -> APIRouter:
     @router.delete("/{strategy_id}", response_model=StrategyDeletion)
     def delete_strategy(request: Request,
                         strategy_id: Identifier) -> StrategyDeletion:
-        """Remove a stored strategy. One the server cannot read can still be
-        deleted."""
+        """Remove a stored strategy, with its saved run and every result of
+        its backtests. One the server cannot read can still be deleted."""
         if not _strategies(request).delete(strategy_id):
             raise DataNotFoundError(f"strategy '{strategy_id}'", source="DocumentStore")
 
-        return StrategyDeletion(strategy_id=strategy_id)
+        # BN-313: its runs go with it, or they would stay readable under an id
+        # that no longer resolves.
+        registry: JobRegistry = request.app.state.jobs
+        records: DocumentStore = request.app.state.backtest_record_store
+
+        return StrategyDeletion(strategy_id=strategy_id,
+                                backtest_record_deleted=records.delete(strategy_id),
+                                backtest_results_deleted=registry.forget(
+                                    backtest_kind(strategy_id)))
 
     def _save(request: Request,
               body: StrategyDocument) -> SavedStrategy:

@@ -63,7 +63,8 @@ class TestAnInvalidIdentifierIsTheCallersFault:
         "/indices/0..0",
         "/data/watchlists/0..0",
         "/reports/templates/0..0",
-        "/beacon/0..0/overview",
+        "/strategies/0..0/overview",
+        "/strategies/0..0",
     ])
     def test_a_traversal_attempt_is_refused_not_a_server_error(self,
                                                                client,
@@ -89,7 +90,7 @@ class TestAnInvalidIdentifierIsTheCallersFault:
         """`""` raised a bare `ValueError` with no handler, so it reached the
         client as a 500 carrying no code and no message at all."""
         response = client.post("/reports/render", headers=HEADERS,
-                               json={"template_id": "", "index_id": None})
+                               json={"template_id": "", "strategy_id": None})
 
         assert response.status_code == 422
 

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from beacon.server import ServerConfig, create_app
 from beacon.testing import dataset
+from conftest import submit_backtest
 
 TOKEN = "test-token-value"
 MODEL_ID = "canon-risk"
@@ -86,11 +87,9 @@ class TestEstimationJob:
     def test_the_universe_can_come_from_an_index(self,
                                                  client):
         """A client asks for "the risk model for this index" without restating
-        its universe."""
+        its universe, and the index is calculated, so no backtest is needed
+        (BN-313)."""
         client.put("/indices/idx", json=_index_document(), headers=auth())
-        client.post("/beacon/idx/backtest", json={"start": START, "end": END},
-                    headers=auth())
-        client.portal.call(client.app.state.jobs.drain)
 
         response = client.post("/risk-models/from-index/estimate",
                                json={"index_id": "idx"}, headers=auth())
@@ -108,12 +107,53 @@ class TestEstimationJob:
 
         assert response.status_code == 404
 
-    def test_an_index_without_a_backtest_is_a_404(self,
-                                                  client):
+    def test_the_universe_can_come_from_a_strategy(self,
+                                                   client):
+        """What a stored strategy held at its latest run's last rebalance."""
+        client.put("/indices/idx", json=_index_document(), headers=auth())
+        submit_backtest(client,
+                        "idx",
+                        {"start": START, "end": END},
+                        auth(),
+                        strategy_id="held")
+        client.portal.call(client.app.state.jobs.drain)
+
+        response = client.post("/risk-models/from-strategy/estimate",
+                               json={"strategy_id": "held"}, headers=auth())
+        client.portal.call(client.app.state.jobs.drain)
+
+        model = client.get("/risk-models/from-strategy", headers=auth()).json()
+
+        assert response.status_code == 202
+        assert set(model["asset_ids"]) == set(dataset.UNIVERSE)
+
+    def test_an_unknown_index_is_a_404(self,
+                                       client):
         response = client.post("/risk-models/unrun/estimate",
-                               json={"index_id": "never-run"}, headers=auth())
+                               json={"index_id": "never-stored"}, headers=auth())
 
         assert response.status_code == 404
+
+    def test_a_strategy_without_a_backtest_is_a_404(self,
+                                                    client):
+        client.put("/indices/idx", json=_index_document(), headers=auth())
+        client.put("/strategies/unrun",
+                   json={"id": "unrun", "name": "Unrun", "index_id": "idx"},
+                   headers=auth())
+
+        response = client.post("/risk-models/unrun/estimate",
+                               json={"strategy_id": "unrun"}, headers=auth())
+
+        assert response.status_code == 404
+        assert "backtest" in response.json()["error"]["message"]
+
+    def test_an_index_and_a_strategy_together_are_refused(self,
+                                                          client):
+        response = client.post("/risk-models/both/estimate",
+                               json={"index_id": "idx", "strategy_id": "held"},
+                               headers=auth())
+
+        assert response.status_code == 422
 
     def test_a_single_name_is_refused(self,
                                       client):
@@ -366,14 +406,19 @@ class TestUniverseFromAnIncompleteRun:
                                                   client):
         """A backtest stored before composition was recorded has a level but no
         constituents, so there is no universe to estimate over."""
+        client.put("/indices/idx", json=_index_document(), headers=auth())
+        client.put("/strategies/legacy",
+                   json={"id": "legacy", "name": "Legacy", "index_id": "idx"},
+                   headers=auth())
         client.app.state.jobs._results.write(
             "legacy-run",
             {"job_id": "legacy-run", "kind": "backtest:legacy",
              "status": "succeeded", "completed_at": "2020-01-01T00:00:00+00:00",
-             "result": {"level": {"index": [], "data": []}}})
+             "result": {"level": {"index": [], "data": []},
+                        "settings": {"strategy_id": "legacy"}}})
 
         response = client.post("/risk-models/from-legacy/estimate",
-                               json={"index_id": "legacy"}, headers=auth())
+                               json={"strategy_id": "legacy"}, headers=auth())
 
         assert response.status_code == 404
-        assert "rebalance snapshots" in response.json()["error"]["message"]
+        assert "weights this run's strategy chose" in response.json()["error"]["message"]

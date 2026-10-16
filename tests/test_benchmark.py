@@ -17,6 +17,7 @@ from beacon.data.fetcher import DataFetcher
 from beacon.exceptions import CalculationError
 from beacon.server import ServerConfig, create_app
 from beacon.server.jobs import SUCCEEDED
+from conftest import submit_backtest
 
 TOKEN = "test-token-value"
 START = "2023-10-02"
@@ -308,7 +309,7 @@ def client(tmp_path):
 def run_backtest(client,
                  **body) -> dict:
     """Submit a backtest, drain it, and return the job's result."""
-    response = client.post("/beacon/BT/backtest", json=body or {}, headers=auth())
+    response = submit_backtest(client, "BT", body or {}, auth())
     assert response.status_code == 202, response.json()
     job_id = response.json()["job_id"]
 
@@ -436,9 +437,10 @@ class TestBenchmarkIsOptional:
 
     def test_an_invalid_kind_is_rejected_before_the_job(self,
                                                        client):
-        response = client.post("/beacon/BT/backtest",
-                               json={"benchmark": {"kind": "nonsense", "id": "MKT"}},
-                               headers=auth())
+        response = submit_backtest(client,
+                                   "BT",
+                                   {"benchmark": {"kind": "nonsense", "id": "MKT"}},
+                                   auth())
 
         assert response.status_code == 422
 
@@ -447,5 +449,5 @@ class TestBenchmarkIsOptional:
         schema = client.app.openapi()
 
         assert "BenchmarkRef" in schema["components"]["schemas"]
-        assert "benchmark" in schema["components"]["schemas"]["BacktestRequest"][
+        assert "benchmark" in schema["components"]["schemas"]["StrategyBacktestRequest"][
             "properties"]

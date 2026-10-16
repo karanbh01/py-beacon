@@ -76,3 +76,8 @@ class SavedStrategy(BaseModel):
 class StrategyDeletion(BaseModel):
     """Response of `DELETE /strategies/{strategy_id}`."""
     strategy_id: str = Field(description="The strategy that was removed.")
+    backtest_record_deleted: bool = Field(
+        description="Whether its saved backtest record went with it.")
+    backtest_results_deleted: int = Field(
+        description="How many job records and persisted run results of its "
+                    "backtests were forgotten with it.")

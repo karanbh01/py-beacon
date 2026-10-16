@@ -48,6 +48,7 @@ from .schemas import (
     unfilled_payloads,
 )
 from .store import DocumentStore
+from .strategy_schemas import StrategyDocument
 
 # Every series is rebased to this so the portfolio and its benchmark start
 # together and can be read off the same axis.
@@ -245,21 +246,25 @@ def compare_against_benchmark(nav: pd.Series,
         level=SeriesPayload.from_series(_rebase(aligned_benchmark)))
 
 
-def build_backtest_job(document: IndexDocument,
+def build_backtest_job(strategy: StrategyDocument,
+                       document: IndexDocument,
                        fetcher: DataFetcher,
                        request: BacktestRequest,
                        index_store: DocumentStore,
                        record_store: DocumentStore | None = None,
                        built: BuiltSettings | None = None) -> JobBody:
-    """Build the job body that runs one backtest.
+    """Build the job body that runs one backtest of a stored strategy.
 
     Returned as a closure rather than run inline: the caller submits it to the
     job registry, which owns scheduling and progress publication.
 
     Args:
-        document: The index definition to calculate and then track.
+        strategy: The stored strategy run. Its id and name are stamped on the
+            run's settings, and its record is filed under its id.
+        document: The index it holds, to calculate and then track.
         fetcher: Data source for both the index and the simulation.
-        request: Period, capital and cost settings for this run.
+        request: Period, capital and cost settings for this run, with the
+            strategy's own strategy and implementation.
         built: Its strategy, implementation, flows, vehicle and modelling
             assumptions, already built; built here from *request* when None.
 
@@ -306,7 +311,10 @@ def build_backtest_job(document: IndexDocument,
                             data_provider=fetcher).run(settings.strategy(definition),
                                                        start=start,
                                                        end=end)
-        resolved = {**settings.resolved, "modelling_assumptions": (
+        # BN-313: which strategy ran, so a run is never served as another's.
+        resolved = {"strategy_id": strategy.id, "strategy_name": strategy.name,
+                    "index_id": document.id,
+                    **settings.resolved, "modelling_assumptions": (
             backtest.modelling_assumptions.as_dict()
             if backtest.modelling_assumptions is not None
             else settings.resolved["modelling_assumptions"])}
@@ -348,7 +356,7 @@ def build_backtest_job(document: IndexDocument,
             record = BacktestResultSummary.from_result(backtest,
                                                        cap=target_cap(definition),
                                                        settings=resolved)
-            record_store.write(document.id, record.model_dump(mode="json"))
+            record_store.write(strategy.id, record.model_dump(mode="json"))
 
         await report(1.0, "Complete.")
 

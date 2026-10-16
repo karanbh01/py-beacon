@@ -418,36 +418,13 @@ class TestMaterialisation:
         assert validate_document(IndexDocument.model_validate(tech10())) == []
 
 
-def _persist_result(registry,
-                    kind,
-                    result):
-    """Write a succeeded result the way a finished job would.
-
-    Straight into the persisted store, because that is the layer the cascade
-    must clean: it is the one that survives restarts, and `latest_result`
-    reads it rather than memory.
-    """
-    import uuid
-    from datetime import UTC, datetime
-
-    job_id = str(uuid.uuid4())
-    registry._results.write(job_id, {
-        "job_id": job_id,
-        "kind": kind,
-        "status": "succeeded",
-        "progress": 1.0,
-        "message": "done",
-        "result": result,
-        "error": None,
-        "completed_at": datetime.now(UTC).isoformat(),
-    })
-
-
 class TestDelete:
-    """BN-157: `DELETE /indices/{index_id}`, cascading its backtest results.
+    """BN-157: `DELETE /indices/{index_id}`.
 
     Universes could be deleted; indices could not — same kind of document in
-    the same kind of store, so the asymmetry was the whole request.
+    the same kind of store, so the asymmetry was the whole request. Its
+    results cascade moved to strategies in BN-313, which own the runs; see
+    `test_server_strategy_runs.py`.
     """
 
     def _create(self,
@@ -491,49 +468,16 @@ class TestDelete:
                                         client):
         assert client.delete("/indices/anything").status_code == 401
 
-    def test_backtest_results_cascade(self,
-                                      client):
-        """The decision beacon-ui filed upward, answered: results go with
-        the definition. Orphaned results would be addressable by an id that
-        no longer resolves — the overview route 404s on the definition load
-        before it ever reaches them."""
-        index_id = self._create(client)
-        registry = client.app.state.jobs
-
-        _persist_result(registry, f"backtest:{index_id}",
-                        {"level": [100.0, 101.0]})
-
-        assert registry.latest_result(f"backtest:{index_id}") is not None
-
-        client.delete(f"/indices/{index_id}", headers=auth())
-
-        assert registry.latest_result(f"backtest:{index_id}") is None
-
-    def test_another_index_s_results_survive(self,
-                                             client):
-        """The forget is exact-kind, not prefix: deleting `core` must not
-        take `core-hedged`'s results with it."""
-        keep = self._create(client, "core-hedged")
-        drop = self._create(client, "core")
-        registry = client.app.state.jobs
-
-        for index_id in (keep, drop):
-            _persist_result(registry, f"backtest:{index_id}",
-                            {"level": [100.0]})
-
-        client.delete(f"/indices/{drop}", headers=auth())
-
-        assert registry.latest_result(f"backtest:{drop}") is None
-        assert registry.latest_result(f"backtest:{keep}") is not None
-
-    def test_an_index_without_results_deletes_cleanly(self,
-                                                      client):
+    def test_the_response_says_nothing_of_runs(self,
+                                              client):
+        """Runs belong to strategies since BN-313, so an index's delete has no
+        runs to report."""
         index_id = self._create(client)
         response = client.delete(f"/indices/{index_id}", headers=auth())
 
         assert response.status_code == 200
-        assert response.json()["deleted"][0]["backtest_results_deleted"] == 0
-        assert response.json()["deleted"][0]["backtest_record_deleted"] is False
+        assert response.json()["deleted"] == [{"index_id": index_id,
+                                               "derived_from": None}]
 
     def test_the_route_is_in_the_spec(self,
                                       client):

@@ -31,6 +31,8 @@ from ..schemas import (
     RiskModelView,
 )
 from ..store import DocumentStore
+from ..strategies import load_strategy
+from ..strategy_runs import index_weights, require_run, strategy_weights
 
 require("fastapi", "The Beacon API server")
 
@@ -45,6 +47,23 @@ def _data_fetcher(request: Request) -> DataFetcher:
     return require_data(request, "a risk model cannot be estimated")
 
 
+def _source_index(request: Request,
+                  body: RiskModelRequest) -> IndexDocument | None:
+    """The index the names come from: the one named, or the one the named
+    strategy holds; None when the names are listed."""
+    index_id = body.index_id
+
+    if body.strategy_id is not None:
+        index_id = load_strategy(request.app.state.strategy_store, body.strategy_id).index_id
+
+    if index_id is None:
+        return None
+
+    store: DocumentStore = request.app.state.index_store
+
+    return load_document(store, index_id, validated(IndexDocument), f"index '{index_id}'")
+
+
 def _currency(request: Request,
               body: RiskModelRequest) -> str:
     """The currency returns are measured in: the request's, else the index's,
@@ -52,47 +71,41 @@ def _currency(request: Request,
     if body.currency is not None:
         return body.currency.upper()
 
-    if body.index_id is not None:
-        store: DocumentStore = request.app.state.index_store
-        document = load_document(store, body.index_id,
-                                 validated(IndexDocument),
-                                 f"index '{body.index_id}'")
+    document = _source_index(request, body)
 
-        return document.currency.upper()
-
-    return DEFAULT_CURRENCY
+    return document.currency.upper() if document is not None else DEFAULT_CURRENCY
 
 
 def _universe(request: Request,
               body: RiskModelRequest) -> list[str]:
     """The names to estimate over.
 
-    An explicit list wins; otherwise the constituents of an index's latest run,
-    which is how a client asks for "the risk model for this index" without
-    restating its universe.
+    An explicit list wins. Otherwise an index's names at its latest rebalance,
+    calculated, or what a strategy held at its latest run's last rebalance,
+    which is how a client asks for "the risk model for this" without
+    restating the names.
     """
     if body.identifiers:
         return list(body.identifiers)
 
-    if body.index_id is None:
+    if body.strategy_id is not None:
+        registry: JobRegistry = request.app.state.jobs
+        _, held = strategy_weights(require_run(registry, body.strategy_id), None)
+
+        return sorted(held)
+
+    document = _source_index(request, body)
+
+    if document is None:
         raise DataNotFoundError(
             "identifiers to estimate over",
-            source="supply `identifiers`, or an `index_id` to take them from")
+            source="supply `identifiers`, or an `index_id` or `strategy_id` to take "
+                   "them from")
 
-    registry: JobRegistry = request.app.state.jobs
-    backtest = registry.latest_result(f"backtest:{body.index_id}")
-    if backtest is None:
-        raise DataNotFoundError(
-            f"a completed backtest for index '{body.index_id}'",
-            source="run POST /beacon/{index_id}/backtest first")
+    store: DocumentStore = request.app.state.index_store
+    _, weights = index_weights(document, store, _data_fetcher(request), None)
 
-    snapshots = backtest.get("rebalances") or []
-    if not snapshots:
-        raise DataNotFoundError(
-            "rebalance snapshots on that run",
-            source="the run predates composition being stored")
-
-    return sorted(snapshots[-1]["weights"])
+    return sorted(weights)
 
 
 def _model(request: Request,

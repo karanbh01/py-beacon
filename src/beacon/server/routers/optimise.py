@@ -35,10 +35,10 @@ from ..documents import load_document, read_collection, validated
 from ..errors import FindingsError
 from ..jobs import JobRegistry
 from ..optimisation import (
+    OptimisationTarget,
     build_exposures,
     build_frontier,
     build_optimisation_job,
-    target_weights_from,
 )
 from ..schemas import (
     ConstraintSet,
@@ -55,6 +55,8 @@ from ..schemas import (
     ValidationReport,
 )
 from ..store import DocumentStore
+from ..strategies import load_strategy
+from ..strategy_runs import index_weights, require_run, strategy_weights
 from ..types import specs_for
 
 require("fastapi", "The Beacon API server")
@@ -101,6 +103,35 @@ def _run(request: Request,
             source="the run may still be in progress, or may have failed")
 
     return result
+
+
+def _target(request: Request,
+            body: OptimisationRunRequest,
+            registry: JobRegistry,
+            fetcher: DataFetcher) -> tuple[OptimisationTarget, IndexDocument]:
+    """The weights a run solves for, and the index they are measured in.
+
+    An index's are calculated up to `as_of`, so no backtest is needed. A
+    strategy's are what its latest run chose at the rebalance in force on
+    `as_of`, measured in the currency of the index it holds.
+    """
+    # BN-313: the target is an index or a stored strategy.
+    index_store: DocumentStore = request.app.state.index_store
+
+    if body.strategy_id is not None:
+        strategy = load_strategy(request.app.state.strategy_store, body.strategy_id)
+        document = load_document(index_store, strategy.index_id, validated(IndexDocument),
+                                 f"index '{strategy.index_id}'")
+        date, weights = strategy_weights(require_run(registry, body.strategy_id), body.as_of)
+
+        return OptimisationTarget(document.id, date, weights), document
+
+    assert body.index_id is not None
+    document = load_document(index_store, body.index_id, validated(IndexDocument),
+                             f"index '{body.index_id}'")
+    date, weights = index_weights(document, index_store, fetcher, body.as_of)
+
+    return OptimisationTarget(document.id, date, weights), document
 
 
 def build_optimise_router() -> APIRouter:
@@ -185,16 +216,8 @@ def build_optimise_router() -> APIRouter:
             raise _rejected(findings)
 
         registry: JobRegistry = request.app.state.jobs
-        backtest = registry.latest_result(f"backtest:{body.index_id}")
-        if backtest is None:
-            raise DataNotFoundError(
-                f"a completed backtest for index '{body.index_id}'",
-                source="run POST /beacon/{index_id}/backtest first")
-
-        index_store: DocumentStore = request.app.state.index_store
-        document = load_document(index_store, body.index_id,
-                                 validated(IndexDocument),
-                                 f"index '{body.index_id}'")
+        fetcher = _data_fetcher(request)
+        target, document = _target(request, body, registry, fetcher)
 
         run_id = str(uuid.uuid4())
         job = registry.submit(
@@ -203,9 +226,9 @@ def build_optimise_router() -> APIRouter:
                                    body,
                                    constraint_set,
                                    build_constraints(constraint_set),
-                                   target_weights_from(backtest, body.as_of),
+                                   target,
                                    label_map(constraint_set),
-                                   _data_fetcher(request),
+                                   fetcher,
                                    document.currency.upper()))
 
         return OptimisationJobStatus(**job.snapshot())

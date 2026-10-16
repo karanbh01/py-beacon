@@ -25,6 +25,7 @@ from beacon.data.fetcher import DataFetcher
 from beacon.optimise.config import MIN_TRACKING_ERROR
 from beacon.server import ServerConfig, create_app
 from beacon.server.schemas import PreviewResponse, PreviewSolve
+from conftest import submit_backtest
 
 TOKEN = "test-token-value"
 
@@ -334,8 +335,7 @@ class TestBeforeAndAfter:
 @pytest.fixture(scope="module")
 def backtested(client) -> TestClient:
     """The same client, having run one backtest of the optimised index."""
-    submitted = client.post(f"/beacon/{CHILD_ID}/backtest",
-                            json={"start": START, "end": END}, headers=auth())
+    submitted = submit_backtest(client, CHILD_ID, {"start": START, "end": END}, auth())
     assert submitted.status_code == 202, submitted.text
 
     client.portal.call(client.app.state.jobs.drain)
@@ -359,7 +359,7 @@ class TestPreviewAgreesWithTheRun:
         payload = preview(backtested)
         rebalance = payload["solve"]["rebalance_date"]
 
-        record = backtested.get(f"/beacon/{CHILD_ID}/record",
+        record = backtested.get(f"/strategies/{CHILD_ID}/record",
                                 headers=auth()).json()
         book = record["index"]["optimised"]
 

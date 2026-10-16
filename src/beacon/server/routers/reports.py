@@ -39,6 +39,8 @@ from ..schemas import (
     TolerantCollection,
 )
 from ..store import DocumentStore
+from ..strategies import load_strategy
+from ..strategy_runs import require_run
 
 require("fastapi", "The Beacon API server")
 
@@ -97,25 +99,17 @@ def _resolve(request: Request,
     if not is_built_in(body.template_id):
         return _stored_template(request, body.template_id)
 
-    if body.index_id is None:
+    if body.strategy_id is None:
         raise DataNotFoundError(
-            f"an index to build '{body.template_id}' from",
+            f"a strategy to build '{body.template_id}' from",
             source="a built-in template is generated from a run, so it needs "
-                   "an `index_id`")
+                   "a `strategy_id`")
 
+    # BN-313: runs are kept per strategy, and the factsheet is named after it.
+    strategy = load_strategy(request.app.state.strategy_store, body.strategy_id)
     registry: JobRegistry = request.app.state.jobs
-    run = registry.latest_result(f"backtest:{body.index_id}")
-    if run is None:
-        raise DataNotFoundError(
-            f"a completed backtest for index '{body.index_id}'",
-            source="run POST /beacon/{index_id}/backtest first")
-
-    # The display name comes from the index definition, not the template
-    # store. Falling back to the id keeps a factsheet renderable for an index
-    # that was backtested and then deleted.
-    index_store: DocumentStore = request.app.state.index_store
-    definition = index_store.read(body.index_id)
-    name = str(definition["name"]) if definition else body.index_id
+    run = require_run(registry, body.strategy_id)
+    name = strategy.name
 
     return build_factsheet(name, run)
 
