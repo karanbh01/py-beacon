@@ -166,6 +166,19 @@ pays. `GET /backtest/options` describes each class field in
 `share_class_settings`, and a problem with one is a finding at its path, such
 as `share_classes.1.hedge_band` or `initial_capital.EUR`.
 
+A synthetic fund's result carries its swap: `swap_value` each day (owed to the
+fund when positive, and part of the NAV), `counterparty_exposure` (what the
+fund would lose if the counterparty failed, as a fraction of NAV) and each of
+`swap_resets` (its date, the value `settled`, the `reason` and the `notional`
+it was reset to). A fund holding index futures, through futures-based
+replication or by equitising a cash buffer, carries `futures_notional` and
+`futures_exposure` each day (in money, 0 before they open, and as a fraction
+of NAV) and each of `futures_rolls`: the date, the new `expiry`, the
+`contracts` held and their `price` (each contract on one unit of the index,
+so contracts times price is the `notional`), the roll's `cost` and the
+`dividend_yield` it was priced with. These share `level`'s dates, money is in
+the book's currency, and each is null or empty for a fund without them.
+
 Runs are kept per strategy, so two strategies on one index each keep their
 own. `GET /strategies/{id}/overview`, `/record`, `/weights`, `/attribution`
 and `/assets/{identifier}` read the strategy's latest run, and answer 404

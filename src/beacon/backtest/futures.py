@@ -54,12 +54,19 @@ class FuturesRoll:
         notional: The exposure carried into the new contract.
         cost: What the roll cost, paid from cash.
         dividend_yield: The dividend yield the new contract is priced with.
+        contracts: How many contracts of the new expiry were held, each on
+            one unit of the index, so the contracts times the price is the
+            notional.
+        price: The new contract's price, at fair value.
     """
     date: pd.Timestamp
     expiry: pd.Timestamp
     notional: float
     cost: float
     dividend_yield: float
+    # BN-315: for the API's record of each roll.
+    contracts: float = 0.0
+    price: float = 0.0
 
 
 class FuturesMixin:
@@ -156,7 +163,9 @@ class FuturesMixin:
             notional = self._contracts * self._futures_price
             self._futures_rolls.append(FuturesRoll(date=date, expiry=self._expiry,
                                                    notional=notional, cost=cost,
-                                                   dividend_yield=self._futures_yield))
+                                                   dividend_yield=self._futures_yield,
+                                                   contracts=self._contracts,
+                                                   price=self._futures_price))
             logger.debug("[%s] Futures rolled to %s: notional %.2f, cost %.2f.",
                          date.date(), self._expiry.date(), notional, cost)
 

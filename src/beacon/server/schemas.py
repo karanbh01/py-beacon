@@ -3967,6 +3967,33 @@ class MarketPayload(BaseModel):
     ask: SeriesPayload
 
 
+class SwapResetPayload(BaseModel):
+    """One reset of a synthetic fund's swap."""
+    date: str = Field(description="YYYY-MM-DD.")
+    settled: float = Field(
+        description="The swap's value paid in cash, in the book's currency: received "
+                    "by the fund when positive, paid by it when negative; 0 when it "
+                    "opened.")
+    reason: str = Field(description="'limit' (its value owed to the fund reached the "
+                                    "exposure limit), 'rebalance' or 'flows'.")
+    notional: float = Field(description="The notional it was reset to, the fund's net "
+                                        "assets, in the book's currency.")
+
+
+class FuturesRollPayload(BaseModel):
+    """One roll of a fund's index futures to the next contract."""
+    date: str = Field(description="YYYY-MM-DD.")
+    expiry: str = Field(description="The new contract's expiry, YYYY-MM-DD.")
+    contracts: float = Field(
+        description="Contracts held of it, each on one unit of the index, so the "
+                    "contracts times the price is the notional.")
+    price: float = Field(description="The new contract's price, at fair value.")
+    notional: float = Field(description="The exposure carried into it, in the book's "
+                                        "currency.")
+    cost: float = Field(description="What the roll cost, paid from cash.")
+    dividend_yield: Pct = Field(description="The dividend yield it was priced with.")
+
+
 class ReplicationPayload(BaseModel):
     """What a replication did at one rebalance."""
     date: str = Field(description="YYYY-MM-DD.")
@@ -4100,6 +4127,28 @@ class BacktestRunResult(BaseModel):
         default=None,
         description="The hedged classes' forwards together, in the book's currency; "
                     "null without a hedged class.")
+    # BN-315.
+    swap_value: SeriesPayload | None = Field(
+        default=None,
+        description="A synthetic fund's swap's value each day, in the book's currency: "
+                    "owed to the fund when positive. The NAV includes it. Null for any "
+                    "other fund.")
+    counterparty_exposure: SeriesPayload | None = Field(
+        default=None,
+        description="What a synthetic fund would lose if its swap counterparty failed, "
+                    "as a fraction of NAV each day. Null for any other fund.")
+    swap_resets: list[SwapResetPayload] = Field(
+        default_factory=list, description="Each reset of a synthetic fund's swap.")
+    futures_notional: SeriesPayload | None = Field(
+        default=None,
+        description="The exposure a fund's index futures carried each day, in the "
+                    "book's currency, 0 before they open: a futures-based fund's, or "
+                    "one equitising its cash buffer. Null for any other fund.")
+    futures_exposure: SeriesPayload | None = Field(
+        default=None,
+        description="The same as a fraction of NAV. Null for any other fund.")
+    futures_rolls: list[FuturesRollPayload] = Field(
+        default_factory=list, description="Each roll of the futures to the next contract.")
 
 
 ResultT = TypeVar("ResultT")

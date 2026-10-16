@@ -136,7 +136,10 @@ BACKTEST_RUN_FIELDS = {"level", "returns", "drawdown", "annual_returns",
                        "market", "replication", "active", "rebalance_steps",
                        "unfilled",
                        # BN-314: a fund's share classes and their hedges.
-                       "share_classes", "hedge_value"}
+                       "share_classes", "hedge_value",
+                       # BN-315: a synthetic fund's swap and a fund's futures.
+                       "swap_value", "counterparty_exposure", "swap_resets",
+                       "futures_notional", "futures_exposure", "futures_rolls"}
 BACKTEST_RUN_REQUIRED = {"level", "returns", "drawdown", "annual_returns",
                          "index_level", "metrics"}
 

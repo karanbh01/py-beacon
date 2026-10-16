@@ -29,6 +29,7 @@ from .backtest_settings import ACTIVE, INDEX_TRACKING, BuiltSettings
 from .backtest_settings import build as build_settings
 from .benchmarks import resolve_benchmark
 from .definitions import build_definition
+from .derivative_records import derivative_payloads
 from .errors import FindingsError
 from .jobs import JobBody, ProgressReporter
 from .schemas import (
@@ -190,6 +191,7 @@ def assemble_result(result: BacktestResult,
         rebalance_pricing=rebalance_pricing_payloads(result),
         settings=settings,
         **strategy_and_vehicle_payloads(result),
+        **derivative_payloads(result, level.index),
         **(share_class_payloads(result, classes.share_classes, level.index,
                                 index_result.index_levels, classes.index_currency,
                                 classes.fetcher)
