@@ -42,6 +42,7 @@ from .routers import (  # noqa: E402
     build_reports_router,
     build_risk_router,
     build_stores_router,
+    build_strategies_router,
     build_synthetic_router,
     build_universes_router,
     build_watchlists_router,
@@ -210,6 +211,8 @@ def create_app(config: ServerConfig) -> FastAPI:
     app.state.watchlist_store = DocumentStore("watchlists", root=config.storage_root)
     app.state.universe_store = DocumentStore("universes", root=config.storage_root)
     app.state.index_store = DocumentStore("indices", root=config.storage_root)
+    # Beside the index definitions they hold (BN-312).
+    app.state.strategy_store = DocumentStore("strategies", root=config.storage_root)
     # One record per index: the nested BacktestResultSummary of its latest
     # run, written by the backtest job and served by /beacon/{id}/record
     # (BN-158). Kept beside the job registry's run payloads because the
@@ -282,6 +285,7 @@ def create_app(config: ServerConfig) -> FastAPI:
                    build_coverage_router(),
                    build_universes_router(),
                    build_indices_router(),
+                   build_strategies_router(),
                    build_jobs_router(),
                    build_optimise_router(),
                    build_risk_router(),

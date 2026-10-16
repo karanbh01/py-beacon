@@ -131,6 +131,27 @@ class StoreFormatError(ConfigurationError):
     # rather than guess that its folder was moved.
 
 
+# BN-312.
+class DocumentInUseError(BeaconError):
+    """Raised when a stored document cannot be deleted while others use it.
+
+    A state the caller can change, by deleting the documents that use it or
+    pointing them elsewhere, so it maps to 409.
+
+    Args:
+        subject: What could not be deleted, e.g. "index 'TECH10'".
+        used_by: The ids of the documents that use it.
+    """
+    def __init__(self,
+                 subject: str,
+                 used_by: list[str]):
+        self.subject = subject
+        self.used_by = list(used_by)
+
+        super().__init__(f"{subject} cannot be deleted while {', '.join(self.used_by)} "
+                         f"use it. Delete them or point them at another document first.")
+
+
 # BN-236.
 class NoDataLoadedError(BeaconError):
     """Raised when something needs market data and none is loaded.

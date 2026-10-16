@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Added
+
+- Stored strategies: `/strategies` keeps what a backtest holds and how it trades, beside the index definitions, so a strategy can be saved, listed, read, checked and deleted, and travels with the indices. A strategy is `{id, name, description, index_id, strategy, implementation}`, the last two in the shapes a backtest request gives them. A save is checked as a backtest checks its settings, with a finding for each problem at its path, and `POST /strategies/validate` checks one without saving it. A strategy whose index has gone lists with a `problem`, and deleting an index a strategy holds is refused with 409 `IN_USE`, naming the strategies in `detail.used_by`.
+
 ## [0.8.1] - 2026-10-14
 
 Documentation only: the library is unchanged from 0.8.0.

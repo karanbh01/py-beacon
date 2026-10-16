@@ -95,6 +95,7 @@ A client needs three things from startup (the full sequence is in
 | `/data/watchlists` | Saved lists of identifiers. |
 | `/universes` | Saved universes: the pools of names an index selects from, and their members on a date. A `GLOBAL` universe covering the loaded data is kept up to date automatically and cannot be edited. |
 | `/indices` | Index definitions: save, validate, preview, the rebalance schedule, the rule types and calendars an editor can offer, and deriving an optimised index from a saved one. |
+| `/strategies` | Stored strategies: what a backtest holds and how it trades. List, read, save, check without saving, and delete. See [Stored strategies](#stored-strategies). |
 | `/beacon` | Running a backtest of a saved index (a job), checking a backtest request without running it, and reading the results: the latest record, overview, weights, attribution, one asset, and a comparison of several indices. |
 | `/backtest/options` | Everything a backtest request may carry: each family's types and fields, the vehicle presets, and the modelling assumptions with their defaults. See [Backtest requests](#backtest-requests). |
 | `/optimise` | Constraint sets, and optimisation runs (a job) with their frontier and exposures. |
@@ -147,6 +148,49 @@ The run's result carries its resolved `settings`, and, as the run uses them,
 `rebalance_steps` and the `unfilled` orders. `nav_per_unit`, `units` and every
 `market` series share `level`'s dates; with flows, `level` is NAV per unit,
 so a flow is not drawn as a gain.
+
+## Stored strategies
+
+A stored strategy is what a backtest holds and how it trades, kept beside
+the index definitions:
+
+```json
+{
+  "id": "tracker",
+  "name": "Sampled tracker",
+  "description": null,
+  "index_id": "TECH10",
+  "strategy": {"type": "index_tracking",
+               "replication": {"type": "SampledReplication", "params": {"holdings": 5}}},
+  "implementation": {"cash_buffer": 0.01}
+}
+```
+
+`index_id` is the stored index the strategy holds: the one tracked, or an
+active strategy's benchmark. `strategy` and `implementation` take the shapes a
+[backtest request](#backtest-requests) gives them, and a strategy that only
+holds its index as defined is `{"type": "index"}`, the default. Everything
+else a backtest needs, such as the period, the capital, the flows and the
+vehicle, belongs to the backtest, and a strategy carrying one of those is
+refused.
+
+`POST /strategies` saves a new strategy, refusing an id already taken with
+409 `CONFLICT`, and `PUT /strategies/{id}` saves one under its id, replacing
+any stored there. Both check the strategy as a backtest checks its settings
+and refuse it with 422 `INVALID_RULE`, a finding for each problem at its
+path, such as `strategy.replication.type` or `index_id` for an index that is
+not stored. `POST /strategies/validate` answers the same findings without
+saving.
+
+`GET /strategies` and `GET /strategies/{id}` give each strategy a `problem`
+when it cannot be run as it stands: `INDEX_NOT_FOUND` when its index is not
+stored, such as one removed on another machine, and `INDEX_UNREADABLE` when
+the index is stored but cannot be read. It is null otherwise.
+
+An index a strategy holds cannot be deleted: `DELETE /indices/{id}` answers
+409 `IN_USE`, with the strategies in `detail.used_by`. The same goes for an
+index whose optimised child a strategy holds, since the delete would take the
+child with it.
 
 ## Jobs
 
@@ -300,6 +344,7 @@ contents depend on the code.
 | 405 | `METHOD_NOT_ALLOWED` | The path exists but not with this method. See [Wrong methods](#wrong-methods). |
 | 409 | `NO_DATA_LOADED` | The request needs data and none is loaded. Load a store, then retry. |
 | 409 | `STORE_FORMAT_OUTDATED` | The data store was saved in a format this version no longer reads, such as a store saved before 0.7.0 with exchange rates in a `RATE` column. Regenerate or re-import it. `GET /data/stores` says the same in each store's `problem`. |
+| 409 | `IN_USE` | A delete refused while other documents use the one named, such as an index a stored strategy holds. `detail.used_by` lists them. |
 | 409 | `CONFLICT` | The engine's state refuses the request: an id already taken, a store already loading or refreshing, forgetting the store being served, a store with nothing to refresh, editing the read-only `GLOBAL` universe, a report template with no blocks. |
 | 422 | `VALIDATION_ERROR` | The request does not match its schema. `detail.errors` lists each problem with its location (`loc`), message (`msg`) and `type`. |
 | 422 | `INVALID_RULE` | A definition or document was refused. When there are several problems, `detail.findings` lists each one with `path`, `rule_id`, `severity`, `code` and `message`. |
@@ -357,7 +402,7 @@ print(answer.headers["Allow"], answer.json()["error"]["message"])
 A listing of saved documents leaves out any document it cannot read rather
 than failing as a whole, and says how many it left out. This applies to
 `GET /indices`, `/universes`, `/data/watchlists`,
-`/optimise/constraint-sets`, `/reports/templates`, `/beacon/backtests`,
+`/strategies`, `/optimise/constraint-sets`, `/reports/templates`, `/beacon/backtests`,
 `/jobs` and `/data/stores`.
 
 Each carries `skipped`, the number left out, and `skipped_causes`, the same

@@ -17,6 +17,7 @@ from ..exceptions import (
     ConfigurationError,
     DataNotFoundError,
     DataSourceError,
+    DocumentInUseError,
     ExpressionError,
     FrozenPortfolioError,
     InvalidArgumentError,
@@ -78,6 +79,9 @@ EXCEPTION_MAPPING: tuple[tuple[type[BeaconError], int, str], ...] = (
     # No data loaded yet: the request is fine and the engine's state refuses
     # it, which is what 409 says. The caller fixes it by loading a store.
     (NoDataLoadedError, status.HTTP_409_CONFLICT, "NO_DATA_LOADED"),
+    # A delete refused while other documents use the one named (BN-312): the
+    # detail's `used_by` lists them, so a client can say what blocks it.
+    (DocumentInUseError, status.HTTP_409_CONFLICT, "IN_USE"),
     (InvalidIdentifierError, status.HTTP_422_UNPROCESSABLE_CONTENT,
      "INVALID_IDENTIFIER"),
     (InvalidRuleError, status.HTTP_422_UNPROCESSABLE_CONTENT, "INVALID_RULE"),

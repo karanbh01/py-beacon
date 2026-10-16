@@ -14,7 +14,7 @@ import pandas as pd
 from ... import catalogue
 from ..._optional import require
 from ...data.fetcher import DataFetcher
-from ...exceptions import DataNotFoundError, InvalidRuleError
+from ...exceptions import DataNotFoundError, DocumentInUseError, InvalidRuleError
 from ...index.schedule import (
     DEFAULT_CALENDAR,
     DISPLAY_NAMES,
@@ -55,6 +55,7 @@ from ..schemas import (
     ValidationReport,
 )
 from ..store import DocumentStore
+from ..strategies import strategies_using
 from ..types import specs_for
 from .universes import load_universe
 
@@ -425,8 +426,12 @@ def build_indices_router() -> APIRouter:
         blast radius from the catalogue before sending. This response then
         says what actually went, which is what the client reports.
 
-        No refusal case: unlike universes, no index is seeded -- every stored
-        definition was created by somebody, so every one may be deleted.
+        One refusal: a stored strategy that holds the index, or any child
+        the cascade would take, answers 409 `IN_USE` with the strategies in
+        `detail.used_by`. A strategy is somebody's work rather than something
+        derived from the index, so it is never deleted with it. Otherwise,
+        unlike universes, no index is seeded: every stored definition was
+        created by somebody, so every one may be deleted.
         """
         store = _store(request)
 
@@ -440,8 +445,18 @@ def build_indices_router() -> APIRouter:
         # whose definition no longer resolves.
         records: DocumentStore = request.app.state.backtest_record_store
 
+        cascade = _cascade(store, index_id)
+        # A strategy is somebody's work, not something derived from the index,
+        # so it is never deleted with it (BN-312). A strategy holding any index
+        # the cascade would remove refuses the whole delete.
+        holders = strategies_using(request.app.state.strategy_store,
+                                   {target for target, _ in cascade})
+
+        if holders:
+            raise DocumentInUseError(f"index '{index_id}'", used_by=holders)
+
         removed = [_delete_one(store, registry, records, target, parent)
-                   for target, parent in _cascade(store, index_id)]
+                   for target, parent in cascade]
 
         return IndexDeletion(index_id=index_id, deleted=removed)
 
