@@ -445,6 +445,47 @@ class Backtest:
 
         return None
 
+    def calculate(self,
+                  definition: AnyIndexDefinition,
+                  start: str | None = None,
+                  end: str | None = None) -> IndexResult:
+        """Calculate (or reuse) an index alone, as a run would calculate it.
+
+        The same calculation `run` starts from, with this backtest's data and
+        modelling assumptions, through the same cache: an index calculated
+        here is reused by a run over the same dates, and the other way round.
+        No portfolio is simulated.
+
+        Args:
+            definition: The index: a plain :class:`IndexDefinition` or a
+                derived one, whose source is calculated first.
+            start: First date (YYYY-MM-DD). Defaults to the definition's
+                base date.
+            end: Last date (YYYY-MM-DD). Required.
+
+        Returns:
+            IndexResult: Its levels, divisors and the weights at each
+            rebalance.
+
+        Raises:
+            ValueError: If *end* is not provided.
+            CalculationError: If the calculation comes back empty.
+        """
+        # BN-316: an index's figures without a backtest.
+        if end is None:
+            raise ValueError("end must be provided.")
+
+        fetcher = (self.data_provider if self.data_provider is not None
+                   else sources.resolve())
+        fetcher = apply(self._assumptions(), fetcher)
+
+        if isinstance(definition, OptimisedIndexDefinition):
+            parent = self._calculated(definition.source, fetcher, start, end)
+
+            return self._calculated(definition, fetcher, start, end, parent_result=parent)
+
+        return self._calculated(definition, fetcher, start, end)
+
     def _assumptions(self) -> ModellingAssumptions:
         """This backtest's assumptions over the process-wide default."""
         return (self.modelling_assumptions or ModellingAssumptions()).effective()

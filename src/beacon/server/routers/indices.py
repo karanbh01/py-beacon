@@ -32,6 +32,7 @@ from ..definitions import (
 )
 from ..documents import load_document, raw, read_collection, stored, validated
 from ..errors import FindingsError
+from ..index_level import IndexLevelView, build_index_level, calculate_index
 from ..jobs import JobRegistry
 from ..preview import build_preview
 from ..schemas import (
@@ -202,6 +203,15 @@ def _delete_one(store: DocumentStore,
                         backtest_results_deleted=registry.forget(
                             f"backtest:{index_id}"))
 
+
+LevelStartQuery = Annotated[
+    str | None,
+    Query(description="First date to calculate, YYYY-MM-DD. Defaults to the "
+                      "index's base date.")]
+LevelEndQuery = Annotated[
+    str | None,
+    Query(description="Last date to calculate, YYYY-MM-DD. Defaults to the last "
+                      "date the loaded data covers.")]
 
 # How far ahead the schedule view projects, and how many dates each side it
 # serves by default. Enough for a client to render "last rebalanced / next
@@ -398,6 +408,21 @@ def build_indices_router() -> APIRouter:
                  limit: ScheduleLimitQuery = SCHEDULE_HORIZON_PERIODS
                  ) -> ScheduleView:
         return build_schedule(load_index(request, index_id), asof, limit)
+
+    @router.get("/{index_id}/level", response_model=IndexLevelView)
+    def level(request: Request,
+              index_id: Identifier,
+              start: LevelStartQuery = None,
+              end: LevelEndQuery = None) -> IndexLevelView:
+        """The index calculated on its own, with no backtest: its level,
+        the headline figures of that level, and its weights at each
+        rebalance. Through the cache a backtest uses, so either reuses the
+        other's calculation over the same dates."""
+        document = load_index(request, index_id)
+        fetcher = require_data(request, "an index cannot be calculated")
+        result = calculate_index(document, _store(request), fetcher, start, end)
+
+        return build_index_level(document, result)
 
     @router.get("/{index_id}", response_model=IndexDocument)
     def get_index(request: Request,

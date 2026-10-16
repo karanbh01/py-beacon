@@ -19,6 +19,45 @@ from .books import IndexBooks
 from .flows import FlowRecord, money_weighted_return
 
 
+def headline_metrics(returns: pd.Series,
+                     total_return: float,
+                     path: pd.Series,
+                     periods_per_year: int = DEFAULT_PERIODS_PER_YEAR,
+                     risk_free_rate: float = 0.0) -> dict[str, float]:
+    """The five headline figures of a performance: total and annualised
+    return, volatility, Sharpe ratio and maximum drawdown.
+
+    Args:
+        returns: The period returns.
+        total_return: The return over the whole performance.
+        path: The level the drawdown is measured along, from its start.
+        periods_per_year: How many periods of *returns* make a year.
+        risk_free_rate: The annual rate the Sharpe ratio is in excess of.
+
+    Returns:
+        dict: total_return, annualised_return, volatility, sharpe_ratio and
+        max_drawdown.
+    """
+    # One definition for a backtest's summary and an index's figures (BN-316),
+    # so the two can be compared.
+    n_periods = len(returns)
+    years = n_periods / float(periods_per_year)
+    annualised_return = (float((1 + total_return) ** (1 / years) - 1)
+                         if n_periods > 0 and years > 0 else 0.0)
+    volatility = (float(returns.std() * np.sqrt(periods_per_year))
+                  if n_periods > 1 else 0.0)
+    sharpe_ratio = (float((annualised_return - risk_free_rate) / volatility)
+                    if volatility > 0 else 0.0)
+    max_drawdown = (float((path / path.cummax() - 1).min())
+                    if not path.empty else 0.0)
+
+    return {"total_return": total_return,
+            "annualised_return": annualised_return,
+            "volatility": volatility,
+            "sharpe_ratio": sharpe_ratio,
+            "max_drawdown": max_drawdown}
+
+
 class MetricsMixin:
     """Returns, risk and tracking for a backtest's result."""
 
@@ -315,7 +354,6 @@ class MetricsMixin:
             money_weighted_return.
         """
         returns = self.get_returns()
-        n_periods = len(returns)
         # BN-263: with dividends paid out, the NAV understates performance;
         # BN-267: with flows it is the fund's size, so a unit is measured.
         nav, initial = self._performance_nav()
@@ -324,42 +362,15 @@ class MetricsMixin:
         total_return = (0.0 if nav.empty or initial == 0
                         else float(nav.iloc[-1] / initial - 1))
 
-        # Annualised return
-        periods = self._periods_per_year()
-
-        if n_periods > 0:
-            years = n_periods / float(periods)
-            annualised_return = float((1 + total_return) ** (1 / years) - 1) if years > 0 else 0.0
-        else:
-            annualised_return = 0.0
-
-        # Volatility (annualised)
-        volatility = float(returns.std() * np.sqrt(periods)) if n_periods > 1 else 0.0
-
-        # BN-276: in excess of the run's risk-free rate, which was always 0.
-        risk_free = self._risk_free_rate()
-        sharpe_ratio = (float((annualised_return - risk_free) / volatility)
-                        if volatility > 0 else 0.0)
-
-        # Max drawdown, from the initial capital, so a fall on the first day
+        # Max drawdown from the initial capital, so a fall on the first day
         # (the cost of buying in, say) counts.
-        if not nav.empty:
-            if initial > 0:
-                nav = pd.concat([pd.Series([initial]), nav], ignore_index=True)
-
-            cumulative_max = nav.cummax()
-            drawdown = (nav - cumulative_max) / cumulative_max
-            max_drawdown = float(drawdown.min())
-        else:
-            max_drawdown = 0.0
-
-        result: dict[str, float | None] = {
-            "total_return": total_return,
-            "annualised_return": annualised_return,
-            "volatility": volatility,
-            "sharpe_ratio": sharpe_ratio,
-            "max_drawdown": max_drawdown,
-        }
+        path = (pd.concat([pd.Series([initial]), nav], ignore_index=True)
+                if not nav.empty and initial > 0 else nav)
+        result: dict[str, float | None] = {**headline_metrics(returns,
+                                                              total_return,
+                                                              path,
+                                                              self._periods_per_year(),
+                                                              self._risk_free_rate())}
 
         # Tracking metrics (only if the run tracked an index)
         te = self.get_tracking_error()

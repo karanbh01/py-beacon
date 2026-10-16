@@ -94,7 +94,7 @@ A client needs three things from startup (the full sequence is in
 | `/data/import` | Import CSV files or an Excel workbook into a new store, and download the template. |
 | `/data/watchlists` | Saved lists of identifiers. |
 | `/universes` | Saved universes: the pools of names an index selects from, and their members on a date. A `GLOBAL` universe covering the loaded data is kept up to date automatically and cannot be edited. |
-| `/indices` | Index definitions: save, validate, preview, the rebalance schedule, the rule types and calendars an editor can offer, and deriving an optimised index from a saved one. |
+| `/indices` | Index definitions: save, validate, preview, the rebalance schedule, the rule types and calendars an editor can offer, deriving an optimised index from a saved one, and an index's level calculated on its own (`GET /indices/{id}/level`). |
 | `/strategies` | Stored strategies: what a backtest holds and how it trades. List, read, save, check without saving, and delete. See [Stored strategies](#stored-strategies). |
 | `/beacon` | Running a backtest of a saved index (a job), checking a backtest request without running it, and reading the results: the latest record, overview, weights, attribution, one asset, and a comparison of several indices. |
 | `/backtest/options` | Everything a backtest request may carry: each family's types and fields, the vehicle presets, and the modelling assumptions with their defaults. See [Backtest requests](#backtest-requests). |
@@ -148,6 +148,17 @@ The run's result carries its resolved `settings`, and, as the run uses them,
 `rebalance_steps` and the `unfilled` orders. `nav_per_unit`, `units` and every
 `market` series share `level`'s dates; with flows, `level` is NAV per unit,
 so a flow is not drawn as a gain.
+
+## An index on its own
+
+`GET /indices/{id}/level` calculates a stored index alone, with no portfolio,
+costs or vehicle, so an index's history can be shown before anything is
+backtested. It answers the index's `level` from its base value, its headline
+`metrics` (total and annualised return, volatility, Sharpe ratio and maximum
+drawdown, defined as a backtest's are) and its weights at each rebalance in
+`rebalances`. `start` and `end` set the window; by default it runs from the
+base date to the last date the loaded data covers. The calculation goes
+through the cache backtests use, so a backtest over the same dates reuses it.
 
 ## Stored strategies
 
