@@ -122,10 +122,14 @@ the euro class above gives up.
 ```python
 from beacon.backtest.class_benchmark import class_tracking, index_in_class_currency
 
-book = result.share_classes["EUR H"]
-benchmark = index_in_class_currency(result.index.tracked.levels, "USD", "EUR",
-                                    data, hedge_ratio=1.0)
-class_tracking(book, benchmark)  # total_return, tracking_difference, tracking_error
+# The fund above: its classes are in the index's own currency, so their
+# benchmark is the index as it is. For a euro class hedged out of dollars it
+# would be index_in_class_currency(levels, "USD", "EUR", fetcher, hedge_ratio=1.0).
+levels = result.index.tracked.levels
+book = result.share_classes["I Acc"]
+benchmark = index_in_class_currency(levels, "USD", book.currency, fetcher)
+
+print(class_tracking(book, benchmark))  # total_return, tracking_difference, tracking_error
 ```
 
 ## Tracking a fund against its index
