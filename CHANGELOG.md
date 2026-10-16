@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Added
+
+- `GET /strategies/{id}/result` gives a strategy's latest run payload, every series and record in it, without the job's id, and answers 404 until the strategy has a run.
+
 ## [0.9.0] - 2026-10-16
 
 Strategies you save and backtest: a stored strategy holds what a backtest holds and how it trades, and every backtest runs one, keeping its runs apart from any other strategy's on the same index. An index can be calculated on its own, with no backtest. Share classes, synthetic replication and futures reach the API, and a hedged share class is measured against the index hedged the same way. **Breaking** for API clients: backtests and their results moved from `/beacon/{index_id}/...` to `/strategies/{id}/...`, and runs saved before this release are no longer served.

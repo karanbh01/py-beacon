@@ -198,6 +198,42 @@ class TestRunsArePerStrategy:
         assert "POST /strategies/idle/backtest" in response.json()["error"]["message"]
 
 
+class TestTheLatestResult:
+    """BN-320: the run payload by strategy, so a client need not hold the job's id."""
+
+    def test_it_is_the_latest_run_s_payload(self,
+                                            client):
+        response = client.get("/strategies/sampled/result", headers=auth())
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["settings"]["strategy_id"] == "sampled"
+        assert payload["level"] == run_of(client, "sampled")["level"]
+        assert payload["replication"]
+
+    def test_it_is_not_found_until_the_strategy_has_run(self,
+                                                        bare):
+        bare.post("/strategies", json=strategy_document("idle"), headers=auth())
+
+        response = bare.get("/strategies/idle/result", headers=auth())
+
+        assert response.status_code == 404
+        assert "POST /strategies/idle/backtest" in response.json()["error"]["message"]
+
+    def test_an_unknown_strategy_is_not_found(self,
+                                              client):
+        assert client.get("/strategies/nope/result", headers=auth()).status_code == 404
+
+    def test_a_run_filed_under_an_index_is_not_served(self,
+                                                     bare):
+        bare.post("/strategies", json=strategy_document(INDEX_ID), headers=auth())
+        persist_result(bare, f"backtest:{INDEX_ID}",
+                       {"level": {"index": [], "data": []},
+                        "settings": {"strategy": {"type": "index"}}})
+
+        assert bare.get(f"/strategies/{INDEX_ID}/result", headers=auth()).status_code == 404
+
+
 class TestRunsFromBeforeTheChange:
 
     def test_a_run_filed_under_an_index_is_not_a_strategy_s(self,

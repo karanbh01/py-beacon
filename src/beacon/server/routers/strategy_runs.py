@@ -35,6 +35,7 @@ from ..schemas import (
     BacktestRecordRow,
     BacktestRequest,
     BacktestResultSummary,
+    BacktestRunResult,
     BacktestValidation,
     CompareView,
     Identifier,
@@ -275,6 +276,20 @@ def build_strategy_runs_router() -> APIRouter:
 
         return build_overview(strategy_id, strategy.index_id, strategy.name,
                               _latest_run(request, strategy_id))
+
+    # BN-320: the run payload by strategy, so a client need not hold the job's id.
+    @router.get("/{strategy_id}/result", response_model=BacktestRunResult)
+    def result(request: Request,
+               strategy_id: Identifier) -> BacktestRunResult:
+        """The strategy's latest successful run: the payload its job answered
+        with, every series and record in it, kept across a restart.
+
+        Raises:
+            DataNotFoundError: Until the strategy has been backtested.
+        """
+        _strategy(request, strategy_id)
+
+        return BacktestRunResult.model_validate(_latest_run(request, strategy_id))
 
     @router.get("/{strategy_id}/record", response_model=BacktestResultSummary)
     def backtest_record(request: Request,

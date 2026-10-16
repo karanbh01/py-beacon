@@ -183,6 +183,9 @@ Runs are kept per strategy, so two strategies on one index each keep their
 own. `GET /strategies/{id}/overview`, `/record`, `/weights`, `/attribution`
 and `/assets/{identifier}` read the strategy's latest run, and answer 404
 until it has one. Each names the strategy and the index it holds.
+`GET /strategies/{id}/result` gives the latest run's whole payload, the one
+its job answered with, so a client needs no job id to read it again, and it is
+kept across a restart.
 `GET /strategies/compare?ids=a&ids=b` puts several strategies' latest runs on
 one axis, and `GET /strategies/runs` lists every strategy's latest saved run,
 newest first. A strategy's weights view takes `benchmark`, an index to
