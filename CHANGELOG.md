@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-16
+
+Strategies you save and backtest: a stored strategy holds what a backtest holds and how it trades, and every backtest runs one, keeping its runs apart from any other strategy's on the same index. An index can be calculated on its own, with no backtest. Share classes, synthetic replication and futures reach the API, and a hedged share class is measured against the index hedged the same way. **Breaking** for API clients: backtests and their results moved from `/beacon/{index_id}/...` to `/strategies/{id}/...`, and runs saved before this release are no longer served.
+
 ### Added
 
 - `GET /indices/{id}/level` calculates a stored index on its own, with no backtest: its level, its total and annualised return, volatility, Sharpe ratio and maximum drawdown, and its weights at each rebalance, over `start` and `end` or the whole of the loaded data. `Backtest.calculate(definition, start, end)` does the same in Python, through the cache a run uses.
@@ -327,7 +331,8 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/karanbh01/py-beacon/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/karanbh01/py-beacon/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/karanbh01/py-beacon/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/karanbh01/py-beacon/compare/v0.6.0...v0.7.0
