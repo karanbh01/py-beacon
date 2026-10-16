@@ -19,6 +19,7 @@ from ..backtest.costs import ExecutionLimit, MarketImpact
 from ..backtest.dividends import DIVIDEND_POLICIES
 from ..backtest.etf import EtfMarket, EtfVehicle
 from ..backtest.implementation import FLOW_INVESTMENTS, REDISTRIBUTIONS
+from ..backtest.share_classes import DISTRIBUTIONS, ShareClass
 from ..backtest.vehicle import Vehicle
 from ..catalogue import BPS, COUNT, DAYS, FRACTION, MONEY, RATIO, Display
 from ..data.fetcher import DEFAULT_FX_POLICY, FX_POLICIES
@@ -87,6 +88,21 @@ IMPLEMENTATION_DISPLAYS = {
                                        help="Leave blank to estimate it."),
 }
 
+# BN-314.
+SHARE_CLASS_DISPLAYS = {
+    "name": Display("Name"),
+    "management_fee_bps": Display("Management fee", unit=BPS, minimum=0.0,
+                                  help="Leave blank for the vehicle's."),
+    "distribution": Display("Income", choices=tuple(DISTRIBUTIONS)),
+    "currency": Display("Currency", help="A three-letter code, such as 'EUR'. Leave "
+                        "blank for the book's."),
+    "hedged": Display("Hedged into its currency"),
+    "hedge_ratio": Display("Share hedged", unit=FRACTION, minimum=0.0, maximum=2.0),
+    "hedge_band": Display("Hedge drift allowed", unit=FRACTION, minimum=0.0,
+                          help="How far the hedge ratio may move before the forward "
+                               "is resized. Leave blank to resize only at the rolls."),
+}
+
 ASSUMPTION_DISPLAYS = {
     "fx_policy": Display("FX on a day with no rate", choices=tuple(FX_POLICIES)),
     "max_price_staleness_days": Display("Days before a price is stale", unit=DAYS,
@@ -122,10 +138,12 @@ def backtest_options() -> BacktestOptions:
         vehicle_settings=_vehicle_settings(),
         market_settings=_described(EtfMarket, MARKET_DISPLAYS),
         implementation_settings=_implementation_settings(),
+        share_class_settings=_described(ShareClass, SHARE_CLASS_DISPLAYS),
         modelling_assumptions=_assumptions(),
         choices={"dividends": list(DIVIDEND_POLICIES), "strategy": list(STRATEGY_TYPES),
                  "rebalancing": list(FREQUENCIES), "redistribution": list(REDISTRIBUTIONS),
-                 "invest_flows": list(FLOW_INVESTMENTS), "fx_policy": list(FX_POLICIES)})
+                 "invest_flows": list(FLOW_INVESTMENTS), "fx_policy": list(FX_POLICIES),
+                 "distribution": list(DISTRIBUTIONS)})
 
 
 def _described(cls: type,

@@ -34,6 +34,7 @@ from ..backtest.etf import EtfMarket, EtfVehicle
 from ..backtest.flows import Flows
 from ..backtest.implementation import Implementation
 from ..backtest.presets import PRESETS
+from ..backtest.share_classes import ShareClass
 from ..backtest.vehicle import Vehicle
 from ..data.fetcher import DataFetcher
 from ..exceptions import BeaconError
@@ -45,6 +46,7 @@ from ..strategy.futures import IndexFutures
 from ..strategy.signals import Signal
 from ..strategy.tracking import FullReplication, IndexTracking
 from .schemas import BacktestRequest, Finding, TypedSpec, VehicleSpec
+from .share_class_settings import fund_terms
 
 # The vehicle used when no preset is named, and the archetypes.
 GENERIC = "generic"
@@ -129,9 +131,11 @@ class BuiltSettings:
     modelling_assumptions: ModellingAssumptions | None
     strategy: Callable[[AnyIndexDefinition], Strategy]
     implementation: Implementation | None
-    flows: list[Flows]
+    flows: list[Flows] | dict[str, list[Flows]]
     vehicle: Vehicle | None
     resolved: dict[str, Any]
+    share_classes: list[ShareClass] = field(default_factory=list)
+    initial_capital: float | dict[str, float] = 1_000_000.0
 
     @property
     def strategy_type(self) -> str:
@@ -161,9 +165,9 @@ def build(request: BacktestRequest,
     assumptions = _assumptions(request, findings)
     strategy, strategy_settings = _strategy(request, findings)
     implementation = _implementation(request, findings)
-    flows = [flow for position, spec in enumerate(request.flows)
-             if (flow := typed(catalogue.FLOW, spec, f"flows.{position}", findings))
-             is not None]
+    # BN-314: capital and flows can be by share class.
+    terms = fund_terms(request, findings.add,
+                       lambda spec, path: typed(catalogue.FLOW, spec, path, findings))
     vehicle, preset = _vehicle(request.vehicle, findings)
 
     if findings:
@@ -177,15 +181,21 @@ def build(request: BacktestRequest,
         "strategy": strategy_settings,
         "implementation": (request.implementation.model_dump()
                            if request.implementation is not None else None),
-        "flows": [spec.model_dump() for spec in request.flows],
+        "flows": ({name: [spec.model_dump() for spec in specs]
+                   for name, specs in request.flows.items()}
+                  if isinstance(request.flows, dict)
+                  else [spec.model_dump() for spec in request.flows]),
+        **terms.resolved(),
         "vehicle": ({"preset": preset, "settings": vehicle_settings(vehicle)}
                     if vehicle is not None else None),
     }
 
     return BuiltSettings(currency=currency, dividends=request.dividends,
                          modelling_assumptions=assumptions, strategy=strategy,
-                         implementation=implementation, flows=flows,
-                         vehicle=vehicle, resolved=resolved), []
+                         implementation=implementation, flows=terms.flows,
+                         vehicle=vehicle, resolved=resolved,
+                         share_classes=terms.share_classes,
+                         initial_capital=terms.initial_capital), []
 
 
 def typed(kind: str,

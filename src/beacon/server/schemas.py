@@ -3377,6 +3377,36 @@ class ModellingAssumptionsSpec(BaseModel):
                     "under an execution limit.")
 
 
+class ShareClassSpec(BaseModel):
+    """One share class of a backtest's fund: its own currency, fee and
+    distribution policy, sharing the book with the other classes."""
+    # BN-314.
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, description="What the class is called, such as 'EUR H'.")
+    currency: str | None = Field(
+        default=None, pattern=r"^[A-Za-z]{3}$",
+        description="The class's currency. Null is the book's.")
+    hedged: bool = Field(
+        default=False,
+        description="Whether it hedges its share of the assets into its currency with "
+                    "a monthly forward. Needs a currency other than the book's.")
+    hedge_ratio: float = Field(
+        default=1.0, gt=0.0, le=2.0,
+        description="The share of its net assets it hedges, as a fraction: 1 for all.")
+    hedge_band: float | None = Field(
+        default=0.03, ge=0.0,
+        description="How far the hedge ratio may drift between monthly rolls before "
+                    "the forward is resized, as a fraction. Null resizes only at rolls.")
+    management_fee_bps: float | None = Field(
+        default=None, ge=0.0,
+        description="The class's annual management fee in basis points. Null is the "
+                    "vehicle's.")
+    distribution: str = Field(
+        default="accumulating",
+        description="'accumulating' keeps its income in the fund; 'distributing' pays "
+                    "it out.")
+
+
 class StrategyBacktestRequest(BaseModel):
     """Body of `POST /strategies/{strategy_id}/backtest`: everything a backtest
     needs that the stored strategy does not hold.
@@ -3392,7 +3422,10 @@ class StrategyBacktestRequest(BaseModel):
         default=None,
         description="Start date, YYYY-MM-DD. Defaults to the index base date.")
     end: str | None = Field(default=None, description="End date, YYYY-MM-DD.")
-    initial_capital: float = Field(default=1_000_000.0, gt=0)
+    initial_capital: float | dict[str, float] = Field(
+        default=1_000_000.0,
+        description="The capital the fund starts with, in the book's currency. With "
+                    "share classes, by class name, each in its class's currency.")
     transaction_cost_bps: float = Field(
         default=0.0, ge=0,
         description="Cost per trade in basis points of notional.")
@@ -3411,12 +3444,17 @@ class StrategyBacktestRequest(BaseModel):
         default=None,
         description="What the run takes as given; each unset field takes the "
                     "engine's default.")
-    flows: list[TypedSpec] = Field(
+    flows: list[TypedSpec] | dict[str, list[TypedSpec]] = Field(
         default_factory=list,
         description="Money arriving and leaving, added together. Amounts are "
-                    "in the book's currency.")
+                    "in the book's currency. With share classes, by class name, "
+                    "each in its class's currency.")
     vehicle: VehicleSpec | None = Field(
         default=None, description="Null for a plain backtest, with no fee.")
+    share_classes: list[ShareClassSpec] = Field(
+        default_factory=list,
+        description="The fund's share classes, sharing one book. Empty runs one class "
+                    "with the request's capital and flows, as without classes.")
 
 
 class BacktestRequest(StrategyBacktestRequest):
@@ -3472,6 +3510,8 @@ class BacktestOptions(BaseModel):
         description="The implementation's plain settings: `minimum_position`, "
                     "`impact` and `execution` fields, `redistribution`, "
                     "`cash_buffer` and `invest_flows`.")
+    share_class_settings: list[ParameterSpec] = Field(
+        description="What each of `share_classes` takes.")
     modelling_assumptions: list[ParameterSpec] = Field(
         description="Each modelling assumption, with the engine's default as "
                     "its `default`.")
@@ -3866,6 +3906,57 @@ class FlowPayload(BaseModel):
         default=None, description="For an ETF, the creation units; null otherwise.")
 
 
+class HedgePayload(BaseModel):
+    """One trade of a hedged class's forward."""
+    date: str = Field(description="YYYY-MM-DD.")
+    reason: str = Field(description="'open', 'roll' (a new month) or 'band' (the hedge "
+                                    "ratio left its band).")
+    notional: float = Field(description="The new forward's notional, in the book's "
+                                        "currency.")
+    rate: float = Field(description="Its contracted rate, class currency per unit of "
+                                    "the book's.")
+    settled: float = Field(description="What the old forward settled for, in the "
+                                       "class's currency; 0 when one was opened.")
+
+
+class ShareClassMetrics(BaseModel):
+    """A class's figures against the index in its currency: converted for an
+    unhedged class, hedged the same way for a hedged one."""
+    total_return: Pct = Field(description="Per unit, with what it paid out added back.")
+    tracking_difference: Pct | None = Field(
+        default=None, description="Its total return less its benchmark's.")
+    tracking_error: Pct | None = Field(
+        default=None, description="Of its daily returns against its benchmark's, "
+                                  "annualised.")
+
+
+class ShareClassPayload(BaseModel):
+    """One share class's record of a run. Its money is in its own currency, and
+    its series share `level`'s dates."""
+    name: str = Field(description="The class's name.")
+    currency: str = Field(description="The currency its figures are in.")
+    hedged: bool = Field(description="Whether it hedged into that currency.")
+    distribution: str = Field(description="'accumulating' or 'distributing'.")
+    management_fee_bps: float = Field(description="Its fee, in basis points a year.")
+    net_assets: SeriesPayload = Field(description="Its net assets at each day's end.")
+    book_net_assets: SeriesPayload = Field(
+        description="The same in the book's currency, which add up to the fund's "
+                    "across the classes.")
+    units: SeriesPayload = Field(description="Its units outstanding.")
+    nav_per_unit: SeriesPayload = Field(description="Its NAV per unit.")
+    fees: SeriesPayload = Field(description="The fee it accrued each day.")
+    fees_paid: float = Field(description="Its fees over the run.")
+    distributions: SeriesPayload = Field(description="What it paid out each day.")
+    distributions_paid: float = Field(description="What it paid out over the run.")
+    flows: list[FlowPayload] = Field(description="Its own flows as dealt.")
+    hedge_value: SeriesPayload | None = Field(
+        default=None, description="Its forward's value each day, in its currency; null "
+                                  "for an unhedged class.")
+    hedges: list[HedgePayload] = Field(
+        default_factory=list, description="Each trade of its hedge.")
+    metrics: ShareClassMetrics
+
+
 class MarketPayload(BaseModel):
     """An ETF's quotes on the exchange, on `level`'s dates."""
     market_price: SeriesPayload
@@ -4000,6 +4091,15 @@ class BacktestRunResult(BaseModel):
         description="What the implementation's stages did at each rebalance.")
     unfilled: list[UnfilledOrderPayload] = Field(
         default_factory=list, description="Orders not filled in full.")
+    # BN-314.
+    share_classes: list[ShareClassPayload] = Field(
+        default_factory=list,
+        description="Each share class's record, in the request's order. Empty without "
+                    "share classes.")
+    hedge_value: SeriesPayload | None = Field(
+        default=None,
+        description="The hedged classes' forwards together, in the book's currency; "
+                    "null without a hedged class.")
 
 
 ResultT = TypeVar("ResultT")

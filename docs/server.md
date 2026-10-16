@@ -118,7 +118,8 @@ capital and the trading cost, and, optionally, every other part of a
 
 | Field | What it says |
 | --- | --- |
-| `flows` | Money arriving and leaving, as a list of scenarios. |
+| `flows` | Money arriving and leaving, as a list of scenarios, or with share classes a list for each class by name. |
+| `share_classes` | The fund's share classes, sharing one book: each a `name`, and optionally a `currency`, `hedged`, `hedge_ratio`, `hedge_band`, `management_fee_bps` and `distribution`. With classes, `initial_capital` is by class name, each in its class's currency. See [Funds](concepts/funds.md). |
 | `vehicle` | A preset (`uk_oeic`, `ucits_etf`, ..., or null for the generic vehicle) and the settings to change. See [Fund vehicles and pricing](concepts/fund-vehicles.md). |
 | `modelling_assumptions` | What the run takes as given; each unset field takes the engine's default. |
 | `dividends`, `currency` | The dividend policy, and the book's currency. |
@@ -149,6 +150,21 @@ The run's result carries its resolved `settings`, starting with the
 `rebalance_steps` and the `unfilled` orders. `nav_per_unit`, `units` and every
 `market` series share `level`'s dates; with flows, `level` is NAV per unit,
 so a flow is not drawn as a gain.
+
+With share classes the result carries `share_classes`, one record per class
+in the request's order, and `hedge_value`, the hedged classes' forwards
+together in the book's currency. A class's record is in its own currency, its
+series on `level`'s dates: its net assets (and `book_net_assets`, in the
+book's currency, which add up to the fund's), units, NAV per unit, the fees
+and distributions of each day and their totals, its flows as dealt, and for a
+hedged class its `hedge_value` and each trade of its `hedges`. Its `metrics`
+give its total return, tracking difference and tracking error against the
+index in its currency: converted at each day's rate for an unhedged class,
+and hedged the same way for a hedged one, so a hedged class's tracking
+difference leaves out the interest rate differential its hedge earns or
+pays. `GET /backtest/options` describes each class field in
+`share_class_settings`, and a problem with one is a finding at its path, such
+as `share_classes.1.hedge_band` or `initial_capital.EUR`.
 
 Runs are kept per strategy, so two strategies on one index each keep their
 own. `GET /strategies/{id}/overview`, `/record`, `/weights`, `/attribution`

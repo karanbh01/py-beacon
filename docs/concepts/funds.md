@@ -107,6 +107,27 @@ interest rate differential: a euro class hedged out of dollars at 3% against
 with its reason (`"open"`, `"roll"` or `"band"`), and `hedge_value` its daily
 value. A class hedged into the book's own currency is refused.
 
+A class is measured against the index in its own currency.
+`index_in_class_currency(levels, "USD", "EUR", data)` in
+`beacon.backtest.class_benchmark` converts the index at each day's rate, for
+an unhedged class. With `hedge_ratio=` it hedges the index the way the class
+hedges: at the first session of each month the index's value is sold forward
+for the class's currency, at covered interest parity from the same short
+rates, at the class's hedge ratio. `class_tracking(book, benchmark)` gives
+the class's total return, tracking difference and tracking error against it,
+defined as a backtest's are. Against the hedged index, a hedged class's
+tracking difference is its fees, costs and hedge slippage, not the 2% a year
+the euro class above gives up.
+
+```python
+from beacon.backtest.class_benchmark import class_tracking, index_in_class_currency
+
+book = result.share_classes["EUR H"]
+benchmark = index_in_class_currency(result.index.tracked.levels, "USD", "EUR",
+                                    data, hedge_ratio=1.0)
+class_tracking(book, benchmark)  # total_return, tracking_difference, tracking_error
+```
+
 ## Tracking a fund against its index
 
 A fund's backtest is measured against the index it tracked.

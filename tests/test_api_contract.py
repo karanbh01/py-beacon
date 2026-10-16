@@ -73,7 +73,7 @@ SELF_EVIDENT_FIELDS = {"index_id", "name"}
 # case that made BN-181 worth filing: a NEW field shipping silent, where two
 # components can hold different meanings for it indefinitely and the divergence
 # surfaces only when behaviour changes underneath both.
-SILENT_FIELD_CEILING = 168
+SILENT_FIELD_CEILING = 167
 
 # The date- and time-shaped fields BN-181 described, written out rather than
 # derived so that losing one is a failure rather than a number that still adds
@@ -134,7 +134,9 @@ BACKTEST_RUN_FIELDS = {"level", "returns", "drawdown", "annual_returns",
                        # BN-272: strategies, flows, vehicles and the stages.
                        "settings", "nav_per_unit", "units", "flows", "fees_paid",
                        "market", "replication", "active", "rebalance_steps",
-                       "unfilled"}
+                       "unfilled",
+                       # BN-314: a fund's share classes and their hedges.
+                       "share_classes", "hedge_value"}
 BACKTEST_RUN_REQUIRED = {"level", "returns", "drawdown", "annual_returns",
                          "index_level", "metrics"}
 

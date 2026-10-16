@@ -10,6 +10,8 @@ from the level series, or compounds the annual returns, must land back on the
 numbers the server sent; if those were computed independently they would drift
 apart at the last decimal and nobody would know which to trust.
 """
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
@@ -17,6 +19,7 @@ import pandas as pd
 from ..analysis.relative import align_on_common_window, relative_metrics
 from ..backtest.main import Backtest
 from ..backtest.result import BacktestResult
+from ..backtest.share_classes import ShareClass
 from ..data.fetcher import DataFetcher
 from ..index.constructor import IndexDefinition
 from ..index.derived import AnyIndexDefinition, OptimisedIndexDefinition
@@ -34,7 +37,6 @@ from .schemas import (
     BacktestResultSummary,
     BacktestRunResult,
     BenchmarkRef,
-    FlowPayload,
     IndexDocument,
     MarketPayload,
     RebalanceStepPayload,
@@ -47,12 +49,23 @@ from .schemas import (
     rebalance_snapshots,
     unfilled_payloads,
 )
+from .share_class_results import flow_payloads, share_class_payloads
 from .store import DocumentStore
 from .strategy_schemas import StrategyDocument
 
 # Every series is rebased to this so the portfolio and its benchmark start
 # together and can be read off the same axis.
 BASE_LEVEL = 100.0
+
+
+@dataclass(frozen=True)
+class ClassContext:
+    """What measuring a run's share classes needs: the classes, for their
+    hedge ratios, the index's currency and the data the rates come from."""
+    # BN-314.
+    share_classes: Sequence[ShareClass]
+    index_currency: str
+    fetcher: DataFetcher
 
 
 def _rebase(series: pd.Series) -> pd.Series:
@@ -135,7 +148,8 @@ def assemble_result(result: BacktestResult,
                     index_result: IndexResult,
                     benchmark: RelativeMetricsPayload | None = None,
                     cap: float | None = None,
-                    settings: dict[str, Any] | None = None) -> BacktestRunResult:
+                    settings: dict[str, Any] | None = None,
+                    classes: ClassContext | None = None) -> BacktestRunResult:
     """Build the wire payload from a completed backtest.
 
     Args:
@@ -143,6 +157,7 @@ def assemble_result(result: BacktestResult,
         index_result: The index it tracked, reported alongside as the
             replication reference.
         benchmark: Optional comparison against an external benchmark.
+        classes: What measuring its share classes needs; None without them.
 
     Returns:
         BacktestRunResult: Level, returns, drawdown, annual returns, the
@@ -174,7 +189,11 @@ def assemble_result(result: BacktestResult,
         price_gaps=price_gap_payloads(result),
         rebalance_pricing=rebalance_pricing_payloads(result),
         settings=settings,
-        **strategy_and_vehicle_payloads(result))
+        **strategy_and_vehicle_payloads(result),
+        **(share_class_payloads(result, classes.share_classes, level.index,
+                                index_result.index_levels, classes.index_currency,
+                                classes.fetcher)
+           if classes is not None else {}))
 
 
 def target_cap(definition: AnyIndexDefinition) -> float | None:
@@ -300,13 +319,14 @@ def build_backtest_job(strategy: StrategyDocument,
         # milestones stay.
         await report(0.05, _stage(settings))
 
-        backtest = Backtest(initial_capital=request.initial_capital,
+        backtest = Backtest(initial_capital=settings.initial_capital,
                             transaction_cost_bps=request.transaction_cost_bps,
                             currency=settings.currency,
                             modelling_assumptions=settings.modelling_assumptions,
                             dividends=settings.dividends,
                             implementation=settings.implementation,
                             flows=settings.flows or None,
+                            share_classes=settings.share_classes or None,
                             vehicle=settings.vehicle,
                             data_provider=fetcher).run(settings.strategy(definition),
                                                        start=start,
@@ -343,7 +363,9 @@ def build_backtest_job(strategy: StrategyDocument,
         cap = (document.pipeline.weighting.max_weight
                if document.pipeline is not None else None)
         payload = assemble_result(backtest, index_result, comparison, cap=cap,
-                                  settings=resolved)
+                                  settings=resolved,
+                                  classes=ClassContext(settings.share_classes,
+                                                       document.currency, fetcher))
 
         # The record is captured here or never: the library BacktestResult
         # exists only inside this job, and the run payload the job returns is
@@ -369,12 +391,7 @@ def strategy_and_vehicle_payloads(result: BacktestResult) -> dict[str, Any]:
     """What a strategy, flows, a vehicle and the implementation's stages add
     to the run payload; each empty or null when unused."""
     payloads: dict[str, Any] = {
-        "flows": [FlowPayload(date=str(flow.date.date()), amount=flow.amount,
-                              nav_per_unit=flow.nav_per_unit, units=flow.units,
-                              dealing_price=flow.dealing_price,
-                              adjustment=flow.adjustment,
-                              creation_units=flow.creation_units)
-                  for flow in result.flows],
+        "flows": flow_payloads(result.flows),
         "fees_paid": -sum(flow.amount for flow in result.portfolio.cash_flows
                           if flow.kind == FEE),
         "replication": [ReplicationPayload(date=str(step.date.date()),
