@@ -336,7 +336,8 @@ def build_backtest_job(strategy: StrategyDocument,
         # BN-313: which strategy ran, so a run is never served as another's.
         resolved = {"strategy_id": strategy.id, "strategy_name": strategy.name,
                     "index_id": document.id,
-                    **settings.resolved, "modelling_assumptions": (
+                    **settings.resolved, "start": start, "end": end,
+                    "modelling_assumptions": (
             backtest.modelling_assumptions.as_dict()
             if backtest.modelling_assumptions is not None
             else settings.resolved["modelling_assumptions"])}

@@ -12,6 +12,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 - `GET /strategies/{id}/result` gives a strategy's latest run payload, every series and record in it, without the job's id, and answers 404 until the strategy has a run.
 - `GET /backtest/options` describes the run's own settings in `run_settings`: `start` and `end` (a new `date` field type), `initial_capital`, `transaction_cost_bps`, `currency`, `dividends` and `benchmark`, with their defaults, units and choices. A request always took them, but the options never said so, so a form built from them could not set the dates, capital or cost.
+- A run's resolved `settings` carry its `start` and `end` (the dates it ran over, defaults filled in), `initial_capital`, `transaction_cost_bps` and `benchmark`, so a new backtest can start from a run's settings.
 
 ## [0.9.0] - 2026-10-16
 

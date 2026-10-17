@@ -174,7 +174,15 @@ def build(request: BacktestRequest,
         return None, findings.found
 
     currency = request.currency.upper() if request.currency else None
+    # BN-322: everything a run needs, so a client can start from a run's own
+    # settings. The dates are as asked; a run fills in the defaults it used.
     resolved: dict[str, Any] = {
+        "start": request.start,
+        "end": request.end,
+        "initial_capital": request.initial_capital,
+        "transaction_cost_bps": request.transaction_cost_bps,
+        "benchmark": (request.benchmark.model_dump()
+                      if request.benchmark is not None else None),
         "currency": currency,
         "dividends": request.dividends,
         "modelling_assumptions": _resolved_assumptions(assumptions, fetcher),

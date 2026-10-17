@@ -4095,10 +4095,12 @@ class BacktestRunResult(BaseModel):
     # BN-272: what ran, and what strategies, flows and vehicles produce.
     settings: dict[str, Any] | None = Field(
         default=None,
-        description="What ran, fully resolved: strategy, implementation, flows, "
-                    "vehicle (preset and every setting), modelling assumptions "
-                    "and dividend policy. Null on a run saved before it was "
-                    "recorded.")
+        description="What ran, fully resolved: the strategy and index, the "
+                    "dates it ran over, capital, trading cost and benchmark, the "
+                    "strategy's settings and implementation, flows, vehicle (preset "
+                    "and every setting), share classes, modelling assumptions, "
+                    "currency and dividend policy. Null on a run saved before it "
+                    "was recorded.")
     nav_per_unit: SeriesPayload | None = Field(
         default=None,
         description="NAV per unit on `level`'s dates. With flows `level` is "

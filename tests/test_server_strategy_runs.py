@@ -505,3 +505,37 @@ class TestReservedIds:
 
         assert response.status_code == 422
         assert bare.get("/strategies", headers=auth()).json()["strategies"] == []
+
+
+class TestARunsSettings:
+    """BN-322: a run's settings carry everything a backtest request does, so a
+    client can start a new one from them."""
+
+    def test_they_carry_the_dates_capital_cost_and_benchmark(self,
+                                                             client):
+        settings = run_of(client, "plain")["settings"]
+
+        assert settings["start"] == START and settings["end"] == END
+        assert settings["initial_capital"] > 0
+        assert "transaction_cost_bps" in settings and "benchmark" in settings
+
+    def test_a_run_fills_in_the_dates_it_defaulted(self,
+                                                   client):
+        """Asked for no dates, a run reports the ones it ran over."""
+        finished(client, client.post("/strategies/plain/backtest", json={}, headers=auth()))
+        settings = run_of(client, "plain")["settings"]
+
+        assert settings["start"] is not None and settings["end"] is not None
+
+    def test_they_rerun_as_a_request(self,
+                                     client):
+        """The request fields read back from a run make a valid request."""
+        from beacon.server.schemas import StrategyBacktestRequest
+
+        settings = run_of(client, "sampled")["settings"]
+        body = {name: settings[name] for name in StrategyBacktestRequest.model_fields
+                if name in settings and settings[name] is not None}
+        validation = client.post("/strategies/sampled/backtest/validate", json=body,
+                                 headers=auth()).json()
+
+        assert validation["valid"] is True, validation["findings"]
