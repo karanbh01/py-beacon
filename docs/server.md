@@ -127,7 +127,9 @@ capital and the trading cost, and, optionally, every other part of a
 A request without them runs exactly as one with only the dates, capital and
 cost. A body carrying `strategy` or `implementation` is refused: those are
 the stored strategy's. Configurable objects use one shape, `{"type": ..., "params": {...}}`,
-and `GET /backtest/options` lists every type with its fields: their types,
+and `GET /backtest/options` lists every type with its fields, and every setting a
+request can carry, `run_settings` describing the dates, capital, cost,
+currency, dividends and benchmark: their types,
 defaults, choices, units (`fraction` is shown as a percentage, `money` is in
 the book's currency) and bounds. It needs no data.
 

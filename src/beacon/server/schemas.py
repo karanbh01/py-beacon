@@ -3183,6 +3183,10 @@ BENCHMARK_INDEX = "index"
 BENCHMARK_IDENTIFIER = "identifier"
 
 
+# What a benchmark can be: a stored index, or a series in the market data.
+BENCHMARK_KINDS = ("index", "identifier")
+
+
 class BenchmarkRef(BaseModel):
     """What to compare a backtest against.
 
@@ -3510,6 +3514,9 @@ class BacktestOptions(BaseModel):
         description="The implementation's plain settings: `minimum_position`, "
                     "`impact` and `execution` fields, `redistribution`, "
                     "`cash_buffer` and `invest_flows`.")
+    run_settings: list[ParameterSpec] = Field(
+        description="The run's own settings: `start`, `end`, `initial_capital`, "
+                    "`transaction_cost_bps`, `currency`, `dividends` and `benchmark`.")
     share_class_settings: list[ParameterSpec] = Field(
         description="What each of `share_classes` takes.")
     modelling_assumptions: list[ParameterSpec] = Field(

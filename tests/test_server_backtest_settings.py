@@ -100,6 +100,32 @@ class TestTheOptions:
         assert defaults["volume_backfill_days"] == 5
         assert defaults["fx_policy"] == "CARRY_FORWARD"
 
+    def test_the_run_s_own_settings_are_described(self,
+                                                  options):
+        """BN-321: the dates, capital and cost a form needs, with their units."""
+        fields = {field["name"]: field for field in options["run_settings"]}
+
+        assert (fields["start"]["type"], fields["end"]["type"]) == ("date", "date")
+        assert (fields["initial_capital"]["unit"], fields["initial_capital"]["default"]) == (
+            "money", 1_000_000.0)
+        assert fields["transaction_cost_bps"]["unit"] == "bps"
+        assert fields["dividends"]["choices"] == ["reinvest", "cash", "distribute"]
+        assert fields["benchmark.kind"]["choices"] == ["index", "identifier"]
+
+    def test_every_field_of_a_backtest_request_is_described(self,
+                                                            options):
+        """A form built from the options can set everything the request takes."""
+        from beacon.server.schemas import StrategyBacktestRequest
+
+        run = {field["name"].split(".")[0] for field in options["run_settings"]}
+        described = {*run,
+                     "flows" if options["flows"] else None,
+                     "vehicle" if options["presets"] and options["vehicle_settings"] else None,
+                     "share_classes" if options["share_class_settings"] else None,
+                     "modelling_assumptions" if options["modelling_assumptions"] else None}
+
+        assert set(StrategyBacktestRequest.model_fields) <= described
+
     def test_it_needs_no_data(self,
                               tmp_path):
         bare = TestClient(create_app(ServerConfig(auth_token=TOKEN,

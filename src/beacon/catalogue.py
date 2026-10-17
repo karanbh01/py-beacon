@@ -81,6 +81,8 @@ INTEGER = "integer"
 BOOLEAN = "boolean"
 STRING = "string"
 JSON = "json"
+# A calendar date, YYYY-MM-DD (BN-321).
+DATE = "date"
 
 _SCALAR_TYPES = {bool: BOOLEAN, int: INTEGER, float: NUMBER, str: STRING}
 

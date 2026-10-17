@@ -34,7 +34,7 @@ from .backtest_settings import (
     preset_vehicle,
     vehicle_settings,
 )
-from .schemas import BacktestOptions, ParameterSpec, VehiclePreset
+from .schemas import BENCHMARK_KINDS, BacktestOptions, ParameterSpec, VehiclePreset
 from .types import parameter_spec, specs_for
 
 VEHICLE_DISPLAYS = {
@@ -137,6 +137,7 @@ def backtest_options() -> BacktestOptions:
                  for key in preset_keys()],
         vehicle_settings=_vehicle_settings(),
         market_settings=_described(EtfMarket, MARKET_DISPLAYS),
+        run_settings=_run_settings(),
         implementation_settings=_implementation_settings(),
         share_class_settings=_described(ShareClass, SHARE_CLASS_DISPLAYS),
         modelling_assumptions=_assumptions(),
@@ -186,6 +187,39 @@ def _implementation_settings() -> list[ParameterSpec]:
             ParameterSpec(name="invest_flows", type=catalogue.STRING, required=False,
                           default="target", label="Inflows buy", order=len(specs) + 2,
                           choices=list(FLOW_INVESTMENTS))]
+
+
+def _run_settings() -> list[ParameterSpec]:
+    """The run's own settings: its dates, capital, cost, currency, dividend
+    policy and benchmark."""
+    # BN-321: the request always took these, but the catalogue never described
+    # them, so a form built from it had no dates, capital or cost.
+    rows: list[dict[str, Any]] = [
+        {"name": "start", "type": catalogue.DATE, "label": "Start",
+         "help": "Leave blank to start at the index's base date."},
+        {"name": "end", "type": catalogue.DATE, "label": "End",
+         "help": "Leave blank to run to the last date the data covers."},
+        {"name": "initial_capital", "type": catalogue.NUMBER, "default": 1_000_000.0,
+         "label": "Initial capital", "unit": MONEY, "minimum": 0.0,
+         "help": "With share classes, give it by class name, each in its class's currency."},
+        {"name": "transaction_cost_bps", "type": catalogue.NUMBER, "default": 0.0,
+         "label": "Trading cost", "unit": BPS, "minimum": 0.0,
+         "help": "Per trade, on its notional."},
+        {"name": "currency", "type": catalogue.STRING, "label": "Book currency",
+         "help": "A three-letter code, such as 'EUR'. Leave blank for the index's."},
+        {"name": "dividends", "type": catalogue.STRING, "default": "reinvest",
+         "label": "Dividends", "choices": list(DIVIDEND_POLICIES)},
+        {"name": "benchmark.kind", "type": catalogue.STRING, "label": "Benchmark",
+         "choices": list(BENCHMARK_KINDS),
+         "help": "A stored index, or a series in the market data. Leave blank for none."},
+        {"name": "benchmark.id", "type": catalogue.STRING, "label": "Benchmark id"},
+        {"name": "benchmark.price_column", "type": catalogue.STRING, "default": "CLOSE",
+         "label": "Benchmark column",
+         "help": "The market-data column read for an identifier benchmark."},
+    ]
+
+    return [ParameterSpec(required=False, order=order, **row)
+            for order, row in enumerate(rows)]
 
 
 def _assumptions() -> list[ParameterSpec]:
