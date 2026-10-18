@@ -372,6 +372,9 @@ class MetricsMixin:
                                                               self._periods_per_year(),
                                                               self._risk_free_rate())}
 
+        # BN-323: the share of calendar months with a positive return.
+        result["hit_rate_monthly"] = _hit_rate_monthly(returns)
+
         # Tracking metrics (only if the run tracked an index)
         te = self.get_tracking_error()
         td = self.get_tracking_difference()
@@ -474,6 +477,17 @@ class MetricsMixin:
                 "average_premium": float(market["premium"].mean()),
                 "average_spread": float(market["spread"].mean()),
                 "days_at_premium": float((market["premium"] > 0).mean())}
+
+
+def _hit_rate_monthly(returns: pd.Series) -> float | None:
+    """The share of calendar months whose compounded return was positive."""
+    if returns.empty:
+        return None
+
+    index = pd.DatetimeIndex(returns.index)
+    monthly = (1.0 + returns).groupby([index.year, index.month]).prod() - 1.0
+
+    return float((monthly > 0).mean())
 
 
 def _from_start(levels: pd.Series) -> pd.Series:

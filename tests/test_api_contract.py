@@ -139,7 +139,9 @@ BACKTEST_RUN_FIELDS = {"level", "returns", "drawdown", "annual_returns",
                        "share_classes", "hedge_value",
                        # BN-315: a synthetic fund's swap and a fund's futures.
                        "swap_value", "counterparty_exposure", "swap_resets",
-                       "futures_notional", "futures_exposure", "futures_rolls"}
+                       "futures_notional", "futures_exposure", "futures_rolls",
+                       # BN-323: the run against its index and its benchmark.
+                       "comparisons"}
 BACKTEST_RUN_REQUIRED = {"level", "returns", "drawdown", "annual_returns",
                          "index_level", "metrics"}
 
@@ -170,6 +172,9 @@ SUMMARY_CONDITIONAL_METRICS = {"money_weighted_return", "market_return",
                                "days_at_premium", "information_ratio",
                                "average_active_share",
                                "average_ex_ante_tracking_error"}
+# BN-323: what every run produces beyond the headline five, though it is null
+# for a run with no returns, so it is not required.
+SUMMARY_EVERY_RUN_METRICS = {"hit_rate_monthly"}
 
 
 def auth() -> dict[str, str]:
@@ -831,6 +836,7 @@ class TestTheMetricsMirrorIsPinned:
         added above fails here, naming both sides."""
         assert set(BacktestMetrics.model_fields) == (SUMMARY_HEADLINE_METRICS
                                                     | SUMMARY_TRACKING_METRICS
+                                                    | SUMMARY_EVERY_RUN_METRICS
                                                     | SUMMARY_CONDITIONAL_METRICS)
 
     def test_summary_produces_exactly_the_keys_the_payload_reads(self):
@@ -838,7 +844,7 @@ class TestTheMetricsMirrorIsPinned:
         metric `summary()` computes and no field carries is work thrown away
         between the calculation and the client."""
         assert set(_run_with_a_tracked_index().summary()) == (
-            SUMMARY_HEADLINE_METRICS | SUMMARY_TRACKING_METRICS)
+            SUMMARY_HEADLINE_METRICS | SUMMARY_EVERY_RUN_METRICS | SUMMARY_TRACKING_METRICS)
 
     def test_a_run_with_no_comparator_still_produces_the_headline_five(self):
         """Which is what makes the tracking pair — and only that pair —
@@ -846,7 +852,7 @@ class TestTheMetricsMirrorIsPinned:
         result = _run_with_a_tracked_index()
         result.index = IndexBooks()
 
-        assert set(result.summary()) == SUMMARY_HEADLINE_METRICS
+        assert set(result.summary()) == SUMMARY_HEADLINE_METRICS | SUMMARY_EVERY_RUN_METRICS
 
     def test_the_published_schema_requires_five_and_nulls_two(self,
                                                              exported):
@@ -856,6 +862,7 @@ class TestTheMetricsMirrorIsPinned:
 
         assert set(published["properties"]) == (SUMMARY_HEADLINE_METRICS
                                                 | SUMMARY_TRACKING_METRICS
+                                                | SUMMARY_EVERY_RUN_METRICS
                                                 | SUMMARY_CONDITIONAL_METRICS)
         assert set(published["required"]) == SUMMARY_HEADLINE_METRICS
 

@@ -458,6 +458,9 @@ class BacktestMetrics(BaseModel):
     days_at_premium: Pct | None = Field(
         default=None,
         description="For an ETF, the share of days its price was above NAV.")
+    hit_rate_monthly: Pct | None = Field(
+        default=None,
+        description="The share of calendar months with a positive return.")
     information_ratio: float | None = Field(
         default=None,
         description="For an active strategy, annualised active return over "
@@ -3974,6 +3977,59 @@ class MarketPayload(BaseModel):
     ask: SeriesPayload
 
 
+class ComparatorFigures(BaseModel):
+    """A comparator's own figures over a run's window, defined as a run's are."""
+    total_return: Pct = Field(description="Over the window, from its first day's level.")
+    annualised_return: Pct = Field(description="The total return a year.")
+    volatility: Pct = Field(description="Of its daily returns, annualised.")
+    sharpe_ratio: float = Field(description="The annualised return in excess of the risk-free "
+                                            "rate, over the volatility.")
+    max_drawdown: Pct = Field(description="Its largest fall from a peak.")
+    hit_rate_monthly: Pct | None = Field(
+        default=None, description="The share of calendar months with a positive return.")
+
+
+class RelativeFigures(BaseModel):
+    """A run against a comparator over the same window."""
+    relative_return: Pct = Field(description="The run's total return less the comparator's.")
+    annualised_relative_return: Pct = Field(
+        description="The run's annualised return less the comparator's.")
+    tracking_error: Pct | None = Field(
+        default=None, description="Of the daily return differences, annualised.")
+    information_ratio: float | None = Field(
+        default=None, description="The annualised relative return over the tracking error.")
+    correlation: float | None = Field(default=None, description="Of the daily returns.")
+    beta: float | None = Field(default=None, description="Of the run's daily returns on the "
+                                                         "comparator's.")
+    hit_rate_monthly: Pct | None = Field(
+        default=None, description="The share of calendar months the run beat the comparator.")
+
+
+class ComparisonPayload(BaseModel):
+    """A run against one comparator: the comparator's own figures and the
+    run's relative to it, over the days both have."""
+    id: str = Field(description="The index id, or the market-data identifier.")
+    kind: str = Field(description="'index' or 'identifier'.")
+    start: str = Field(description="The window's first day, YYYY-MM-DD.")
+    end: str = Field(description="Its last day, YYYY-MM-DD.")
+    observations: int = Field(description="Its days.")
+    level: SeriesPayload = Field(description="The comparator rebased to 100 on the window's "
+                                             "first day.")
+    own: ComparatorFigures = Field(description="The comparator's own figures.")
+    relative: RelativeFigures = Field(description="The run against it.")
+
+
+class ComparisonsPayload(BaseModel):
+    """A run against each of its comparators; null where it has none."""
+    index: ComparisonPayload | None = Field(
+        default=None,
+        description="The index the run tracked, or an active strategy's benchmark "
+                    "index. Its relative figures agree with the run's tracking error "
+                    "and tracking difference.")
+    benchmark: ComparisonPayload | None = Field(
+        default=None, description="The request's external benchmark.")
+
+
 class SwapResetPayload(BaseModel):
     """One reset of a synthetic fund's swap."""
     date: str = Field(description="YYYY-MM-DD.")
@@ -4158,6 +4214,11 @@ class BacktestRunResult(BaseModel):
         description="The same as a fraction of NAV. Null for any other fund.")
     futures_rolls: list[FuturesRollPayload] = Field(
         default_factory=list, description="Each roll of the futures to the next contract.")
+    # BN-323.
+    comparisons: ComparisonsPayload = Field(
+        default_factory=ComparisonsPayload,
+        description="The run against its index and its benchmark, each with the "
+                    "comparator's own figures over the run's window.")
 
 
 ResultT = TypeVar("ResultT")

@@ -181,6 +181,19 @@ so contracts times price is the `notional`), the roll's `cost` and the
 `dividend_yield` it was priced with. These share `level`'s dates, money is in
 the book's currency, and each is null or empty for a fund without them.
 
+A run's `comparisons` compare it with its `index` (the index it tracked, or the
+one an active strategy is built against) and its `benchmark` (the request's
+external benchmark, or null). Each gives the comparator's `level`, rebased to
+100 on the first of the days both have, its `own` figures over those days
+(total and annualised return, volatility, Sharpe ratio, maximum drawdown and
+monthly hit rate, defined as the run's metrics are) and the run's `relative`
+figures against it: relative and annualised relative return, tracking error,
+information ratio (the annualised relative return over the tracking error),
+correlation, beta and the share of calendar months the run beat it. The
+relative figures against the index agree with the run's `tracking_error` and
+`tracking_difference`. The run's own metrics include `hit_rate_monthly`, the
+share of calendar months with a positive return.
+
 Runs are kept per strategy, so two strategies on one index each keep their
 own. `GET /strategies/{id}/overview`, `/record`, `/weights`, `/attribution`
 and `/assets/{identifier}` read the strategy's latest run, and answer 404

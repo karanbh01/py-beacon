@@ -28,6 +28,7 @@ from ..portfolio.cash_flows import FEE
 from .backtest_settings import ACTIVE, INDEX_TRACKING, BuiltSettings
 from .backtest_settings import build as build_settings
 from .benchmarks import resolve_benchmark
+from .comparisons import Comparators, comparison_payloads
 from .definitions import build_definition
 from .derivative_records import derivative_payloads
 from .errors import FindingsError
@@ -38,6 +39,7 @@ from .schemas import (
     BacktestResultSummary,
     BacktestRunResult,
     BenchmarkRef,
+    ComparisonsPayload,
     IndexDocument,
     MarketPayload,
     RebalanceStepPayload,
@@ -150,7 +152,8 @@ def assemble_result(result: BacktestResult,
                     benchmark: RelativeMetricsPayload | None = None,
                     cap: float | None = None,
                     settings: dict[str, Any] | None = None,
-                    classes: ClassContext | None = None) -> BacktestRunResult:
+                    classes: ClassContext | None = None,
+                    comparators: Comparators | None = None) -> BacktestRunResult:
     """Build the wire payload from a completed backtest.
 
     Args:
@@ -159,6 +162,8 @@ def assemble_result(result: BacktestResult,
             replication reference.
         benchmark: Optional comparison against an external benchmark.
         classes: What measuring its share classes needs; None without them.
+        comparators: The index and benchmark it is compared against; None
+            leaves the comparisons empty.
 
     Returns:
         BacktestRunResult: Level, returns, drawdown, annual returns, the
@@ -192,6 +197,8 @@ def assemble_result(result: BacktestResult,
         settings=settings,
         **strategy_and_vehicle_payloads(result),
         **derivative_payloads(result, level.index),
+        comparisons=(comparison_payloads(result, index_result, comparators)
+                     if comparators is not None else ComparisonsPayload()),
         **(share_class_payloads(result, classes.share_classes, level.index,
                                 index_result.index_levels, classes.index_currency,
                                 classes.fetcher)
@@ -226,11 +233,8 @@ def _total_costs(result: BacktestResult) -> float:
 
 def compare_against_benchmark(nav: pd.Series,
                               reference: BenchmarkRef,
-                              fetcher: DataFetcher,
-                              index_store: DocumentStore,
-                              start: str,
-                              end: str) -> RelativeMetricsPayload:
-    """Resolve a benchmark and measure the portfolio against it.
+                              levels: pd.Series) -> RelativeMetricsPayload:
+    """Measure the portfolio against a resolved benchmark.
 
     The benchmark series is rebased on the *aligned* window rather than its own
     full history, so both lines start at 100 on the same date and can be read
@@ -239,16 +243,12 @@ def compare_against_benchmark(nav: pd.Series,
 
     Args:
         nav: Portfolio NAV series.
-        reference: What to compare against.
-        fetcher: Data source.
-        index_store: Where stored index definitions live.
-        start: Window start, YYYY-MM-DD.
-        end: Window end, YYYY-MM-DD.
+        reference: What it is compared against.
+        levels: The benchmark's levels, resolved.
 
     Returns:
         RelativeMetricsPayload: The comparison and the rebased benchmark.
     """
-    levels = resolve_benchmark(reference, fetcher, index_store, start, end)
     metrics = relative_metrics(nav, levels)
 
     _, aligned_benchmark = align_on_common_window(nav, levels)
@@ -353,11 +353,14 @@ def build_backtest_job(strategy: StrategyDocument,
         index_result = book.source
 
         comparison = None
+        benchmark_levels = None
         if request.benchmark is not None:
             await report(0.8, f"Comparing against benchmark '{request.benchmark.id}'.")
-            comparison = compare_against_benchmark(
-                backtest.trading_nav, request.benchmark, fetcher, index_store,
-                start, end)
+            # Resolved once, for this comparison and the run's comparisons.
+            benchmark_levels = resolve_benchmark(request.benchmark, fetcher, index_store,
+                                                 start, end)
+            comparison = compare_against_benchmark(backtest.trading_nav, request.benchmark,
+                                                   benchmark_levels)
 
         await report(0.9, "Assembling results.")
         # From the document rather than the definition: an optimised index has
@@ -368,7 +371,11 @@ def build_backtest_job(strategy: StrategyDocument,
         payload = assemble_result(backtest, index_result, comparison, cap=cap,
                                   settings=resolved,
                                   classes=ClassContext(settings.share_classes,
-                                                       document.currency, fetcher))
+                                                       document.currency, fetcher),
+                                  comparators=Comparators(
+                                      index_id=document.id,
+                                      benchmark=request.benchmark,
+                                      benchmark_levels=benchmark_levels))
 
         # The record is captured here or never: the library BacktestResult
         # exists only inside this job, and the run payload the job returns is
