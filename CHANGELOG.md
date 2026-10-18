@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-18
+
+For a backtest form and its runs: a strategy's latest run result by strategy, every setting a backtest request takes described in the options, and a run's settings complete enough to start a new backtest from.
+
 ### Added
 
 - `GET /strategies/{id}/result` gives a strategy's latest run payload, every series and record in it, without the job's id, and answers 404 until the strategy has a run.
@@ -337,7 +341,8 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/karanbh01/py-beacon/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/karanbh01/py-beacon/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/karanbh01/py-beacon/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/karanbh01/py-beacon/compare/v0.7.0...v0.8.0
