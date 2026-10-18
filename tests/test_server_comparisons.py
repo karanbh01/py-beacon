@@ -41,6 +41,18 @@ def benchmarked(client) -> dict:
     return run_backtest(client, transaction_cost_bps=5.0, benchmark=BENCHMARK)
 
 
+
+@pytest.fixture(scope="module")
+def quarters(client,
+             benchmarked) -> dict:
+    """The benchmarked run by quarter."""
+    response = client.get("/strategies/BT/periods", params={"frequency": "quarterly"},
+                          headers=auth())
+    assert response.status_code == 200, response.text
+
+    return response.json()
+
+
 class TestAgainstTheIndex:
 
     def test_it_agrees_with_the_run_s_tracking(self,
@@ -127,3 +139,67 @@ class TestAnActiveStrategy:
         index = result["comparisons"]["index"]
         assert index["id"] == "BT"
         assert index["relative"]["information_ratio"] is not None
+
+
+class TestPeriods:
+    """BN-324: the latest run's figures by year, quarter and month."""
+
+    def test_each_period_is_named_and_dated(self,
+                                            quarters,
+                                            benchmarked):
+        periods = quarters["periods"]
+
+        assert quarters["frequency"] == "quarterly" and quarters["strategy_id"] == "BT"
+        assert periods[0]["period"].endswith(("Q1", "Q2", "Q3", "Q4"))
+        assert periods[0]["start"] == benchmarked["level"]["index"][0][:10]
+        assert periods[-1]["end"] == benchmarked["level"]["index"][-1][:10]
+
+    def test_the_periods_compound_to_the_run(self,
+                                             quarters,
+                                             benchmarked):
+        compounded = 1.0
+        for period in quarters["periods"]:
+            compounded *= 1 + period["strategy"]["total_return"]
+
+        assert compounded - 1 == pytest.approx(benchmarked["metrics"]["total_return"])
+
+    def test_each_period_compares_with_the_index_and_the_benchmark(self,
+                                                                   quarters):
+        for period in quarters["periods"]:
+            assert period["index"]["relative"]["relative_return"] is not None
+            assert period["benchmark"]["own"]["total_return"] is not None
+
+    def test_the_index_s_periods_compound_to_its_whole(self,
+                                                       quarters,
+                                                       benchmarked):
+        compounded = 1.0
+        for period in quarters["periods"]:
+            compounded *= 1 + period["index"]["own"]["total_return"]
+
+        assert compounded - 1 == pytest.approx(
+            benchmarked["comparisons"]["index"]["own"]["total_return"])
+
+    @pytest.mark.parametrize("frequency", ["annual", "monthly"])
+    def test_every_frequency_answers(self,
+                                     client,
+                                     benchmarked,
+                                     frequency):
+        response = client.get("/strategies/BT/periods", params={"frequency": frequency},
+                              headers=auth())
+
+        assert response.status_code == 200 and response.json()["periods"]
+
+    def test_an_unknown_frequency_is_refused(self,
+                                            client):
+        response = client.get("/strategies/BT/periods", params={"frequency": "weekly"},
+                              headers=auth())
+
+        assert response.status_code == 422
+
+    def test_without_a_benchmark_there_is_none(self,
+                                               client):
+        run_backtest(client)
+        periods = client.get("/strategies/BT/periods", headers=auth()).json()["periods"]
+
+        assert all(period["benchmark"] is None for period in periods)
+        assert all(period["index"] is not None for period in periods)

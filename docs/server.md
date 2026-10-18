@@ -194,6 +194,14 @@ relative figures against the index agree with the run's `tracking_error` and
 `tracking_difference`. The run's own metrics include `hit_rate_monthly`, the
 share of calendar months with a positive return.
 
+`GET /strategies/{id}/periods?frequency=annual|quarterly|monthly` gives the
+latest run's figures in each calendar year, quarter or month (named `2025`,
+`2025 Q3` or `2025-07`): the run's total return, volatility, Sharpe ratio,
+maximum drawdown and share of positive days, and against its `index` and its
+`benchmark` the same `own` and `relative` figures as its comparisons, or null.
+Each period runs from the previous period's close and the first from the
+run's start, so the periods compound to the whole run's figures.
+
 Runs are kept per strategy, so two strategies on one index each keep their
 own. `GET /strategies/{id}/overview`, `/record`, `/weights`, `/attribution`
 and `/assets/{identifier}` read the strategy's latest run, and answer 404

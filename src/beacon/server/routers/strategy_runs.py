@@ -15,7 +15,7 @@ run. Every read is a 404 until the strategy has been backtested.
 """
 # BN-313 moved these from `/beacon/{index_id}/...`: runs are kept per stored
 # strategy, so two strategies on one index each keep their own.
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from ..._optional import require
 from ...data.fetcher import DataFetcher
@@ -27,6 +27,7 @@ from ..backtests import build_backtest_job
 from ..documents import load_document, read_collection, validated
 from ..errors import FindingsError
 from ..jobs import JobRegistry
+from ..periods import build_periods
 from ..schemas import (
     AssetView,
     AttributionView,
@@ -41,6 +42,7 @@ from ..schemas import (
     Identifier,
     IndexDocument,
     OverviewView,
+    PeriodsView,
     StrategyBacktestRequest,
     TolerantCollection,
     WeightsView,
@@ -83,6 +85,10 @@ EndQuery = Annotated[str | None,
 IdsQuery = Annotated[list[Identifier],
                      Query(min_length=2,
                            description="Strategy ids to compare, two or more.")]
+
+FrequencyQuery = Annotated[Literal["annual", "quarterly", "monthly"],
+                           Query(description="The calendar periods: years, quarters or "
+                                             "months.")]
 
 # The pointer a record that cannot be served carries, absent or unreadable.
 RECORD_SOURCE = "run POST /strategies/{strategy_id}/backtest first"
@@ -290,6 +296,20 @@ def build_strategy_runs_router() -> APIRouter:
         _strategy(request, strategy_id)
 
         return BacktestRunResult.model_validate(_latest_run(request, strategy_id))
+
+    # BN-324.
+    @router.get("/{strategy_id}/periods", response_model=PeriodsView)
+    def periods(request: Request,
+                strategy_id: Identifier,
+                frequency: FrequencyQuery = "annual") -> PeriodsView:
+        """The latest run's figures in each calendar year, quarter or month,
+        against its index and its benchmark: each period from the previous
+        period's close, the first from the run's start, so the periods
+        compound to the whole run."""
+        strategy = _strategy(request, strategy_id)
+
+        return build_periods(strategy_id, strategy.index_id,
+                             _latest_run(request, strategy_id), frequency)
 
     @router.get("/{strategy_id}/record", response_model=BacktestResultSummary)
     def backtest_record(request: Request,

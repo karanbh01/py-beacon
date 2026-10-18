@@ -11,6 +11,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 ### Added
 
 - A run's `comparisons` compare it with its index and its benchmark: each comparator's level and own figures over the days both have (total and annualised return, volatility, Sharpe ratio, maximum drawdown and monthly hit rate) and the run's figures against it (relative and annualised relative return, tracking error, information ratio, correlation, beta and the share of months it beat it), for every kind of strategy. The run's metrics add `hit_rate_monthly`. `beacon.analysis.comparison` computes them in Python.
+- `GET /strategies/{id}/periods?frequency=annual|quarterly|monthly` gives a run's figures in each calendar year, quarter or month, and against its index and its benchmark, each period from the previous period's close so they compound to the whole run.
 
 ## [0.9.1] - 2026-10-18
 

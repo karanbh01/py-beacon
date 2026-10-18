@@ -4030,6 +4030,45 @@ class ComparisonsPayload(BaseModel):
         default=None, description="The request's external benchmark.")
 
 
+class PeriodFigures(BaseModel):
+    """A run's figures over one calendar period."""
+    total_return: Pct = Field(description="From the previous period's close.")
+    volatility: Pct = Field(description="Of its daily returns, annualised.")
+    sharpe_ratio: float = Field(description="Its annualised return in excess of the "
+                                            "risk-free rate, over the volatility.")
+    max_drawdown: Pct = Field(description="Its largest fall from a peak within the period.")
+    positive_days: Pct = Field(description="The share of its days with a positive return.")
+
+
+class PeriodComparison(BaseModel):
+    """A comparator over one period: its own figures and the run's against it."""
+    own: ComparatorFigures = Field(description="The comparator's own figures.")
+    relative: RelativeFigures = Field(description="The run against it.")
+
+
+class PeriodRow(BaseModel):
+    """One calendar period of a run."""
+    period: str = Field(description="'2025', '2025 Q3' or '2025-07'.")
+    start: str = Field(description="Its first day in the run, YYYY-MM-DD.")
+    end: str = Field(description="Its last day in the run, YYYY-MM-DD.")
+    strategy: PeriodFigures = Field(description="The run's figures.")
+    index: PeriodComparison | None = Field(
+        default=None, description="Against its index; null when the run has none.")
+    benchmark: PeriodComparison | None = Field(
+        default=None, description="Against its benchmark; null when the run has none.")
+
+
+class PeriodsView(BaseModel):
+    """Response of `GET /strategies/{strategy_id}/periods`."""
+    strategy_id: str = Field(description="The strategy whose latest run this reads.")
+    index_id: str = Field(description="The index the strategy holds.")
+    frequency: str = Field(description="'annual', 'quarterly' or 'monthly'.")
+    periods: list[PeriodRow] = Field(
+        description="Each calendar period in order, the first from the run's start and "
+                    "each later one from the previous period's close, so they compound "
+                    "to the whole run.")
+
+
 class SwapResetPayload(BaseModel):
     """One reset of a synthetic fund's swap."""
     date: str = Field(description="YYYY-MM-DD.")
