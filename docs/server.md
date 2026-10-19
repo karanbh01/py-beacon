@@ -236,8 +236,12 @@ when no date is given) and lists every rebalance of the run in
 `stages` are the workflow's steps in order, each with its `key`, the `label` a
 column reads, its `kind` (`universe`, `index_rule`, `index_cap`, `strategy`,
 `implementation_screen`, `cash_buffer`, `implementation_cap`) and the count
-`remaining` after it. Stale prices are screened in every run; the capacity step
-appears where something could cap. Each row gives the name's `excluded_at`
+`remaining` after it, and what it is and does: its `type`, a plain-sentence
+`description` of what it does with its settings, and the settings themselves
+as `params` (each a `label` and a `value` formatted with its unit), for a
+column's hover. A constituent preview's `steps` carry the same three. Stale
+prices are screened in every run; the capacity step appears where something
+could cap. Each row gives the name's `excluded_at`
 stage, its index weight before and after the index's cap, its weight in the
 backtest's benchmark index, the strategy's own weight, its weight after each
 implementation stage (`implementation`, by stage key), the `portfolio_weight`

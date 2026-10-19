@@ -204,6 +204,20 @@ def _with_reference(record: BacktestResultSummary,
     return record
 
 
+def _universe_name(request: Request,
+                   index: IndexDocument) -> str | None:
+    """The name of the stored universe an index names, or None (BN-328)."""
+    universe_id = index.universe.universe_id if index.universe is not None else None
+
+    if universe_id is None:
+        return None
+
+    store: DocumentStore = request.app.state.universe_store
+    stored = store.read(universe_id)
+
+    return str(stored.get("name")) if stored and stored.get("name") else universe_id
+
+
 def _universe_weights(index: IndexDocument,
                       fetcher: DataFetcher,
                       names: list[str],
@@ -440,7 +454,8 @@ def build_strategy_runs_router() -> APIRouter:
                               holding_reference(fetcher, reference_fields, names),
                               lambda rebalance: _benchmark_weights(request, run, fetcher,
                                                                    rebalance),
-                              lambda names, day: _universe_weights(index, fetcher, names, day))
+                              lambda names, day: _universe_weights(index, fetcher, names, day),
+                              _universe_name(request, index))
 
     @router.get("/{strategy_id}/record", response_model=BacktestResultSummary)
     def backtest_record(request: Request,

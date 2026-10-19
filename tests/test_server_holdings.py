@@ -303,8 +303,8 @@ class TestOtherRuns:
         view = client.get("/strategies/plain/holdings", params={"date": START},
                           headers=auth()).json()
 
-        assert view["stages"] == [{"key": "index_cap", "label": "Index cap",
-                                   "kind": "index_cap", "remaining": 4}]
+        assert [(stage["key"], stage["remaining"]) for stage in view["stages"]] == [
+            ("index_cap", 4)]
         assert rows_of(view)["AAA"]["shares_held"] is None
         assert rows_of(view)["AAA"]["index_weight"] == pytest.approx(0.3)
 
@@ -329,3 +329,37 @@ class TestUniverseWeights:
         assets = {asset["identifier"]: asset for asset in response.json()["assets"]}
         assert sum(asset["universe_weight"] for asset in assets.values()) == pytest.approx(1.0)
         assert assets["EEE"]["universe_weight"] > 0
+
+
+class TestStageDescriptions:
+    """BN-328: what each stage is and does, for a column's hover."""
+
+    def test_each_stage_says_what_it_does_with_its_settings(self,
+                                                            first):
+        stages = {stage["key"]: stage for stage in first["stages"]}
+
+        assert stages["universe"]["description"] == "Starts from the 5 names in its list."
+        assert stages["big-enough"]["type"] == "MarketCapRule"
+        assert stages["big-enough"]["description"] == (
+            "Keeps names whose market cap is at least 1,000,000,000 USD.")
+        assert stages["big-enough"]["params"] == [
+            {"label": "Minimum market cap", "value": "1,000,000,000 USD"}]
+        assert stages["index_cap"]["description"] == (
+            "Caps each name at 30% of the index and spreads the excess across the rest.")
+        assert stages["MinimumPriceScreen"]["description"] == "Drops names priced below 20 USD."
+        assert stages["ExclusionScreen"]["description"] == "Drops CCC."
+        assert stages["cash_buffer"]["params"] == [{"label": "Cash buffer", "value": "2%"}]
+        assert stages["implementation_cap"]["description"] == (
+            "Cuts each position to at most 45% of the book and spreads what it moves across "
+            "the rest.")
+
+    def test_the_preview_s_steps_say_so_too(self,
+                                            client):
+        steps = client.post("/indices/CAP5/preview", json={"as_of": START},
+                            headers=auth()).json()["steps"]
+
+        assert steps[0]["type"] == "Universe"
+        assert steps[1]["type"] == "MarketCapRule"
+        assert steps[1]["description"] == (
+            "Keeps names whose market cap is at least 1,000,000,000 USD.")
+        assert steps[1]["params"][0]["label"] == "Minimum market cap"

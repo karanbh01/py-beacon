@@ -3015,6 +3015,17 @@ class PreviewDocumentRequest(BaseModel):
                     "to the document's base date.")
 
 
+class StageParam(BaseModel):
+    """One setting of a stage, as a reader sees it."""
+    label: str = Field(description="The setting's label, as its editor shows it.")
+    value: str = Field(description="Its value, formatted with its unit.")
+
+
+STAGE_TYPE_DESCRIPTION = "The stage's class, or its kind for a step that has none."
+STAGE_SENTENCE_DESCRIPTION = ("One plain sentence of what the stage does with its "
+                              "settings, to show as written.")
+
+
 class PreviewStep(BaseModel):
     """One rung of the derivation waterfall.
 
@@ -3029,6 +3040,11 @@ class PreviewStep(BaseModel):
     excluded: list[str] = Field(
         default_factory=list,
         description="Identifiers this step removed. Empty for the universe row.")
+    # BN-328.
+    type: str = Field(default="", description=STAGE_TYPE_DESCRIPTION)
+    description: str = Field(default="", description=STAGE_SENTENCE_DESCRIPTION)
+    params: list[StageParam] = Field(default_factory=list,
+                                     description="Its settings, labelled and formatted.")
 
 
 class PreviewAsset(BaseModel):

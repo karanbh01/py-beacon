@@ -14,6 +14,8 @@ import pandas as pd
 from ..asset.base import Asset
 from ..asset.equity import Equity, require_equity
 from ..catalogue import (
+    COUNT,
+    MONEY,
     SELECTION,
     WEIGHTING,
     Display,
@@ -228,11 +230,11 @@ class EligibilityRuleBase(ABC):
 # larger one quoted in a strong currency.
 @register(SELECTION, "Market capitalisation",
           fields={
-              "min_market_cap": Display("Minimum market cap", order=1,
+              "min_market_cap": Display("Minimum market cap", order=1, unit=MONEY,
                                         help="In the index currency, converted "
                                              "at the rate on the day. Blank for "
                                              "no floor."),
-              "max_market_cap": Display("Maximum market cap", order=2,
+              "max_market_cap": Display("Maximum market cap", order=2, unit=MONEY,
                                         help="In the index currency, converted "
                                              "at the rate on the day. Blank for "
                                              "no ceiling."),
@@ -382,9 +384,11 @@ class MarketCapRule(EligibilityRuleBase):
 @register(SELECTION, "Liquidity",
           fields={
               "min_avg_daily_volume": Display("Minimum average daily volume", order=1,
+                                              unit=COUNT,
                                               help="Shares traded per day, averaged "
                                                    "over the lookback."),
               "min_avg_daily_value": Display("Minimum average daily value", order=2,
+                                             unit=MONEY,
                                              help="Traded value per day, in the "
                                                   "index currency."),
               "lookback_days": Display("Lookback", order=3,

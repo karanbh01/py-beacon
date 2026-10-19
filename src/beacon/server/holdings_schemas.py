@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .schemas import STAGE_SENTENCE_DESCRIPTION, STAGE_TYPE_DESCRIPTION, StageParam
+
 # The kinds of step a holding passes on its way from the universe to the book.
 UNIVERSE = "universe"
 INDEX_RULE = "index_rule"
@@ -26,6 +28,11 @@ class HoldingStage(BaseModel):
     label: str = Field(description="What a column header reads, such as 'Minimum price'.")
     kind: str = Field(description=f"One of {', '.join(STAGE_KINDS)}.")
     remaining: int = Field(description="How many names are left after it.")
+    # BN-328.
+    type: str = Field(default="", description=STAGE_TYPE_DESCRIPTION)
+    description: str = Field(default="", description=STAGE_SENTENCE_DESCRIPTION)
+    params: list[StageParam] = Field(default_factory=list,
+                                     description="Its settings, labelled and formatted.")
 
 
 class HoldingRow(BaseModel):

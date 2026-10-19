@@ -31,6 +31,7 @@ from ..data.fetcher import DataFetcher
 from ..exceptions import DataNotFoundError
 from ..index.calculation.selection import STALENESS_POSITION, UNIVERSE_POSITION
 from ..index.result import IndexResult
+from . import stage_descriptions
 from .holding_reference import HoldingReference
 from .holdings_schemas import (
     CASH_BUFFER,
@@ -45,7 +46,7 @@ from .holdings_schemas import (
     HoldingsView,
 )
 from .runs import snapshot_at, snapshots_from
-from .schemas import IndexDocument, SeriesPayload
+from .schemas import IndexDocument, SeriesPayload, StageParam
 from .strategy_runs import strategy_steps
 from .types import specs_for
 from .weights import prices_for
@@ -86,8 +87,8 @@ def build_holdings(strategy_id: str,
                    date: str | None,
                    reference: HoldingReference,
                    benchmark_on: Callable[[str], dict[str, float] | None],
-                   universe_on: Callable[[list[str], str], dict[str, float | None]] | None = None
-                   ) -> HoldingsView:
+                   universe_on: Callable[[list[str], str], dict[str, float | None]] | None = None,
+                   universe_name: str | None = None) -> HoldingsView:
     """The workflow in force on *date*, the run's last day when None.
 
     *benchmark_on* gives the run's benchmark index's weights on a rebalance
@@ -113,12 +114,12 @@ def build_holdings(strategy_id: str,
     plan = next((entry for entry in saved.get("implementation") or []
                  if entry["date"] == step["date"]), None)
     kind = ((run.get("settings") or {}).get("strategy") or {}).get("type")
+    currency = (run.get("settings") or {}).get("currency") or index.currency
     stages, excluded = _stages(index, run, selection, len(snapshot.weights), step, plan,
-                               kind)
+                               kind, currency, universe_name)
     buffer = float(((run.get("settings") or {}).get("implementation") or {})
                    .get("cash_buffer") or 0.0)
-    held = _held(saved, fetcher, as_of, (run.get("settings") or {}).get("currency")
-                 or index.currency)
+    held = _held(saved, fetcher, as_of, currency)
     target = plan["weights"] if plan is not None else step["weights"]
     benchmark = benchmark_on(step["date"])
 
@@ -153,35 +154,50 @@ def _stages(index: IndexDocument,
             constituents: int,
             step: dict[str, Any],
             plan: dict[str, Any] | None,
-            kind: str | None) -> tuple[list[HoldingStage], dict[str, str]]:
+            kind: str | None,
+            currency: str,
+            universe_name: str | None = None) -> tuple[list[HoldingStage], dict[str, str]]:
     """The workflow's steps in order, and the step each excluded name left at."""
     stages: list[HoldingStage] = []
     excluded: dict[str, str] = {}
 
     if selection is not None:
-        stages, excluded = _index_stages(index, selection)
+        stages, excluded = _index_stages(index, selection, universe_name)
 
     if index.pipeline is not None and index.pipeline.weighting.max_weight is not None:
         # A cap moves weight and keeps every name.
         remaining = stages[-1].remaining if stages else constituents
-        stages.append(HoldingStage(key=INDEX_CAP, label="Index cap", kind=INDEX_CAP,
-                                   remaining=remaining))
+        stages.append(_stage(INDEX_CAP, "Index cap", INDEX_CAP, remaining,
+                             stage_descriptions.index_cap(index.pipeline.weighting.max_weight)))
 
     if kind not in (None, "index"):
         settings = (run.get("settings") or {}).get("strategy") or {}
-        stages.append(HoldingStage(key=STRATEGY, label=_strategy_label(settings),
-                                   kind=STRATEGY, remaining=len(step["weights"])))
+        stages.append(_stage(STRATEGY, _strategy_label(settings), STRATEGY,
+                             len(step["weights"]),
+                             stage_descriptions.strategy(settings, currency)))
 
     if plan is not None:
-        implementation, removed = _implementation_stages(run, plan)
+        implementation, removed = _implementation_stages(run, plan, currency)
         stages += implementation
         excluded.update(removed)
 
     return stages, excluded
 
 
+def _stage(key: str,
+           label: str,
+           kind: str,
+           remaining: int,
+           about: stage_descriptions.Described) -> HoldingStage:
+    """One stage, with what it is and does (BN-328)."""
+    return HoldingStage(key=key, label=label, kind=kind, remaining=remaining, type=about.type,
+                        description=about.description,
+                        params=[StageParam(**param) for param in about.params])
+
+
 def _index_stages(index: IndexDocument,
-                  selection: dict[str, Any]) -> tuple[list[HoldingStage], dict[str, str]]:
+                  selection: dict[str, Any],
+                  universe_name: str | None) -> tuple[list[HoldingStage], dict[str, str]]:
     """The universe and the index's rules, as the selection narrowed them."""
     rules = index.pipeline.selection if index.pipeline is not None else []
     labels = {spec.name: spec.label for spec in specs_for(catalogue.SELECTION)}
@@ -193,17 +209,23 @@ def _index_stages(index: IndexDocument,
 
         if position == UNIVERSE_POSITION:
             key, label, kind = UNIVERSE, "Universe", UNIVERSE
+            about = stage_descriptions.universe(
+                index.universe.universe_id if index.universe else None, universe_name,
+                step["remaining"])
         elif position == STALENESS_POSITION:
             key, label, kind = "stale", "Stale price", INDEX_RULE
+            about = stage_descriptions.stale_price()
         else:
             rule = rules[position - 1] if 0 < position <= len(rules) else None
             key = rule.id if rule is not None else f"rule {position}"
             label = labels.get(step["rule_name"], step["rule_name"])
             kind = INDEX_RULE
+            about = stage_descriptions.rule(step["rule_name"],
+                                            rule.params if rule is not None else None,
+                                            index.currency)
 
         keys[position] = key
-        stages.append(HoldingStage(key=key, label=label, kind=kind,
-                                   remaining=step["remaining"]))
+        stages.append(_stage(key, label, kind, step["remaining"], about))
 
     excluded = {name: keys.get(int(position), str(position))
                 for name, position in selection["exclusions"].items()}
@@ -212,32 +234,34 @@ def _index_stages(index: IndexDocument,
 
 
 def _implementation_stages(run: dict[str, Any],
-                           plan: dict[str, Any]) -> tuple[list[HoldingStage], dict[str, str]]:
+                           plan: dict[str, Any],
+                           currency: str) -> tuple[list[HoldingStage], dict[str, str]]:
     """The implementation's screens, its cash buffer and its caps."""
     settings = (run.get("settings") or {}).get("implementation") or {}
     labels = {spec.name: spec.label for spec in specs_for(catalogue.SCREEN)}
-    screens = [STALE, *(screen["type"] for screen in settings.get("screens") or [])]
-    target = set(plan["target"])
+    screens = [{"type": STALE}, *(settings.get("screens") or [])]
     stages = []
-    left = set(target)
+    left = set(plan["target"])
 
     for screen in screens:
-        left -= {name for name, by in plan["removed"].items() if by == screen}
-        stages.append(HoldingStage(key=screen,
-                                   label="Stale price" if screen == STALE
-                                   else labels.get(screen, screen),
-                                   kind=IMPLEMENTATION_SCREEN, remaining=len(left)))
+        kind = screen["type"]
+        left -= {name for name, by in plan["removed"].items() if by == kind}
+        about = (stage_descriptions.stale_price() if kind == STALE
+                 else stage_descriptions.screen(kind, screen.get("params"), currency))
+        stages.append(_stage(kind, "Stale price" if kind == STALE else labels.get(kind, kind),
+                             IMPLEMENTATION_SCREEN, len(left), about))
 
     if settings.get("cash_buffer"):
-        stages.append(HoldingStage(key=CASH_BUFFER, label="Cash buffer", kind=CASH_BUFFER,
-                                   remaining=len(left)))
+        stages.append(_stage(CASH_BUFFER, "Cash buffer", CASH_BUFFER, len(left),
+                             stage_descriptions.cash_buffer(settings["cash_buffer"])))
 
     # Only where something could cap: the implementation's caps or minimum
     # position, or a vehicle's limit that did.
     if (settings.get("caps") or settings.get("minimum_position") or plan["capped"]
             or TOO_SMALL in plan["removed"].values()):
-        stages.append(HoldingStage(key=IMPLEMENTATION_CAP, label="Capacity caps",
-                                   kind=IMPLEMENTATION_CAP, remaining=len(plan["weights"])))
+        stages.append(_stage(IMPLEMENTATION_CAP, "Capacity caps", IMPLEMENTATION_CAP,
+                             len(plan["weights"]),
+                             stage_descriptions.capacity(settings, currency)))
     removed = {name: IMPLEMENTATION_CAP if by == TOO_SMALL else by
                for name, by in plan["removed"].items()}
 

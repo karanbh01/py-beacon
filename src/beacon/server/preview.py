@@ -30,6 +30,8 @@ because they are the same code.
 # solution. Those ids belong to the document rather than to the rules (a rule
 # object knows its type, not which line of a saved definition it came from), so
 # the mapping is the server's job and stays the server's job.
+from typing import Any
+
 import pandas as pd
 
 from ..asset.base import Asset
@@ -48,6 +50,7 @@ from ..index.derived import (
 from ..index.result import IndexResult
 from ..optimise.constraints import HOLDING_THRESHOLD
 from ..optimise.result import OptimisationResult
+from . import stage_descriptions
 from .definitions import build_definition, build_index_definition
 from .market_caps import (
     FREE_FLOAT_MARKET_CAP,
@@ -63,6 +66,7 @@ from .schemas import (
     PreviewResponse,
     PreviewSolve,
     PreviewStep,
+    StageParam,
 )
 from .store import DocumentStore
 
@@ -109,21 +113,43 @@ def _with_market_caps(assets: list[PreviewAsset],
 
 
 def _as_preview_step(step: SelectionStep,
-                     rule_ids: list[str]) -> PreviewStep:
-    """Render one core rung as the wire shape, attaching the document's rule id.
+                     document: IndexDocument,
+                     universe_name: str | None = None) -> PreviewStep:
+    """Render one core rung as the wire shape, with the document's rule id
+    and what the rung is and does (BN-328).
 
     The universe rung has no rule and therefore no id; every other position
     indexes the document's selection list one-for-one, because the definition
-    the calculator was built from was derived from that list in order.
+    the calculator was built from was derived from that list in order. The
+    staleness rung is named by `_rule_id_at`, never by indexing backwards.
     """
+    assert document.pipeline is not None
+    rules = document.pipeline.selection
+
     if step.is_universe:
-        return PreviewStep(position=step.position, remaining=step.remaining)
+        about = stage_descriptions.universe(
+            document.universe.universe_id if document.universe else None, universe_name,
+            step.remaining)
+
+        return PreviewStep(position=step.position, remaining=step.remaining,
+                           **_about(about))
+
+    rule = rules[step.position - 1] if 0 < step.position <= len(rules) else None
+    about = (stage_descriptions.rule(rule.type, rule.params, document.currency)
+             if rule is not None else stage_descriptions.stale_price())
 
     return PreviewStep(position=step.position,
-                       rule_id=rule_ids[step.position - 1],
+                       rule_id=_rule_id_at(step.position, [rule.id for rule in rules]),
                        rule_type=step.rule_name,
                        remaining=step.remaining,
-                       excluded=list(step.excluded))
+                       excluded=list(step.excluded),
+                       **_about(about))
+
+
+def _about(about: stage_descriptions.Described) -> dict[str, Any]:
+    """A stage's description as a step's fields."""
+    return {"type": about.type, "description": about.description,
+            "params": [StageParam(**param) for param in about.params]}
 
 
 # The id the staleness rung is published under. Not a rule id from the
@@ -158,7 +184,8 @@ def _rule_id_at(position: int,
 def build_preview(document: IndexDocument,
                   fetcher: DataFetcher,
                   documents: DocumentStore,
-                  as_of: str | None = None) -> PreviewResponse:
+                  as_of: str | None = None,
+                  universe_name: str | None = None) -> PreviewResponse:
     """Resolve an index definition at a date, in whichever face it has.
 
     Args:
@@ -169,6 +196,8 @@ def build_preview(document: IndexDocument,
             previews a document that was never saved, so the store is the only
             way its parent can be found.
         as_of: Date to evaluate at, YYYY-MM-DD. Defaults to the base date.
+        universe_name: The name of the stored universe the document names,
+            for the universe step's description.
 
     Returns:
         PreviewResponse: Per-asset outcomes and final weights, plus either the
@@ -184,12 +213,13 @@ def build_preview(document: IndexDocument,
     if document.derivation is not None:
         return _derived_preview(document, fetcher, documents, as_of)
 
-    return _pipeline_preview(document, fetcher, as_of)
+    return _pipeline_preview(document, fetcher, as_of, universe_name)
 
 
 def _pipeline_preview(document: IndexDocument,
                       fetcher: DataFetcher,
-                      as_of: str | None) -> PreviewResponse:
+                      as_of: str | None,
+                      universe_name: str | None = None) -> PreviewResponse:
     """Derive the index from its universe, showing every step."""
     definition = build_index_definition(document)
     date = pd.Timestamp(as_of) if as_of else pd.Timestamp(definition.base_date)
@@ -209,7 +239,7 @@ def _pipeline_preview(document: IndexDocument,
     rule_ids = [rule.id for rule in document.pipeline.selection]
 
     selection = calculator.select_with_provenance(universe, date)
-    steps = [_as_preview_step(step, rule_ids) for step in selection.steps]
+    steps = [_as_preview_step(step, document, universe_name) for step in selection.steps]
     exclusions = _exclusions_by_rule_id(selection, rule_ids)
 
     raw_weights = calculator.calculate_constituent_weights(selection.survivors, date)

@@ -134,6 +134,15 @@ def _resolve_universe(request: Request,
     return resolved
 
 
+def _universe_name(request: Request,
+                   document: IndexDocument) -> str | None:
+    """The name of the stored universe a document names, for describing its
+    universe step; None for one that lists its names (BN-328)."""
+    universe_id = document.universe.universe_id if document.universe is not None else None
+
+    return load_universe(request, universe_id).name if universe_id is not None else None
+
+
 def _with_reference(preview: PreviewResponse,
                     fetcher: DataFetcher,
                     reference_fields: str | None) -> PreviewResponse:
@@ -399,7 +408,8 @@ def build_indices_router() -> APIRouter:
         # never been saved, but its parent has, and that is where it is found.
         fetcher = _data_fetcher(request)
 
-        return _with_reference(build_preview(resolved, fetcher, _store(request), body.as_of),
+        return _with_reference(build_preview(resolved, fetcher, _store(request), body.as_of,
+                                             _universe_name(request, resolved)),
                                fetcher, reference_fields)
 
     @router.post("/{index_id}/preview", response_model=PreviewResponse)
@@ -415,7 +425,8 @@ def build_indices_router() -> APIRouter:
 
         fetcher = _data_fetcher(request)
 
-        return _with_reference(build_preview(document, fetcher, _store(request), as_of),
+        return _with_reference(build_preview(document, fetcher, _store(request), as_of,
+                                             _universe_name(request, document)),
                                fetcher, reference_fields)
 
     @router.get("/{index_id}/schedule", response_model=ScheduleView)
