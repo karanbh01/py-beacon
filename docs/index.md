@@ -146,6 +146,7 @@ pd.DataFrame({"Portfolio": result.summary()}).round(4)
 | volatility | 0.1214 |
 | sharpe_ratio | 1.0950 |
 | max_drawdown | -0.1148 |
+| hit_rate_monthly | 0.5000 |
 | tracking_error | 0.0005 |
 | tracking_difference | -0.0008 |
 
