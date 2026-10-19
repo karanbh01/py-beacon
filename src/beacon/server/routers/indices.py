@@ -32,6 +32,7 @@ from ..definitions import (
 )
 from ..documents import load_document, raw, read_collection, stored, validated
 from ..errors import FindingsError
+from ..holding_reference import ReferenceFieldsQuery, holding_reference
 from ..index_level import IndexLevelView, build_index_level, calculate_index
 from ..preview import build_preview
 from ..schemas import (
@@ -131,6 +132,21 @@ def _resolve_universe(request: Request,
     resolved.universe.identifiers = list(universe.identifiers)
 
     return resolved
+
+
+def _with_reference(preview: PreviewResponse,
+                    fetcher: DataFetcher,
+                    reference_fields: str | None) -> PreviewResponse:
+    """A preview whose assets carry their reference columns as of its date."""
+    # BN-325.
+    reference = holding_reference(fetcher, reference_fields,
+                                  [asset.identifier for asset in preview.assets])
+    date = preview.resolved_date or preview.as_of
+
+    for asset in preview.assets:
+        asset.reference = reference.of(asset.identifier, date)
+
+    return preview
 
 
 def _children_by_source(store: DocumentStore) -> dict[str, list[str]]:
@@ -356,7 +372,8 @@ def build_indices_router() -> APIRouter:
 
     @router.post("/preview", response_model=PreviewResponse)
     def preview_document(request: Request,
-                         body: PreviewDocumentRequest) -> PreviewResponse:
+                         body: PreviewDocumentRequest,
+                         reference_fields: ReferenceFieldsQuery = None) -> PreviewResponse:
         # The draft route. Its by-id sibling below reads what is *stored*, so
         # an editor holding unsaved changes shows figures for the old
         # definition with nothing to say they are stale.
@@ -380,23 +397,26 @@ def build_indices_router() -> APIRouter:
         # The store goes with it because a *derived* draft names its source by
         # id and carries nothing else about it: the document being edited has
         # never been saved, but its parent has, and that is where it is found.
-        return build_preview(resolved, _data_fetcher(request),
-                             _store(request), body.as_of)
+        fetcher = _data_fetcher(request)
+
+        return _with_reference(build_preview(resolved, fetcher, _store(request), body.as_of),
+                               fetcher, reference_fields)
 
     @router.post("/{index_id}/preview", response_model=PreviewResponse)
     def preview(request: Request,
                 index_id: Identifier,
-                body: PreviewRequest | None = None) -> PreviewResponse:
+                body: PreviewRequest | None = None,
+                reference_fields: ReferenceFieldsQuery = None) -> PreviewResponse:
         # Kept alongside the body route: a saved-index view has an id and no
         # document in hand, and making it send one back would mean fetching the
         # definition purely to post it again.
         document = load_index(request, index_id)
         as_of = body.as_of if body is not None else None
 
-        return build_preview(document,
-                             _data_fetcher(request),
-                             _store(request),
-                             as_of)
+        fetcher = _data_fetcher(request)
+
+        return _with_reference(build_preview(document, fetcher, _store(request), as_of),
+                               fetcher, reference_fields)
 
     @router.get("/{index_id}/schedule", response_model=ScheduleView)
     def schedule(request: Request,

@@ -557,6 +557,13 @@ class RebalanceSnapshot(BaseModel):
     redistributed: float = Field(
         default=0.0,
         description="Weight moved off capped names onto the rest.")
+    # BN-325.
+    reference: dict[str, dict[str, Any] | None] | None = Field(
+        default=None,
+        description="By identifier, the reference columns asked for with "
+                    "`reference_fields`, keyed in lower case, as they stood on "
+                    "this date; null for a name with no reference row then. Null "
+                    "when the response carries none.")
 
 
 # Lives here rather than beside the job that first needed it (BN-173): the
@@ -622,6 +629,13 @@ MAX_REBALANCES = 250
 
 # BN-173. Its own model rather than a shared base with `BookPayload`, which is
 # what keeps the omission of `rebalances` simple.
+class ReferenceWindow(BaseModel):
+    """A span over which a name's reference columns held."""
+    date_from: str = Field(description="Its first day, YYYY-MM-DD.")
+    date_to: str | None = Field(default=None, description="Its last day; null while open.")
+    reference: dict[str, Any] = Field(description="The columns that held over it.")
+
+
 class PortfolioBookPayload(BaseModel):
     """The portfolio's books on the wire.
 
@@ -652,6 +666,13 @@ class PortfolioBookPayload(BaseModel):
     positions_total: int = Field(
         description="Rows in the whole positions panel.")
     transactions: TableFrame
+    # BN-325.
+    reference_windows: dict[str, list[ReferenceWindow]] | None = Field(
+        default=None,
+        description="By identifier, the reference columns asked for with "
+                    "`reference_fields` over the weights panel's span, as windows "
+                    "with the dates they held, so any day of the panel reads the "
+                    "classification of its time. Null when none were asked for.")
 
 
 # BN-173.
@@ -699,6 +720,13 @@ class BookPayload(BaseModel):
         default=0,
         description="Rebalances the index actually had; larger than the rows "
                     "served when the list was truncated.")
+    # BN-325.
+    reference_windows: dict[str, list[ReferenceWindow]] | None = Field(
+        default=None,
+        description="By identifier, the reference columns asked for with "
+                    "`reference_fields` over the weights panel's span, as windows "
+                    "with the dates they held, so any day of the panel reads the "
+                    "classification of its time. Null when none were asked for.")
 
 
 # BN-164.
@@ -738,6 +766,12 @@ class UnfilledOrderPayload(BaseModel):
                     "name could not be priced on the day) or 'execution "
                     "limit' (still working when the next rebalance replaced "
                     "it or the run ended).")
+    # BN-325.
+    reference: dict[str, Any] | None = Field(
+        default=None,
+        description="The reference columns asked for with `reference_fields`, keyed "
+                    "in lower case, as they stood on this row's date. Null when "
+                    "the name had no reference row then.")
 
 
 class PriceGapPayload(BaseModel):
@@ -750,6 +784,12 @@ class PriceGapPayload(BaseModel):
     priced_from: str = Field(
         description="The session the carried-forward price actually came "
                     "from, YYYY-MM-DD; always earlier than `date`.")
+    # BN-325.
+    reference: dict[str, Any] | None = Field(
+        default=None,
+        description="The reference columns asked for with `reference_fields`, keyed "
+                    "in lower case, as they stood on this row's date. Null when "
+                    "the name had no reference row then.")
 
 
 class RebalancePricingPayload(BaseModel):
@@ -1101,6 +1141,7 @@ class FieldDescriptor(BaseModel):
                                   "or 'features.fundamentals.revenue'.")
     namespace: str = Field(description="market, reference, actions or features.")
     name: str
+    label: str = Field(default="", description="What a column chooser shows for it.")
     dataset: str | None = Field(
         default=None, description="Feature TYPE, for feature fields only.")
     derived: bool = Field(
@@ -2492,6 +2533,12 @@ class WeightRow(BaseModel):
     active_weight: float = Field(
         description="Optimal minus target. Sums to zero across the portfolio "
                     "whenever both sides are fully invested.")
+    # BN-325.
+    reference: dict[str, Any] | None = Field(
+        default=None,
+        description="The reference columns asked for with `reference_fields`, keyed "
+                    "in lower case, as they stood on this row's date. Null when "
+                    "the name had no reference row then.")
 
 
 class OptimisationRunResult(BaseModel):
@@ -2573,6 +2620,13 @@ class FrontierView(BaseModel):
         description="Whether risk rises with return across the grid. Always "
                     "true for a correct solve, so a false here means a point "
                     "did not reach optimality.")
+    # BN-325.
+    reference: dict[str, dict[str, Any] | None] | None = Field(
+        default=None,
+        description="By identifier, the reference columns asked for with "
+                    "`reference_fields`, keyed in lower case, as they stood on "
+                    "this date; null for a name with no reference row then. Null "
+                    "when the response carries none.")
 
 
 class FactorExposure(BaseModel):
@@ -3055,6 +3109,12 @@ class PreviewAsset(BaseModel):
         default=None,
         description="Whether `priced_from` is more than 30 days before "
                     "`resolved_date`. Null when the name has no price at all.")
+    # BN-325.
+    reference: dict[str, Any] | None = Field(
+        default=None,
+        description="The reference columns asked for with `reference_fields`, keyed "
+                    "in lower case, as they stood on this row's date. Null when "
+                    "the name had no reference row then.")
 
 
 class PreviewConstraint(BaseModel):
@@ -3641,6 +3701,12 @@ class ConstituentRow(BaseModel):
                     "an underweight that hedges an overweight genuinely "
                     "reduces tracking error, and hiding that behind an "
                     "absolute value would misreport what the index is doing.")
+    # BN-325.
+    reference: dict[str, Any] | None = Field(
+        default=None,
+        description="The reference columns asked for with `reference_fields`, keyed "
+                    "in lower case, as they stood on this row's date. Null when "
+                    "the name had no reference row then.")
 
 
 class RiskPayload(BaseModel):
@@ -3768,6 +3834,12 @@ class ContributionPayload(BaseModel):
     contribution: float
     average_weight: float
     total_return: float
+    # BN-325.
+    reference: dict[str, Any] | None = Field(
+        default=None,
+        description="The reference columns asked for with `reference_fields`, keyed "
+                    "in lower case, as they stood on this row's date. Null when "
+                    "the name had no reference row then.")
 
 
 class AttributionView(BaseModel):

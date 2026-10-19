@@ -23,7 +23,7 @@ from ... import catalogue
 from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import DataNotFoundError
-from ..active_data import require_data
+from ..active_data import current_data, require_data
 from ..constraints import (
     build_constraints,
     constraint_types,
@@ -33,6 +33,7 @@ from ..constraints import (
 )
 from ..documents import load_document, read_collection, validated
 from ..errors import FindingsError
+from ..holding_reference import ReferenceFieldsQuery, holding_reference
 from ..jobs import JobRegistry
 from ..optimisation import (
     OptimisationTarget,
@@ -50,6 +51,7 @@ from ..schemas import (
     IndexDocument,
     OptimisationJobStatus,
     OptimisationRunRequest,
+    OptimisationRunResult,
     SavedConstraintSet,
     TolerantCollection,
     ValidationReport,
@@ -233,17 +235,43 @@ def build_optimise_router() -> APIRouter:
 
         return OptimisationJobStatus(**job.snapshot())
 
+    # BN-325: the run's weights by run id, each row with its reference columns.
+    @router.get("/runs/{run_id}", response_model=OptimisationRunResult)
+    def run(request: Request,
+            run_id: Identifier,
+            reference_fields: ReferenceFieldsQuery = None) -> OptimisationRunResult:
+        """A completed optimisation run: the payload its job answered with,
+        each weight row carrying its name's reference columns as of the date
+        the target's weights were taken."""
+        result = OptimisationRunResult.model_validate(_run(request, run_id))
+        reference = holding_reference(current_data(request), reference_fields,
+                                      [row.asset_id for row in result.weights])
+        date = result.target_date or result.end
+
+        for row in result.weights:
+            row.reference = reference.of(row.asset_id, date)
+
+        return result
+
     @router.get("/runs/{run_id}/frontier", response_model=FrontierView)
     def frontier(request: Request,
                  run_id: Identifier,
-                 risk_free_rate: RiskFreeQuery = 0.0) -> FrontierView:
-        run = _run(request, run_id)
-        constraint_set = _constraint_set(request, run["constraint_set_id"])
-
-        return build_frontier(run,
+                 risk_free_rate: RiskFreeQuery = 0.0,
+                 reference_fields: ReferenceFieldsQuery = None) -> FrontierView:
+        stored = _run(request, run_id)
+        constraint_set = _constraint_set(request, stored["constraint_set_id"])
+        fetcher = _data_fetcher(request)
+        view = build_frontier(stored,
                               build_constraints(constraint_set),
-                              _data_fetcher(request),
+                              fetcher,
                               risk_free_rate)
+        # BN-325: the frontier's names as of the target's date.
+        names = sorted({name for point in [*view.points, view.minimum_variance, view.tangency]
+                        for name in point.weights})
+        reference = holding_reference(fetcher, reference_fields, names)
+        view.reference = reference.map_of(names, stored.get("target_date") or stored["end"])
+
+        return view
 
     @router.get("/runs/{run_id}/exposures", response_model=ExposuresView)
     def exposures(request: Request,

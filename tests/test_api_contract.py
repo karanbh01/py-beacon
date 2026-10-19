@@ -153,7 +153,9 @@ RECORD_BOOK_FIELDS = {"levels", "weights", "weights_dates_total",
                       # BN-200. Defaults to null, so records written before it
                       # still validate; present only when the index's calendar
                       # narrowed the range the levels actually span.
-                      "calendar_coverage"}
+                      "calendar_coverage",
+                      # BN-325: the names' reference columns over the panel.
+                      "reference_windows"}
 
 # The metric keys `BacktestResult.summary()` produces, which `BacktestMetrics`
 # mirrors by string literal (BN-176). Written out here for the same reason as

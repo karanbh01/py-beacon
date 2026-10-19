@@ -225,6 +225,37 @@ drawdown, defined as a backtest's are) and its weights at each rebalance in
 base date to the last date the loaded data covers. The calculation goes
 through the cache backtests use, so a backtest over the same dates reuses it.
 
+## Reference columns on holding rows
+
+Every row that names a holding carries its reference columns as they stood on
+that row's date, by the rule `GET /data/reference?date=` uses, so a past
+holding shows the classification of its time rather than today's. That covers
+the weights view's rows (as of `asof`), each rebalance of a run's result (as of
+its date) with its unfilled orders and price gaps, the record's rebalances
+and orders likewise and each of its weights panels as `reference_windows`
+(each name's columns with the span over which they held, so any day of the
+panel reads the classification of its time), attribution's rows (as of
+the window's end), an optimisation run's rows (`GET /optimise/runs/{id}`) and
+its frontier (as of the target's date), and a constituent preview's assets (as
+of the preview date).
+
+`reference_fields`, a comma-separated list such as `name,sector`, chooses the
+columns: any column of the loaded reference data, keyed in lower case. Without
+it a row carries the name, asset class, sector and the dataset's country column
+(`country_domicile`, else `country`, else `country_listing`); an empty value
+carries none. A column that says what a series is (`asset_class`,
+`security_type`, `tradable`) answers as the engine reads it, so a dataset with
+no `ASSET_CLASS` column answers `Equity`. A documented descriptive column the
+dataset lacks (`sector`, `industry`, `sub_industry`, `region`, `country`,
+`country_domicile`, `country_listing`) answers null, and any other unknown
+column is refused with 422 `INVALID_RULE`. A row is `reference: {...}`, or
+null when the name had no reference row on its date; a map of weights (a
+rebalance, the frontier) carries `reference: {identifier: {...}}` beside it.
+`GET /data/fields` lists the columns, each with a `label` to show.
+
+On a long history, ask for only the columns a view needs: the default four
+add about 46 KB to each rebalance of 500 names.
+
 ## Stored strategies
 
 A stored strategy is what a backtest holds and how it trades, kept beside

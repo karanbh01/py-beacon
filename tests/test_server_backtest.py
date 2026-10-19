@@ -376,9 +376,11 @@ def record(module_client,
     """The record of the run the module fixture already paid for.
 
     Depends on `result` so the backtest has definitely completed before the
-    record is read.
+    record is read. Read with no reference columns (BN-325), so it is the
+    record as stored, row for row what the run payload published.
     """
-    response = module_client.get("/strategies/BT/record", headers=auth())
+    response = module_client.get("/strategies/BT/record", params={"reference_fields": ""},
+                                 headers=auth())
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -484,7 +486,9 @@ class TestTheRecord:
 
 
 SNAPSHOT_FIELDS = {"date", "announced", "weights", "uncapped_weights",
-                   "capped", "cap", "redistributed"}
+                   "capped", "cap", "redistributed",
+                   # BN-325: the names' reference columns as of the date.
+                   "reference"}
 
 
 def built_record(snapshot_dates,

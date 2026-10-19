@@ -51,6 +51,29 @@ def describe_fields(fetcher: DataFetcher) -> list[dict[str, Any]]:
     return entries
 
 
+# BN-325: what a column chooser shows for a field, where its name says it
+# less well than a label would. Any other field's label is its name in words.
+LABELS = {
+    "asset_class": "Asset class",
+    "security_type": "Security type",
+    "base_currency": "Base currency",
+    "quote_currency": "Quote currency",
+    "day_count": "Day count",
+    "date_from": "Valid from",
+    "date_to": "Valid to",
+    "sub_industry": "Sub-industry",
+    "country_domicile": "Country of domicile",
+    "country_listing": "Country of listing",
+    "shares_outstanding": "Shares outstanding",
+    "free_float": "Free float",
+}
+
+
+def label_of(name: str) -> str:
+    """A field's label: its own where it has one, else its name in words."""
+    return LABELS.get(name, name.replace("_", " ").capitalize())
+
+
 def _entry(namespace: str,
            name: str,
            dataset: str | None = None,
@@ -58,7 +81,7 @@ def _entry(namespace: str,
     """One descriptor."""
     path = ".".join(part for part in (namespace, dataset, name) if part)
 
-    return {"path": path, "namespace": namespace, "name": name,
+    return {"path": path, "namespace": namespace, "name": name, "label": label_of(name),
             "dataset": dataset, "derived": derived}
 
 

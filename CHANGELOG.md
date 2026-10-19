@@ -12,6 +12,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 - A run's `comparisons` compare it with its index and its benchmark: each comparator's level and own figures over the days both have (total and annualised return, volatility, Sharpe ratio, maximum drawdown and monthly hit rate) and the run's figures against it (relative and annualised relative return, tracking error, information ratio, correlation, beta and the share of months it beat it), for every kind of strategy. The run's metrics add `hit_rate_monthly`. `beacon.analysis.comparison` computes them in Python.
 - `GET /strategies/{id}/periods?frequency=annual|quarterly|monthly` gives a run's figures in each calendar year, quarter or month, and against its index and its benchmark, each period from the previous period's close so they compound to the whole run.
+- Reference columns on every row that names a holding, as they stood on the row's date: the weights view, each rebalance of a run with its unfilled orders and price gaps, attribution, an optimisation run's rows and frontier, and a constituent preview. `reference_fields` chooses the columns; without it a row carries the name, asset class, sector and country. A missing `ASSET_CLASS` answers `Equity`, as the engine reads it. `GET /optimise/runs/{id}` serves a run's rows, and `GET /data/fields` gives each field a `label`. `beacon.data.reference_as_of.ReferenceAsOf` answers many names on many dates from one read.
 
 ## [0.9.1] - 2026-10-18
 
