@@ -85,11 +85,14 @@ def build_holdings(strategy_id: str,
                    fetcher: DataFetcher,
                    date: str | None,
                    reference: HoldingReference,
-                   benchmark_on: Callable[[str], dict[str, float] | None]) -> HoldingsView:
+                   benchmark_on: Callable[[str], dict[str, float] | None],
+                   universe_on: Callable[[list[str], str], dict[str, float | None]] | None = None
+                   ) -> HoldingsView:
     """The workflow in force on *date*, the run's last day when None.
 
     *benchmark_on* gives the run's benchmark index's weights on a rebalance
-    date, or None for a run without one.
+    date, or None for a run without one; *universe_on* the universe's weights
+    of some names on a date.
 
     Raises:
         DataNotFoundError: If *date* is before the run's first rebalance.
@@ -121,8 +124,11 @@ def build_holdings(strategy_id: str,
 
     names = list(dict.fromkeys([*(selection["universe"] if selection else snapshot.weights),
                                 *step["weights"], *target, *held]))
+    universe = (selection["universe"] if selection else list(snapshot.weights))
+    shares = universe_on(universe, snapshot.date) if universe_on is not None else {}
     rows = [HoldingRow(
         identifier=name,
+        universe_weight=shares.get(name),
         reference=reference.of(name, as_of),
         excluded_at=excluded.get(name),
         index_weight_uncapped=snapshot.uncapped_weights.get(name),

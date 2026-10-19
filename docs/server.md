@@ -243,7 +243,11 @@ backtest's benchmark index, the strategy's own weight, its weight after each
 implementation stage (`implementation`, by stage key), the `portfolio_weight`
 the rebalance traded to, and as of `date` its `current_weight`, `weight_drift`
 (current less portfolio, null on the rebalance date) and `shares_held`, with
-its reference columns (see below). A held weight is the units at the day's
+its reference columns (see below). Its `universe_weight` is its share of the
+universe's total market cap at the rebalance: a universe has no weighting of
+its own, so this is its free-float market cap over the total where the index
+weights by free-float market cap, its full market cap otherwise. A constituent
+preview's assets carry the same `universe_weight`. A held weight is the units at the day's
 price over the day's NAV, what the book recorded. A run saved before 0.9.3 has
 no saved stages: its rows show the index's weights alone until it is run
 again.

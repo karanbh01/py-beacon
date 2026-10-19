@@ -17,6 +17,8 @@ run. Every read is a 404 until the strategy has been backtested.
 # strategy, so two strategies on one index each keep their own.
 from typing import Annotated, Any, Literal
 
+import pandas as pd
+
 from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError
@@ -30,6 +32,13 @@ from ..holding_reference import ReferenceFieldsQuery, holding_reference
 from ..holdings import build_holdings
 from ..holdings_schemas import HoldingsView
 from ..jobs import JobRegistry
+from ..market_caps import (
+    FREE_FLOAT_MARKET_CAP,
+    MARKET_CAP,
+    market_caps,
+    universe_weights,
+    uses_free_float,
+)
 from ..periods import build_periods
 from ..schemas import (
     AssetView,
@@ -193,6 +202,21 @@ def _with_reference(record: BacktestResultSummary,
         gap.reference = reference.of(gap.asset_id, gap.date)
 
     return record
+
+
+def _universe_weights(index: IndexDocument,
+                      fetcher: DataFetcher,
+                      names: list[str],
+                      day: str) -> dict[str, float | None]:
+    """Each name's share of the universe's market cap on *day*, on the
+    index's basis (BN-329)."""
+    caps = market_caps(fetcher, names, {MARKET_CAP, FREE_FLOAT_MARKET_CAP}, pd.Timestamp(day),
+                       index.currency)
+    weighting = index.pipeline.weighting if index.pipeline is not None else None
+
+    return universe_weights(caps, names,
+                            uses_free_float(weighting.scheme if weighting else None,
+                                            weighting.params if weighting else None))
 
 
 def _benchmark_weights(request: Request,
@@ -415,7 +439,8 @@ def build_strategy_runs_router() -> APIRouter:
         return build_holdings(strategy_id, index, run, saved, fetcher, date,
                               holding_reference(fetcher, reference_fields, names),
                               lambda rebalance: _benchmark_weights(request, run, fetcher,
-                                                                   rebalance))
+                                                                   rebalance),
+                              lambda names, day: _universe_weights(index, fetcher, names, day))
 
     @router.get("/{strategy_id}/record", response_model=BacktestResultSummary)
     def backtest_record(request: Request,

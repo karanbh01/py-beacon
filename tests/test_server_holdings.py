@@ -307,3 +307,25 @@ class TestOtherRuns:
                                    "kind": "index_cap", "remaining": 4}]
         assert rows_of(view)["AAA"]["shares_held"] is None
         assert rows_of(view)["AAA"]["index_weight"] == pytest.approx(0.3)
+
+
+class TestUniverseWeights:
+    """BN-329: each universe name's share of the universe's market cap."""
+
+    def test_every_universe_name_has_its_share(self,
+                                               first):
+        rows = rows_of(first)
+        total_cap = sum(price * shares for price, shares in NAMES.values())
+
+        assert sum(row["universe_weight"] for row in rows.values()) == pytest.approx(1.0)
+        assert rows["AAA"]["universe_weight"] == pytest.approx(5e9 / total_cap, abs=0.01)
+        assert rows["EEE"]["universe_weight"] == pytest.approx(0.2e9 / total_cap, abs=0.005)
+
+    def test_the_preview_carries_them_too(self,
+                                          client):
+        response = client.post("/indices/CAP5/preview", json={"as_of": START}, headers=auth())
+        assert response.status_code == 200, response.text
+
+        assets = {asset["identifier"]: asset for asset in response.json()["assets"]}
+        assert sum(asset["universe_weight"] for asset in assets.values()) == pytest.approx(1.0)
+        assert assets["EEE"]["universe_weight"] > 0

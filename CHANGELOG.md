@@ -11,6 +11,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 ### Added
 
 - `GET /strategies/{id}/holdings?date=` shows a strategy's whole holdings workflow at a date, one row per name: the universe narrowed by the index's rules, the index's cap, the benchmark's weight, the strategy's choice, the weight after each implementation screen, the cash buffer and the caps, the weight traded to, and as of the date the held weight, its drift and the units held, with every rebalance date of the run and each stage's label and count. A backtest now keeps how each rebalance's universe narrowed (`IndexResult.selections`) and each name's weight after the screens (`RebalanceStep.screened`).
+- `universe_weight` on holdings rows and constituent preview assets: each universe name's share of the universe's total market cap, free-float where the index weights by free-float market cap, full otherwise.
 
 ### Changed
 

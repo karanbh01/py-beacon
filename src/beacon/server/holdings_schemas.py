@@ -39,6 +39,14 @@ class HoldingRow(BaseModel):
     excluded_at: str | None = Field(
         default=None, description="The key of the stage it left at; null for a name "
                                   "still in the book.")
+    # BN-329.
+    universe_weight: float | None = Field(
+        default=None,
+        description="Its share of the universe's total market cap at the rebalance. A "
+                    "universe has no weighting of its own, so this is its free-float "
+                    "market cap over the universe's total where the index weights by "
+                    "free-float market cap, its full market cap otherwise. Null when it "
+                    "has no cap that day.")
     index_weight_uncapped: float | None = Field(
         default=None, description="Its index weight before the index's cap.")
     index_weight: float | None = Field(

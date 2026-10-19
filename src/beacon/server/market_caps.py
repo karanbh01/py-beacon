@@ -282,3 +282,28 @@ def _currencies_of(fetcher: DataFetcher,
 
     return {str(name): str(value).upper()
             for name, value in stated.items() if pd.notna(value)}
+
+
+def uses_free_float(scheme: str | None,
+                    params: dict[str, Any] | None) -> bool:
+    """Whether an index weights by free-float market cap: cap-weighted with
+    free float applied."""
+    # BN-329.
+    return scheme == "MarketCapWeighted" and bool((params or {}).get("use_free_float"))
+
+
+def universe_weights(caps: dict[str, dict[str, Any]],
+                     names: list[str],
+                     free_float: bool) -> dict[str, float | None]:
+    """Each name's share of the universe's total market cap.
+
+    A universe has no weighting of its own, so its weights are its names'
+    market caps over their total: free-float caps where the index weights by
+    them, full caps otherwise. None for a name with no cap that day.
+    """
+    field = FREE_FLOAT_MARKET_CAP if free_float else MARKET_CAP
+    values = {name: (caps.get(name) or {}).get(field) for name in names}
+    total = sum(value for value in values.values() if value is not None and value > 0)
+
+    return {name: (float(value) / total if value is not None and total > 0 else None)
+            for name, value in values.items()}

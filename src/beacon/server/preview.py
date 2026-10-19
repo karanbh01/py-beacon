@@ -49,7 +49,13 @@ from ..index.result import IndexResult
 from ..optimise.constraints import HOLDING_THRESHOLD
 from ..optimise.result import OptimisationResult
 from .definitions import build_definition, build_index_definition
-from .market_caps import FREE_FLOAT_MARKET_CAP, MARKET_CAP, market_caps
+from .market_caps import (
+    FREE_FLOAT_MARKET_CAP,
+    MARKET_CAP,
+    market_caps,
+    universe_weights,
+    uses_free_float,
+)
 from .schemas import (
     IndexDocument,
     PreviewAsset,
@@ -79,7 +85,8 @@ def _with_market_caps(assets: list[PreviewAsset],
                       fetcher: DataFetcher,
                       date: pd.Timestamp,
                       resolved: str | None,
-                      currency: str) -> list[PreviewAsset]:
+                      currency: str,
+                      free_float: bool = False) -> list[PreviewAsset]:
     """*assets*, each with its market caps at the resolved session, converted
     into the index currency.
 
@@ -93,8 +100,11 @@ def _with_market_caps(assets: list[PreviewAsset],
     end = pd.Timestamp(resolved) if resolved is not None else date
     caps = market_caps(fetcher, [asset.identifier for asset in assets],
                        {MARKET_CAP, FREE_FLOAT_MARKET_CAP}, end, currency)
+    # BN-329: each name's share of the universe's cap, on the index's basis.
+    shares = universe_weights(caps, [asset.identifier for asset in assets], free_float)
 
-    return [asset.model_copy(update=caps.get(asset.identifier, {}))
+    return [asset.model_copy(update={**caps.get(asset.identifier, {}),
+                                     "universe_weight": shares.get(asset.identifier)})
             for asset in assets]
 
 
@@ -215,9 +225,10 @@ def _pipeline_preview(document: IndexDocument,
                            as_of=date.strftime("%Y-%m-%d"),
                            resolved_date=resolved,
                            steps=steps,
-                           assets=_with_market_caps(assets, fetcher, date,
-                                                    resolved,
-                                                    definition.currency),
+                           assets=_with_market_caps(
+                               assets, fetcher, date, resolved, definition.currency,
+                               free_float=uses_free_float(document.pipeline.weighting.scheme,
+                                                          document.pipeline.weighting.params)),
                            weights=by_id,
                            total_weight=sum(by_id.values()),
                            cap=cap_report.cap,
