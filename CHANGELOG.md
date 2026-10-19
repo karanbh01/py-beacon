@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Added
+
+- `GET /strategies/{id}/holdings?date=` shows a strategy's whole holdings workflow at a date, one row per name: the universe narrowed by the index's rules, the index's cap, the benchmark's weight, the strategy's choice, the weight after each implementation screen, the cash buffer and the caps, the weight traded to, and as of the date the held weight, its drift and the units held, with every rebalance date of the run and each stage's label and count. A backtest now keeps how each rebalance's universe narrowed (`IndexResult.selections`) and each name's weight after the screens (`RebalanceStep.screened`).
+
 ### Changed
 
 - `/data/fields` labels keep acronyms in capitals: "GICS industry", "ISIN", "IPO date", rather than "Gics industry".

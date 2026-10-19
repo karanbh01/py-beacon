@@ -149,6 +149,8 @@ class RebalanceStep:
             (``"stale price"`` for one the data says has gone stale,
             ``"MinimumPosition"`` for one too small to keep).
         capped: Each name cut to its capacity, and the weight it was cut to.
+        screened: The weights after the screens and redistribution, before
+            the cash buffer and the caps.
         weights: What the trades aimed at, after redistribution.
         cash_weight: The share of the book the weights leave in cash.
     """
@@ -158,6 +160,8 @@ class RebalanceStep:
     capped: dict[str, float] = field(default_factory=dict)
     weights: dict[str, float] = field(default_factory=dict)
     cash_weight: float = 0.0
+    # BN-326: each name's weight between the screens and the caps.
+    screened: dict[str, float] = field(default_factory=dict)
 
 
 def plan(implementation: Implementation,
@@ -200,6 +204,7 @@ def plan(implementation: Implementation,
     kept = {name: weight for name, weight in target.items()
             if name not in removed}
     weights = redistributed(kept, total, implementation.redistribution)
+    screened = dict(weights)
 
     # BN-267: the buffer is set aside before the caps, so a name dropped as
     # too small is redistributed within what is invested.
@@ -214,7 +219,8 @@ def plan(implementation: Implementation,
 
     return RebalanceStep(date=date, target=dict(target), removed=removed,
                          capped=capped, weights=weights,
-                         cash_weight=max(1.0 - sum(weights.values()), 0.0))
+                         cash_weight=max(1.0 - sum(weights.values()), 0.0),
+                         screened=screened)
 
 
 def _within_capacity(implementation: Implementation,

@@ -32,6 +32,7 @@ from .comparisons import Comparators, comparison_payloads
 from .definitions import build_definition
 from .derivative_records import derivative_payloads
 from .errors import FindingsError
+from .holdings import holdings_document
 from .jobs import JobBody, ProgressReporter
 from .schemas import (
     ActiveStepPayload,
@@ -273,7 +274,8 @@ def build_backtest_job(strategy: StrategyDocument,
                        request: BacktestRequest,
                        index_store: DocumentStore,
                        record_store: DocumentStore | None = None,
-                       built: BuiltSettings | None = None) -> JobBody:
+                       built: BuiltSettings | None = None,
+                       holdings_store: DocumentStore | None = None) -> JobBody:
     """Build the job body that runs one backtest of a stored strategy.
 
     Returned as a closure rather than run inline: the caller submits it to the
@@ -389,6 +391,10 @@ def build_backtest_job(strategy: StrategyDocument,
                                                        cap=target_cap(definition),
                                                        settings=resolved)
             record_store.write(strategy.id, record.model_dump(mode="json"))
+
+        # BN-326: what each rebalance decided, for the holdings workflow.
+        if holdings_store is not None:
+            holdings_store.write(strategy.id, holdings_document(backtest, index_result))
 
         await report(1.0, "Complete.")
 

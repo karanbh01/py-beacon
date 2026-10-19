@@ -10,6 +10,7 @@ from ..assumptions import ModellingAssumptions
 from ..data.fetcher import DataFetcher
 from ..plot.base import PlotAccessor
 from .asset_view import IndexAssetView
+from .calculation.selection import SelectionSummary
 from .capping import CapReport
 from .schedule import CalendarCoverage
 
@@ -127,6 +128,9 @@ class IndexResult:
         modelling_assumptions: The data treatment the calculation read data
             under (FX policy, stale-price threshold, free-float backfill),
             with the other fields unset. None for a result built by hand.
+        selections: Mapping of rebalance date -> how its universe narrowed
+            to the constituents: the universe, each rule's rung and who each
+            removed. Empty for a derived index, which selects nothing.
 
     The daily panel is *recorded* rather than re-derived because the index's
     daily state is path-dependent. It is not a forward-fill of the rebalance
@@ -167,6 +171,8 @@ class IndexResult:
     currency: str | None = None
     # BN-276: what the calculation assumed, so a backtest can check it agrees.
     modelling_assumptions: ModellingAssumptions | None = None
+    # BN-326.
+    selections: dict[pd.Timestamp, SelectionSummary] = field(default_factory=dict)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False, compare=False)
 
     def capped_assets_on_date(self,

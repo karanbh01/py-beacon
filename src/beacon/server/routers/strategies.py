@@ -126,6 +126,8 @@ def build_strategies_router() -> APIRouter:
         # that no longer resolves.
         registry: JobRegistry = request.app.state.jobs
         records: DocumentStore = request.app.state.backtest_record_store
+        holdings: DocumentStore = request.app.state.holdings_store
+        holdings.delete(strategy_id)
 
         return StrategyDeletion(strategy_id=strategy_id,
                                 backtest_record_deleted=records.delete(strategy_id),

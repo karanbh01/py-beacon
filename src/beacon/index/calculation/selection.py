@@ -92,6 +92,25 @@ class SelectionStep:
 
 
 @dataclass(frozen=True)
+class SelectionSummary:
+    """How one rebalance's universe narrowed, kept on the index's result.
+
+    The provenance of a `SelectionResult` without its asset objects: the
+    universe's names, each rung of the funnel, and the position of the rung
+    that removed each excluded name.
+
+    Attributes:
+        universe: The universe's identifiers, in order.
+        steps: One entry per rung, the universe first.
+        exclusions: Identifier to the position of the rung that removed it.
+    """
+    # BN-326: what a strategy's holdings workflow shows at a past rebalance.
+    universe: list[str]
+    steps: list[SelectionStep]
+    exclusions: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class SelectionResult:
     """Which assets survived selection, and how each one fared.
 
@@ -110,6 +129,12 @@ class SelectionResult:
     survivors: list[Asset]
     steps: list[SelectionStep]
     exclusions: dict[str, int] = field(default_factory=dict)
+
+    def summary(self,
+                universe: list[str]) -> SelectionSummary:
+        """This selection's provenance, over *universe*'s identifiers."""
+        return SelectionSummary(universe=list(universe), steps=list(self.steps),
+                                exclusions=dict(self.exclusions))
 
     @property
     def survivor_ids(self) -> list[str]:

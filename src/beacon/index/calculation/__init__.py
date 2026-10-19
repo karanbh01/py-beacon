@@ -11,6 +11,7 @@ from .selection import (
     UNIVERSE_POSITION,
     SelectionResult,
     SelectionStep,
+    SelectionSummary,
     select_with_provenance,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "IndexCalculator",
     "SelectionResult",
     "SelectionStep",
+    "SelectionSummary",
     "select_with_provenance",
 ]

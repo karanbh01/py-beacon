@@ -220,6 +220,9 @@ def create_app(config: ServerConfig) -> FastAPI:
     # read, so none is taken for a strategy of the same name.
     app.state.backtest_record_store = DocumentStore(
         "strategy_backtest_records", root=config.storage_root)
+    # What each rebalance of a strategy's latest run decided, for its holdings
+    # workflow (BN-326).
+    app.state.holdings_store = DocumentStore("strategy_holdings", root=config.storage_root)
 
     # A dataset with no universe document is a dataset the editor cannot
     # select from, so one covering everything is written as soon as data is

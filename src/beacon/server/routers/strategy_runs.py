@@ -27,6 +27,8 @@ from ..backtests import build_backtest_job
 from ..documents import load_document, read_collection, validated
 from ..errors import FindingsError
 from ..holding_reference import ReferenceFieldsQuery, holding_reference
+from ..holdings import build_holdings
+from ..holdings_schemas import HoldingsView
 from ..jobs import JobRegistry
 from ..periods import build_periods
 from ..schemas import (
@@ -193,6 +195,23 @@ def _with_reference(record: BacktestResultSummary,
     return record
 
 
+def _benchmark_weights(request: Request,
+                       run: dict[str, Any],
+                       fetcher: DataFetcher,
+                       date: str | None) -> dict[str, float] | None:
+    """The run's benchmark index's weights in force on *date*; None for a run
+    without one, or with a benchmark that is a series rather than an index."""
+    benchmark = (run.get("settings") or {}).get("benchmark") or {}
+
+    if benchmark.get("kind") != "index":
+        return None
+
+    store: DocumentStore = request.app.state.index_store
+    _, weights = index_weights(_index_document(request, benchmark["id"]), store, fetcher, date)
+
+    return weights
+
+
 def _request(strategy: StrategyDocument,
              body: StrategyBacktestRequest | None) -> BacktestRequest:
     """A backtest's settings: the body's, with the strategy's own strategy and
@@ -262,10 +281,11 @@ def build_strategy_runs_router() -> APIRouter:
         registry: JobRegistry = request.app.state.jobs
         store: DocumentStore = request.app.state.index_store
         records: DocumentStore = request.app.state.backtest_record_store
+        holdings: DocumentStore = request.app.state.holdings_store
         job = registry.submit(
             backtest_kind(strategy_id),
             build_backtest_job(strategy, document, fetcher, settings, store,
-                               record_store=records, built=built))
+                               record_store=records, built=built, holdings_store=holdings))
 
         return BacktestJobStatus(**job.snapshot())
 
@@ -369,6 +389,33 @@ def build_strategy_runs_router() -> APIRouter:
 
         return build_periods(strategy_id, strategy.index_id,
                              _latest_run(request, strategy_id), frequency)
+
+    # BN-326.
+    @router.get("/{strategy_id}/holdings", response_model=HoldingsView)
+    def holdings(request: Request,
+                 strategy_id: Identifier,
+                 date: AsOfQuery = None,
+                 reference_fields: ReferenceFieldsQuery = None) -> HoldingsView:
+        """The strategy's holdings workflow at a date, one row per name: the
+        universe narrowed to the index, the index's cap, the benchmark's
+        weight, the strategy's choice, each implementation stage, the weight
+        traded to at the rebalance in force, and as of the date its drift,
+        held weight and units. The run's last day when no date is given."""
+        strategy = _strategy(request, strategy_id)
+        index = _index_of(request, strategy)
+        run = _latest_run(request, strategy_id)
+        fetcher = _data_fetcher(request)
+        store: DocumentStore = request.app.state.holdings_store
+        saved = store.read(strategy_id)
+        names = set((saved or {}).get("units") or {}) | {
+            name for snapshot in run.get("rebalances") or [] for name in snapshot["weights"]}
+        selections = ((saved or {}).get("selections") or {}).values()
+        names |= {name for selection in selections for name in selection["universe"]}
+
+        return build_holdings(strategy_id, index, run, saved, fetcher, date,
+                              holding_reference(fetcher, reference_fields, names),
+                              lambda rebalance: _benchmark_weights(request, run, fetcher,
+                                                                   rebalance))
 
     @router.get("/{strategy_id}/record", response_model=BacktestResultSummary)
     def backtest_record(request: Request,

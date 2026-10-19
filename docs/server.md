@@ -225,6 +225,29 @@ drawdown, defined as a backtest's are) and its weights at each rebalance in
 base date to the last date the loaded data covers. The calculation goes
 through the cache backtests use, so a backtest over the same dates reuses it.
 
+## A strategy's holdings workflow
+
+`GET /strategies/{id}/holdings?date=YYYY-MM-DD` shows the latest run's
+holdings at a date, one row per name, from the universe to the units held. It
+reads the rebalance in force on `date` (`rebalance_date`; the run's last day
+when no date is given) and lists every rebalance of the run in
+`rebalance_dates`.
+
+`stages` are the workflow's steps in order, each with its `key`, the `label` a
+column reads, its `kind` (`universe`, `index_rule`, `index_cap`, `strategy`,
+`implementation_screen`, `cash_buffer`, `implementation_cap`) and the count
+`remaining` after it. Stale prices are screened in every run; the capacity step
+appears where something could cap. Each row gives the name's `excluded_at`
+stage, its index weight before and after the index's cap, its weight in the
+backtest's benchmark index, the strategy's own weight, its weight after each
+implementation stage (`implementation`, by stage key), the `portfolio_weight`
+the rebalance traded to, and as of `date` its `current_weight`, `weight_drift`
+(current less portfolio, null on the rebalance date) and `shares_held`, with
+its reference columns (see below). A held weight is the units at the day's
+price over the day's NAV, what the book recorded. A run saved before 0.9.3 has
+no saved stages: its rows show the index's weights alone until it is run
+again.
+
 ## Reference columns on holding rows
 
 Every row that names a holding carries its reference columns as they stood on

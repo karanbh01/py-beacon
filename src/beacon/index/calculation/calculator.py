@@ -26,6 +26,7 @@ from .selection import (
     UNIVERSE_POSITION,
     SelectionResult,
     SelectionStep,
+    SelectionSummary,
     select_with_provenance,
 )
 from .total_return import REINVESTING, TotalReturnMixin, withholding_for
@@ -723,6 +724,8 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         # Only rebalances where the cap actually bound get an entry, so an
         # uncapped index carries an empty mapping rather than noise.
         cap_reports: dict[pd.Timestamp, CapReport] = {}
+        # BN-326: how each rebalance's universe narrowed, by effective date.
+        selections: dict[pd.Timestamp, SelectionSummary] = {}
         # Effective date -> announcement date, populated only where the two
         # differ. An index with no lag carries an empty mapping, so its
         # presence is itself the signal that a lag applies.
@@ -780,7 +783,10 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             if date == base_date:
                 # --- Base date initialisation ---
                 constituents_raw = self._get_universe(date)
-                constituents = self.select_constituents(constituents_raw, date)
+                selection = self.select_with_provenance(constituents_raw, date)
+                constituents = selection.survivors
+                selections[date] = selection.summary(
+                    [asset.asset_id for asset in constituents_raw])
 
                 self._require_a_base_composition(constituents_raw,
                                                  constituents, date)
@@ -855,8 +861,10 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 announced_on = announced_for.get(date, date)
 
                 constituents_raw = self._get_universe(announced_on)
-                constituents = self.select_constituents(constituents_raw,
-                                                        announced_on)
+                selection = self.select_with_provenance(constituents_raw, announced_on)
+                constituents = selection.survivors
+                selections[date] = selection.summary(
+                    [asset.asset_id for asset in constituents_raw])
                 weights = self.calculate_constituent_weights(constituents,
                                                              announced_on)
                 weights, cap_report = self.cap_weights(weights)
@@ -967,6 +975,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             price_gaps=self.recorded_gaps(),
             currency=self.definition.currency,
             modelling_assumptions=data_treatment_of(self.data),
+            selections=selections,
         ).with_data(self.data)
 
     def require_columns(self) -> None:
