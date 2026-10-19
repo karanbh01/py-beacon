@@ -69,9 +69,26 @@ LABELS = {
 }
 
 
+# BN-327: words a label keeps in capitals wherever they fall in a name, so
+# "gics_industry" reads "GICS industry" and "ipo_date" "IPO date".
+ACRONYMS = frozenset({"adr", "adv", "cusip", "etf", "figi", "gics", "icb", "id", "ipo",
+                      "isin", "lei", "mic", "nav", "ric", "sedol", "trbc",
+                      "usd", "eur", "gbp", "jpy"})
+
+
 def label_of(name: str) -> str:
-    """A field's label: its own where it has one, else its name in words."""
-    return LABELS.get(name, name.replace("_", " ").capitalize())
+    """A field's label: its own where it has one, else its name in words,
+    acronyms in capitals."""
+    if name in LABELS:
+        return LABELS[name]
+
+    words = name.split("_")
+    labelled = [word.upper() if word in ACRONYMS else word for word in words]
+
+    if labelled and labelled[0] == words[0]:
+        labelled[0] = labelled[0].capitalize()
+
+    return " ".join(labelled)
 
 
 def _entry(namespace: str,

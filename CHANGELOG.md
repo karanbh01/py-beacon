@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Changed
+
+- `/data/fields` labels keep acronyms in capitals: "GICS industry", "ISIN", "IPO date", rather than "Gics industry".
+
 ## [0.9.2] - 2026-10-19
 
 Every figure a run shows comes from the engine: a run compared with its index and its benchmark, its figures by year, quarter and month, and each holding's reference columns as they stood on the row's date.

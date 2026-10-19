@@ -236,3 +236,18 @@ class TestTheCatalogue:
 
         assert fields["reference.country_domicile"]["label"] == "Country of domicile"
         assert fields["reference.sector"]["label"] == "Sector"
+
+
+class TestLabels:
+    """BN-327: acronyms stay in capitals wherever they fall in a name."""
+
+    @pytest.mark.parametrize(("name", "label"), [
+        ("gics_industry", "GICS industry"), ("isin", "ISIN"), ("ipo_date", "IPO date"),
+        ("cusip", "CUSIP"), ("sector", "Sector"), ("market_cap_usd", "Market cap USD"),
+        ("country_domicile", "Country of domicile")])
+    def test_a_name_reads_as_a_label(self,
+                                     name,
+                                     label):
+        from beacon.expressions.catalogue import label_of
+
+        assert label_of(name) == label
