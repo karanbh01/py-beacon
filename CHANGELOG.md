@@ -14,6 +14,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `universe_weight` on holdings rows and constituent preview assets: each universe name's share of the universe's total market cap, free-float where the index weights by free-float market cap, full otherwise.
 - Each holdings stage and constituent preview step says what it is and does: its `type`, a plain-sentence `description` of what it does with its settings, and its settings as labelled `params` formatted with their units. The market cap and liquidity rules' thresholds now carry their units (money, shares) in `/indices/rule-types`.
 
+- Every structured setting in `GET /backtest/options` names the shape it takes in `ref`, a schema published under `components.schemas`: names, a number per name, amounts by date, a field, an expression, optimiser constraint rows, signals by factor and targets by factor, and a vehicle's pricing, limits and withholding rates. A list of reference values names its `column`, and a setting whose entries are configurable types names the family they come from in `options`. `replication_constraints` lists the constraints an optimised replication takes, and `GET /data/reference-values?column=` lists the values a reference column holds. The optimiser's constraints in `/optimise/constraint-types` name their shapes too.
+
 ### Fixed
 
 - A constituent preview's stale-price step no longer takes another rule's id.

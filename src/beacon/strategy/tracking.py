@@ -39,10 +39,11 @@ import math
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 import pandas as pd
 
-from ..catalogue import COUNT, REPLICATION, Display, register
+from ..catalogue import CONSTRAINT, COUNT, REPLICATION, Display, register
 from ..expressions import data
 from ..expressions.resolve import value_of
 from ..index.derived import AnyIndexDefinition
@@ -135,6 +136,10 @@ class OptimisedReplication(Replication):
     Raises:
         ValueError: If *holdings* is below 1 or the windows are too short.
     """
+
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"constraints": "ConstraintRows"}
+    PARAM_KINDS: ClassVar[dict[str, str]] = {"constraints": CONSTRAINT}
 
     def __init__(self,
                  holdings: int | None = None,

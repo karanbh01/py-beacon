@@ -45,6 +45,7 @@ or sold once.
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import ClassVar
 
 import pandas as pd
 
@@ -97,6 +98,9 @@ class SyntheticReplication(Replication):
             positive, the spread is not a finite number, or the limit is not
             above 0 and at most 1.
     """
+
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"basket": "IdentifierValues"}
 
     def __init__(self,
                  basket: AnyIndexDefinition | Mapping[str, float],

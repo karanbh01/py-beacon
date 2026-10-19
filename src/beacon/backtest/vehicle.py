@@ -17,7 +17,9 @@ that the NAV is net of and paid from cash as soon as there is cash to pay it.
 # BN-267: the minimal vehicle phase 5 needs for the fee. Pricing and
 # diversification limits are BN-268, with the presets.
 from collections.abc import Iterable, Mapping
+from typing import ClassVar
 
+from ..catalogue import LIMIT, PRICING
 from .dealing import Pricing, SinglePricing
 from .limits import DiversificationLimit
 from .withholding import checked_rates
@@ -53,6 +55,12 @@ class Vehicle:
             the domicile not a two-letter code, or a withholding rate not a
             share from 0 up to 1.
     """
+
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"pricing": "TypedSpec",
+                                                "limits": "TypedSpecs",
+                                                "withholding_rates": "CountryRates"}
+    PARAM_KINDS: ClassVar[dict[str, str]] = {"pricing": PRICING, "limits": LIMIT}
 
     def __init__(self,
                  management_fee_bps: float = 0.0,

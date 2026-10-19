@@ -34,13 +34,14 @@ weights, but the run is still measured against it.
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
 
 from ..catalogue import CONSTRUCTION as CONSTRUCTION_KIND
 from ..catalogue import COUNT, FRACTION, RATIO, Display, register
+from ..catalogue import SIGNAL as SIGNAL_KIND
 from ..exceptions import CalculationError
 from ..optimise.constraints import Constraint
 from ..optimise.solver import solve_constrained
@@ -252,6 +253,10 @@ class FactorTilts(Construction):
     """
 
     uses_scores = False
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"factors": "FactorSignals",
+                                                "targets": "FactorTargets"}
+    PARAM_KINDS: ClassVar[dict[str, str]] = {"factors": SIGNAL_KIND}
 
     def __init__(self,
                  factors: Mapping[str, Signal],

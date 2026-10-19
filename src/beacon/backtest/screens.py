@@ -36,6 +36,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import ClassVar
 
 import pandas as pd
 
@@ -298,6 +299,12 @@ class ExclusionScreen(Screen):
         regions: `REGION` values excluded.
     """
 
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"identifiers": "IdentifierList",
+                                                "sectors": "ReferenceValueList",
+                                                "regions": "ReferenceValueList"}
+    PARAM_COLUMNS: ClassVar[dict[str, str]] = {"sectors": "SECTOR", "regions": "REGION"}
+
     def __init__(self,
                  identifiers: Iterable[str] = (),
                  sectors: Iterable[str] = (),
@@ -338,6 +345,9 @@ class ExpressionScreen(Screen):
         expression: The screen.
         on_missing: Whether a name with no value for a field passes.
     """
+
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"expression": "ExpressionNode"}
 
     def __init__(self,
                  expression: Expression,

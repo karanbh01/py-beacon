@@ -16,6 +16,7 @@ neither over nor under on the signal's account.
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -73,6 +74,9 @@ class FieldSignal(Signal):
         field: The field, such as ``data.features.fundamentals.earnings_yield``.
         higher_is_better: Whether a larger value is better.
     """
+
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"field": "FieldNode"}
 
     def __init__(self,
                  field: Field,

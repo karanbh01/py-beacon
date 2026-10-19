@@ -8,6 +8,7 @@ returns. See `beacon.strategy.constructions` for the interface and the rest.
 # BN-281: split from constructions.py, which would otherwise run well past
 # the size a module should be.
 from collections.abc import Mapping
+from typing import ClassVar
 
 import numpy as np
 
@@ -97,6 +98,8 @@ class RiskParity(Construction):
     """
 
     uses_scores = False
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"budgets": "IdentifierValues"}
 
     def __init__(self,
                  budgets: Mapping[str, float] | None = None):

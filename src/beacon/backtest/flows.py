@@ -32,6 +32,7 @@ import math
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -110,7 +111,9 @@ class Flows(ABC):
         """Today's flow in the book's currency: positive in, negative out."""
 
 
-@register(FLOW, "Dated amounts")
+@register(FLOW, "Dated amounts", fields={
+    "amounts": Display("Amounts by date", unit=MONEY),
+})
 class DatedFlows(Flows):
     """Amounts on given dates. One dated on a day the run does not simulate
     arrives on the next simulated day.
@@ -119,6 +122,9 @@ class DatedFlows(Flows):
         amounts: Date (YYYY-MM-DD or a timestamp) to amount, positive in and
             negative out.
     """
+
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"amounts": "DatedAmounts"}
 
     def __init__(self,
                  amounts: Mapping[str | pd.Timestamp, float]):

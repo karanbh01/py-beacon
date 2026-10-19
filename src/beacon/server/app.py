@@ -22,6 +22,7 @@ require("fastapi", "The Beacon API server")
 from fastapi import APIRouter, Depends, FastAPI, Query, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
+from . import parameter_schemas  # noqa: E402
 from .active_data import ActiveData, active_data  # noqa: E402
 from .data_stores import StoreRegistry  # noqa: E402
 from .errors import register_exception_handlers  # noqa: E402
@@ -37,6 +38,7 @@ from .routers import (  # noqa: E402
     build_indices_router,
     build_jobs_router,
     build_optimise_router,
+    build_reference_values_router,
     build_refresh_router,
     build_reports_router,
     build_risk_router,
@@ -281,6 +283,7 @@ def create_app(config: ServerConfig) -> FastAPI:
     # router cannot end up unauthenticated by forgetting to declare them.
     guard = [Depends(verify_bearer_token)]
     for router in (build_data_router(),
+                   build_reference_values_router(),
                    build_watchlists_router(),
                    build_coverage_router(),
                    build_universes_router(),
@@ -305,5 +308,9 @@ def create_app(config: ServerConfig) -> FastAPI:
     # Request and cannot run on a WebSocket handshake, and browsers cannot set
     # an Authorization header on one either.
     app.include_router(build_events_router())
+
+    # The shapes the backtest options' structured parameters name, which no
+    # route returns (BN-330).
+    parameter_schemas.publish(app)
 
     return app

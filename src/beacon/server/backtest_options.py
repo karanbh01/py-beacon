@@ -122,12 +122,19 @@ FAMILIES = {
     "replications": catalogue.REPLICATION, "signals": catalogue.SIGNAL,
     "constructions": catalogue.CONSTRUCTION,
     "active_constraints": catalogue.ACTIVE_CONSTRAINT,
+    # BN-330: what `OptimisedReplication.constraints` takes, the optimiser's own.
+    "replication_constraints": catalogue.CONSTRAINT,
 }
+
+# Each kind by the family that lists it, for a parameter whose entries are
+# themselves configurable types.
+SERVED_AS = {kind: name for name, kind in FAMILIES.items()}
 
 
 def backtest_options() -> BacktestOptions:
     """The response of `GET /backtest/options`."""
-    families: dict[str, Any] = {name: specs_for(kind) for name, kind in FAMILIES.items()}
+    families: dict[str, Any] = {name: specs_for(kind, SERVED_AS)
+                                for name, kind in FAMILIES.items()}
 
     return BacktestOptions(
         **families,
@@ -155,7 +162,11 @@ def _described(cls: type,
     named = {name.removeprefix(prefix): display for name, display in displays.items()
              if name.startswith(prefix)}
 
-    return [parameter_spec(parameter, {}).model_copy(
+    # Read off the class as `specs_for` reads it (BN-330).
+    schemas = getattr(cls, "PARAM_SCHEMAS", {})
+    options = {name: SERVED_AS[kind] for name, kind in getattr(cls, "PARAM_KINDS", {}).items()}
+
+    return [parameter_spec(parameter, schemas, options=options).model_copy(
                 update={"name": prefix + parameter.name, "applies_to": applies_to})
             for parameter in catalogue.parameters_of(cls, named)]
 

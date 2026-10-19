@@ -2373,6 +2373,17 @@ class ParameterSpec(BaseModel):
                     "`components.schemas` in this document. Null for a scalar "
                     "parameter. `type` stays the coarse render hint, so a "
                     "client that ignores this still renders a JSON editor.")
+    # BN-330: what a structured parameter's values are drawn from.
+    column: str | None = Field(
+        default=None,
+        description="For a list of reference values, the reference column they "
+                    "are values of, such as 'SECTOR'; `GET /data/reference-values` "
+                    "lists what it holds. Null otherwise.")
+    options: str | None = Field(
+        default=None,
+        description="For a parameter whose entries are themselves configurable "
+                    "types, the family in `GET /backtest/options` their types come "
+                    "from, such as 'signals'. Null otherwise.")
 
 
 class TypeSpec(BaseModel):
@@ -3587,6 +3598,10 @@ class BacktestOptions(BaseModel):
     replications: list[TypeSpec] = Field(description="For `strategy.replication`.")
     signals: list[TypeSpec] = Field(description="For `strategy.signal`.")
     constructions: list[TypeSpec] = Field(description="For `strategy.construction`.")
+    replication_constraints: list[TypeSpec] = Field(
+        description="For `OptimisedReplication.constraints`: the optimiser's "
+                    "constraints, the same catalogue `GET /optimise/constraint-types` "
+                    "serves.")
     active_constraints: list[TypeSpec] = Field(
         description="For `strategy.constraints`.")
     presets: list[VehiclePreset] = Field(

@@ -87,7 +87,7 @@ A client needs three things from startup (the full sequence is in
 | --- | --- |
 | `/health` | Whether the engine is up, what data it serves, and the modelling settings in force (`fx_policy`, `max_price_staleness_days`, `free_float_backfill_days`). |
 | `/changelog` | The engine's release notes. See [Release notes](#release-notes). |
-| `/data/identifiers`, `/data/prices`, `/data/reference`, `/data/corporate-actions`, `/data/features`, `/data/fields`, `/data/tables` | Reading the loaded data: search names, price history, reference fields (including derived ones such as market caps), corporate actions, features, the field catalogue, and raw pages of each dataset. `POST /data/features` adds feature rows to the served data and saves them into its store when that is a folder; a Postgres store is read-only, so there they last until other data is loaded or the engine stops. |
+| `/data/identifiers`, `/data/prices`, `/data/reference`, `/data/reference-values`, `/data/corporate-actions`, `/data/features`, `/data/fields`, `/data/tables` | Reading the loaded data: search names, price history, reference fields (including derived ones such as market caps), the values a reference column holds, corporate actions, features, the field catalogue, and raw pages of each dataset. `POST /data/features` adds feature rows to the served data and saves them into its store when that is a folder; a Postgres store is read-only, so there they last until other data is loaded or the engine stops. |
 | `/data/coverage` | What each dataset holds, how old it is, and when it goes stale. |
 | `/data/stores` | Registered data stores: list, register, rename, forget, activate, refresh. |
 | `/data/synthetic` | Generate synthetic data into a new store, as a job. |
@@ -132,6 +132,18 @@ request can carry, `run_settings` describing the dates, capital, cost,
 currency, dividends and benchmark: their types,
 defaults, choices, units (`fraction` is shown as a percentage, `money` is in
 the book's currency) and bounds. It needs no data.
+
+A field whose `type` is `json` names the shape it takes in `ref`, a schema
+under `components.schemas` in `/openapi.json`, so an editor can offer rows or a
+picker rather than a JSON box: `IdentifierList` for names, `IdentifierValues`
+for a number per name, `DatedAmounts` for an amount per date, `FieldNode` for a
+field from `GET /data/fields`, `ExpressionNode` for an expression, and so on.
+A list of reference values (`ReferenceValueList`) names its `column`, such as
+`SECTOR`, and `GET /data/reference-values?column=SECTOR` lists the values that
+column holds. A field whose entries are themselves configurable types names
+the family that lists them in `options`: a factor tilt's `factors` are
+`signals`, and an optimised replication's `constraints` are
+`replication_constraints`, the optimiser's own constraints.
 
 A vehicle's `settings` are laid over its preset's: a typed object (`pricing`)
 or a list (`limits`) replaces the preset's whole, a plain object (`market`)

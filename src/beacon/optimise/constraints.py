@@ -19,6 +19,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -266,6 +267,9 @@ class PositionBounds(Constraint):
             the tightest limit on each name wins.
     """
 
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"assets": "IdentifierList"}
+
     def __init__(self,
                  minimum: float = 0.0,
                  maximum: float = 1.0,
@@ -379,6 +383,9 @@ class GroupBounds(Constraint):
         maximum: Largest combined weight the group may take.
     """
 
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"members": "IdentifierList"}
+
     def __init__(self,
                  name: str,
                  members: Sequence[str],
@@ -453,6 +460,9 @@ class TurnoverBudget(Constraint):
             treated as currently unheld.
     """
 
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"current_weights": "IdentifierValues"}
+
     def __init__(self,
                  maximum: float,
                  current_weights: dict[str, float]):
@@ -518,6 +528,9 @@ class ExpectedReturnTarget(Constraint):
             risk model is.
         target: The portfolio return being asked for.
     """
+
+    # The shapes the editor renders these in (BN-330).
+    PARAM_SCHEMAS: ClassVar[dict[str, str]] = {"expected_returns": "IdentifierValues"}
 
     def __init__(self,
                  expected_returns: dict[str, float],
