@@ -3,8 +3,8 @@
 A strategy's holdings workflow at a date, one row per name, from the universe
 to the shares held.
 
-What a run decided at each rebalance is saved with it, in a document of its
-own beside the strategy's record: how each rebalance's universe narrowed (the
+What a run decided at each rebalance is saved with it, inside the strategy's
+record under a key of its own: how each rebalance's universe narrowed (the
 index's selection), each name's weight after the implementation's screens,
 and its target and final weights, and the book's units held, recorded only on
 the days they change, with its daily NAV. The view joins that to the run's own
@@ -51,8 +51,8 @@ from .strategy_runs import strategy_steps
 from .types import specs_for
 from .weights import prices_for
 
-# The collection the documents are kept in, one per strategy.
-COLLECTION = "strategy_holdings"
+# Where a strategy's record keeps what its run decided at each rebalance.
+HOLDINGS_KEY = "holdings"
 # How far back a price is looked for when the date asked about has none.
 PRICE_LOOKBACK_DAYS = 10
 

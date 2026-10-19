@@ -29,7 +29,7 @@ from ..backtests import build_backtest_job
 from ..documents import load_document, read_collection, validated
 from ..errors import FindingsError
 from ..holding_reference import ReferenceFieldsQuery, holding_reference
-from ..holdings import build_holdings
+from ..holdings import HOLDINGS_KEY, build_holdings
 from ..holdings_schemas import HoldingsView
 from ..jobs import JobRegistry
 from ..market_caps import (
@@ -319,11 +319,10 @@ def build_strategy_runs_router() -> APIRouter:
         registry: JobRegistry = request.app.state.jobs
         store: DocumentStore = request.app.state.index_store
         records: DocumentStore = request.app.state.backtest_record_store
-        holdings: DocumentStore = request.app.state.holdings_store
         job = registry.submit(
             backtest_kind(strategy_id),
             build_backtest_job(strategy, document, fetcher, settings, store,
-                               record_store=records, built=built, holdings_store=holdings))
+                               record_store=records, built=built))
 
         return BacktestJobStatus(**job.snapshot())
 
@@ -443,8 +442,8 @@ def build_strategy_runs_router() -> APIRouter:
         index = _index_of(request, strategy)
         run = _latest_run(request, strategy_id)
         fetcher = _data_fetcher(request)
-        store: DocumentStore = request.app.state.holdings_store
-        saved = store.read(strategy_id)
+        records: DocumentStore = request.app.state.backtest_record_store
+        saved = (records.read(strategy_id) or {}).get(HOLDINGS_KEY)
         names = set((saved or {}).get("units") or {}) | {
             name for snapshot in run.get("rebalances") or [] for name in snapshot["weights"]}
         selections = ((saved or {}).get("selections") or {}).values()
