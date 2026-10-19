@@ -736,8 +736,9 @@ class TestBacktestingAnOptimisedIndex:
 
         payload = backtested.get(f"/jobs/{child[0]['job_id']}",
                                  headers=auth()).json()["result"]
+        # With no reference columns (BN-325): the record as stored, row for row.
         record = backtested.get(f"/strategies/{CHILD_ID}/record",
-                                headers=auth()).json()
+                                params={"reference_fields": ""}, headers=auth()).json()
 
         assert record["index"]["optimised"]["rebalances"] == payload["rebalances"]
 
