@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-20
+
+A strategy's holdings at any date, from the universe to the book, with each step explained, and a backtest editor that can offer pickers and rows for every structured setting.
+
 ### Added
 
 - `GET /strategies/{id}/holdings?date=` shows a strategy's whole holdings workflow at a date, one row per name: the universe narrowed by the index's rules, the index's cap, the benchmark's weight, the strategy's choice, the weight after each implementation screen, the cash buffer and the caps, the weight traded to, and as of the date the held weight, its drift and the units held, with every rebalance date of the run and each stage's label and count. A backtest now keeps how each rebalance's universe narrowed (`IndexResult.selections`) and each name's weight after the screens (`RebalanceStep.screened`).
@@ -367,7 +371,8 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/karanbh01/py-beacon/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/karanbh01/py-beacon/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/karanbh01/py-beacon/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/karanbh01/py-beacon/compare/v0.8.1...v0.9.0
