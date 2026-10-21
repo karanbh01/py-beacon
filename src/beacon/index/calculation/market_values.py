@@ -380,6 +380,14 @@ class MarketValuesMixin(PriceGapsMixin):
         unit_value = self.asset_unit_value(asset, current_date)
         date_str = current_date.strftime('%Y-%m-%d')
 
+        # BN-336: a rebalance carries a missing close as a day between
+        # rebalances does, and records the gap. A name past the data's
+        # `max_price_staleness_days` was dropped by selection before this, so
+        # the carry stays within the same limit; before, a single missing bar
+        # on a rebalance day failed the whole calculation.
+        if unit_value is None:
+            unit_value = self._carried_unit_value(asset, current_date, date_str)
+
         if unit_value is None or unit_value < 0.0:
             # A name carried at a weight of zero is never held, so its price is
             # not needed and its absence is not a failure — the same carve-out
@@ -415,6 +423,17 @@ class MarketValuesMixin(PriceGapsMixin):
             return 0.0
 
         return weight * aggregate / unit_value
+
+    def _carried_unit_value(self,
+                            asset: Asset,
+                            current_date: pd.Timestamp,
+                            date_str: str) -> float | None:
+        """One unit of *asset* at its last close before *current_date*, in the
+        index currency, recorded as a price gap; None if it never printed."""
+        equity = require_equity(asset, "AssetUnitValue", "be valued")
+        price = self.carried_price(equity.ticker, current_date)
+
+        return None if price is None else price * self._fx_rate(equity, current_date, date_str)
 
     def holding_values(self,
                        units: dict[Asset, float],

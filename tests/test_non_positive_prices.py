@@ -72,7 +72,8 @@ BLIP = pd.bdate_range("2023-11-14", "2023-11-16")
 
 def backtest(tmp_path,
              frame: pd.DataFrame,
-             selection: list[dict] | None = None) -> dict:
+             selection: list[dict] | None = None,
+             body: dict | None = None) -> dict:
     """Run the BT strategy over *frame* through the API, and return its job."""
     reference = pd.DataFrame([{"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name,
                                "CURRENCY": "USD", "EXCHANGE": "NYSE"} for name in GROWTH])
@@ -85,7 +86,7 @@ def backtest(tmp_path,
         assert client.post("/indices", json=document, headers=auth()).status_code == 200
         assert client.put("/strategies/BT", json={"id": "BT", "name": "BT", "index_id": "BT"},
                           headers=auth()).status_code == 200
-        submitted = client.post("/strategies/BT/backtest", json={}, headers=auth())
+        submitted = client.post("/strategies/BT/backtest", json=body or {}, headers=auth())
         client.portal.call(client.app.state.jobs.drain)
 
         job: dict = client.get(f"/jobs/{submitted.json()['job_id']}", headers=auth()).json()
