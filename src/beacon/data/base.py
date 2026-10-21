@@ -2,7 +2,9 @@
 Base data containers for market and reference data.
 """
 
+import logging
 import os
+from collections.abc import Collection
 
 import numpy as np
 import pandas as pd
@@ -49,6 +51,58 @@ def as_of_position(index: pd.Index,
     return None if position == 0 else position - 1
 
 
+logger = logging.getLogger(__name__)
+
+# The columns a price is read from, which a price at or below zero cannot be.
+PRICE_COLUMNS = ("OPEN", "HIGH", "LOW", "CLOSE")
+
+# Names a warning lists before saying how many more there are.
+LISTED_NAMES = 5
+
+
+def drop_non_positive_prices(frame: pd.DataFrame,
+                             exempt: Collection[str] = ()) -> None:
+    """Read a price at or below zero as no price at all, in place.
+
+    *exempt* names the series whose `CLOSE` is not a price, such as a short
+    rate, which may well be below zero.
+
+    A price cannot be zero or negative, and one that is would fail a backtest
+    the moment it is traded and turn an index's market values negative.
+    Treated as a missing bar instead, every reader handles it as one: the last
+    good close is carried and the day recorded as a price gap. One warning per
+    load names the identifiers and each one's first such date.
+    """
+    # BN-334: a synthetic store generated before 0.9.5 can hold such prices,
+    # where a fat-tailed return below -100% turned a name's path negative.
+    # Imports and Postgres stores are refused at load for them instead.
+    columns = [column for column in PRICE_COLUMNS
+               if column in frame.columns and pd.api.types.is_numeric_dtype(frame[column])]
+
+    if not columns:
+        return
+
+    bad = frame[columns] <= 0
+
+    if exempt:
+        bad[frame.index.get_level_values("IDENTIFIER").isin(list(exempt))] = False
+
+    if not bad.to_numpy().any():
+        return
+
+    rows = bad.any(axis=1)
+    first = (rows[rows].reset_index().groupby("IDENTIFIER")["DATE"].min())
+    listed = ", ".join(f"{name} from {date:%Y-%m-%d}"
+                       for name, date in first.iloc[:LISTED_NAMES].items())
+    more = len(first) - LISTED_NAMES
+    logger.warning("%d bar(s) of %d identifier(s) have a price at or below zero, read as "
+                   "missing: %s%s.", int(rows.sum()), len(first), listed,
+                   f" and {more} more" if more > 0 else "")
+
+    for column in columns:
+        frame.loc[bad[column], column] = np.nan
+
+
 class MarketData:
     """Time-series data container backed by a MultiIndex DataFrame.
 
@@ -82,6 +136,11 @@ class MarketData:
         df["DATE"] = pd.to_datetime(df["DATE"], format=date_format)
         df = df.set_index(["IDENTIFIER", "DATE"]).sort_index()
         return df
+
+    def drop_non_positive_prices(self,
+                                 exempt: Collection[str] = ()) -> None:
+        """Read every price at or below zero as missing; see the function."""
+        drop_non_positive_prices(self._df, exempt)
 
     # -- properties ----------------------------------------------------------
 

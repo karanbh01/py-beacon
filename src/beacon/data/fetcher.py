@@ -247,6 +247,9 @@ class DataFetcher:
         self._market = market_data
         self._reference = reference_data
         self._kinds = self._classified()
+        # A price at or below zero is read as missing (BN-334); a short rate's
+        # CLOSE is a rate, which can be, so the untradable series are left be.
+        self._market.drop_non_positive_prices(self._kinds.untradable)
         self._actions = (corporate_actions if corporate_actions is not None
                          else CorporateActions.empty())
         # Empty rather than None, on the same terms as the actions above: a
@@ -755,6 +758,7 @@ class DataFetcher:
 
         self._market = MarketData.from_dataframe(combined)
         self._kinds = self._classified()
+        self._market.drop_non_positive_prices(self._kinds.untradable)
         # The pairs are market rows, so a merge can add or restate them; a
         # cache held over the swap would answer out of the old frame. The
         # session panel is the same story one day wide.

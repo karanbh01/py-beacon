@@ -239,7 +239,8 @@ being served, whichever dataset is named, and ignores its body.
 `python -m beacon.synthetic` produces market-like data: a factor model with
 GJR-GARCH volatility, Student-t innovations and negative skew, plus reference
 data, shares outstanding, free float, dividends and splits that agree with the
-prices, and exchange rates.
+prices, and exchange rates. The model draws log returns, so however fat the
+tail, a price can come close to zero but never reach or pass it.
 
 It also generates **features**: four fundamental ratios (`pe_ratio`,
 `pb_ratio`, `eps`, `debt_to_equity`) quarterly, and two alternative series

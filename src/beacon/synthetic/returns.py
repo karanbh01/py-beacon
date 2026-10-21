@@ -12,10 +12,15 @@ is here because leaving it out breaks a view somebody has to look at.
 
 ## The model
 
-For name *i* on day *t*:
+For name *i* on day *t*, a log return:
 
-    r[i,t] = mu[i] + b[i]·f_market[t] + g[i]·f_sector(i)[t]
+    x[i,t] = mu[i] + b[i]·f_market[t] + g[i]·f_sector(i)[t]
                    + h[i]·f_region(i)[t] + e[i,t]
+
+and the simple return is ``r = exp(x) - 1``, so a fat-tailed draw can take a
+price close to zero but never below it. `mu` is the CAPM drift less half the
+variance of the name's shocks, which keeps the simple return's expectation on
+the CAPM line.
 
 Four kinds of independent series, each a GJR-GARCH(1,1) process with
 standardised Student-t innovations:
@@ -450,10 +455,21 @@ def _block(names: pd.DataFrame,
     per_name = np.sqrt(daily_variance / shared.market_variance)
     market_component = stressed_market * np.sqrt(lifted) * per_name[None, :]
 
-    return np.asarray(
-        drift
-        + shared.extra_drift[:, None]
-        + market_component
-        + remaining * (sector_beta * shared.sector_factors[:, sector_index]
-                       + region_beta * shared.region_factors[:, region_index]
-                       + idiosyncratic))
+    shocks = (market_component
+              + remaining * (sector_beta * shared.sector_factors[:, sector_index]
+                             + region_beta * shared.region_factors[:, region_index]
+                             + idiosyncratic))
+
+    # A log return, made simple with expm1 (BN-334). Used as a simple return
+    # directly, a fat-tailed draw below -1 turned a price negative for the
+    # rest of the panel: one draw in 1.5M at 600 names, so several names in
+    # the API's default store. exp(x) - 1 is above -1 for every x.
+    #
+    # Less half each name's realised variance, so the simple return keeps the
+    # CAPM expectation: E[exp(x)] is exp(mean + variance / 2). The realised
+    # variance rather than the target, because the regimes and the GARCH
+    # clustering put it well above the target; correcting by the target left
+    # the average name 1.2 points a year too high.
+    log_drift = drift - shocks.var(axis=0) / 2.0
+
+    return np.asarray(np.expm1(log_drift[None, :] + shared.extra_drift[:, None] + shocks))

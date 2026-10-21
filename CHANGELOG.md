@@ -10,6 +10,8 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Fixed
 
+- Synthetic prices never go negative. Fat-tailed daily returns were used as simple returns, so a draw below -100% turned a name's price negative for the rest of the panel: one draw in 1.5 million, so several names in a store at the API's default size, and a backtest that traded one failed with "price cannot be negative". Returns are now drawn as log returns, less half each name's variance so the expected return is unchanged (8.1% a year across 600 names, as before). Every synthetic store generated from now on has different numbers from one generated before.
+- A price at or below zero, from a store generated before this release or a frame built in Python, is read as a missing bar: the last good close is carried and the day recorded as a price gap, with one warning per load naming the identifiers. Imported and Postgres stores already refused such prices.
 - A backtest, optimisation, risk model or report no longer holds the server for its whole run. Each job's work runs in a worker thread, as do the settings and index calculations its submit route does first, so `/health` and every other request are answered while a job runs, and a submit answers 202 at once. A cancelled job stops at its next progress report rather than going on to save its results.
 
 ## [0.9.4] - 2026-10-21
