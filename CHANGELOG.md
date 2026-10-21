@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-10-21
+
+A store saves in well under half the time with its progress shown, and the API refuses requests it used to misread: a parameter given twice, a boolean for a number, a price column it does not hold.
+
 ### Fixed
 
 - `GET /data/prices/{identifier}` reads `columns` as the other list parameters do, so `?columns=CLOSE,VOLUME` names two columns, and an unknown column is refused with 422 `INVALID_ARGUMENT` rather than failing with a 500.
@@ -15,9 +19,9 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Changed
 
-- Saving a data store takes well under half as long: on 1.16M market rows, 11 s rather than about 24 s, for a file 2% larger. A synthetic store at the API's default size saves in about 100 s rather than four minutes. Each file is written a chunk of rows at a time and compressed as it goes, at gzip level 6 rather than 9. `store.save` takes a `progress` callback, and generating synthetic data reports the save's progress by dataset and chunk ("Saving market data") instead of sitting at one stage, with each stage's share of the progress bar matching the time it takes.
+- Saving a data store takes well under half as long: on 1.16M market rows, 11 s rather than about 24 s, for a file 2% larger. A synthetic store at the API's default size should save in about 110 s rather than four minutes (estimated from the measured tenth). Each file is written a chunk of rows at a time and compressed as it goes, at gzip level 6 rather than 9. `store.save` takes a `progress` callback, and generating synthetic data reports the save's progress by dataset and chunk ("Saving market data") instead of sitting at one stage, with each stage's share of the progress bar matching the time it takes.
 - A query parameter that takes one value is refused with 422 `INVALID_ARGUMENT` when it is given more than once. The last value used to win, so `?limit=10&limit=500` answered with 500 rows.
-- A decimal number in a request body must be a JSON number: `true`, `false` and numbers sent as strings are refused with 422 where they were read as numbers, in a strategy, a backtest request, an index, a risk model or optimisation request, a data store and synthetic data. A risk model's `index_id` and `strategy_id` must be ids like any other.
+- A decimal number in a request body must be a JSON number: `true`, `false` and numbers sent as strings are refused with 422 where they were read as numbers, in a strategy, a backtest request, an index, a risk model or optimisation request, feature rows and synthetic data. A risk model's `index_id` and `strategy_id` must be ids like any other.
 
 ## [0.9.3] - 2026-10-20
 
@@ -382,7 +386,8 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/karanbh01/py-beacon/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/karanbh01/py-beacon/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/karanbh01/py-beacon/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/karanbh01/py-beacon/compare/v0.9.0...v0.9.1
