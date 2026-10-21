@@ -183,6 +183,19 @@ IsoDate = Annotated[str, Field(pattern=ISO_DATE_PATTERN,
                                json_schema_extra={"format": "date"},
                                description="Calendar date, YYYY-MM-DD."),
                     AfterValidator(_real_date)]
+# A number that must arrive as a number. Lax mode reads JSON `false` as 0.0,
+# and the fuzz run priced a future with `time_to_expiry: false` -- a 200 for a
+# contract expiring now, from a request the spec says is malformed (BN-131). A
+# pricer is where that matters most: the answer looks like an answer.
+#
+# Per field rather than `strict=True` on the model, because FastAPI validates
+# a body in Python mode, where a strict model also refuses a JSON array for a
+# tuple -- and `dividends` is a list of pairs. An integer is still a number.
+Number = Annotated[float, Field(strict=True)]
+# The same for a whole number (BN-331): every number in a request body is one
+# of these two, so a JSON true or false is refused wherever it arrives.
+Whole = Annotated[int, Field(strict=True)]
+
 Identifier = Annotated[str, Field(pattern=IDENTIFIER_PATTERN,
                                   description="Letters, digits, dash and "
                                               "underscore; up to 64.")]
@@ -1184,7 +1197,7 @@ class FeatureRow(BaseModel):
     date: IsoDate
     type: str = Field(min_length=1)
     field: str = Field(min_length=1)
-    value: float
+    value: Number
     detail: str | None = None
 
 
@@ -1512,7 +1525,7 @@ class WeightingSpec(BaseModel):
                         min_length=1)
     params: dict[str, Any] = Field(default_factory=dict,
                                    description="Constructor arguments for the scheme.")
-    max_weight: float | None = Field(
+    max_weight: Number | None = Field(
         default=None,
         description="Cap on any single constituent's weight, as a fraction "
                     "(0.1 is 10%). Applied after the scheme and iterated until "
@@ -1617,7 +1630,7 @@ class IndexDocument(BaseModel):
                     min_length=1, max_length=64)
     name: str = Field(description="Display name.", min_length=1)
     base_date: str = Field(description="Base date, YYYY-MM-DD.")
-    base_value: float = Field(description="Index level on the base date.")
+    base_value: Number = Field(description="Index level on the base date.")
     currency: str = Field(description="Index currency.", min_length=3, max_length=3)
     # Deliberately `str` rather than a Literal of the four cadences, even
     # though that would put them in the OpenAPI document and stop the fuzz run
@@ -1664,7 +1677,7 @@ class IndexDocument(BaseModel):
                     "TOTAL_RETURN reinvests them across the index by shrinking "
                     "the divisor; NET_TOTAL_RETURN does the same after "
                     "withholding tax. PRICE is the default.")
-    withholding_tax_rate: float = Field(
+    withholding_tax_rate: Number = Field(
         default=0.0,
         ge=0.0,
         lt=1.0,
@@ -1702,7 +1715,7 @@ class IndexDocument(BaseModel):
                     "calculation reads it.")
     # Honoured by the calculator since BN-126; before that it was stored but
     # not applied, which is what the old description said.
-    effective_lag_sessions: int = Field(
+    effective_lag_sessions: Whole = Field(
         default=0,
         ge=0,
         description="Sessions between a rebalance being announced and its "
@@ -1915,15 +1928,6 @@ class RenderResult(BaseModel):
                     "gives two `rendered_at` values over identical content.")
 
 
-# A number that must arrive as a number. Lax mode reads JSON `false` as 0.0,
-# and the fuzz run priced a future with `time_to_expiry: false` -- a 200 for a
-# contract expiring now, from a request the spec says is malformed (BN-131). A
-# pricer is where that matters most: the answer looks like an answer.
-#
-# Per field rather than `strict=True` on the model, because FastAPI validates
-# a body in Python mode, where a strict model also refuses a JSON array for a
-# tuple -- and `dividends` is a list of pairs. An integer is still a number.
-Number = Annotated[float, Field(strict=True)]
 
 
 class FuturesPriceRequest(BaseModel):
@@ -2177,12 +2181,12 @@ class RiskModelRequest(BaseModel):
         default_factory=list,
         description="Names to estimate over. Empty takes them from `index_id` "
                     "or `strategy_id`.")
-    index_id: str | None = Field(
+    index_id: Identifier | None = Field(
         default=None,
         description="Take the names from this index's latest rebalance, "
                     "calculated, instead of listing them.")
     # BN-313.
-    strategy_id: str | None = Field(
+    strategy_id: Identifier | None = Field(
         default=None,
         description="Take the names from what this stored strategy held at "
                     "its latest run's last rebalance instead of listing them.")
@@ -2193,7 +2197,7 @@ class RiskModelRequest(BaseModel):
         default="constant_correlation",
         description="Structured target to shrink toward: 'constant_correlation' "
                     "or 'scaled_identity'.")
-    intensity: float | None = Field(
+    intensity: Number | None = Field(
         default=None,
         description="Weight on the target, in [0, 1]. Null uses the heuristic "
                     "from the panel's shape; 0 gives the raw sample covariance, "
@@ -2523,7 +2527,7 @@ class OptimisationRunRequest(BaseModel):
         default=None,
         description="Start of the window the risk model is estimated over.")
     end: str | None = Field(default=None, description="End of that window.")
-    risk_free_rate: float = Field(
+    risk_free_rate: Number = Field(
         default=0.0,
         description="Used for the frontier's tangency point.")
 
@@ -3378,11 +3382,11 @@ class StrategySpec(BaseModel):
         default="MONTHLY",
         description="For an active strategy: WEEKLY, MONTHLY, QUARTERLY or "
                     "ANNUALLY.")
-    lookback_days: int | None = Field(
+    lookback_days: Whole | None = Field(
         default=None, ge=2,
         description="For an active strategy: trading days its covariance is "
                     "estimated over; a year when null.")
-    minimum_observations: int | None = Field(
+    minimum_observations: Whole | None = Field(
         default=None, ge=2,
         description="For an active strategy: the fewest returns a name needs "
                     "to be measured; 126 when null.")
@@ -3395,15 +3399,15 @@ class ImplementationSpec(BaseModel):
                                      description="Which names may be held.")
     caps: list[TypedSpec] = Field(default_factory=list,
                                   description="How much of each may be held.")
-    minimum_position: dict[str, float | None] | None = Field(
+    minimum_position: dict[str, Number | None] | None = Field(
         default=None,
         description="Positions too small to keep: `value` (money, in the "
                     "book's currency) and `weight` (a fraction).")
-    impact: dict[str, float] | None = Field(
+    impact: dict[str, Number] | None = Field(
         default=None,
         description="Market impact: `coefficient` and `lookback_days`. Null "
                     "for none.")
-    execution: dict[str, float | None] | None = Field(
+    execution: dict[str, Number | None] | None = Field(
         default=None,
         description="Execution limits: `participation` (a fraction of the "
                     "day's volume), `days` and `lookback_days`. Null to trade "
@@ -3411,14 +3415,14 @@ class ImplementationSpec(BaseModel):
     redistribution: str = Field(
         default="pro_rata",
         description="Where removed or capped weight goes: 'pro_rata' or 'cash'.")
-    cash_buffer: float = Field(
+    cash_buffer: Number = Field(
         default=0.0, ge=0.0, lt=1.0,
         description="The share of the book kept in cash, a fraction.")
     invest_flows: str = Field(
         default="target",
         description="What money arriving between rebalances buys: 'target' "
                     "(the last rebalance's weights) or 'holdings'.")
-    equitise: dict[str, float | None] | None = Field(
+    equitise: dict[str, Number | None] | None = Field(
         default=None,
         description="Index futures held on the uninvested cash, so the buffer "
                     "earns the index's return: `roll_days`, `roll_cost_bps` and "
@@ -3455,25 +3459,25 @@ class ModellingAssumptionsSpec(BaseModel):
         default=None,
         description="The FX rate on a day a pair printed none: CARRY_FORWARD "
                     "or EXACT_DAY.")
-    max_price_staleness_days: int | None = Field(
+    max_price_staleness_days: Whole | None = Field(
         default=None, ge=0,
         description="Calendar days a name may go without trading before it is "
                     "dropped as stale; 0 is no limit.")
-    free_float_backfill_days: int | None = Field(
+    free_float_backfill_days: Whole | None = Field(
         default=None, ge=0,
         description="Calendar days a reported free float carries over blanks.")
-    cash_rate: float | None = Field(
+    cash_rate: Number | None = Field(
         default=None, gt=-1.0, lt=1.0,
         description="The annual rate cash earns, a fraction, ACT/365.")
-    risk_free_rate: float | None = Field(
+    risk_free_rate: Number | None = Field(
         default=None, gt=-1.0, lt=1.0,
         description="The annual rate the Sharpe ratio is measured against.")
-    periods_per_year: int | None = Field(
+    periods_per_year: Whole | None = Field(
         default=None, ge=1, description="How many periods make a year.")
-    withholding_tax_rate: float | None = Field(
+    withholding_tax_rate: Number | None = Field(
         default=None, ge=0.0, lt=1.0,
         description="The share of each dividend withheld, a fraction.")
-    volume_backfill_days: int | None = Field(
+    volume_backfill_days: Whole | None = Field(
         default=None, ge=0,
         description="Calendar days a reported volume stands in for a blank one "
                     "under an execution limit.")
@@ -3492,14 +3496,14 @@ class ShareClassSpec(BaseModel):
         default=False,
         description="Whether it hedges its share of the assets into its currency with "
                     "a monthly forward. Needs a currency other than the book's.")
-    hedge_ratio: float = Field(
+    hedge_ratio: Number = Field(
         default=1.0, gt=0.0, le=2.0,
         description="The share of its net assets it hedges, as a fraction: 1 for all.")
-    hedge_band: float | None = Field(
+    hedge_band: Number | None = Field(
         default=0.03, ge=0.0,
         description="How far the hedge ratio may drift between monthly rolls before "
                     "the forward is resized, as a fraction. Null resizes only at rolls.")
-    management_fee_bps: float | None = Field(
+    management_fee_bps: Number | None = Field(
         default=None, ge=0.0,
         description="The class's annual management fee in basis points. Null is the "
                     "vehicle's.")
@@ -3524,11 +3528,11 @@ class StrategyBacktestRequest(BaseModel):
         default=None,
         description="Start date, YYYY-MM-DD. Defaults to the index base date.")
     end: str | None = Field(default=None, description="End date, YYYY-MM-DD.")
-    initial_capital: float | dict[str, float] = Field(
+    initial_capital: Number | dict[str, Number] = Field(
         default=1_000_000.0,
         description="The capital the fund starts with, in the book's currency. With "
                     "share classes, by class name, each in its class's currency.")
-    transaction_cost_bps: float = Field(
+    transaction_cost_bps: Number = Field(
         default=0.0, ge=0,
         description="Cost per trade in basis points of notional.")
     benchmark: BenchmarkRef | None = Field(

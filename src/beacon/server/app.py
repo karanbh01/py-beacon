@@ -28,6 +28,7 @@ from .data_stores import StoreRegistry  # noqa: E402
 from .errors import register_exception_handlers  # noqa: E402
 from .jobs import JobRegistry  # noqa: E402
 from .methods import LiteralPathMethods  # noqa: E402
+from .query_guard import single_valued_query  # noqa: E402
 from .routers import (  # noqa: E402
     build_backtest_router,
     build_coverage_router,
@@ -281,7 +282,8 @@ def create_app(config: ServerConfig) -> FastAPI:
 
     # Auth and the documented error responses are applied at mount time, so a
     # router cannot end up unauthenticated by forgetting to declare them.
-    guard = [Depends(verify_bearer_token)]
+    # A repeated single-valued query parameter is refused too (BN-331).
+    guard = [Depends(verify_bearer_token), Depends(single_valued_query)]
     for router in (build_data_router(),
                    build_reference_values_router(),
                    build_watchlists_router(),

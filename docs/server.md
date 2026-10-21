@@ -509,11 +509,11 @@ contents depend on the code.
 | 409 | `STORE_FORMAT_OUTDATED` | The data store was saved in a format this version no longer reads, such as a store saved before 0.7.0 with exchange rates in a `RATE` column. Regenerate or re-import it. `GET /data/stores` says the same in each store's `problem`. |
 | 409 | `IN_USE` | A delete refused while other documents use the one named, such as an index a stored strategy holds. `detail.used_by` lists them. |
 | 409 | `CONFLICT` | The engine's state refuses the request: an id already taken, a store already loading or refreshing, forgetting the store being served, a store with nothing to refresh, editing the read-only `GLOBAL` universe, a report template with no blocks. |
-| 422 | `VALIDATION_ERROR` | The request does not match its schema. `detail.errors` lists each problem with its location (`loc`), message (`msg`) and `type`. |
+| 422 | `VALIDATION_ERROR` | The request does not match its schema. `detail.errors` lists each problem with its location (`loc`), message (`msg`) and `type`. A number in a body must be a JSON number: `true` and `false` are refused, not read as 1 and 0. |
 | 422 | `INVALID_RULE` | A definition or document was refused. When there are several problems, `detail.findings` lists each one with `path`, `rule_id`, `severity`, `code` and `message`. |
 | 422 | `INVALID_IDENTIFIER` | An id that cannot be used, for example one containing `/`, or a name reserved for an endpoint. |
 | 422 | `INVALID_EXPRESSION` | A malformed expression. |
-| 422 | `INVALID_ARGUMENT` | A request that cannot be answered as put, such as an end date before the start, an unknown price interval, an adjusted series without `CLOSE`, more than 1,000 identifiers at once, or a futures expiry before its valuation date. |
+| 422 | `INVALID_ARGUMENT` | A request that cannot be answered as put, such as an end date before the start, an unknown price interval or price column, an adjusted series without `CLOSE`, more than 1,000 identifiers at once, a futures expiry before its valuation date, or a query parameter that takes one value given more than once. A list parameter, such as `fields`, may be repeated or comma-separated. |
 | 422 | `FROZEN_PORTFOLIO` | An attempt to change a finished backtest's books. |
 | 500 | `CALCULATION_ERROR` | A calculation refused deliberately; the message says what to change. |
 | 500 | `UNEXPECTED_CALCULATION_FAILURE` | Something failed that should not have. `detail.original_type` names the exception, so a crash can be told from a refusal. |

@@ -104,6 +104,22 @@ class TestPrices:
 
         assert body["prices"]["columns"] == ["CLOSE"]
 
+    def test_columns_comma_separated(self,
+                                     client):
+        """BN-331: before it the comma form was read as one column named
+        'CLOSE,VOLUME'."""
+        body = client.get("/data/prices/AAA?columns=CLOSE,VOLUME", headers=auth()).json()
+
+        assert set(body["prices"]["columns"]) == {"CLOSE", "VOLUME"}
+
+    def test_an_unknown_column_is_refused(self,
+                                          client):
+        """BN-331: found by the nightly fuzz run, which got a 500 for it."""
+        response = client.get("/data/prices/AAA?columns=0.0", headers=auth())
+
+        assert response.status_code == 422
+        assert "'0.0'" in response.json()["error"]["message"]
+
     @pytest.mark.parametrize("interval", ["weekly", "monthly"])
     def test_resampling_reduces_the_row_count(self,
                                               client,

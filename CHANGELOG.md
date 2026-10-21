@@ -8,6 +8,15 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Fixed
+
+- `GET /data/prices/{identifier}` reads `columns` as the other list parameters do, so `?columns=CLOSE,VOLUME` names two columns, and an unknown column is refused with 422 `INVALID_ARGUMENT` rather than failing with a 500.
+
+### Changed
+
+- A query parameter that takes one value is refused with 422 `INVALID_ARGUMENT` when it is given more than once. The last value used to win, so `?limit=10&limit=500` answered with 500 rows.
+- A number in a request body must be a JSON number: `true` and `false` are refused with 422 where they were read as 1 and 0, in a strategy, a backtest request, an index, a risk model or optimisation request, a data store and synthetic data. A risk model's `index_id` and `strategy_id` must be ids like any other.
+
 ## [0.9.3] - 2026-10-20
 
 A strategy's holdings at any date, from the universe to the book, with each step explained, and a backtest editor that can offer pickers and rows for every structured setting.

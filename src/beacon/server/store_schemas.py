@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .schemas import Identifier, IsoDate, LoadJobStatus, TolerantCollection
+from .schemas import Identifier, IsoDate, LoadJobStatus, Number, TolerantCollection, Whole
 
 # What a store is, physically: a py-beacon data folder, or a Postgres
 # database read through tables or views in the import layout.
@@ -32,7 +32,7 @@ REFRESH_FROM_DESCRIPTION = (
 class PostgresConnection(BaseModel):
     """Where a Postgres store's tables or views are. Read-only."""
     host: str = Field(min_length=1, description="The database server.")
-    port: int = Field(default=5432, ge=1, le=65535,
+    port: Whole = Field(default=5432, ge=1, le=65535,
                       description="The server's port.")
     database: str = Field(min_length=1, description="The database name.")
     schema_name: str = Field(
@@ -196,7 +196,7 @@ class GenerateSyntheticRequest(BaseModel):
     """
     name: str = Field(default="Synthetic data", min_length=1, max_length=80,
                       description="Display name for the new store.")
-    assets: int | None = Field(
+    assets: Whole | None = Field(
         default=None, ge=1, le=50_000,
         description="How many names. Default 6,000, or 10,000 with "
                     "`extended_universe`.")
@@ -215,13 +215,13 @@ class GenerateSyntheticRequest(BaseModel):
         default=False,
         description="Reach back to cover every crisis the generator models. "
                     "Ignored when `start` is given.")
-    seed: int | None = Field(
+    seed: Whole | None = Field(
         default=None, ge=0,
         description="Everything random is drawn from this, so the same seed "
                     "and settings always give the same data.")
-    risk_free_rate: float | None = Field(
+    risk_free_rate: Number | None = Field(
         default=None, description="Annualised, as a decimal.")
-    equity_premium: float | None = Field(
+    equity_premium: Number | None = Field(
         default=None,
         description="Annualised excess return on a beta-one name, as a "
                     "decimal.")

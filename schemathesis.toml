@@ -39,15 +39,65 @@ enabled = false
 # Rules that tie one field to another: a folder store needs a path and a
 # database a connection; an index carries a rule pipeline or a derivation; a
 # swap ends after it starts; an adjusted price series needs CLOSE; a report
-# block's fields depend on its kind; a curve's keys are tenors in years.
+# block's fields depend on its kind; a curve's keys are tenors in years; an
+# optimisation targets exactly one of an index and a strategy, and a risk
+# model takes its names from at most one.
 [[operations]]
-include-name-regex = '^(POST /data/stores|POST /indices|POST /indices/preview|POST /indices/validate|PUT /indices/\{index_id\}|POST /derivatives/trs/price|POST /derivatives/futures/price|GET /data/prices/\{identifier\}|PUT /reports/templates/\{template_id\})$'
+include-name-regex = '^(POST /data/stores|POST /indices|POST /indices/preview|POST /indices/validate|PUT /indices/\{index_id\}|POST /derivatives/trs/price|POST /derivatives/futures/price|GET /data/prices/\{identifier\}|PUT /reports/templates/\{template_id\}|POST /optimise/runs|POST /risk-models/\{model_id\}/estimate)$'
 checks.positive_data_acceptance.enabled = false
 
 # Rules that depend on the loaded data or the machine, or are checked where
 # they are read: identifiers and columns must exist in the data, dates must
 # be real dates, import paths must exist on disk, a universe must name
-# members, and a constraint must be a known type.
+# members, a constraint must be a known type, and a strategy must hold a
+# stored index (and its implementation's settings name what they limit).
 [[operations]]
-include-name-regex = '^(GET /data/corporate-actions/\{identifier\}|GET /data/reference|GET /data/reference/\{identifier\}|POST /data/features|POST /data/import|POST /universes|PUT /universes/\{universe_id\}|PUT /optimise/constraint-sets/\{set_id\})$'
+include-name-regex = '^(GET /data/corporate-actions/\{identifier\}|GET /data/reference|GET /data/reference/\{identifier\}|POST /data/features|POST /data/import|POST /universes|PUT /universes/\{universe_id\}|PUT /optimise/constraint-sets/\{set_id\}|POST /strategies|PUT /strategies/\{strategy_id\})$'
 checks.positive_data_acceptance.enabled = false
+
+# Query lists of names (BN-331). A query string carries only text, so every
+# value of a list-of-strings parameter is a valid list: the fuzzer's "wrong
+# type" for one (false, 5, an object) arrives as the string "false", "5" or a
+# key, which the API rightly reads as a name. schemathesis allows for this on
+# a number or a scalar, not on a list. Each such parameter is held to one
+# ordinary value, so the other parameters of the operation are still
+# fuzzed both ways. A list whose items have a pattern, such as
+# /strategies/compare's ids, can be violated and is left alone.
+[[operations]]
+include-name = "GET /data/identifiers"
+parameters = { "query.datasets" = ["market"] }
+
+[[operations]]
+include-name = "GET /data/prices/{identifier}"
+parameters = { "query.columns" = ["CLOSE"] }
+
+[[operations]]
+include-name = "GET /data/reference"
+parameters = { "query.identifiers" = ["AAA"], "query.fields" = ["NAME"] }
+
+[[operations]]
+include-name = "GET /data/reference/{identifier}"
+parameters = { "query.fields" = ["NAME"] }
+
+[[operations]]
+include-name = "GET /data/corporate-actions/{identifier}"
+parameters = { "query.types" = ["DIVIDEND"] }
+
+[[operations]]
+include-name = "GET /data/features"
+parameters = { "query.identifiers" = ["AAA"], "query.fields" = ["revenue"] }
+
+[[operations]]
+include-name = "GET /data/features/{identifier}"
+parameters = { "query.fields" = ["revenue"] }
+
+[[operations]]
+include-name = "GET /data/tables/{dataset}"
+parameters = { "query.identifiers" = ["AAA"] }
+
+# DELETE /jobs/{job_id} cancels a job and keeps its record, so a client that
+# raced the job's end can still read how it finished. The use-after-free check
+# assumes a DELETE removes what it names.
+[[operations]]
+include-path-regex = '^/jobs/\{job_id\}$'
+checks.use_after_free.enabled = false

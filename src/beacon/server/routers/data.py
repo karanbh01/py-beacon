@@ -457,7 +457,16 @@ def build_data_router() -> APIRouter:
                 "An adjusted series needs CLOSE among the columns requested, "
                 "because ADJ_CLOSE is derived from it.")
 
-        frame = fetcher.fetch_market_data(identifier, start, end, columns)
+        # BN-331: the parsed list, so the comma form names several columns,
+        # and an unknown column is refused rather than failing as a fault.
+        unknown = [name for name in wanted or [] if name not in fetcher.market_columns]
+
+        if unknown:
+            raise InvalidArgumentError(
+                f"No market-data column {', '.join(repr(name) for name in unknown)}. "
+                f"The columns are {', '.join(fetcher.market_columns)}.")
+
+        frame = fetcher.fetch_market_data(identifier, start, end, wanted)
 
         if frame.empty:
             raise DataNotFoundError(f"market data for '{identifier}'",
