@@ -71,13 +71,14 @@ documents. Point it at a folder of your own when trying things out.
 A client needs three things from startup (the full sequence is in
 [Serving data](serving-data.md#the-startup-handshake)):
 
-- Read stdout until the line `BEACON_PORT=<port>`. It is the first line, and
-  it is printed only after the startup data has loaded.
+- Read stdout until the line `BEACON_PORT=<port>`. It is the first line. A
+  registered data store is loaded after it, so a large one does not delay it.
 - If the process exits before printing it, startup failed: stderr holds a
   line starting `error:`, and the exit code is 2.
 - Call `GET /health` to learn what is being served. `data_source.configured`
   says whether any data is loaded, `data_source.store_id` and `store_name`
-  say which, `data_source.loading` says whether a new store is being loaded,
+  say which, `data_source.loading` says whether a store is being loaded
+  (the startup store included: poll until it is false before relying on data),
   and `data_source.data_version` identifies the data (see
   [Data versions](#data-versions)). `version` is the engine's version.
 

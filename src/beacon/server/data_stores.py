@@ -399,15 +399,23 @@ class StartupData:
     store_id: str | None
     store_name: str | None
     origin: str
+    # BN-335: the registered store to load once the engine is serving, when
+    # the load was deferred; None when it was loaded here or there is none.
+    pending: dict[str, Any] | None = None
 
 
 def resolve_startup(explicit: Path | None,
-                    root: Path | None) -> StartupData:
+                    root: Path | None,
+                    load_now: bool = True) -> StartupData:
     """Find the data to serve at startup. See the module docstring for the order.
 
     Args:
         explicit: ``--data`` from the command line, or None.
         root: Where the engine keeps its documents (``--documents``).
+        load_now: Whether to load a registered store here. False leaves it
+            in `pending`, for the engine to load once it is serving. Explicit
+            data is loaded here either way, so a path that cannot be read
+            still stops the engine at once.
 
     Raises:
         ConfigurationError: If ``--data`` or ``$BEACON_DATA_PATH`` names data
@@ -436,6 +444,11 @@ def resolve_startup(explicit: Path | None,
                        "starting with no data.", active)
 
         return StartupData(None, None, None, "no data loaded")
+
+    if not load_now:
+        return StartupData(None, None, None,
+                           f"the data store '{record['name']}' ({record['path']}), "
+                           "loading once the engine is serving", pending=record)
 
     try:
         fetcher = load(record)

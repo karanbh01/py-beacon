@@ -7,6 +7,8 @@ authenticates every route with a bearer token the client generated, and holds
 no state of its own beyond the data source it was handed.
 """
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated, Any
 
@@ -50,6 +52,7 @@ from .routers import (  # noqa: E402
     build_universes_router,
     build_watchlists_router,
 )
+from .routers.stores import load_store_job  # noqa: E402
 from .routers.universes import (  # noqa: E402
     GLOBAL_ID,
     seed_global_universe,
@@ -172,6 +175,23 @@ def build_router() -> APIRouter:
     return router
 
 
+@asynccontextmanager
+async def _load_startup_store(app: FastAPI) -> AsyncIterator[None]:
+    """Load the store the launcher deferred, once the engine is serving.
+
+    Through the same job a store switch uses (BN-335), so `/health` reports
+    `loading` until it is served, the data-loaded event goes out when it is,
+    and a store that fails to load leaves the engine running with no data.
+    """
+    record = app.state.config.startup_store
+
+    if record is not None:
+        app.state.active_data.loading = True
+        app.state.jobs.submit(f"load:{record['id']}", load_store_job(app, record))
+
+    yield
+
+
 def create_app(config: ServerConfig) -> FastAPI:
     """Build the ASGI application for a given configuration.
 
@@ -205,7 +225,8 @@ def create_app(config: ServerConfig) -> FastAPI:
     # future recursive model cannot silently double.
     app = FastAPI(title="Beacon API",
                   version=__version__,
-                  separate_input_output_schemas=False)
+                  separate_input_output_schemas=False,
+                  lifespan=_load_startup_store)
 
     # Handlers reach these through request.app.state rather than a closure,
     # so the app remains introspectable and testable without rebuilding it.

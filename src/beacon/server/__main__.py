@@ -21,6 +21,11 @@ in order:
    first one if nothing is registered yet
 4. nothing: the server starts with no data, and a store can be loaded later
 
+Data named by 1 or 2 is loaded before the port is announced, so a path that
+cannot be read stops the engine. A registered store (3) is loaded after it,
+while `/health` reports `loading`, so a large store does not keep the client
+waiting for the port.
+
 The branch that ran is logged on the first line after the port announcement,
 so "why is the client empty" is answered by reading the log rather than by
 guessing. See `beacon.server.data_stores` for the full rules, and
@@ -170,9 +175,13 @@ def main(argv: list[str] | None = None) -> int:
         # want of a token wasted the load (BN-257).
         token = resolve_token(args.token)
 
-        # Before the port is announced, as it always was: a client that has
-        # read BEACON_PORT may call at once, and must find the data loaded.
-        startup = resolve_startup(args.data, args.documents)
+        # Which store is resolved before the port is announced, and a
+        # registered one is loaded after it (BN-335): the default synthetic
+        # store took 31 s to load, and a client waiting on BEACON_PORT could
+        # not tell loading from hung. Meanwhile /health reports `loading`.
+        # Data named on the command line still loads here, so a path that
+        # cannot be read stops the engine with exit code 2.
+        startup = resolve_startup(args.data, args.documents, load_now=False)
         origin = startup.origin
         config = ServerConfig.from_environment(
             token=token,
@@ -182,7 +191,8 @@ def main(argv: list[str] | None = None) -> int:
             cors_origins=resolve_cors_origins(args.cors_origins),
             storage_root=args.documents,
             data_store_id=startup.store_id,
-            data_store_name=startup.store_name)
+            data_store_name=startup.store_name,
+            startup_store=startup.pending)
     except (ValueError, ConfigurationError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

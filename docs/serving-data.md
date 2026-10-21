@@ -86,9 +86,12 @@ nothing is written into the real app-data folder.
 
 1. **The client starts the engine**, with `--port 0` and a token it generated.
 
-2. **The engine loads its data.** It reads the data store it will serve (see
-   [Where the data comes from](#where-the-data-comes-from)) before it binds
-   a port, so data is already loaded when the client first calls.
+2. **The engine finds its data.** It works out which data store it will
+   serve (see [Where the data comes from](#where-the-data-comes-from)). Data
+   named with `--data` or `$BEACON_DATA_PATH` is loaded here, so a path that
+   cannot be read stops the engine with exit code 2. A registered store is
+   loaded after the port is announced (step 5), so a large one does not keep
+   the client waiting for the port.
 
 3. **The engine binds a port and announces it.** The first line on stdout is
 
@@ -103,13 +106,20 @@ nothing is written into the real app-data folder.
 4. **The engine logs where its data came from**, on stderr:
 
     ```
-    INFO:__main__:Data source: the data store 'Synthetic data' (C:\...\market-store).
+    INFO:__main__:Data source: the data store 'Synthetic data' (C:\...\market-store), loading once the engine is serving.
     INFO:__main__:Allowed origins: beacon://app, app:// (plus loopback on any port).
     ```
 
     Everything after the port line, on stdout or stderr, is ordinary logging.
 
-5. **The client makes ordinary requests**, with the same token:
+5. **The engine loads a registered store in the background.** Until it is
+   served, `GET /health` answers `data_source.loading: true` and
+   `configured: false`, and a request that needs data answers 409
+   `NO_DATA_LOADED`. When it is served, a `data.loaded` event goes out on
+   the event socket, as for any store switch. A store that cannot be read
+   leaves the engine running with no data, so another can be loaded.
+
+6. **The client makes ordinary requests**, with the same token:
 
     ```
     GET http://127.0.0.1:52612/health

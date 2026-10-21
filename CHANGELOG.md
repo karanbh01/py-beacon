@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Changed
+
+- The engine prints `BEACON_PORT` before loading its registered data store, and loads it in the background, with `GET /health` reporting `data_source.loading: true` until it is served and a `data.loaded` event when it is. On the default synthetic store the port used to wait 31 s for the load, and a client could not tell loading from hung. Data named with `--data` or `$BEACON_DATA_PATH` still loads first, so an unreadable path still exits with code 2.
+
 ### Fixed
 
 - A name with no price on a rebalance day, whether its bar is absent or was at or below zero, is carried at its last close and the day recorded as a price gap, as on any other day. It used to fail the whole index calculation ("IndexUnits ... could not be priced"). A name with no trade within `max_price_staleness_days` is still dropped by the stale-price step at that rebalance, and one that has never printed a bar is still refused.

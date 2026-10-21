@@ -9,6 +9,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from ..data import store
 from ..data.fetcher import DataFetcher
@@ -81,6 +82,9 @@ class ServerConfig:
             or None.
         data_store_name: A name to show for the data being served: the
             store's name, or where unregistered data came from.
+        startup_store: A registered store's record to load in the
+            background once the engine is serving, with `/health` reporting
+            `loading` meanwhile, or None.
     """
     auth_token: str
     host: str = "127.0.0.1"
@@ -91,6 +95,8 @@ class ServerConfig:
     storage_root: Path | None = None
     data_store_id: str | None = None
     data_store_name: str | None = None
+    # BN-335.
+    startup_store: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.auth_token:
@@ -108,7 +114,8 @@ class ServerConfig:
                          cors_origins: tuple[str, ...] | None = None,
                          storage_root: Path | None = None,
                          data_store_id: str | None = None,
-                         data_store_name: str | None = None
+                         data_store_name: str | None = None,
+                         startup_store: dict[str, Any] | None = None
                          ) -> "ServerConfig":
         """Build a config, taking the token from the environment if not given.
 
@@ -124,6 +131,7 @@ class ServerConfig:
                 app-data location.
             data_store_id: The registered store the data came from, if any.
             data_store_name: A name to show for the data being served.
+            startup_store: A registered store to load once serving.
 
         Returns:
             ServerConfig: The assembled configuration.
@@ -139,7 +147,8 @@ class ServerConfig:
                                  else resolve_cors_origins()),
                    storage_root=storage_root,
                    data_store_id=data_store_id,
-                   data_store_name=data_store_name)
+                   data_store_name=data_store_name,
+                   startup_store=startup_store)
 
 
 def resolve_cors_origins(explicit: list[str] | None = None) -> tuple[str, ...]:
