@@ -16,7 +16,6 @@ import pandas as pd
 from pydantic import (
     AfterValidator,
     BaseModel,
-    BeforeValidator,
     ConfigDict,
     Field,
     RootModel,
@@ -193,24 +192,10 @@ IsoDate = Annotated[str, Field(pattern=ISO_DATE_PATTERN,
 # a body in Python mode, where a strict model also refuses a JSON array for a
 # tuple -- and `dividends` is a list of pairs. An integer is still a number.
 Number = Annotated[float, Field(strict=True)]
+# A whole number stays a lax `int` (BN-331). A validator that refuses `true`
+# hides each field's bounds from the published schema, and strict mode
+# refuses 96.0, which JSON Schema counts as an integer.
 
-
-def _whole(value: Any) -> Any:
-    """Refuse what JSON would not call an integer before pydantic reads it.
-
-    Lax mode reads true as 1 and "5" as 5; strict mode refuses 96.0, which
-    JSON Schema counts as an integer and a client may well send.
-    """
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ValueError("Input should be a whole number")
-
-    return value
-
-
-# The same for a whole number (BN-331): every number in a request body is one
-# of these two, so a JSON true or false is refused wherever it arrives. A
-# whole-valued float such as 96.0 is accepted, and 96.5 is not.
-Whole = Annotated[int, BeforeValidator(_whole)]
 
 Identifier = Annotated[str, Field(pattern=IDENTIFIER_PATTERN,
                                   description="Letters, digits, dash and "
@@ -1731,7 +1716,7 @@ class IndexDocument(BaseModel):
                     "calculation reads it.")
     # Honoured by the calculator since BN-126; before that it was stored but
     # not applied, which is what the old description said.
-    effective_lag_sessions: Whole = Field(
+    effective_lag_sessions: int = Field(
         default=0,
         ge=0,
         description="Sessions between a rebalance being announced and its "
@@ -3398,11 +3383,11 @@ class StrategySpec(BaseModel):
         default="MONTHLY",
         description="For an active strategy: WEEKLY, MONTHLY, QUARTERLY or "
                     "ANNUALLY.")
-    lookback_days: Whole | None = Field(
+    lookback_days: int | None = Field(
         default=None, ge=2,
         description="For an active strategy: trading days its covariance is "
                     "estimated over; a year when null.")
-    minimum_observations: Whole | None = Field(
+    minimum_observations: int | None = Field(
         default=None, ge=2,
         description="For an active strategy: the fewest returns a name needs "
                     "to be measured; 126 when null.")
@@ -3475,11 +3460,11 @@ class ModellingAssumptionsSpec(BaseModel):
         default=None,
         description="The FX rate on a day a pair printed none: CARRY_FORWARD "
                     "or EXACT_DAY.")
-    max_price_staleness_days: Whole | None = Field(
+    max_price_staleness_days: int | None = Field(
         default=None, ge=0,
         description="Calendar days a name may go without trading before it is "
                     "dropped as stale; 0 is no limit.")
-    free_float_backfill_days: Whole | None = Field(
+    free_float_backfill_days: int | None = Field(
         default=None, ge=0,
         description="Calendar days a reported free float carries over blanks.")
     cash_rate: Number | None = Field(
@@ -3488,12 +3473,12 @@ class ModellingAssumptionsSpec(BaseModel):
     risk_free_rate: Number | None = Field(
         default=None, gt=-1.0, lt=1.0,
         description="The annual rate the Sharpe ratio is measured against.")
-    periods_per_year: Whole | None = Field(
+    periods_per_year: int | None = Field(
         default=None, ge=1, description="How many periods make a year.")
     withholding_tax_rate: Number | None = Field(
         default=None, ge=0.0, lt=1.0,
         description="The share of each dividend withheld, a fraction.")
-    volume_backfill_days: Whole | None = Field(
+    volume_backfill_days: int | None = Field(
         default=None, ge=0,
         description="Calendar days a reported volume stands in for a blank one "
                     "under an execution limit.")

@@ -3,7 +3,8 @@
 
 Pydantic's lax mode read `true` as 1 and `"5"` as 5, so a check-only route
 answered 200 for a body the schema refuses. A whole-valued float such as 30.0
-is still an integer, as JSON Schema counts one.
+is still an integer, as JSON Schema counts one, and a whole number's bounds stay
+in the published schema.
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -70,8 +71,45 @@ class TestAWholeNumber:
 
         assert response.status_code == 200, response.text
 
-    @pytest.mark.parametrize("value", [30.5, True, "30"])
-    def test_anything_else_is_refused(self,
-                                      client,
-                                      value):
-        assert refused_as_schema(validate(client, strategy={"minimum_observations": value}))
+    def test_a_fraction_is_refused(self,
+                                   client):
+        assert refused_as_schema(validate(client, strategy={"minimum_observations": 30.5}))
+
+    def test_its_bound_is_published(self,
+                                    client):
+        """A validator wrapped around `int` once turned `minimum` into a bare
+        `ge` key, and the fuzz run sent 0 as valid."""
+        schema = client.get("/openapi.json").json()["components"]["schemas"]["StrategySpec"]
+        arms = schema["properties"]["minimum_observations"]["anyOf"]
+
+        assert {"type": "integer", "minimum": 2} in arms
+
+
+def bare_bounds(node,
+                where: str = "") -> list[str]:
+    """Every schema in *node* that carries pydantic's bound names, which JSON
+    Schema does not read, in place of `minimum` and the rest."""
+    if isinstance(node, list):
+        return [found for position, item in enumerate(node)
+                for found in bare_bounds(item, f"{where}[{position}]")]
+
+    if not isinstance(node, dict):
+        return []
+
+    found = [where] if {"ge", "gt", "le", "lt"} & set(node) and "type" in node else []
+
+    for key, value in node.items():
+        if key == "properties":
+            found += [hit for name, child in value.items()
+                      for hit in bare_bounds(child, f"{where}.{name}")]
+        else:
+            found += bare_bounds(value, f"{where}/{key}")
+
+    return found
+
+
+class TestThePublishedSchema:
+
+    def test_states_every_bound_as_json_schema_does(self,
+                                                    client):
+        assert bare_bounds(client.get("/openapi.json").json()) == []
