@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-10-21
+
+The engine stays responsive: it answers while a backtest or any other job runs, and announces its port before loading its data. Synthetic prices never go negative, and a missing or bad price is carried at its last close on any day, rebalances included, instead of failing a run.
+
 ### Changed
 
 - The engine prints `BEACON_PORT` before loading its registered data store, and loads it in the background, with `GET /health` reporting `data_source.loading: true` until it is served and a `data.loaded` event when it is. On the default synthetic store the port used to wait 31 s for the load, and a client could not tell loading from hung. Data named with `--data` or `$BEACON_DATA_PATH` still loads first, so an unreadable path still exits with code 2.
@@ -397,7 +401,8 @@ The first release.
 - An index or backtest never uses a price, rate or free float dated after the day it is working on.
 - Requires Python 3.11 or later.
 
-[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.9.4...HEAD
+[Unreleased]: https://github.com/karanbh01/py-beacon/compare/v0.9.5...HEAD
+[0.9.5]: https://github.com/karanbh01/py-beacon/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/karanbh01/py-beacon/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/karanbh01/py-beacon/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/karanbh01/py-beacon/compare/v0.9.1...v0.9.2
