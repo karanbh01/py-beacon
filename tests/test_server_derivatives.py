@@ -158,6 +158,17 @@ class TestFuturesFairValue:
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
 
+    def test_a_price_that_overflows_quietly_is_refused_too(self,
+                                                           client):
+        """BN-331, found by the fuzz run: float arithmetic gave infinity
+        without raising, and the response promised a number but carried null."""
+        response = client.post("/derivatives/trs/price",
+                               json=trs_body(spot=1e308, initial_price=1e-300),
+                               headers=auth())
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
+
 
 class TestCurve:
 

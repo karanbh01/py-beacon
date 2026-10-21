@@ -16,6 +16,7 @@ import pandas as pd
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     RootModel,
@@ -192,9 +193,24 @@ IsoDate = Annotated[str, Field(pattern=ISO_DATE_PATTERN,
 # a body in Python mode, where a strict model also refuses a JSON array for a
 # tuple -- and `dividends` is a list of pairs. An integer is still a number.
 Number = Annotated[float, Field(strict=True)]
+
+
+def _whole(value: Any) -> Any:
+    """Refuse what JSON would not call an integer before pydantic reads it.
+
+    Lax mode reads true as 1 and "5" as 5; strict mode refuses 96.0, which
+    JSON Schema counts as an integer and a client may well send.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError("Input should be a whole number")
+
+    return value
+
+
 # The same for a whole number (BN-331): every number in a request body is one
-# of these two, so a JSON true or false is refused wherever it arrives.
-Whole = Annotated[int, Field(strict=True)]
+# of these two, so a JSON true or false is refused wherever it arrives. A
+# whole-valued float such as 96.0 is accepted, and 96.5 is not.
+Whole = Annotated[int, BeforeValidator(_whole)]
 
 Identifier = Annotated[str, Field(pattern=IDENTIFIER_PATTERN,
                                   description="Letters, digits, dash and "

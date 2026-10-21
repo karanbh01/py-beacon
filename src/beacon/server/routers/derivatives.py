@@ -11,8 +11,9 @@ the claim.
 The term-structure and roll reads resolve a spot price from the data source.
 They still write nothing.
 """
+import math
 from collections.abc import Callable
-from typing import Annotated, TypeVar
+from typing import Annotated, Any, TypeVar
 
 from ..._optional import require
 from ...data.fetcher import DataFetcher
@@ -58,13 +59,39 @@ def _within_range(price: Callable[[], Priced]) -> Priced:
     A rate, yield or time to expiry far outside any real value makes
     ``exp(rate * time)`` overflow. That is a mistake in the request, not a
     fault in the engine (BN-250, found by the fuzz run, which answered 500).
+    Arithmetic that overflows without raising gives an infinity or NaN
+    instead, which would reach the client as null where a number is promised,
+    so a result holding one is refused the same way (BN-331).
     """
     try:
-        return price()
+        priced = price()
     except OverflowError as error:
-        raise InvalidArgumentError(
-            "These inputs give a value too large to represent. Check the "
-            "rates, the dividend yield and the time to expiry.") from error
+        raise _too_large() from error
+
+    if not _finite(priced.model_dump() if hasattr(priced, "model_dump") else priced):
+        raise _too_large()
+
+    return priced
+
+
+def _too_large() -> InvalidArgumentError:
+    return InvalidArgumentError(
+        "These inputs give a value too large to represent. Check the "
+        "rates, the dividend yield and the time to expiry.")
+
+
+def _finite(value: Any) -> bool:
+    """Whether every number in a dumped response is finite."""
+    if isinstance(value, float):
+        return math.isfinite(value)
+
+    if isinstance(value, dict):
+        return all(_finite(item) for item in value.values())
+
+    if isinstance(value, list | tuple):
+        return all(_finite(item) for item in value)
+
+    return True
 
 
 def _data_fetcher(request: Request) -> DataFetcher:
