@@ -24,7 +24,8 @@ otherwise break that, and each is pinned:
 * **Line endings.** `to_csv` follows the platform by default, so the same
   frame written on Windows and Linux differs in every row. Pinned to ``\\n``.
 * **The gzip header carries an mtime.** Two writes a second apart produce
-  different bytes for identical content. Pinned to 0.
+  different bytes for identical content. Pinned to 0, and the header names no
+  file, so a file written under a staging name matches one written in place.
 * **Manifest key order.** Written sorted.
 
 Timestamps are deliberately *not* recorded in the manifest. The store's age is
@@ -51,6 +52,7 @@ import json
 import logging
 import zlib
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -109,8 +111,20 @@ SOURCE_IMPORTED = "imported"
 # written on two platforms differs in every row.
 _CSV_OPTIONS = {"index": False, "lineterminator": "\n"}
 
-# mtime=0 or the gzip header stamps the write time into the bytes.
-_GZIP_OPTIONS = {"method": "gzip", "mtime": 0}
+# BN-332: level 6 rather than gzip's default of 9. On 1.16M market rows level
+# 9 took 14.1 s for a 29.4 MB file and level 6 8.2 s for 30.0 MB; written as
+# below, level 6 costs no time at all, where level 9 would still cost some.
+GZIP_LEVEL = 6
+
+# Rows formatted at a time. Formatting holds the GIL and compression releases
+# it, so each chunk is compressed on a second thread while the next is
+# formatted, and the compression is hidden behind the formatting: 9.8 s for
+# those 1.16M rows, against 24 s for one `to_csv` call at level 9. A chunk is
+# also how far a save's progress moves at a time.
+CHUNK_ROWS = 100_000
+
+# Called with the share of a save done, from 0 to 1, and what is being saved.
+SaveProgress = Callable[[float, str], None]
 
 
 @dataclass(frozen=True)
@@ -263,9 +277,38 @@ def flatten_index(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _write_frame(frame: pd.DataFrame,
-                 path: Path) -> None:
-    """Write one gzipped CSV reproducibly."""
-    frame.to_csv(path, compression=_GZIP_OPTIONS, **_CSV_OPTIONS)
+                 path: Path,
+                 progress: Callable[[float], None] | None = None) -> None:
+    """Write one gzipped CSV reproducibly.
+
+    Args:
+        frame: What to write, its index left out.
+        path: The file to write.
+        progress: Called after each chunk with the share of the rows written.
+    """
+    rows = len(frame)
+
+    with (path.open("wb") as handle,
+          gzip.GzipFile(filename="", mode="wb", fileobj=handle,
+                        compresslevel=GZIP_LEVEL, mtime=0) as packed,
+          ThreadPoolExecutor(max_workers=1) as compressor):
+        pending: Future[int] | None = None
+
+        # One pass even for an empty frame, which still writes its header.
+        for start in range(0, max(rows, 1), CHUNK_ROWS):
+            text = frame.iloc[start:start + CHUNK_ROWS].to_csv(header=start == 0,
+                                                               **_CSV_OPTIONS)
+
+            if pending is not None:
+                pending.result()
+
+            pending = compressor.submit(packed.write, text.encode("utf-8"))
+
+            if progress is not None:
+                progress(min(start + CHUNK_ROWS, rows) / rows if rows else 1.0)
+
+        if pending is not None:
+            pending.result()
 
 
 def outdated(path: Path) -> str | None:
@@ -331,7 +374,8 @@ def _build(path: Path,
 
 def save(fetcher: DataFetcher,
          path: Path,
-         source: str = SOURCE_LOCAL) -> Path:
+         source: str = SOURCE_LOCAL,
+         progress: SaveProgress | None = None) -> Path:
     """Write a fetcher's data to a store directory.
 
     Args:
@@ -341,29 +385,35 @@ def save(fetcher: DataFetcher,
             than as one carrying empty files.
         path: Directory to write into; created if absent.
         source: Recorded in the manifest and reported by `/data/coverage`.
+        progress: Called as the files are written, with the share of the
+            save done (by rows) and what is being saved.
 
     Returns:
         Path: The directory written.
     """
     path.mkdir(parents=True, exist_ok=True)
 
-    datasets = ["market"]
-    _write_frame(flatten_index(fetcher.market.data), path / MARKET_FILE)
-
-    if fetcher.reference is not None:
-        datasets.append("reference")
-        _write_frame(flatten_index(fetcher.reference.data), path / REFERENCE_FILE)
-
     actions = fetcher.corporate_actions
-    if not actions.is_empty:
-        datasets.append("corporate_actions")
-        _write_frame(flatten_index(actions.data), path / ACTIONS_FILE)
-
     features = fetcher.features
-    if not features.is_empty:
-        datasets.append("features")
-        _write_frame(flatten_index(features.data), path / FEATURES_FILE)
+    parts = [("market", "market data", fetcher.market.data, MARKET_FILE),
+             ("reference", "reference data",
+              fetcher.reference.data if fetcher.reference is not None else None,
+              REFERENCE_FILE),
+             ("corporate_actions", "corporate actions",
+              None if actions.is_empty else actions.data, ACTIONS_FILE),
+             ("features", "features", None if features.is_empty else features.data,
+              FEATURES_FILE)]
+    written = [(name, label, frame, file) for name, label, frame, file in parts
+               if frame is not None]
+    total = sum(len(frame) for _, _, frame, _ in written) or 1
+    done = 0
 
+    for _, label, frame, file in written:
+        _write_frame(flatten_index(frame), path / file,
+                     _share(progress, done, len(frame), total, f"Saving {label}"))
+        done += len(frame)
+
+    datasets = [name for name, _, _, _ in written]
     manifest = {"schema_version": STORE_SCHEMA_VERSION,
                 "source": source,
                 "datasets": datasets}
@@ -374,6 +424,20 @@ def save(fetcher: DataFetcher,
                 source, path, ", ".join(datasets))
 
     return path
+
+
+def _share(progress: SaveProgress | None,
+           done: int,
+           rows: int,
+           total: int,
+           message: str) -> Callable[[float], None] | None:
+    """One file's progress as a share of the whole save, or None."""
+    if progress is None:
+        return None
+
+    report = progress
+
+    return lambda fraction: report((done + fraction * rows) / total, message)
 
 
 def save_features(features: FeatureData,

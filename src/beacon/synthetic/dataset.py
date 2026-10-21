@@ -45,6 +45,12 @@ logger = logging.getLogger(__name__)
 # Matches the universe pane in the client, so the default generation fills it.
 DEFAULT_ASSETS = 512
 
+# Where the save sits in a write's progress (BN-332). The stages' fractions are
+# shares of the time a write takes at the API's default size (6,000 names over
+# ten years), measured on a desktop: about 66 s to generate and 100 s to save.
+SAVE_START = 0.40
+SAVE_END = 0.99
+
 # A fixed window, so `generate(SyntheticConfig())` is reproducible on any day.
 # The CLI defaults differently — it ends today, because demo data that stopped
 # eighteen months ago reads as stale in every freshness indicator.
@@ -179,8 +185,9 @@ def generate(config: SyntheticConfig | None = None,
         config: What to generate; defaults to 512 names over a fixed five-year
             window.
         progress: Called at each stage with the fraction done and what is
-            happening. The fractions are rough shares of the time each stage
-            takes at the default size, not exact.
+            happening. The fractions are rough shares of the time a whole
+            :func:`write` takes at the API's default size, not exact, so
+            generating alone ends near 0.40, where the save begins.
 
     Returns:
         SyntheticDataset: The panels and the parameters behind them.
@@ -202,18 +209,18 @@ def generate(config: SyntheticConfig | None = None,
             f"{settings.calendar} has no sessions between {settings.start} "
             f"and {settings.end}.")
 
-    progress(0.02, "Building the universe")
+    progress(0.01, "Building the universe")
     names = universe.build(settings.assets, rng, dates=dates,
                            currency=settings.currency,
                            delisting_rate=settings.delisting_rate,
                            listing_rate=settings.listing_rate)
 
-    progress(0.08, "Simulating returns")
+    progress(0.02, "Simulating returns")
     panel = returns.simulate(names, dates, rng,
                              risk_free_rate=settings.risk_free_rate,
                              equity_premium=settings.equity_premium)
 
-    progress(0.40, "Building prices and corporate actions")
+    progress(0.05, "Building prices and corporate actions")
     market_frame, action_frame = prices.build(names, panel, rng)
 
     # FX pairs live in the market data as identifiers of their own, and a
@@ -221,13 +228,13 @@ def generate(config: SyntheticConfig | None = None,
     # exchange rate has no volume, no shares outstanding and no free float,
     # and inventing zeros for those would make an FX row answer questions it
     # has no answer to.
-    progress(0.62, "Generating exchange rates")
+    progress(0.16, "Generating exchange rates")
     rates = fx.build(dates, rng)
 
     # Derived from the prices above rather than drawn beside them: a P/E that
     # contradicts the price series in the same dataset would make a valuation
     # screen and a price screen disagree about the same company.
-    progress(0.64, "Generating features")
+    progress(0.17, "Generating features")
     close = market_frame.pivot(index="DATE", columns="IDENTIFIER",
                                values="CLOSE") if settings.features else None
     feature_rows = (features_module.build(names, close, panel, rng)
@@ -236,7 +243,7 @@ def generate(config: SyntheticConfig | None = None,
     # The profile fields a client's instrument view needs. Generated from the
     # universe rather than beside it, so status agrees with the listing dates
     # and dividend frequency agrees with the dividends (BN-148).
-    progress(0.74, "Writing profiles")
+    progress(0.36, "Writing profiles")
     profile = profiles.build(names, rng, dates[-1])
 
     logger.info("Generated %d identifier(s) over %d %s session(s) (seed %d).",
@@ -273,8 +280,10 @@ def write(config: SyntheticConfig,
     """
     dataset = generate(config, progress)
 
-    progress(0.80, "Saving the store")
-    written = store.save(dataset.fetcher(), path, source=store.SOURCE_SYNTHETIC)
+    progress(SAVE_START, "Saving the store")
+    written = store.save(dataset.fetcher(), path, source=store.SOURCE_SYNTHETIC,
+                         progress=lambda fraction, message: progress(
+                             SAVE_START + (SAVE_END - SAVE_START) * fraction, message))
     state.save(written, settings_of(config), dataset.universe)
     progress(1.0, "Done")
 
