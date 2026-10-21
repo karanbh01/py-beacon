@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Fixed
+
+- A backtest, optimisation, risk model or report no longer holds the server for its whole run. Each job's work runs in a worker thread, as do the settings and index calculations its submit route does first, so `/health` and every other request are answered while a job runs, and a submit answers 202 at once. A cancelled job stops at its next progress report rather than going on to save its results.
+
 ## [0.9.4] - 2026-10-21
 
 A store saves in well under half the time with its progress shown, and the API refuses requests it used to misread: a parameter given twice, a boolean for a number, a price column it does not hold.

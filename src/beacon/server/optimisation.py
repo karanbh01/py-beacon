@@ -51,6 +51,7 @@ from ..optimise import minimise_tracking_error
 from ..optimise.frontier import efficient_frontier
 from ..risk.factors import fit_factor_model, z_scores
 from ..risk.model import estimate_risk_model
+from .job_threads import Report, run_in_thread
 from .jobs import ProgressReporter
 from .schemas import (
     ConstraintSet,
@@ -215,28 +216,32 @@ def build_optimisation_job(run_id: str,
     Returns:
         A coroutine function suitable for JobRegistry.submit.
     """
-    async def run(report: ProgressReporter) -> dict[str, Any]:
-        await report(0.1, "Loading constituent prices.")
+    def work(report: Report) -> dict[str, Any]:
+        report(0.1, "Loading constituent prices.")
         identifiers = sorted(target.weights)
         prices = constituent_prices(fetcher, identifiers, request.start,
                                     request.end, currency)
 
-        await report(0.35, "Estimating the risk model.")
+        report(0.35, "Estimating the risk model.")
         returns = prices.pct_change().dropna(how="all")
         risk_model = estimate_risk_model(returns, intensity=SHRINKAGE)
 
-        await report(0.6, "Solving.")
+        report(0.6, "Solving.")
         result = minimise_tracking_error(target.weights, constraints, risk_model)
 
-        await report(0.85, "Assembling the result.")
+        report(0.85, "Assembling the result.")
         payload = assemble_optimisation(run_id, request, constraint_set,
                                         result, target, label_for,
                                         prices, risk_model, fetcher,
                                         currency)
 
-        await report(1.0, "Complete.")
+        report(1.0, "Complete.")
 
         return payload.model_dump()
+
+    # In a worker thread, so the event loop stays free (BN-333).
+    async def run(report: ProgressReporter) -> dict[str, Any]:
+        return await run_in_thread(report, work)
 
     return run
 

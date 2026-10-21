@@ -11,6 +11,7 @@ The model id is chosen by the caller rather than generated, so a client can
 re-estimate "the one I use for tech" over a new window and keep referring to it
 by the same name. Each estimate supersedes the last under that id.
 """
+import asyncio
 from typing import Any
 
 from ..._optional import require
@@ -166,7 +167,8 @@ def build_risk_router() -> APIRouter:
         # submitted, so a bad request fails immediately rather than becoming a
         # job that fails a moment later for the client to discover.
         settings = body if body is not None else RiskModelRequest()
-        identifiers = _universe(request, settings)
+        # Off the loop (BN-333): an index's names are calculated here.
+        identifiers = await asyncio.to_thread(_universe, request, settings)
         fetcher = _data_fetcher(request)
         currency = _currency(request, settings)
 

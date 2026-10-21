@@ -36,6 +36,7 @@ import pandas as pd
 from ..data.fetcher import DataFetcher
 from ..exceptions import DataNotFoundError
 from ..risk.model import estimate_risk_model
+from .job_threads import Report, run_in_thread
 from .jobs import ProgressReporter
 from .schemas import (
     RiskDiagnosticsPayload,
@@ -90,23 +91,27 @@ def build_estimation_job(model_id: str,
     Returns:
         A coroutine function suitable for JobRegistry.submit.
     """
-    async def run(report: ProgressReporter) -> dict[str, Any]:
-        await report(0.1, f"Loading prices for {len(identifiers)} identifier(s).")
+    def work(report: Report) -> dict[str, Any]:
+        report(0.1, f"Loading prices for {len(identifiers)} identifier(s).")
         returns = constituent_returns(fetcher, identifiers,
                                       request.start, request.end, currency)
 
-        await report(0.6, "Estimating the covariance.")
+        report(0.6, "Estimating the covariance.")
         model = estimate_risk_model(returns,
                                     target=request.target,
                                     intensity=request.intensity,
                                     repair=request.repair)
 
-        await report(0.9, "Assembling the result.")
+        report(0.9, "Assembling the result.")
         payload = assemble_risk_model(model_id, request, model, currency)
 
-        await report(1.0, "Complete.")
+        report(1.0, "Complete.")
 
         return payload.model_dump()
+
+    # In a worker thread, so the event loop stays free (BN-333).
+    async def run(report: ProgressReporter) -> dict[str, Any]:
+        return await run_in_thread(report, work)
 
     return run
 

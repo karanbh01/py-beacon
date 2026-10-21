@@ -545,6 +545,11 @@ class JobRegistry:
 
         async def report(progress: float,
                          message: str = "") -> None:
+            # A report from a worker thread can land after the job ended
+            # (BN-333); it must not move a finished or cancelled job.
+            if job.status != RUNNING:
+                return
+
             # Clamped so a miscounting job cannot publish nonsense; a client
             # rendering a progress bar should never see 1.4.
             job.progress = min(max(progress, 0.0), 1.0)

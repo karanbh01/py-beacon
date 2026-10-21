@@ -16,6 +16,7 @@ a moment later. It reports every problem it finds, addressed to the row
 that caused it, because someone fixing a constraint editor needs all the errors
 rather than the first.
 """
+import asyncio
 import uuid
 from typing import Annotated, Any
 
@@ -219,7 +220,9 @@ def build_optimise_router() -> APIRouter:
 
         registry: JobRegistry = request.app.state.jobs
         fetcher = _data_fetcher(request)
-        target, document = _target(request, body, registry, fetcher)
+        # Off the loop (BN-333): an index's weights are calculated here.
+        target, document = await asyncio.to_thread(_target, request, body, registry,
+                                                   fetcher)
 
         run_id = str(uuid.uuid4())
         job = registry.submit(

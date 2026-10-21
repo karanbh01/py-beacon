@@ -33,6 +33,7 @@ from .definitions import build_definition
 from .derivative_records import derivative_payloads
 from .errors import FindingsError
 from .holdings import HOLDINGS_KEY, holdings_document
+from .job_threads import Report, run_in_thread
 from .jobs import JobBody, ProgressReporter
 from .schemas import (
     ActiveStepPayload,
@@ -302,7 +303,7 @@ def build_backtest_job(strategy: StrategyDocument,
 
     settings = built
 
-    async def run(report: ProgressReporter) -> dict[str, object]:
+    def work(report: Report) -> dict[str, object]:
         # Either face (BN-168): a rule pipeline, or a derivation whose source
         # is resolved through the store — recursively for a chain. The rest of
         # the job is identical, which is the point: an optimised index is
@@ -320,7 +321,7 @@ def build_backtest_job(strategy: StrategyDocument,
         # store allows it, and hands the schedule to the engine. The two
         # stage messages collapse into one; the reporter and the later
         # milestones stay.
-        await report(0.05, _stage(settings))
+        report(0.05, _stage(settings))
 
         backtest = Backtest(initial_capital=settings.initial_capital,
                             transaction_cost_bps=request.transaction_cost_bps,
@@ -356,14 +357,14 @@ def build_backtest_job(strategy: StrategyDocument,
         comparison = None
         benchmark_levels = None
         if request.benchmark is not None:
-            await report(0.8, f"Comparing against benchmark '{request.benchmark.id}'.")
+            report(0.8, f"Comparing against benchmark '{request.benchmark.id}'.")
             # Resolved once, for this comparison and the run's comparisons.
             benchmark_levels = resolve_benchmark(request.benchmark, fetcher, index_store,
                                                  start, end)
             comparison = compare_against_benchmark(backtest.trading_nav, request.benchmark,
                                                    benchmark_levels)
 
-        await report(0.9, "Assembling results.")
+        report(0.9, "Assembling results.")
         # From the document rather than the definition: an optimised index has
         # no weight cap of its own — the solved weights are what its
         # constraints made them — so the field is simply absent there.
@@ -386,6 +387,9 @@ def build_backtest_job(strategy: StrategyDocument,
         # book's snapshots, this one the record's *target* book, which on an
         # optimised run is the parent's calculation under the parent's cap.
         if record_store is not None:
+            # A report first, so a run cancelled by now stops before it files
+            # its record (BN-333).
+            report(0.95, "Saving the record.")
             record = BacktestResultSummary.from_result(backtest,
                                                        cap=target_cap(definition),
                                                        settings=resolved)
@@ -396,9 +400,14 @@ def build_backtest_job(strategy: StrategyDocument,
                                              HOLDINGS_KEY: holdings_document(backtest,
                                                                              index_result)})
 
-        await report(1.0, "Complete.")
+        report(1.0, "Complete.")
 
         return payload.model_dump()
+
+    # BN-333: the work runs in a worker thread, so the event loop answers
+    # requests, /health among them, while it does.
+    async def run(report: ProgressReporter) -> dict[str, object]:
+        return await run_in_thread(report, work)
 
     return run
 

@@ -15,6 +15,7 @@ run. Every read is a 404 until the strategy has been backtested.
 """
 # BN-313 moved these from `/beacon/{index_id}/...`: runs are kept per stored
 # strategy, so two strategies on one index each keep their own.
+import asyncio
 from typing import Annotated, Any, Literal
 
 import pandas as pd
@@ -314,7 +315,9 @@ def build_strategy_runs_router() -> APIRouter:
         document = _index_of(request, strategy)
         fetcher = _data_fetcher(request)
         settings = _request(strategy, body)
-        built = _built_settings(settings, fetcher)
+        # Off the loop, as the job is (BN-333): building the settings reads
+        # data, and an expression screen or a vehicle can take a while.
+        built = await asyncio.to_thread(_built_settings, settings, fetcher)
 
         registry: JobRegistry = request.app.state.jobs
         store: DocumentStore = request.app.state.index_store

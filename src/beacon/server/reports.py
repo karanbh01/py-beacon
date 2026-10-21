@@ -48,6 +48,7 @@ from ..report.blocks import (
     Text,
 )
 from ..report.pdf import render
+from .job_threads import Report, run_in_thread
 from .jobs import ProgressReporter
 from .schemas import RenderRequest, RenderResult
 
@@ -186,13 +187,13 @@ def build_render_job(render_id: str,
     Returns:
         A coroutine function suitable for JobRegistry.submit.
     """
-    async def run(report: ProgressReporter) -> dict[str, Any]:
-        await report(0.2, f"Rendering '{template.template_id}'.")
+    def work(report: Report) -> dict[str, Any]:
+        report(0.2, f"Rendering '{template.template_id}'.")
 
         destination = render_path(directory, render_id)
         render(template, destination)
 
-        await report(1.0, "Complete.")
+        report(1.0, "Complete.")
 
         result = RenderResult(render_id=render_id,
                               template_id=template.template_id,
@@ -207,6 +208,10 @@ def build_render_job(render_id: str,
             f"'{template.template_id}': {result.bytes} bytes.")
 
         return result.model_dump()
+
+    # In a worker thread, so the event loop stays free (BN-333).
+    async def run(report: ProgressReporter) -> dict[str, Any]:
+        return await run_in_thread(report, work)
 
     return run
 
