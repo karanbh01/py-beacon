@@ -10,6 +10,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Changed
 
+- Reinvesting a dividend prices the holdings in one read, with the same answers, instead of one read per holding on every payment day. On 600 names a plain backtest reinvesting its dividends went from 8.9 s to 6.8 s; results are unchanged.
 - A holding with no bar on a session is valued at its last close found in its history read once per run, instead of a fresh read of the market data for each name on each such day. On 600 names, a backtest on the London calendar over New York data went from 23 s to 17 s.
 - A name's corporate actions are read from rows split by name once per table, instead of filtering the whole table on every lookup. A futures roll prices the index's dividend yield from every constituent's trailing dividends, so on 600 names a backtest equitising its cash went from 26 s to 15 s and one replicating with futures from 19 s to 10 s.
 - Market impact, the liquidity screen and cap, and execution limits read each name's volume and converted closes once per run, and answer each day from that history over the same window as before, instead of reading and converting the window again every day. The answers are unchanged. On 600 names over the full history, with the lookup fix below: market impact 506 s to 18 s, capacity caps and screens 176 s to about 21 s, execution limits 31 s to 18 s, against 12 s for the same backtest with none of them.

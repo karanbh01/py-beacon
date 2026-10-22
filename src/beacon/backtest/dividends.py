@@ -130,6 +130,12 @@ class DividendsMixin:
         """Provided by PricingMixin; declared so this one type-checks."""
         raise NotImplementedError
 
+    def _prices_for(self,
+                    asset_ids: list[str],
+                    date: pd.Timestamp) -> dict[str, float | None]:
+        """Provided by PricingMixin; declared so this one type-checks."""
+        raise NotImplementedError
+
     def _start_dividends(self) -> None:
         """Read the distributions once and clear what a previous run owed."""
         self._cash_events = cash_events(self.data_provider)
@@ -212,11 +218,13 @@ class DividendsMixin:
                   amount: float,
                   date: pd.Timestamp) -> None:
         """Buy the current holdings with *amount*, in proportion to value."""
-        values = {name: holding.quantity * price
-                  for name, holding in portfolio.holdings.items()
-                  if holding.quantity > 0
-                  and (price := self._fetch_price(name, date)) is not None
-                  and price > 0}
+        # Priced in one read (BN-341), with the answers `_fetch_price` gives
+        # name by name: it was one read per holding on every payment day.
+        held_names = [name for name, holding in portfolio.holdings.items() if holding.quantity > 0]
+        prices = self._prices_for(held_names, date)
+        values = {name: portfolio.holdings[name].quantity * price
+                  for name in held_names
+                  if (price := prices.get(name)) is not None and price > 0}
         held = sum(values.values())
 
         if held <= 0.0 or amount <= 0.0:
