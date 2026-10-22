@@ -432,6 +432,25 @@ def _rewrite_actions(target: Path,
                        target)
 
 
+def _set_text(stored: pd.DataFrame,
+              rows: pd.Series,
+              column: str,
+              values: object) -> None:
+    """Write text into *column* on *rows*, if there are any.
+
+    A column that was blank in every row reads back as numbers, as the CSV
+    store gave it, and pandas refuses text written into one, so it becomes a
+    column of objects first.
+    """
+    if not rows.any():
+        return
+
+    if stored[column].dtype.kind in "fiub":
+        stored[column] = stored[column].astype(object)
+
+    stored.loc[rows, column] = values
+
+
 def _rewrite_reference(target: Path,
                        changes: _ReferenceChanges) -> None:
     """Record delistings, move earnings dates on, and add new names."""
@@ -439,15 +458,15 @@ def _rewrite_reference(target: Path,
     identifiers = stored["IDENTIFIER"]
 
     leaving = identifiers.isin(changes.delisted.keys())
-    stored.loc[leaving, "DATE_TO"] = identifiers[leaving].map(changes.delisted)
+    _set_text(stored, leaving, "DATE_TO", identifiers[leaving].map(changes.delisted))
 
     if "TRADING_STATUS" in stored:
-        stored.loc[leaving, "TRADING_STATUS"] = profiles.DELISTED
+        _set_text(stored, leaving, "TRADING_STATUS", profiles.DELISTED)
 
     if "NEXT_EARNINGS" in stored:
         moving = identifiers.isin(changes.next_earnings.keys())
-        stored.loc[moving, "NEXT_EARNINGS"] = identifiers[moving].map(
-            changes.next_earnings)
+        _set_text(stored, moving, "NEXT_EARNINGS",
+                  identifiers[moving].map(changes.next_earnings))
 
     if changes.rows is not None:
         stored = pd.concat([stored, store.as_stored(store.flatten_index(changes.rows),
