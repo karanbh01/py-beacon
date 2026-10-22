@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-10-22
+
+A backtest tracks its index the way a real fund does. Dividends count in the NAV from their ex-date, a fund's cash can be held within a band, and index futures follow the cash every day in whole contracts. On the TTIX backtest over 6,000 names against a total-return index, tracking error went from 0.81% to 0.08%. Postgres stores load several times faster with a third of the memory, and no longer fail on a NULL number. Synthetic data spreads dividends across the year and has companies leave as a large-cap market's do, mostly small ones and mostly through takeovers. Results change for backtests holding names through an ex-date, runs holding futures, and stores generated anew.
+
 ### Added
 
 - A cash band: `Implementation(cash_band=(lower, upper))`, and `implementation.cash_band` in the API, checks the cash at every close between rebalances. Above the upper edge the cash above `cash_buffer` is invested; below the lower edge holdings are sold pro rata back up to it. Off by default, which keeps the cash waiting for the next rebalance as before.
