@@ -50,6 +50,10 @@ class SessionPanel:
         self._values: dict[str, dict[str, object]] = {
             str(column): frame[column].to_dict() for column in frame.columns}
         self._identifiers: set[str] = {str(name) for name in frame.index}
+        # Whether this holds every row the data has on its session (BN-347).
+        # Then a name it lacks has no row that day, which is the answer the
+        # data would give, so it answers for that name too.
+        self.complete: bool = False
 
     @classmethod
     def from_columns(cls,
@@ -65,6 +69,8 @@ class SessionPanel:
         panel = cls(session, pd.DataFrame())
         panel._values = values
         panel._identifiers = identifiers
+        # `session_columns` gives every row the data has on the session.
+        panel.complete = True
 
         return panel
 
@@ -90,8 +96,10 @@ class SessionPanel:
 
     def covers(self,
                identifiers: Iterable[str]) -> bool:
-        """Whether every one of *identifiers* has a row in this panel."""
-        return all(identifier in self._identifiers for identifier in identifiers)
+        """Whether this panel answers for every one of *identifiers*: all of
+        them, when it holds the whole session."""
+        return self.complete or all(identifier in self._identifiers
+                                    for identifier in identifiers)
 
     def answers(self,
                 identifier: str,
@@ -101,15 +109,20 @@ class SessionPanel:
         Both halves, and nothing looser. A panel holds one session for the set
         of names it was built from; asked about another date or another name it
         says no, and the caller goes to the data. There is deliberately no
-        nearest-session or missing-name behaviour here: a panel that answered
-        beyond what it was built from would be a different question's answer
-        wearing this one's key.
+        nearest-session behaviour here: a panel that answered for another day
+        would be a different question's answer wearing this one's key.
+
+        A panel built from the whole session (`complete`) answers for every
+        name on its date: one it lacks has no row that day, and the data's own
+        read would find none either. Before BN-347 such a name went back to the
+        data, and on a session the data does not trade at all, every holding
+        did, which was most of a backtest on another market's calendar.
 
         Args:
             identifier: The instrument.
             date: The date as a ``%Y-%m-%d`` string, compared with `stamp`.
         """
-        return date == self.stamp and identifier in self._identifiers
+        return date == self.stamp and (self.complete or identifier in self._identifiers)
 
     def column(self,
                name: str) -> dict[str, object]:

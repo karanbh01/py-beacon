@@ -10,6 +10,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Changed
 
+- A day's batched price read answers for a name with no row that day straight from the day's panel, instead of going back to the market data for it one name at a time. On a session the data has no rows for (an index on the London calendar over New York data), every holding used to take that slow read. A UCITS ETF backtest on the London calendar over 6,000 names went from 315 s to 245 s, its index calculation from 68 s to 35 s; results are unchanged.
 - Market impact and average traded value are computed from each name's history held as arrays, with the same windows and the same answers to the last bit, instead of slicing a pandas Series on every call. On 6,000 names, a UCITS ETF backtest with market impact (1,155 holdings) went from 556 s to 315 s.
 - A futures roll prices the index's dividend yield from each constituent's cached last close, instead of reading its price history up to the day.
 - A backtest records its books once after each run of same-day trades (a rebalance, a day's dividends, invested flows, worked orders) instead of rewriting every holding after each trade, and keeps each day's positions as arrays. Only a day's last snapshot was ever kept, so the history and every result are unchanged. On 6,000 names (3,908 holdings) over 2020 to 2026 a plain backtest went from 756 s to 146 s, its simulation from 636 s to 28 s. `Portfolio.batch()` is the context that does it.
