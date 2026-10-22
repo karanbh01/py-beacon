@@ -329,7 +329,8 @@ class TestProgressOverTheSocket:
 
             statuses = []
             progresses = []
-            for _ in range(40):
+            # A run reports about a hundred days of progress since BN-342.
+            for _ in range(400):
                 event = socket.receive_json()
                 if event["type"] != "job":
                     continue

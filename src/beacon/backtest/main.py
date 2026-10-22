@@ -32,7 +32,7 @@ the front door works on the core install exactly as it does on a full one.
 # has imported scipy-free since BN-166.
 import copy
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal
 
 import pandas as pd
@@ -68,6 +68,19 @@ from .share_classes import ShareClass
 from .vehicle import Vehicle
 
 logger = logging.getLogger(__name__)
+
+# Called with the share of a run done, from 0 to 1, and what is happening.
+Progress = Callable[[float, str], None]
+
+# Where a run's progress stands when its strategy's weights, then its
+# simulation, begin (BN-342). The simulation reports each trading day after.
+STRATEGY_START = 0.15
+SIMULATION_START = 0.2
+
+
+def _silent(fraction: float,
+            message: str) -> None:
+    """The progress callback when none is given, which reports nothing."""
 
 
 def _default_cache() -> IndexResultCache:
@@ -217,7 +230,8 @@ class Backtest:
             start: str | None = None,
             end: str | None = None,
             optimised: bool = False,
-            optimisation_config: OptimisationConfig | None = None) -> BacktestResult:
+            optimisation_config: OptimisationConfig | None = None,
+            progress: Progress | None = None) -> BacktestResult:
         """Calculate (or reuse) the index, then simulate tracking it.
 
         Args:
@@ -241,6 +255,9 @@ class Backtest:
             optimisation_config: What the ad-hoc derivation is asked to do
                 (objective, constraints, reserved risk model). Only
                 meaningful, and only allowed, with ``optimised=True``.
+            progress: Called with the share of the run done, from 0 to 1,
+                and what is happening: the index's calculation, the
+                strategy's weights, then each trading day simulated, by date.
 
         Returns:
             BacktestResult: The engine's result: portfolio kept whole, books
@@ -294,6 +311,9 @@ class Backtest:
         logger.info("Backtest run for '%s' from %s to %s.",
                     index_definition.index_id, start or index_definition.base_date.date(), end)
 
+        report = progress or _silent
+        report(0.0, f"Calculating the index '{index_definition.index_id}'")
+
         derived = self._derived_definition(index_definition, optimised,
                                            optimisation_config)
 
@@ -311,6 +331,10 @@ class Backtest:
 
         first = start if start is not None else str(index_definition.base_date.date())
         context = StrategyContext(fetcher, book_currency(self.currency, index_result))
+
+        if strategy is not None:
+            report(STRATEGY_START, "Building the strategy's weights")
+
         strategy = self._with_basket(strategy, fetcher, start, end)
         replication: list[ReplicationStep] = (
             self._replicated(strategy, index_result, context, first, end)
@@ -352,7 +376,9 @@ class Backtest:
                      and isinstance(strategy.replication, FuturesReplication)
                      else None))
 
-        result = engine.run()
+        result = engine.run(lambda day, days, date: report(
+            SIMULATION_START + (1.0 - SIMULATION_START) * day / days,
+            f"Simulating {date:%Y-%m-%d}, day {day:,} of {days:,}"))
         result.replication = replication
         result.active = active
 

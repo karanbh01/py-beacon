@@ -386,6 +386,8 @@ A job's state has the same shape everywhere: in the 202 answer, from
 | `status` | `pending`, `running`, `succeeded`, `failed` or `cancelled`. The last three are final. |
 | `progress` | 0.0 to 1.0. |
 | `message` | What the job is doing now. |
+
+A backtest reports its progress through the simulation: `Calculating the index ...`, `Building the strategy's weights` for a strategy that replicates or constructs, then `Simulating 2024-03-28, day 812 of 1,700` about a hundred times over the run, with `progress` rising from 0.05 to 0.8, before it compares against the benchmark and assembles the results.
 | `result` | The result, only once the job has succeeded; null otherwise. |
 | `error` | When the job failed, the same `{code, message, detail}` an HTTP error carries (see [Errors](#errors)); null otherwise. |
 

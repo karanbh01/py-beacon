@@ -3,7 +3,7 @@
 BacktestEngine: simulates portfolio execution against a target weight schedule.
 """
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 import pandas as pd
 
@@ -410,10 +410,16 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
 
     #todo: vectorise run for efficiency, currently iterative and may be slow
     # The up-front price-column check is BN-217.
-    def run(self) -> BacktestResult:
+    def run(self,
+            progress: Callable[[int, int, pd.Timestamp], None] | None = None) -> BacktestResult:
         """Execute the backtest and return a :class:`BacktestResult`.
 
         Calling `run()` again on the same engine starts a fresh run.
+
+        Args:
+            progress: Called about a hundred times a run, and on the last
+                day, with the trading day reached, the days in the run and
+                its date.
 
         Returns:
             BacktestResult
@@ -612,6 +618,11 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
 
             # Progress logging
             n = len(trading_days)
+
+            # About a hundred reports a run, and the last day's (BN-342).
+            if progress is not None and (idx % max(n // 100, 1) == 0 or idx == n - 1):
+                progress(idx + 1, n, date)
+
             if n > 10 and idx % (n // 10) == 0:
                 logger.info(
                     f"Backtest progress: {(idx + 1) / n * 100:.0f}% "

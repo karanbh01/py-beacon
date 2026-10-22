@@ -269,6 +269,11 @@ def compare_against_benchmark(nav: pd.Series,
         level=SeriesPayload.from_series(_rebase(aligned_benchmark)))
 
 
+# Where the backtest's own progress sits in the job's (BN-342).
+RUN_START = 0.05
+RUN_SPAN = 0.75
+
+
 def build_backtest_job(strategy: StrategyDocument,
                        document: IndexDocument,
                        fetcher: DataFetcher,
@@ -332,9 +337,13 @@ def build_backtest_job(strategy: StrategyDocument,
                             flows=settings.flows or None,
                             share_classes=settings.share_classes or None,
                             vehicle=settings.vehicle,
-                            data_provider=fetcher).run(settings.strategy(definition),
-                                                       start=start,
-                                                       end=end)
+                            data_provider=fetcher).run(
+            settings.strategy(definition),
+            start=start,
+            end=end,
+            # BN-342: the run's progress, by stage and then by trading day,
+            # inside the job's own span from here to the benchmark at 0.8.
+            progress=lambda fraction, message: report(RUN_START + RUN_SPAN * fraction, message))
         # BN-313: which strategy ran, so a run is never served as another's.
         resolved = {"strategy_id": strategy.id, "strategy_name": strategy.name,
                     "index_id": document.id,
