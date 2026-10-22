@@ -3393,6 +3393,24 @@ class StrategySpec(BaseModel):
                     "to be measured; 126 when null.")
 
 
+# The settings `equitise` takes, by type (BN-358). Published as a closed set
+# of keys, so a client is told what is accepted rather than finding out.
+EQUITISE_NUMBERS = ("roll_days", "roll_cost_bps", "dividend_yield", "multiplier", "band")
+EQUITISE_FLAGS = ("whole_contracts",)
+EquitiseSettings = Annotated[
+    dict[str, Number | bool | None],
+    WithJsonSchema({
+        "type": "object",
+        "properties": {
+            **{name: {"anyOf": [{"type": "number"}, {"type": "null"}]}
+               for name in EQUITISE_NUMBERS},
+            **{name: {"type": "boolean"} for name in EQUITISE_FLAGS},
+        },
+        "additionalProperties": False,
+    }),
+]
+
+
 class CashBandSpec(BaseModel):
     """The shares of the book the cash may move between before it is brought
     back to the cash buffer."""
@@ -3433,7 +3451,7 @@ class ImplementationSpec(BaseModel):
         default="target",
         description="What money arriving between rebalances buys: 'target' "
                     "(the last rebalance's weights) or 'holdings'.")
-    equitise: dict[str, Number | bool | None] | None = Field(
+    equitise: EquitiseSettings | None = Field(
         default=None,
         description="Index futures held on the uninvested cash, so the buffer "
                     "earns the index's return: `roll_days`, `roll_cost_bps`, "
@@ -3456,11 +3474,15 @@ class ImplementationSpec(BaseModel):
     def _flags_only_where_they_belong(cls,
                                       value: dict[str, float | bool | None] | None
                                       ) -> dict[str, float | bool | None] | None:
-        """True or false only for `whole_contracts`, which takes nothing else."""
+        """The keys the published schema names, each of its own type."""
         # BN-358: the one flag among numbers, kept from loosening the rest.
         for name, setting in (value or {}).items():
-            if (name == "whole_contracts") != isinstance(setting, bool):
-                kind = "true or false" if name == "whole_contracts" else "a number"
+            if name not in EQUITISE_NUMBERS and name not in EQUITISE_FLAGS:
+                raise ValueError(f"equitise takes {', '.join(EQUITISE_NUMBERS + EQUITISE_FLAGS)}"
+                                 f"; not {name}.")
+
+            if (name in EQUITISE_FLAGS) != isinstance(setting, bool):
+                kind = "true or false" if name in EQUITISE_FLAGS else "a number"
                 raise ValueError(f"equitise.{name} must be {kind}.")
 
         return value
