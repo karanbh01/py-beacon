@@ -25,6 +25,8 @@ import pandas as pd
 
 from ..data.base import MarketData
 from ..data.fetcher import DataFetcher
+from ..data.prices import PRICE_COLUMN, currencies_of
+from ..exceptions import CalculationError
 
 
 @dataclass(frozen=True)
@@ -149,8 +151,41 @@ def _read(fetcher: DataFetcher,
     frame = fetcher.fetch_market_data(asset_id)
     volume = (frame["VOLUME"].dropna() if not frame.empty and "VOLUME" in frame.columns
               else None)
-    prices = fetcher.fetch_prices([asset_id], currency=currency)
-    closes = (prices[asset_id].dropna() if asset_id in prices.columns
-              else pd.Series(dtype=float))
 
-    return History(volume=volume, closes=closes)
+    return History(volume=volume, closes=_converted(fetcher, asset_id, frame, currency))
+
+
+def _converted(fetcher: DataFetcher,
+               asset_id: str,
+               frame: pd.DataFrame,
+               currency: str | None) -> pd.Series:
+    """*asset_id*'s closes from its own rows, converted into *currency* day by
+    day as `fetch_prices` converts them, blanks dropped.
+
+    From the name's rows rather than through `fetch_prices`, whose read by a
+    list of one makes pandas check the whole store's index for uniqueness on
+    every call: 88 s over the 5,168 names of a 6,000-name run (BN-345).
+    """
+    if frame.empty or PRICE_COLUMN not in frame.columns:
+        return pd.Series(dtype=float)
+
+    closes = frame[PRICE_COLUMN]
+
+    if currency is not None:
+        target = currency.upper()
+        quoted = currencies_of(fetcher, [asset_id], default=target)[asset_id]
+
+        if quoted != target:
+            rates = fetcher.fx_rates_on(quoted, target, closes.index)
+
+            if rates is None:
+                raise CalculationError(
+                    calculation_name="Prices",
+                    details=(f"no {quoted}/{target} rate, so {asset_id} cannot be priced "
+                             f"in {target}. Leaving it in {quoted} would compare it with "
+                             f"the rest on magnitude alone. Load the pair, or leave this "
+                             f"name out."))
+
+            closes = closes.mul(rates, axis=0)
+
+    return closes.dropna()
