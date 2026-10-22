@@ -59,9 +59,11 @@ class DailyWeightColumns:
     """The daily weights panel collected column by column during a run.
 
     The frame :func:`daily_weights_frame` builds from records, without a dict
-    per constituent per day on the way (BN-348): over six thousand names that
-    was millions of dicts built only to be taken apart again.
+    per constituent per day on the way.
     """
+
+    # BN-348: over six thousand names the records were millions of dicts,
+    # built only to be taken apart again.
 
     def __init__(self) -> None:
         self._dates: list[pd.Timestamp] = []

@@ -440,8 +440,8 @@ class TestRoundTrip:
         assert manifest["key"] == key
         assert manifest["key_parts"] == parts
         assert manifest["created_at"] and manifest["last_used"]
-        assert set(manifest["sizes"]) == {"levels.csv.gz", "divisor.csv.gz",
-                                          "daily_weights.csv.gz", "snapshots.json"}
+        assert set(manifest["sizes"]) == {"levels.parquet", "divisor.parquet",
+                                          "daily_weights.parquet", "snapshots.json"}
 
     def test_an_unknown_key_is_a_miss(self,
                                       cache):
@@ -475,11 +475,11 @@ class TestCorruption:
                                                             disk_fetcher,
                                                             result,
                                                             caplog):
-        """Half a gzip stream must read as 'not cached' rather than raise into
+        """Half a panel file must read as 'not cached' rather than raise into
         the calculation that asked, and the wreck must not sit there turning
         every future lookup into the same warning."""
         key = self.stored(cache, disk_fetcher, result)
-        panel = cache.entry_path(key) / "daily_weights.csv.gz"
+        panel = cache.entry_path(key) / "daily_weights.parquet"
         panel.write_bytes(panel.read_bytes()[:20])
 
         with caplog.at_level(logging.WARNING, logger="beacon.index.cache"):
@@ -505,7 +505,7 @@ class TestCorruption:
         """Removal is what makes the miss honest: the next calculation caches
         into the same key and the entry is whole again."""
         key = self.stored(cache, disk_fetcher, result)
-        (cache.entry_path(key) / "levels.csv.gz").unlink()
+        (cache.entry_path(key) / "levels.parquet").unlink()
 
         assert cache.get(key) is None
 

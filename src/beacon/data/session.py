@@ -84,13 +84,14 @@ class SessionPanel:
                   rows: np.ndarray,
                   arrays: dict[str, np.ndarray]) -> "SessionPanel":
         """Build a whole-session panel that turns a column into a dict only
-        when that column is read (BN-348).
+        when that column is read.
 
         A daily valuation reads the close and nothing else, so building every
         column's dict for every name every day was most of the read.
         *identifiers* and *arrays* are the frame's, one entry per row, and
         *rows* the session's row positions, as `session_rows` gives them.
         """
+        # BN-348.
         panel = cls(session, pd.DataFrame())
         # No set of its names (BN-351): a complete panel answers for every
         # name, so `covers` and `answers` never consult one.
@@ -165,14 +166,15 @@ class SessionPanel:
 
         A panel built from the whole session (`complete`) answers for every
         name on its date: one it lacks has no row that day, and the data's own
-        read would find none either. Before BN-347 such a name went back to the
-        data, and on a session the data does not trade at all, every holding
-        did, which was most of a backtest on another market's calendar.
+        read would find none either.
 
         Args:
             identifier: The instrument.
             date: The date as a ``%Y-%m-%d`` string, compared with `stamp`.
         """
+        # BN-347: before it, a name a complete panel lacked went back to the
+        # data, and on a session the data does not trade at all every holding
+        # did, which was most of a backtest on another market's calendar.
         return date == self.stamp and (self.complete or identifier in self._identifiers)
 
     def column(self,

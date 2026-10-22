@@ -377,12 +377,19 @@ There are four ways in, and each ends in a `DataFetcher`.
 
 ### Data stores
 
-A data store is a folder holding a `manifest.json` and one gzipped CSV per
-dataset: `market.csv.gz` (always), and `reference.csv.gz`,
-`corporate_actions.csv.gz` and `features.csv.gz` when the data has them. FX
+A data store is a folder holding a `manifest.json` and one Parquet file per
+dataset: `market.parquet` (always), and `reference.parquet`,
+`corporate_actions.parquet` and `features.parquet` when the data has them. FX
 pairs are rows in the market file. The manifest records the format version and
 where the rows came from (`synthetic`, `yfinance`, `imported`, `local`, or any
-name you pass). The files open in any text editor after `gunzip`.
+name you pass). Any Parquet reader opens the files, for example
+`pandas.read_parquet`.
+
+Stores saved before py-beacon 0.9.6 are gzipped CSV. The first load converts
+one to Parquet in place and removes the CSV files, after the Parquet files
+are written. The data reads the same either way. A store in a folder that
+cannot be written to stays as CSV, and loads from it each time with a
+warning.
 
 `beacon.data.store.save(fetcher, path, source="local")` writes one, and
 `beacon.data.store.load(path, ...)` reads it back, with the three settings as
@@ -397,7 +404,7 @@ from beacon.data import store
 
 store.save(fetcher, Path("my-store"))
 print(sorted(file.name for file in Path("my-store").iterdir()))
-# ['features.csv.gz', 'manifest.json', 'market.csv.gz', 'reference.csv.gz']
+# ['features.parquet', 'manifest.json', 'market.parquet', 'reference.parquet']
 
 loaded = store.load(Path("my-store"), fx_policy="EXACT_DAY")
 print(loaded.source, loaded.fx_policy)   # local EXACT_DAY

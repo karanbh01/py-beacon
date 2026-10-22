@@ -32,8 +32,8 @@ generate synthetic data, register a folder or database, or import files. See
 
 ## Why the client talks HTTP
 
-The client never opens the data files. It does not know the store is gzipped
-CSV, so the format can change without any change to the client.
+The client never opens the data files. It does not know the store is Parquet,
+so the format can change without any change to the client.
 
 The data is not the product; the calculations are. A client reading the store
 directly would have to reimplement the index maths, and then two
@@ -179,7 +179,7 @@ start serves the same one.
 
 | To | Call | Answer |
 | --- | --- | --- |
-| Register a data folder or a Postgres database | `POST /data/stores` | 201 with the store. The folder must be an absolute path holding `manifest.json` and `market.csv.gz`; a database is read in full before it is registered. |
+| Register a data folder or a Postgres database | `POST /data/stores` | 201 with the store. The folder must be an absolute path holding `manifest.json` and `market.parquet` (or `market.csv.gz`, for a store saved before 0.9.6); a database is read in full before it is registered. |
 | Serve a registered store | `POST /data/stores/{id}/activate` | 202 with a `load:{id}` job. |
 | Generate synthetic data into a new store | `POST /data/synthetic` | 202 with a `generate:{id}` job. The store is served when it is ready, unless `activate` is false. |
 | Import CSV files or an Excel workbook into a new store | `POST /data/import` | 201 with the new store, plus a `load:{id}` job when it is being served. `GET /data/import/template` gives the layout. |

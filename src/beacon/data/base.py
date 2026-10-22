@@ -5,6 +5,7 @@ Base data containers for market and reference data.
 import logging
 import os
 from collections.abc import Collection
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -49,6 +50,40 @@ def as_of_position(index: pd.Index,
     position = int(index.searchsorted(pd.Timestamp(date), side="right"))
 
     return None if position == 0 else position - 1
+
+
+def count_through(values: np.ndarray,
+                  key: Any) -> int:
+    """How many of ascending *values* are at or before *key*.
+
+    The end of a slice that stops at *key*, for a window read from arrays,
+    where :func:`as_of_position` would build an index on every call. A count
+    is not a position: 0 means nothing is at or before *key*, and the caller
+    reads ``values[:count]``, never ``values[count - 1]`` unguarded.
+    """
+    # Here, beside `as_of_position`, because this file is the only place a
+    # search for "at or before" may be written (BN-208).
+    return int(np.searchsorted(values, key, side="right"))
+
+
+def _level_unique(index: pd.Index,
+                  name: str) -> list[str]:
+    """The distinct values of one index level, as text, in the order they
+    first appear: what ``get_level_values(name).unique()`` gives.
+
+    From the level's integer codes where the index is a MultiIndex, so the
+    distinct values of eleven million rows are found among integers rather
+    than strings: 1 s to a few hundredths over a 6,000-name store.
+    """
+    # BN-354, once the store's read stopped being most of a load.
+    if not isinstance(index, pd.MultiIndex):
+        return [str(value) for value in index.unique()]
+
+    position = index.names.index(name)
+    level = index.levels[position]
+
+    return [str(level[code]) if code >= 0 else str(np.nan)
+            for code in pd.unique(index.codes[position])]
 
 
 logger = logging.getLogger(__name__)
@@ -172,8 +207,7 @@ class MarketData:
         if cached is not None and cached[0] is self._df:
             return cached[1]
 
-        values = [str(value) for value
-                  in self._df.index.get_level_values("IDENTIFIER").unique()]
+        values = _level_unique(self._df.index, "IDENTIFIER")
         self._identifier_cache = (self._df, values)
 
         return values
@@ -310,7 +344,8 @@ class MarketData:
                                                         dict[str, "np.ndarray"]] | None:
         """The frame's identifiers, one session's row positions, and the
         column arrays, with nothing gathered or built; None for a date with
-        no rows. What a lazy session panel holds (BN-348, BN-351)."""
+        no rows. What a lazy session panel holds."""
+        # BN-348, BN-351.
         order, bounds, identifiers, arrays = self._date_index()
         span = bounds.get(pd.Timestamp(date))
 
@@ -324,11 +359,12 @@ class MarketData:
     def codes_for(self,
                   identifiers: list[str]) -> "np.ndarray":
         """Each identifier's code among this frame's rows, -1 for a name with
-        no rows (BN-351).
+        no rows.
 
         The last answer is kept for the same list object, so a caller asking
         about the same names day after day looks them up once.
         """
+        # BN-351.
         cached = getattr(self, "_codes_for_cache", None)
 
         if cached is not None and cached[0] is identifiers and cached[1] is self._df:
@@ -347,10 +383,11 @@ class MarketData:
         """*column* on *date* for the names with *codes*, NaN where a name has
         no row; None when the column is missing or not a float column.
 
-        The values the session panel gives, as one array (BN-351): where a
-        name has several rows on the day the first is taken, as the panel's
-        reversed fill takes it.
+        The values the session panel gives, as one array: where a name has
+        several rows on the day the first is taken, as the panel's reversed
+        fill takes it.
         """
+        # BN-351.
         order, bounds, _, arrays = self._date_index()
         array = arrays.get(column)
 

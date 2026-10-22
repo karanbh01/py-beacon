@@ -4,7 +4,6 @@
 The base store turns its universe over quickly (40% listing and delisting
 hazards) so a one-year extension has names joining and leaving to check.
 """
-import gzip
 import json
 import shutil
 from pathlib import Path
@@ -53,9 +52,18 @@ def raw(path: Path,
 
 def table(path: Path,
           name: str) -> pd.DataFrame:
-    """A stored file as text, exactly as written."""
-    with gzip.open(path / name, "rt", encoding="utf-8") as handle:
-        return pd.read_csv(handle, dtype=str, keep_default_na=False)
+    """A stored file with every value as text, as the CSV store gave it
+    before BN-354: dates as YYYY-MM-DD, blanks empty."""
+    frame = store._read_frame(path / name)
+    text = pd.DataFrame(index=frame.index)
+
+    for column in frame.columns:
+        values = frame[column]
+        shown = (values.dt.strftime("%Y-%m-%d") if values.dtype.kind == "M"
+                 else values.astype(str))
+        text[column] = shown.where(values.notna(), "")
+
+    return text
 
 
 def market(path: Path) -> pd.DataFrame:
@@ -70,15 +78,15 @@ def market(path: Path) -> pd.DataFrame:
 class TestHistoryIsKept:
 
     @pytest.mark.parametrize("name", [store.MARKET_FILE, store.FEATURES_FILE])
-    def test_the_stored_bytes_are_untouched(self,
-                                            base,
-                                            extended,
-                                            name):
-        """New rows are appended, so the file begins with exactly the bytes
-        it held before."""
-        before = raw(base, name)
+    def test_the_stored_rows_are_untouched(self,
+                                           base,
+                                           extended,
+                                           name):
+        """New rows go after the old, so the file begins with exactly the
+        rows it held before."""
+        before = table(base, name)
 
-        assert raw(extended, name)[:len(before)] == before
+        pd.testing.assert_frame_equal(table(extended, name).iloc[:len(before)], before)
 
     def test_every_market_row_up_to_the_join_is_unchanged(self,
                                                           base,
@@ -336,13 +344,13 @@ class TestUsingIt:
                               extended,
                               tmp_path):
         path = copy(extended, tmp_path)
-        before = raw(path, store.MARKET_FILE)
+        before = table(path, store.MARKET_FILE)
 
         added = extend(path, "2025-09-30")
         settings, _ = state_module.load(path)
 
         assert added.first == "2025-07-01"
-        assert raw(path, store.MARKET_FILE)[:len(before)] == before
+        pd.testing.assert_frame_equal(table(path, store.MARKET_FILE).iloc[:len(before)], before)
         assert len(settings.extensions) == 2
 
     def test_a_store_without_generator_state_is_refused(self,
@@ -371,3 +379,31 @@ class TestUsingIt:
         assert main(["--extend", str(path), "--end", "2024-07-31"]) == 0
         assert "Extended" in capsys.readouterr().out
         assert main(["--extend", str(tmp_path / "nothing")]) == 2
+
+
+class TestAStoreSavedAsCsv:
+    """BN-354: a generated store saved before Parquet is converted, then
+    extended."""
+
+    def test_is_extended(self,
+                         base,
+                         tmp_path):
+        path = copy(base, tmp_path)
+        manifest = json.loads((path / store.MANIFEST_NAME).read_text(encoding="utf-8"))
+
+        for dataset, name in store.FILE_FOR_DATASET.items():
+            if (path / name).is_file():
+                store._read_frame(path / name).to_csv(
+                    path / store.LEGACY_FILE_FOR_DATASET[dataset], index=False,
+                    lineterminator="\n", compression={"method": "gzip", "mtime": 0})
+                (path / name).unlink()
+
+        (path / store.MANIFEST_NAME).write_text(json.dumps({**manifest, "schema_version": 1}),
+                                                encoding="utf-8")
+
+        added = extend(path, "2024-09-30")
+
+        assert added.first == "2024-06-03"
+        assert store.read_manifest(path).schema_version == store.STORE_SCHEMA_VERSION
+        assert store.load(path).market.data.index.get_level_values("DATE").max() == \
+            pd.Timestamp("2024-09-30")

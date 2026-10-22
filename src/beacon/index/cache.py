@@ -52,9 +52,9 @@ logger = logging.getLogger(__name__)
 CACHE_DIRECTORY = "index_cache"
 
 MANIFEST_NAME = "manifest.json"
-LEVELS_FILE = "levels.csv.gz"
-DIVISOR_FILE = "divisor.csv.gz"
-DAILY_WEIGHTS_FILE = "daily_weights.csv.gz"
+LEVELS_FILE = "levels.parquet"
+DIVISOR_FILE = "divisor.parquet"
+DAILY_WEIGHTS_FILE = "daily_weights.parquet"
 SNAPSHOTS_FILE = "snapshots.json"
 
 # The panels an entry holds, for the manifest's size table and for pruning.
@@ -363,7 +363,7 @@ def _read_json(path: Path) -> Any:
 def _write_series(series: pd.Series,
                   column: str,
                   path: Path) -> None:
-    """A date-indexed series as a two-column reproducible gzipped CSV."""
+    """A date-indexed series as a two-column reproducible Parquet file."""
     frame = pd.DataFrame({_DATE_COLUMN: series.index,
                           column: series.to_numpy(dtype="float64")})
 

@@ -18,6 +18,8 @@ from pathlib import Path
 
 import httpx
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from fastapi.testclient import TestClient
 
@@ -130,8 +132,7 @@ class TestRoundTrip:
         """CorporateActions keeps its key columns alongside the index, so a
         naive reset_index writes IDENTIFIER and EX_DATE twice and the reload
         reads a duplicate-column frame."""
-        with gzip.open(saved / store.ACTIONS_FILE, "rt", encoding="utf-8") as handle:
-            header = handle.readline().strip().split(",")
+        header = pq.read_schema(saved / store.ACTIONS_FILE).names
 
         assert sorted(header) == ["EX_DATE", "IDENTIFIER", "TYPE", "VALUE"]
 
@@ -149,19 +150,76 @@ class TestReproducibility:
                      store.REFERENCE_FILE, store.ACTIONS_FILE):
             assert (first / name).read_bytes() == (second / name).read_bytes(), name
 
-    def test_rows_end_in_a_bare_newline(self, saved):
-        """The platform default would put CRLF here on Windows, and the same
-        generator would produce a different store on every operating system."""
-        raw = gzip.decompress((saved / store.MARKET_FILE).read_bytes())
+    def test_a_save_a_moment_later_is_the_same_bytes(self, tmp_path):
+        """BN-354: Parquet as written carries no timestamp, so a save made
+        later, under another name, is the same file."""
+        fetcher = build_fetcher()
+        first = store.save(fetcher, tmp_path / "one")
+        time.sleep(1.1)
+        second = store.save(fetcher, tmp_path / "two")
 
-        assert b"\r\n" not in raw
+        assert (first / store.MARKET_FILE).read_bytes() == (second / store.MARKET_FILE).read_bytes()
 
-    def test_the_gzip_header_carries_no_timestamp(self, saved):
-        """Bytes 4-8 of a gzip member are its mtime. Left alone, two writes a
-        second apart differ while the content does not."""
-        header = (saved / store.MARKET_FILE).read_bytes()[:8]
 
-        assert header[4:8] == b"\x00\x00\x00\x00"
+def save_as_version_one(fetcher: DataFetcher,
+                        path: Path) -> Path:
+    """*fetcher* written as a py-beacon 0.9 store: gzipped CSV, version 1."""
+    path.mkdir(parents=True)
+    datasets = {"market": fetcher.market.data, "reference": fetcher.reference.data,
+                "corporate_actions": fetcher.corporate_actions.data}
+
+    for name, frame in datasets.items():
+        with gzip.open(path / store.LEGACY_FILE_FOR_DATASET[name], "wt",
+                       encoding="utf-8", newline="") as handle:
+            store.flatten_index(frame).to_csv(handle, index=False, lineterminator="\n")
+
+    (path / store.MANIFEST_NAME).write_text(json.dumps(
+        {"datasets": list(datasets), "schema_version": 1, "source": "synthetic"}),
+        encoding="utf-8")
+
+    return path
+
+
+class TestAVersionOneStore:
+    """BN-354: a store saved as gzipped CSV is converted to Parquet the first
+    time it loads, and reads the same."""
+
+    def test_loads_what_it_holds(self, tmp_path):
+        fetcher = build_fetcher()
+        loaded = store.load(save_as_version_one(fetcher, tmp_path / "old"))
+
+        # Not the dtypes: CSV gives a blank date column a resolution of its
+        # own, as it always has.
+        pd.testing.assert_frame_equal(loaded.market.data, fetcher.market.data)
+        pd.testing.assert_frame_equal(loaded.reference.data, fetcher.reference.data,
+                                      check_dtype=False)
+        pd.testing.assert_frame_equal(loaded.corporate_actions.data,
+                                      fetcher.corporate_actions.data)
+
+    def test_is_parquet_afterwards(self, tmp_path):
+        path = save_as_version_one(build_fetcher(), tmp_path / "old")
+        first = store.load(path)
+
+        assert store.read_manifest(path).schema_version == store.STORE_SCHEMA_VERSION
+        assert sorted(entry.name for entry in path.iterdir()) == sorted(
+            [store.MANIFEST_NAME, store.MARKET_FILE, store.REFERENCE_FILE, store.ACTIONS_FILE])
+        pd.testing.assert_frame_equal(store.load(path).market.data, first.market.data)
+
+    def test_one_that_cannot_be_written_still_loads(self, tmp_path, monkeypatch, caplog):
+        path = save_as_version_one(build_fetcher(), tmp_path / "old")
+
+        def refuse(*args, **kwargs):
+            raise PermissionError("read-only")
+
+        monkeypatch.setattr(store, "_write_frame", refuse)
+
+        with caplog.at_level(logging.WARNING):
+            loaded = store.load(path)
+
+        assert loaded.market.identifiers == ASSETS
+        assert "read from its CSV files" in caplog.text
+        assert store.read_manifest(path).schema_version == 1
+        assert (path / store.LEGACY_FILE_FOR_DATASET["market"]).is_file()
 
 
 class TestManifest:
@@ -317,7 +375,7 @@ class TestADamagedFileIsRefusedByName:
 
     @pytest.mark.parametrize("damage", [
         pytest.param(lambda data: data[: len(data) // 2], id="truncated"),
-        pytest.param(lambda data: b"not gzip at all", id="not-gzip"),
+        pytest.param(lambda data: b"not parquet at all", id="not-parquet"),
     ])
     def test_an_unreadable_file_names_itself(self,
                                              saved,
@@ -330,8 +388,7 @@ class TestADamagedFileIsRefusedByName:
 
     def test_rows_missing_a_required_column_name_the_file(self,
                                                           saved):
-        with gzip.open(saved / store.MARKET_FILE, "wt", encoding="utf-8") as handle:
-            handle.write("SOMETHING,ELSE\n1,2\n")
+        pq.write_table(pa.table({"SOMETHING": [1], "ELSE": [2]}), saved / store.MARKET_FILE)
 
         with pytest.raises(ConfigurationError, match=store.MARKET_FILE):
             store.load(saved)
@@ -339,7 +396,7 @@ class TestADamagedFileIsRefusedByName:
     def test_named_explicitly_it_exits_two_with_a_message(self,
                                                           saved,
                                                           capsys):
-        (saved / store.MARKET_FILE).write_bytes(b"not gzip at all")
+        (saved / store.MARKET_FILE).write_bytes(b"not parquet at all")
 
         code = main(["--token", TOKEN, "--data", str(saved)])
 
@@ -350,7 +407,7 @@ class TestADamagedFileIsRefusedByName:
                                                                   saved,
                                                                   monkeypatch,
                                                                   caplog):
-        (saved / store.MARKET_FILE).write_bytes(b"not gzip at all")
+        (saved / store.MARKET_FILE).write_bytes(b"not parquet at all")
         monkeypatch.delenv(store.DATA_PATH_ENV_VAR, raising=False)
         monkeypatch.setattr(store, "default_path", lambda: saved)
 
@@ -505,3 +562,30 @@ class TestServedTruthfully:
         body = response.json()
         assert body["identifier"] == "AAA"
         assert len(body["prices"]["index"]) == len(DATES)
+
+
+class TestTheTypesAStoreGivesBack:
+    """BN-354: a Parquet store gives back the types the CSV store did, and
+    the numbers exactly."""
+
+    def test_as_the_csv_store_read_them(self, tmp_path):
+        import io
+
+        import numpy as np
+
+        frame = pd.DataFrame({"IDENTIFIER": ["AAA", "BBB"],
+                              "DATE_FROM": pd.to_datetime(["2020-01-01", "2020-01-01"]),
+                              "IPO_DATE": pd.to_datetime(["2010-05-04", "2011-06-07"]),
+                              "NAME": ["A", ""], "ADR": [True, None],
+                              "EMPLOYEES": np.array([10.5, 20.25], dtype="float32"),
+                              "PRICE": [0.1 + 0.2, 1 / 3]})
+        written = tmp_path / "reference.parquet"
+        store._write_frame(store.as_stored(frame, "reference"), written)
+        back = store._read_frame(written)
+        csv = pd.read_csv(io.StringIO(frame.to_csv(index=False)))
+
+        assert dict(back.dtypes) == dict(csv.dtypes)
+        pd.testing.assert_frame_equal(back.drop(columns=["EMPLOYEES", "PRICE"]),
+                                      csv.drop(columns=["EMPLOYEES", "PRICE"]))
+        assert back["EMPLOYEES"].tolist() == [10.5, 20.25]
+        assert back["PRICE"].tolist() == [0.1 + 0.2, 1 / 3]

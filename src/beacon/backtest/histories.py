@@ -24,7 +24,7 @@ from functools import cached_property
 import numpy as np
 import pandas as pd
 
-from ..data.base import MarketData
+from ..data.base import MarketData, count_through
 from ..data.fetcher import DataFetcher
 from ..data.prices import PRICE_COLUMN, currencies_of
 from ..exceptions import CalculationError
@@ -138,13 +138,13 @@ class History:
         dates, close_dates, traded, counted, sums, squares, _ = self._impact_totals
         first, last = start.value, end.value
         lo = int(np.searchsorted(dates, first, side="left"))
-        hi = int(np.searchsorted(dates, last, side="right"))
+        hi = count_through(dates, last)
         lo = max(lo, hi - days)
         count = counted[hi] - counted[lo] if hi > lo else 0.0
         average = (traded[hi] - traded[lo]) / count if count > 0 else None
 
         c_lo = int(np.searchsorted(close_dates, first, side="left"))
-        c_hi = int(np.searchsorted(close_dates, last, side="right"))
+        c_hi = count_through(close_dates, last)
         # The window's returns are those between its closes, the last *days*.
         r_lo, r_hi = max(c_lo, c_hi - 1 - days), c_hi - 1
         number = max(r_hi - r_lo, 0)
@@ -161,7 +161,8 @@ class History:
                  start: pd.Timestamp,
                  end: pd.Timestamp) -> tuple[pd.Timestamp, float] | None:
         """Its last close from *start* to *end*, both included, and its date;
-        None when it printed none (BN-348)."""
+        None when it printed none."""
+        # BN-348.
         dates, closes = self._close_arrays
         lo, hi = _bounds(dates, start, end)
 
@@ -169,9 +170,10 @@ class History:
 
     def last_close(self,
                    date: pd.Timestamp) -> float | None:
-        """Its last close on or before *date*, or None (BN-346)."""
+        """Its last close on or before *date*, or None."""
+        # BN-346.
         dates, closes = self._close_arrays
-        at = int(np.searchsorted(dates, np.datetime64(date, "ns"), side="right"))
+        at = count_through(dates, np.datetime64(date, "ns"))
 
         return float(closes[at - 1]) if at else None
 
@@ -198,7 +200,7 @@ def _bounds(dates: np.ndarray,
             end: pd.Timestamp) -> tuple[int, int]:
     """The slice of sorted *dates* from *start* to *end*, both included."""
     return (int(np.searchsorted(dates, np.datetime64(start, "ns"), side="left")),
-            int(np.searchsorted(dates, np.datetime64(end, "ns"), side="right")))
+            count_through(dates, np.datetime64(end, "ns")))
 
 
 # By market data, so a refresh that replaces it starts afresh, and the

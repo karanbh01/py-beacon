@@ -1,13 +1,12 @@
 # tests/test_data_store_save.py
-"""BN-332: a store is written a chunk at a time, compressed as it goes, and
-says how far it has got.
+"""BN-332: a store is written a chunk at a time, and says how far it has got.
 
-The chunked write must read back exactly as one `to_csv` call would, stay
-byte-for-byte reproducible, and report progress that only rises and ends at 1.
+The chunked write must read back as the frame it was, stay byte-for-byte
+reproducible, and report progress that only rises and ends at 1. Since
+BN-354 a chunk is a Parquet row group.
 """
-import gzip
-
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 from beacon.data import store
@@ -29,43 +28,35 @@ def frame() -> pd.DataFrame:
 
 class TestTheChunkedWrite:
 
-    def test_reads_back_as_one_call_would_write_it(self,
-                                                   tmp_path,
-                                                   small_chunks):
-        written = tmp_path / "chunked.csv.gz"
+    def test_reads_back_as_the_frame_it_was(self,
+                                            tmp_path,
+                                            small_chunks):
+        written = tmp_path / "chunked.parquet"
         store._write_frame(frame(), written)
 
-        assert gzip.decompress(written.read_bytes()).decode("utf-8") == \
-            frame().to_csv(index=False, lineterminator="\n")
+        pd.testing.assert_frame_equal(store._read_frame(written), frame())
+        assert pq.ParquetFile(written).num_row_groups == 4
 
-    def test_an_empty_frame_still_writes_its_header(self,
-                                                    tmp_path):
-        written = tmp_path / "empty.csv.gz"
+    def test_an_empty_frame_still_writes_its_columns(self,
+                                                     tmp_path):
+        written = tmp_path / "empty.parquet"
         store._write_frame(frame().iloc[:0], written)
 
-        assert gzip.decompress(written.read_bytes()) == b"IDENTIFIER,CLOSE,VOLUME\n"
+        assert list(store._read_frame(written).columns) == ["IDENTIFIER", "CLOSE", "VOLUME"]
 
     def test_is_byte_for_byte_reproducible(self,
                                            tmp_path,
                                            small_chunks):
-        store._write_frame(frame(), tmp_path / "one.csv.gz")
-        store._write_frame(frame(), tmp_path / "two.csv.gz")
+        store._write_frame(frame(), tmp_path / "one.parquet")
+        store._write_frame(frame(), tmp_path / "two.parquet")
 
-        assert (tmp_path / "one.csv.gz").read_bytes() == (tmp_path / "two.csv.gz").read_bytes()
-
-    def test_the_header_names_no_file(self,
-                                      tmp_path):
-        """Flag bit 3 of a gzip header marks a file name; a staged write and an
-        in-place one must be the same bytes."""
-        store._write_frame(frame(), tmp_path / "staged.csv.gz")
-
-        assert (tmp_path / "staged.csv.gz").read_bytes()[3] & 0x08 == 0
+        assert (tmp_path / "one.parquet").read_bytes() == (tmp_path / "two.parquet").read_bytes()
 
     def test_reports_each_chunk(self,
                                 tmp_path,
                                 small_chunks):
         seen: list[float] = []
-        store._write_frame(frame(), tmp_path / "x.csv.gz", seen.append)
+        store._write_frame(frame(), tmp_path / "x.parquet", seen.append)
 
         assert seen == [0.3, 0.6, 0.9, 1.0]
 

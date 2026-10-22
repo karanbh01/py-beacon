@@ -2,31 +2,26 @@
 """
 A persisted market-data store on disk.
 
-A store is a directory holding a `manifest.json` and one gzipped CSV per
-dataset: `market.csv.gz` (required), and `reference.csv.gz`,
-`corporate_actions.csv.gz` and `features.csv.gz` when the data has them.
+A store is a directory holding a `manifest.json` and one Parquet file per
+dataset: `market.parquet` (required), and `reference.parquet`,
+`corporate_actions.parquet` and `features.parquet` when the data has them.
 :func:`save` writes one from a `DataFetcher` and :func:`load` reads one back.
 A server started with `python -m beacon.server` loads the store at
 :func:`default_path` (or the path it is given), which is what
 `python -m beacon.synthetic` writes.
 
-CSV rather than a columnar format, so the store opens in any text editor
-after a `gunzip` and needs nothing beyond pandas. If load time ever becomes
-the complaint, `schema_version` is how the format changes without stranding
-anyone's store: a store written by a newer version is refused rather than
-misread.
+Parquet keeps each column's type, so a store reads back without parsing a
+date or a number, and packs smaller than gzipped CSV. A store saved by an
+earlier version, as gzipped CSV (schema version 1), is converted the first
+time it is loaded. `schema_version` is how the format changes without
+stranding anyone's store: a store written by a newer version is refused
+rather than misread.
 
 ## Byte-for-byte reproducibility
 
-Two runs of the same generator produce the same store. Three things would
-otherwise break that, and each is pinned:
-
-* **Line endings.** `to_csv` follows the platform by default, so the same
-  frame written on Windows and Linux differs in every row. Pinned to ``\\n``.
-* **The gzip header carries an mtime.** Two writes a second apart produce
-  different bytes for identical content. Pinned to 0, and the header names no
-  file, so a file written under a staging name matches one written in place.
-* **Manifest key order.** Written sorted.
+Two runs of the same generator produce the same store. Parquet as written
+here carries no timestamps, the rows go into row groups of a fixed size, and
+the manifest's keys are written sorted.
 
 Timestamps are deliberately *not* recorded in the manifest. The store's age is
 the file's mtime, and `DataFetcher` stamps its own refresh time when it loads.
@@ -39,24 +34,24 @@ question that already has two, and would make every store byte-unique.
 # data-less: every data endpoint answered `CONFIGURATION_ERROR`, and sync
 # could not bootstrap because there was nothing to sync *into*.
 #
-# Why CSV and gzip: a columnar format would load faster and pack smaller. It
-# would also put a binary dependency (pyarrow, ~40MB) in front of the one
-# thing that has to work before anything else does. The store is read once at
-# startup, and 645k rows (512 names over five years) take about a second and a
-# half through `read_csv`, which is not the difference between a usable
-# desktop application and an unusable one.
+# Why Parquet (BN-354): the store began as gzipped CSV, to need nothing
+# beyond pandas, when 645k rows (512 names over five years) read in a second
+# and a half. At 6,000 names over ten years, 11.4 million rows, reading and
+# parsing the CSV took 15 s of a 17.7 s load; as Parquet the same rows read
+# and build in 1.4 s, from 235 MB rather than 300.
 #
 # Reproducibility is what makes BN-114's determinism guarantee testable.
 import gzip
+import io
 import json
 import logging
 import zlib
 from collections.abc import Callable
-from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
+import numpy as np
 import pandas as pd
 
 from ..exceptions import ConfigurationError, StoreFormatError
@@ -73,13 +68,14 @@ logger = logging.getLogger(__name__)
 
 # Bump when the on-disk shape changes. A store written by a newer Beacon is
 # refused rather than misread; an older one is upgraded on load.
-STORE_SCHEMA_VERSION = 1
+# Version 2 is Parquet (BN-354); version 1 was gzipped CSV.
+STORE_SCHEMA_VERSION = 2
 
 MANIFEST_NAME = "manifest.json"
-MARKET_FILE = "market.csv.gz"
-REFERENCE_FILE = "reference.csv.gz"
-ACTIONS_FILE = "corporate_actions.csv.gz"
-FEATURES_FILE = "features.csv.gz"
+MARKET_FILE = "market.parquet"
+REFERENCE_FILE = "reference.parquet"
+ACTIONS_FILE = "corporate_actions.parquet"
+FEATURES_FILE = "features.parquet"
 
 # Dataset name -> the file holding it. The names match
 # `DataFetcher.DATASETS`, so coverage can measure a dataset without
@@ -89,6 +85,14 @@ FILE_FOR_DATASET = {
     "reference": REFERENCE_FILE,
     "corporate_actions": ACTIONS_FILE,
     "features": FEATURES_FILE,
+}
+
+# Each dataset's file in a version 1 store, read to convert it.
+LEGACY_FILE_FOR_DATASET = {
+    "market": "market.csv.gz",
+    "reference": "reference.csv.gz",
+    "corporate_actions": "corporate_actions.csv.gz",
+    "features": "features.csv.gz",
 }
 
 # Matches DocumentStore's app name, so a machine has one Beacon directory
@@ -107,21 +111,15 @@ SOURCE_LOCAL = "local"
 SOURCE_YFINANCE = "yfinance"
 SOURCE_IMPORTED = "imported"
 
-# Passed to every to_csv call. Without the line terminator the same frame
-# written on two platforms differs in every row.
-_CSV_OPTIONS = {"index": False, "lineterminator": "\n"}
+# zstd at level 3, with float columns split into byte streams, which is
+# what lets random-walk prices compress at all: on the 11.4 million rows of a
+# 6,000-name store, 235 MB written in 4.7 s, against 266 MB without the split
+# and 228 MB at level 9 in 15 s.
+ZSTD_LEVEL = 3
 
-# BN-332: level 6 rather than gzip's default of 9. On 1.16M market rows level
-# 9 took 14.1 s for a 29.4 MB file and level 6 8.2 s for 30.0 MB; written as
-# below, level 6 costs no time at all, where level 9 would still cost some.
-GZIP_LEVEL = 6
-
-# Rows formatted at a time. Formatting holds the GIL and compression releases
-# it, so each chunk is compressed on a second thread while the next is
-# formatted, and the compression is hidden behind the formatting: 9.8 s for
-# those 1.16M rows, against 24 s for one `to_csv` call at level 9. A chunk is
-# also how far a save's progress moves at a time.
-CHUNK_ROWS = 100_000
+# Rows to a row group. Fixed, so the same rows always make the same file, and
+# how far a save's progress moves at a time.
+CHUNK_ROWS = 1_000_000
 
 # Called with the share of a save done, from 0 to 1, and what is being saved.
 SaveProgress = Callable[[float, str], None]
@@ -201,12 +199,11 @@ def dataset_size_on_disk(path: Path,
         than have the absence quietly contribute a zero it never checked.
     """
     # Deliberate, and `test_an_unmeasurable_path_is_none` pins it.
-    name = FILE_FOR_DATASET.get(dataset)
-    if name is None:
+    if dataset not in FILE_FOR_DATASET:
         return None
 
-    target = path / name
-    if not target.is_file():
+    target = _dataset_file(path, dataset)
+    if target is None:
         return None
 
     try:
@@ -217,6 +214,17 @@ def dataset_size_on_disk(path: Path,
         return None
 
 
+def _dataset_file(path: Path,
+                  dataset: str) -> Path | None:
+    """The file holding *dataset*: its Parquet file, else a version 1 store's
+    CSV, else None."""
+    for name in (FILE_FOR_DATASET[dataset], LEGACY_FILE_FOR_DATASET[dataset]):
+        if (path / name).is_file():
+            return path / name
+
+    return None
+
+
 def exists(path: Path) -> bool:
     """Whether a readable store lives at this path.
 
@@ -225,7 +233,7 @@ def exists(path: Path) -> bool:
     prices is not a data source, and reporting it as one would move the failure
     from startup to the first request.
     """
-    return (path / MANIFEST_NAME).is_file() and (path / MARKET_FILE).is_file()
+    return (path / MANIFEST_NAME).is_file() and _dataset_file(path, "market") is not None
 
 
 def read_manifest(path: Path) -> StoreManifest:
@@ -276,39 +284,70 @@ def flatten_index(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.reset_index(drop=duplicated)
 
 
+def as_stored(frame: pd.DataFrame,
+              dataset: str) -> pd.DataFrame:
+    """*frame* with the types a store has always given back for it.
+
+    A store was gzipped CSV before py-beacon 0.9.6, and a load gave back what
+    reading that text gave: numbers as float64 or int64, a date column no container
+    parses as text, a blank string as blank. Parquet keeps whatever it is
+    given, so without this a store saved now would load other types from the
+    same data, and the API would show them.
+    """
+    stored = frame.reset_index(drop=True)
+
+    # Numbers exactly, as float64 or int64. The CSV store parsed them back
+    # from text, and about one float64 in six came back a bit away from
+    # itself; that rounding is not kept.
+    for column in stored.columns:
+        kind = stored[column].dtype.kind
+
+        if kind == "f" and stored[column].dtype != "float64":
+            stored[column] = stored[column].astype("float64")
+        elif kind in "iu" and stored[column].dtype != "int64":
+            stored[column] = stored[column].astype("int64")
+
+    # Text and dates as the CSV store read them: a date no container parses
+    # stays text, a blank stays blank. The market's identifiers and dates are
+    # parsed by MarketData either way.
+    texts = [column for column in stored.columns
+             if stored[column].dtype.kind not in "fiub"
+             and not (dataset == "market" and column in ("IDENTIFIER", "DATE"))]
+
+    if texts and not stored.empty:
+        text = stored[texts].to_csv(index=False, lineterminator="\n")
+        stored[texts] = pd.read_csv(io.StringIO(text))
+
+    return stored
+
+
 def _write_frame(frame: pd.DataFrame,
                  path: Path,
                  progress: Callable[[float], None] | None = None) -> None:
-    """Write one gzipped CSV reproducibly.
+    """Write one Parquet file reproducibly.
 
     Args:
         frame: What to write, its index left out.
         path: The file to write.
-        progress: Called after each chunk with the share of the rows written.
+        progress: Called after each row group with the share of the rows
+            written.
     """
-    rows = len(frame)
+    import pyarrow as pa  # noqa: PLC0415
+    import pyarrow.parquet as pq  # noqa: PLC0415
 
-    with (path.open("wb") as handle,
-          gzip.GzipFile(filename="", mode="wb", fileobj=handle,
-                        compresslevel=GZIP_LEVEL, mtime=0) as packed,
-          ThreadPoolExecutor(max_workers=1) as compressor):
-        pending: Future[int] | None = None
+    table = pa.Table.from_pandas(frame, preserve_index=False)
+    floats = [field.name for field in table.schema if pa.types.is_floating(field.type)]
+    rows = table.num_rows
 
-        # One pass even for an empty frame, which still writes its header.
+    with pq.ParquetWriter(path, table.schema, compression="zstd",
+                          compression_level=ZSTD_LEVEL,
+                          use_byte_stream_split=floats or False) as writer:
+        # One pass even for an empty frame, which still writes its schema.
         for start in range(0, max(rows, 1), CHUNK_ROWS):
-            text = frame.iloc[start:start + CHUNK_ROWS].to_csv(header=start == 0,
-                                                               **_CSV_OPTIONS)
-
-            if pending is not None:
-                pending.result()
-
-            pending = compressor.submit(packed.write, text.encode("utf-8"))
+            writer.write_table(table.slice(start, CHUNK_ROWS), row_group_size=CHUNK_ROWS)
 
             if progress is not None:
                 progress(min(start + CHUNK_ROWS, rows) / rows if rows else 1.0)
-
-        if pending is not None:
-            pending.result()
 
 
 def outdated(path: Path) -> str | None:
@@ -318,9 +357,11 @@ def outdated(path: Path) -> str | None:
     A store saved before py-beacon 0.7.0 keeps exchange rates in a ``RATE``
     column, which is refused since they moved to ``CLOSE``.
     """
-    # BN-309, after BN-308 retired the RATE column.
+    # BN-309, after BN-308 retired the RATE column. Only a version 1 store
+    # can carry one: the column was gone before stores were Parquet.
     try:
-        with gzip.open(path / MARKET_FILE, "rt", encoding="utf-8", newline="") as handle:
+        with gzip.open(path / LEGACY_FILE_FOR_DATASET["market"], "rt", encoding="utf-8",
+                       newline="") as handle:
             header = handle.readline()
     except (OSError, EOFError, zlib.error, UnicodeDecodeError):
         return None
@@ -334,15 +375,39 @@ def outdated(path: Path) -> str | None:
             "column, which is no longer read. Regenerate or re-import it.")
 
 
-def _read_frame(path: Path) -> pd.DataFrame:
-    """Read one gzipped CSV back.
+def _read_frame(path: Path,
+                columns: list[str] | None = None) -> pd.DataFrame:
+    """Read one Parquet file back, all its columns or *columns*.
+
+    Raises:
+        ConfigurationError: If the file cannot be read, naming it (BN-233),
+            so a damaged store is refused cleanly rather than stopping the
+            server with a traceback.
+    """
+    import pyarrow as pa  # noqa: PLC0415
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    try:
+        frame = pq.read_table(path, columns=columns).to_pandas()
+    except (OSError, pa.ArrowException) as error:
+        raise ConfigurationError(
+            "data_store",
+            f"{path.name} in {path.parent} cannot be read: {error}.") from error
+
+    # A column of flags with gaps comes back holding None in the gaps, where
+    # reading the CSV store gave NaN.
+    for column in frame.columns:
+        if frame[column].dtype == object:
+            frame[column] = frame[column].where(frame[column].notna(), np.nan)
+
+    return frame
+
+
+def _read_legacy_frame(path: Path) -> pd.DataFrame:
+    """Read one gzipped CSV of a version 1 store.
 
     Raises:
         ConfigurationError: If the file cannot be read, naming it (BN-233).
-            A truncated or non-gzip file used to escape as `EOFError` or
-            `BadGzipFile`, which neither startup branch catches, so a damaged
-            store stopped the server with a traceback instead of the clean
-            refusal or warning the startup rules promise.
     """
     try:
         with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
@@ -370,6 +435,54 @@ def _build(path: Path,
             "data_store",
             f"{path.name} in {path.parent} does not hold the rows a data "
             f"store needs: {error}.") from error
+
+
+def _read_dataset(path: Path,
+                  dataset: str,
+                  build: Callable[[pd.DataFrame], T]) -> T | None:
+    """One dataset built from its file, Parquet or a version 1 store's CSV;
+    None when the store does not hold it."""
+    target = _dataset_file(path, dataset)
+
+    if target is None:
+        return None
+
+    read = _read_frame if target.name == FILE_FOR_DATASET[dataset] else _read_legacy_frame
+
+    return _build(target, read(target), build)
+
+
+def _convert(path: Path,
+             datasets: dict[str, MarketData | ReferenceData | CorporateActions
+                            | FeatureData | None]) -> None:
+    """Rewrite a version 1 store as Parquet, from the data just read from it.
+
+    Each dataset is written as :func:`save` writes it, then the manifest says
+    version 2, and only then do the CSVs go, so a failure part-way leaves a
+    store that still reads. A store that cannot be written to (a read-only
+    folder, say) stays as it is, with a warning, and is read from its CSVs
+    each time.
+    """
+    try:
+        for dataset, data in datasets.items():
+            if data is not None:
+                _write_frame(as_stored(flatten_index(data.data), dataset),
+                             path / FILE_FOR_DATASET[dataset])
+
+        manifest_path = path / MANIFEST_NAME
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        payload["schema_version"] = STORE_SCHEMA_VERSION
+        manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n",
+                                 encoding="utf-8")
+    except OSError as error:
+        logger.warning("Could not convert the data store at %s to Parquet, so it is "
+                       "read from its CSV files: %s", path, error)
+        return
+
+    for name in LEGACY_FILE_FOR_DATASET.values():
+        (path / name).unlink(missing_ok=True)
+
+    logger.info("Converted the data store at %s to Parquet.", path)
 
 
 def save(fetcher: DataFetcher,
@@ -408,8 +521,8 @@ def save(fetcher: DataFetcher,
     total = sum(len(frame) for _, _, frame, _ in written) or 1
     done = 0
 
-    for _, label, frame, file in written:
-        _write_frame(flatten_index(frame), path / file,
+    for name, label, frame, file in written:
+        _write_frame(as_stored(flatten_index(frame), name), path / file,
                      _share(progress, done, len(frame), total, f"Saving {label}"))
         done += len(frame)
 
@@ -456,7 +569,7 @@ def save_features(features: FeatureData,
     read_manifest(path)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    _write_frame(flatten_index(features.data), path / FEATURES_FILE)
+    _write_frame(as_stored(flatten_index(features.data), "features"), path / FEATURES_FILE)
 
     datasets = list(payload.get("datasets", []))
     if "features" not in datasets:
@@ -513,24 +626,17 @@ def load(path: Path,
     if reason is not None:
         raise StoreFormatError("data_store", f"The data store at {path}: {reason}")
 
-    market = _build(path / MARKET_FILE, _read_frame(path / MARKET_FILE),
-                    MarketData.from_dataframe)
+    market = _read_dataset(path, "market", MarketData.from_dataframe)
+    reference = _read_dataset(path, "reference", ReferenceData.from_dataframe)
+    actions = _read_dataset(path, "corporate_actions", CorporateActions.from_dataframe)
+    features = _read_dataset(path, "features", FeatureData.from_dataframe)
 
-    reference = None
-    if (path / REFERENCE_FILE).is_file():
-        reference = _build(path / REFERENCE_FILE,
-                           _read_frame(path / REFERENCE_FILE),
-                           ReferenceData.from_dataframe)
+    if manifest.schema_version < STORE_SCHEMA_VERSION:
+        _convert(path, {"market": market, "reference": reference,
+                        "corporate_actions": actions, "features": features})
 
-    actions = None
-    if (path / ACTIONS_FILE).is_file():
-        actions = _build(path / ACTIONS_FILE, _read_frame(path / ACTIONS_FILE),
-                         CorporateActions.from_dataframe)
-
-    features = None
-    if (path / FEATURES_FILE).is_file():
-        features = _build(path / FEATURES_FILE, _read_frame(path / FEATURES_FILE),
-                          FeatureData.from_dataframe)
+    if market is None:
+        raise ConfigurationError("data_store", f"No market data in the data store at {path}.")
 
     logger.info("Loaded %d identifier(s) from the %s data store at %s.",
                 len(market.identifiers), manifest.source, path)

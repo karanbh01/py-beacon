@@ -183,9 +183,12 @@ class TestTheLegacyColumn:
         from beacon.data import store
         from beacon.exceptions import StoreFormatError
 
+        # Saved by 0.6: gzipped CSV, schema version 1, with a RATE column.
         path = store.save(fetcher([], {}), tmp_path / "old")
-        market = pd.read_csv(path / store.MARKET_FILE)
-        market.assign(RATE=float("nan")).to_csv(path / store.MARKET_FILE, index=False)
+        market = store._read_frame(path / store.MARKET_FILE).assign(RATE=float("nan"))
+        market.to_csv(path / store.LEGACY_FILE_FOR_DATASET["market"], index=False,
+                      compression="gzip")
+        (path / store.MARKET_FILE).unlink()
 
         assert "before py-beacon 0.7.0" in store.outdated(path)
 

@@ -241,10 +241,13 @@ class TestAStoreSavedBefore070:
 
     @staticmethod
     def outdated(path: Path) -> Path:
+        # Saved by 0.6: gzipped CSV, schema version 1, with a RATE column.
         folder = write_store(path, ["AAA"])
-        market = pd.read_csv(folder / data_store.MARKET_FILE)
-        market.assign(RATE=float("nan")).to_csv(folder / data_store.MARKET_FILE,
-                                                index=False, compression="gzip")
+        market = data_store._read_frame(folder / data_store.MARKET_FILE)
+        market.assign(RATE=float("nan")).to_csv(
+            folder / data_store.LEGACY_FILE_FOR_DATASET["market"], index=False,
+            compression="gzip")
+        (folder / data_store.MARKET_FILE).unlink()
 
         return folder
 
