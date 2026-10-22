@@ -242,3 +242,33 @@ class TestDistributing:
 def test_an_unknown_policy_is_refused():
     with pytest.raises(ValueError, match="dividend policy"):
         run(dividends="sometimes")
+
+
+class TestWhereReinvestmentGoes:
+    """BN-343: a dividend is reinvested in the name that paid it by default,
+    or across the holdings in proportion to value."""
+
+    def bought_on_the_payment_day(self,
+                                  **engine_args) -> dict[str, float]:
+        index = index_result_from_weights({DAYS[0]: {"AAA": 0.5, "BBB": 0.5}})
+        result = run(index=index, **engine_args)
+
+        return {trade.asset_id: trade.quantity * trade.price
+                for trade in result.portfolio.transactions
+                if trade.transaction_date == EX and trade.transaction_type == "BUY"}
+
+    def test_the_payer_by_default(self):
+        bought = self.bought_on_the_payment_day()
+
+        assert list(bought) == ["AAA"]
+        assert bought["AAA"] == pytest.approx(shares_at_ex() / 2 * DIVIDEND_PER_SHARE)
+
+    def test_the_holdings_when_asked(self):
+        bought = self.bought_on_the_payment_day(reinvest_into="holdings")
+
+        assert sorted(bought) == ["AAA", "BBB"]
+        assert sum(bought.values()) == pytest.approx(shares_at_ex() / 2 * DIVIDEND_PER_SHARE)
+
+    def test_an_unknown_target_is_refused(self):
+        with pytest.raises(ValueError, match="reinvestment"):
+            run(reinvest_into="everything")

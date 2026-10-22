@@ -26,7 +26,14 @@ from ..strategy.synthetic import SwapTerms
 from .accounting import AccountingMixin
 from .books import benchmark_book, index_books
 from .costs import WorkingOrder
-from .dividends import DISTRIBUTE, DIVIDEND_POLICIES, REINVEST, DividendsMixin
+from .dividends import (
+    DISTRIBUTE,
+    DIVIDEND_POLICIES,
+    PAYER,
+    REINVEST,
+    REINVESTMENT_TARGETS,
+    DividendsMixin,
+)
 from .etf import Quote, quotes_frame
 from .execution import ExecutionMixin
 from .flows import FlowRecord, Flows
@@ -112,6 +119,9 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             until the next rebalance, and ``"distribute"`` pays them out of
             the book, with returns adding them back. See
             :mod:`beacon.backtest.dividends`.
+        reinvest_into: Where reinvested dividends go: ``"payer"`` (the
+            default) buys more of the name that paid each one, and
+            ``"holdings"`` buys the current holdings in proportion to value.
         implementation: The screens and redistribution rule applied at each
             rebalance (see :class:`~beacon.backtest.Implementation`). None
             screens nothing beyond stale prices and redistributes pro rata,
@@ -181,7 +191,8 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
                  schedule: dict[pd.Timestamp, dict[str, float]] | None = None,
                  swap: SwapTerms | None = None,
                  futures: IndexFutures | None = None,
-                 share_classes: Sequence[ShareClass] | None = None):
+                 share_classes: Sequence[ShareClass] | None = None,
+                 reinvest_into: str = PAYER):
         self.start_date: pd.Timestamp = pd.Timestamp(start_date)
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
 
@@ -248,6 +259,12 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
                              "'reinvest' or 'cash'.")
 
         self.dividends: str = dividends
+
+        if reinvest_into not in REINVESTMENT_TARGETS:
+            raise ValueError(f"Unknown reinvestment {reinvest_into!r}. "
+                             f"Supported: {', '.join(REINVESTMENT_TARGETS)}.")
+
+        self.reinvest_into: str = reinvest_into
         refuse_screens_as_modifiers(self.modifiers)
 
         # BN-267: flows are their own part of the run; the vehicle carries

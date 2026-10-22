@@ -336,3 +336,20 @@ class TestRunning:
 
         assert (row["strategy"], row["vehicle"], row["vehicle_preset"], row["currency"]) == (
             "index", "UK OEIC", "uk_oeic", "USD")
+
+
+class TestReinvestInto:
+    """BN-343: where reinvested dividends go is a run setting."""
+
+    def test_is_described_with_payer_as_the_default(self,
+                                                    options):
+        setting = next(spec for spec in options["run_settings"] if spec["name"] == "reinvest_into")
+
+        assert setting["default"] == "payer"
+        assert setting["choices"] == ["payer", "holdings"]
+        assert options["choices"]["reinvest_into"] == ["payer", "holdings"]
+
+    def test_an_unknown_target_is_a_finding(self,
+                                            client):
+        assert paths(validate(client, reinvest_into="everything")) == {
+            "reinvest_into": "invalid_value"}

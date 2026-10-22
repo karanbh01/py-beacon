@@ -3547,6 +3547,12 @@ class StrategyBacktestRequest(BaseModel):
         default="reinvest",
         description="What happens to cash distributions: 'reinvest', 'cash' "
                     "or 'distribute'.")
+    # BN-343.
+    reinvest_into: str = Field(
+        default="payer",
+        description="Where reinvested dividends go: 'payer', the name that paid "
+                    "each one, or 'holdings', the current holdings in proportion "
+                    "to value.")
     modelling_assumptions: ModellingAssumptionsSpec | None = Field(
         default=None,
         description="What the run takes as given; each unset field takes the "

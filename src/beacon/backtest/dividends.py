@@ -12,9 +12,11 @@ modelling assumptions. A holding sold between the two dates is still paid.
 
 What happens to the cash is the run's dividend policy:
 
-- ``"reinvest"`` (the default): it buys more of the current holdings, in
-  proportion to their value, the day it arrives, as a total-return index
-  assumes.
+- ``"reinvest"`` (the default): it is invested the day it arrives. Where is
+  the run's ``reinvest_into``: ``"payer"`` (the default) buys more of the name
+  that paid it, and ``"holdings"`` buys the current holdings in proportion to
+  their value, as a total-return index assumes. A payer no longer held, or
+  with no price that day, leaves its dividend in cash.
 - ``"cash"``: it stays in the book as cash and is invested at the next
   rebalance.
 - ``"distribute"``: it is paid out of the book. The NAV falls by it and the
@@ -53,6 +55,12 @@ REINVEST = "reinvest"
 KEEP_CASH = "cash"
 DISTRIBUTE = "distribute"
 DIVIDEND_POLICIES = (REINVEST, KEEP_CASH, DISTRIBUTE)
+
+# Where reinvested dividends go (BN-343): into the name that paid them, the
+# default, or across the current holdings in proportion to value.
+PAYER = "payer"
+HOLDINGS = "holdings"
+REINVESTMENT_TARGETS = (PAYER, HOLDINGS)
 
 
 @dataclass(frozen=True)
@@ -130,6 +138,9 @@ class DividendsMixin:
         """Provided by PricingMixin; declared so this one type-checks."""
         raise NotImplementedError
 
+    # Provided by the BacktestEngine that mixes this in (BN-343).
+    reinvest_into: str
+
     def _prices_for(self,
                     asset_ids: list[str],
                     date: pd.Timestamp) -> dict[str, float | None]:
@@ -170,6 +181,7 @@ class DividendsMixin:
         self._owed = [owed for owed in self._owed if owed.event.pay_date > date]
         rates: dict[str, float] = {}
         total = 0.0
+        paid: dict[str, float] = {}
 
         for owed in due:
             event = owed.event
@@ -178,6 +190,7 @@ class DividendsMixin:
                       * self._rate_for(event.asset_id, date, rates) * kept)
             portfolio.receive_cash(amount, date, DIVIDEND, event.asset_id)
             total += amount
+            paid[event.asset_id] = paid.get(event.asset_id, 0.0) + amount
 
         if self._ledgers:
             # BN-279: the distributing classes' shares are paid out, and the
@@ -187,12 +200,12 @@ class DividendsMixin:
             if paid_out > 0.0:
                 portfolio.receive_cash(-paid_out, date, DISTRIBUTION)
 
-            if self.dividends == REINVEST:
-                self._reinvest(portfolio, total - paid_out, date)
+            if self.dividends == REINVEST and total > 0.0:
+                self._reinvest(portfolio, paid, (total - paid_out) / total, date)
         elif self.dividends == DISTRIBUTE:
             portfolio.receive_cash(-total, date, DISTRIBUTION)
         elif self.dividends == REINVEST:
-            self._reinvest(portfolio, total, date)
+            self._reinvest(portfolio, paid, 1.0, date)
 
     def _withholding(self,
                      asset_id: str,
@@ -215,8 +228,45 @@ class DividendsMixin:
 
     def _reinvest(self,
                   portfolio: Portfolio,
-                  amount: float,
+                  paid: dict[str, float],
+                  share: float,
                   date: pd.Timestamp) -> None:
+        """Reinvest *share* of what each name in *paid* paid: in that name,
+        or across the holdings in proportion to value, as `reinvest_into`
+        says."""
+        if self.reinvest_into == PAYER:
+            self._reinvest_in_payers(portfolio, paid, share, date)
+            return
+
+        self._reinvest_in_holdings(portfolio, share * sum(paid.values()), date)
+
+    def _reinvest_in_payers(self,
+                            portfolio: Portfolio,
+                            paid: dict[str, float],
+                            share: float,
+                            date: pd.Timestamp) -> None:
+        """Buy each paying name with its own dividend. A payer no longer
+        held, or with no price, leaves its dividend in cash."""
+        payers = [name for name, amount in paid.items()
+                  if amount > 0.0 and name in portfolio.holdings
+                  and portfolio.holdings[name].quantity > 0]
+        prices = self._prices_for(payers, date)
+        cost_rate = self.transaction_cost_bps / 10_000.0
+
+        for name in payers:
+            price = prices.get(name)
+
+            if price is None or price <= 0.0:
+                continue
+
+            quantity = share * paid[name] / (price * (1.0 + cost_rate))
+            portfolio.apply(TradeInstruction(name, "BUY", quantity, price,
+                                             quantity * price * cost_rate), date)
+
+    def _reinvest_in_holdings(self,
+                              portfolio: Portfolio,
+                              amount: float,
+                              date: pd.Timestamp) -> None:
         """Buy the current holdings with *amount*, in proportion to value."""
         # Priced in one read (BN-341), with the answers `_fetch_price` gives
         # name by name: it was one read per holding on every payment day.

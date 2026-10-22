@@ -29,7 +29,7 @@ from .. import catalogue
 from ..assumptions import ModellingAssumptions
 from ..backtest.capacity import MinimumPosition
 from ..backtest.costs import ExecutionLimit, MarketImpact
-from ..backtest.dividends import DIVIDEND_POLICIES
+from ..backtest.dividends import DIVIDEND_POLICIES, REINVESTMENT_TARGETS
 from ..backtest.etf import EtfMarket, EtfVehicle
 from ..backtest.flows import Flows
 from ..backtest.implementation import Implementation
@@ -128,6 +128,7 @@ class BuiltSettings:
     """
     currency: str | None
     dividends: str
+    reinvest_into: str
     modelling_assumptions: ModellingAssumptions | None
     strategy: Callable[[AnyIndexDefinition], Strategy]
     implementation: Implementation | None
@@ -162,6 +163,11 @@ def build(request: BacktestRequest,
                      f"Unknown dividend policy '{request.dividends}'. "
                      f"Known: {', '.join(DIVIDEND_POLICIES)}.")
 
+    if request.reinvest_into not in REINVESTMENT_TARGETS:
+        findings.add("reinvest_into", "invalid_value",
+                     f"Unknown reinvestment '{request.reinvest_into}'. "
+                     f"Known: {', '.join(REINVESTMENT_TARGETS)}.")
+
     assumptions = _assumptions(request, findings)
     strategy, strategy_settings = _strategy(request, findings)
     implementation = _implementation(request, findings)
@@ -185,6 +191,7 @@ def build(request: BacktestRequest,
                       if request.benchmark is not None else None),
         "currency": currency,
         "dividends": request.dividends,
+        "reinvest_into": request.reinvest_into,
         "modelling_assumptions": _resolved_assumptions(assumptions, fetcher),
         "strategy": strategy_settings,
         "implementation": (request.implementation.model_dump()
@@ -199,6 +206,7 @@ def build(request: BacktestRequest,
     }
 
     return BuiltSettings(currency=currency, dividends=request.dividends,
+                         reinvest_into=request.reinvest_into,
                          modelling_assumptions=assumptions, strategy=strategy,
                          implementation=implementation, flows=terms.flows,
                          vehicle=vehicle, resolved=resolved,

@@ -57,7 +57,7 @@ from ..strategy.base import StrategyContext
 from ..strategy.futures import FuturesReplication, IndexFutures
 from ..strategy.synthetic import SyntheticReplication
 from ..strategy.tracking import IndexTracking, ReplicationStep
-from .dividends import REINVEST
+from .dividends import PAYER, REINVEST
 from .engine import BacktestEngine
 from .flows import Flows
 from .implementation import Implementation
@@ -159,6 +159,9 @@ class Backtest:
         dividends: What happens to cash distributions: ``"reinvest"`` (the
             default), ``"cash"`` or ``"distribute"``. See
             :mod:`beacon.backtest.dividends`.
+        reinvest_into: Where reinvested dividends go: ``"payer"`` (the
+            default), the name that paid each one, or ``"holdings"``, the
+            current holdings in proportion to value.
         implementation: The screens and redistribution rule applied at each
             rebalance. None screens nothing beyond stale prices.
         share_classes: The fund's share classes, sharing one book, each with
@@ -197,7 +200,8 @@ class Backtest:
                  cache: IndexResultCache | Literal[False] | None = None,
                  flows: Flows | list[Flows] | Mapping[str, Flows | list[Flows]] | None = None,
                  vehicle: Vehicle | None = None,
-                 share_classes: Sequence[ShareClass] | None = None):
+                 share_classes: Sequence[ShareClass] | None = None,
+                 reinvest_into: str = PAYER):
         self.initial_capital: float | Mapping[str, float] = initial_capital
         self.transaction_cost_bps: float = transaction_cost_bps
         self.price_column: str = price_column
@@ -209,6 +213,7 @@ class Backtest:
             tuple(share_classes) if share_classes else None)
         self.vehicle: Vehicle | None = vehicle
         self.dividends: str = dividends
+        self.reinvest_into: str = reinvest_into
         self.modifiers: list[BacktestModifier] | None = modifiers
         self.benchmark: IndexResult | pd.Series | None = benchmark
         self.data_provider: DataFetcher | None = data_provider
@@ -353,6 +358,7 @@ class Backtest:
             currency=self.currency,
             modelling_assumptions=assumptions,
             dividends=self.dividends,
+            reinvest_into=self.reinvest_into,
             implementation=self._implementation_for(index_definition),
             flows=self.flows,
             share_classes=self.share_classes,

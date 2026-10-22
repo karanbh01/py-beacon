@@ -16,7 +16,7 @@ from .. import catalogue
 from ..assumptions import ModellingAssumptions
 from ..backtest.capacity import MinimumPosition
 from ..backtest.costs import ExecutionLimit, MarketImpact
-from ..backtest.dividends import DIVIDEND_POLICIES
+from ..backtest.dividends import DIVIDEND_POLICIES, REINVESTMENT_TARGETS
 from ..backtest.etf import EtfMarket, EtfVehicle
 from ..backtest.implementation import FLOW_INVESTMENTS, REDISTRIBUTIONS
 from ..backtest.share_classes import DISTRIBUTIONS, ShareClass
@@ -148,7 +148,8 @@ def backtest_options() -> BacktestOptions:
         implementation_settings=_implementation_settings(),
         share_class_settings=_described(ShareClass, SHARE_CLASS_DISPLAYS),
         modelling_assumptions=_assumptions(),
-        choices={"dividends": list(DIVIDEND_POLICIES), "strategy": list(STRATEGY_TYPES),
+        choices={"dividends": list(DIVIDEND_POLICIES),
+                 "reinvest_into": list(REINVESTMENT_TARGETS), "strategy": list(STRATEGY_TYPES),
                  "rebalancing": list(FREQUENCIES), "redistribution": list(REDISTRIBUTIONS),
                  "invest_flows": list(FLOW_INVESTMENTS), "fx_policy": list(FX_POLICIES),
                  "distribution": list(DISTRIBUTIONS)})
@@ -220,6 +221,9 @@ def _run_settings() -> list[ParameterSpec]:
          "help": "A three-letter code, such as 'EUR'. Leave blank for the index's."},
         {"name": "dividends", "type": catalogue.STRING, "default": "reinvest",
          "label": "Dividends", "choices": list(DIVIDEND_POLICIES)},
+        {"name": "reinvest_into", "type": catalogue.STRING, "default": "payer",
+         "label": "Reinvest dividends in", "choices": list(REINVESTMENT_TARGETS),
+         "help": "The name that paid each one, or the holdings in proportion to value."},
         {"name": "benchmark.kind", "type": catalogue.STRING, "label": "Benchmark",
          "choices": list(BENCHMARK_KINDS),
          "help": "A stored index, or a series in the market data. Leave blank for none."},

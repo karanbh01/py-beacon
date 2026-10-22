@@ -10,6 +10,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Changed
 
+- A reinvested dividend now buys more of the name that paid it, by default, instead of every holding in proportion to value. A backtest that reinvests its dividends therefore has different results from before: its holdings drift from the index's weights between rebalances by what each name paid, and it makes one trade per payer per payment day rather than one per holding. `reinvest_into` (`payer` or `holdings`) on `Backtest` and in a backtest request's settings chooses; `holdings` gives the old behaviour. `/backtest/options` describes it.
 - A backtest job reports its progress through the simulation, by date: the index's calculation, the strategy's weights, then each trading day reached ("Simulating 2024-03-28, day 812 of 1,700") about a hundred times a run. It used to report nothing between 0.05 and 0.8, so a long run and a hung one looked the same. `Backtest.run` takes a `progress` callback, and `BacktestEngine.run` one for the days.
 - Reinvesting a dividend prices the holdings in one read, with the same answers, instead of one read per holding on every payment day. On 600 names a plain backtest reinvesting its dividends went from 8.9 s to 6.8 s; results are unchanged.
 - A holding with no bar on a session is valued at its last close found in its history read once per run, instead of a fresh read of the market data for each name on each such day. On 600 names, a backtest on the London calendar over New York data went from 23 s to 17 s.
