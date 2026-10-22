@@ -453,7 +453,14 @@ class AccountingMixin:
                        date: pd.Timestamp) -> None:
         """Invest the cash that is free, keeping the buffer, as the
         implementation says: at once, or as working orders under an
-        execution limit."""
+        execution limit. The books are recorded once, after (BN-344)."""
+        with portfolio.batch():
+            self._invest_free_cash(portfolio, date)
+
+    def _invest_free_cash(self,
+                          portfolio: Portfolio,
+                          date: pd.Timestamp) -> None:
+        """The body of :meth:`_invest_inflow`."""
         net = self._net_value(portfolio)
         free = (portfolio.cash_balance - self._fees_payable
                 - self.implementation.cash_buffer * net)

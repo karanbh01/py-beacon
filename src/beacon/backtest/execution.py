@@ -283,7 +283,15 @@ class ExecutionMixin:
                      portfolio: Portfolio,
                      date: pd.Timestamp) -> None:
         """Trade what the execution limit allows of each working order today,
-        sells before buys, buys no further than the cash."""
+        sells before buys, buys no further than the cash. The books are
+        recorded once, after (BN-344)."""
+        with portfolio.batch():
+            self._work_each_order(portfolio, date)
+
+    def _work_each_order(self,
+                         portfolio: Portfolio,
+                         date: pd.Timestamp) -> None:
+        """The body of :meth:`_work_orders`."""
         limit = self.implementation.execution
 
         if limit is None or not self._working:

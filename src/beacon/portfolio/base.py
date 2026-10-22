@@ -4,6 +4,8 @@ Portfolio accounting: `Portfolio`, the `Holding`s it keeps, the
 `Transaction`s it records, and the `TradeInstruction`s it accepts.
 """
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import pandas as pd
@@ -169,6 +171,9 @@ class Portfolio:
         self.frozen: bool = False
 
         self._history = PortfolioHistory()
+        # The date a batch has changed the books on, while one is open
+        # (BN-344); None outside a batch, or before its first change.
+        self._batch: list[pd.Timestamp] | None = None
 
         if self.inception is not None:
             self._history.record(self.inception, self.holdings, self.cash_balance)
@@ -281,8 +286,41 @@ class Portfolio:
 
     def _record(self,
                 date: pd.Timestamp) -> None:
-        """Snapshot the books as of *date* into the history."""
-        self._history.record(date, self.holdings, self.cash_balance)
+        """Snapshot the books as of *date* into the history, or, inside a
+        batch, note that they changed on *date*."""
+        if self._batch is None:
+            self._history.record(date, self.holdings, self.cash_balance)
+            return
+
+        if self._batch and self._batch[0] != pd.Timestamp(date):
+            raise ValueError(f"A batch records the books for one date; it holds "
+                             f"{self._batch[0].date()} and was given {pd.Timestamp(date).date()}.")
+
+        self._batch[:] = [pd.Timestamp(date)]
+
+    @contextmanager
+    def batch(self) -> Iterator[None]:
+        """Record the books once, as the block ends, for every change made in it.
+
+        Each call inside still applies at once; only the snapshot of the books
+        waits. The history keeps the last snapshot written for a date, so a run
+        of trades on one date records the same history either way, without
+        rewriting every holding after each trade. Every change in the block must
+        be dated the same day. A batch inside a batch is part of the outer one.
+        """
+        if self._batch is not None:
+            yield
+            return
+
+        self._batch = []
+
+        try:
+            yield
+        finally:
+            changed, self._batch = self._batch, None
+
+            if changed:
+                self._history.record(changed[0], self.holdings, self.cash_balance)
 
     def receive_cash(self,
                      amount: float,

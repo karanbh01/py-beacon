@@ -9,8 +9,10 @@ nothing outside the portfolio layer writes to one. Read the history through
 # Separated from `beacon.portfolio.base` only for size.
 import logging
 from collections.abc import Mapping
-from typing import Any, Protocol
+from dataclasses import dataclass
+from typing import Protocol
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,17 @@ class MarkedHolding(Protocol):
 def _or_nan(value: float | None) -> float:
     """A missing mark as NaN, so the panel's columns stay numeric."""
     return float("nan") if value is None else value
+
+
+@dataclass(frozen=True)
+class _Snapshot:
+    """One date's positions, column by column (BN-344): a dict per row cost
+    more to build than the row was worth, on every event of a long run."""
+    asset_ids: list[str]
+    quantity: np.ndarray
+    price: np.ndarray
+    market_value: np.ndarray
+    weight: np.ndarray
 
 
 def _empty_positions() -> pd.DataFrame:
@@ -67,7 +80,7 @@ class PortfolioHistory:
     something that survived the day.
     """
     def __init__(self) -> None:
-        self._positions: dict[pd.Timestamp, list[dict[str, Any]]] = {}
+        self._positions: dict[pd.Timestamp, _Snapshot] = {}
         self._cash: dict[pd.Timestamp, float] = {}
         self._nav: dict[pd.Timestamp, float] = {}
 
@@ -108,22 +121,27 @@ class PortfolioHistory:
 
         total = holdings_value + cash
 
-        rows: list[dict[str, Any]] = []
-        for asset_id, holding in holdings.items():
-            market_value = holding.market_value
-            weight = (market_value / total
-                      if market_value is not None and total != 0
-                      else 0.0)
-            rows.append({
-                "DATE": key,
-                "ASSET_ID": asset_id,
-                "QUANTITY": float(holding.quantity),
-                "PRICE": _or_nan(holding.current_price),
-                "MARKET_VALUE": _or_nan(market_value),
-                "WEIGHT": weight,
-            })
+        count = len(holdings)
+        values = list(holdings.values())
+        marks = [holding.market_value for holding in values]
+        unvalued = np.fromiter((mark is None for mark in marks), dtype=bool, count=count)
+        market_value = np.fromiter((_or_nan(mark) for mark in marks),
+                                   dtype="float64", count=count)
 
-        self._positions[key] = rows
+        # The same weight as before, element by element: the value over the
+        # total, and 0.0 for a holding with no value or a total of zero.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            weight = (np.where(unvalued, 0.0, market_value / total)
+                      if total != 0 else np.zeros(count))
+
+        self._positions[key] = _Snapshot(
+            asset_ids=list(holdings),
+            quantity=np.fromiter((float(holding.quantity) for holding in values),
+                                 dtype="float64", count=count),
+            price=np.fromiter((_or_nan(holding.current_price) for holding in values),
+                              dtype="float64", count=count),
+            market_value=market_value,
+            weight=weight)
         self._cash[key] = cash
         self._nav[key] = total
         self._frame = None
@@ -147,14 +165,21 @@ class PortfolioHistory:
         return self._series(self._nav, "NAV")
 
     def _build_positions(self) -> pd.DataFrame:
-        """Flatten the per-date rows into one frame, oldest date first."""
-        rows = [row for date in sorted(self._positions) for row in self._positions[date]]
+        """Flatten the per-date snapshots into one frame, oldest date first."""
+        snapshots = [(date, self._positions[date]) for date in sorted(self._positions)]
 
-        if not rows:
+        if not any(snapshot.asset_ids for _, snapshot in snapshots):
             return _empty_positions()
 
-        frame = pd.DataFrame(rows, columns=list(POSITION_COLUMNS))
-        frame["DATE"] = pd.to_datetime(frame["DATE"])
+        frame = pd.DataFrame({
+            "DATE": pd.to_datetime([date for date, snapshot in snapshots
+                                    for _ in snapshot.asset_ids]),
+            "ASSET_ID": [name for _, snapshot in snapshots for name in snapshot.asset_ids],
+            "QUANTITY": np.concatenate([snapshot.quantity for _, snapshot in snapshots]),
+            "PRICE": np.concatenate([snapshot.price for _, snapshot in snapshots]),
+            "MARKET_VALUE": np.concatenate([snapshot.market_value for _, snapshot in snapshots]),
+            "WEIGHT": np.concatenate([snapshot.weight for _, snapshot in snapshots]),
+        }, columns=list(POSITION_COLUMNS))
 
         return frame.reset_index(drop=True)
 

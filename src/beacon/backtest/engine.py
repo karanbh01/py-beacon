@@ -539,7 +539,9 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             # 0c. Dividends: owed for what is held at the start of an ex-date,
             # received on the pay date (BN-263).
             self._record_entitlements(portfolio, previous, date)
-            self._pay_dividends(portfolio, date)
+            # Each run of same-day changes records the books once (BN-344).
+            with portfolio.batch():
+                self._pay_dividends(portfolio, date)
 
             last, previous = previous, date
 
@@ -556,12 +558,14 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             # happen before the rebalance, because a delisted holding cannot
             # be sold by the ordinary path -- that path needs a price, and
             # there is not one.
-            self._dispose_delisted(portfolio, date, delistings)
+            with portfolio.batch():
+                self._dispose_delisted(portfolio, date, delistings)
 
             # 1c. Flows, dealt at today's NAV per unit before anything is
             # traded for them (BN-267).
             dealt = len(self._flow_records)
-            inflow = self._deal_flows(portfolio, last, date)
+            with portfolio.batch():
+                inflow = self._deal_flows(portfolio, last, date)
 
             # 2. Check for rebalance
             target_w = self._get_target_weights_for_date(date)
@@ -595,7 +599,8 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
                 self._warm_holdings(sorted(set(portfolio.holdings) | set(target_w)),
                                     date)
 
-                unfilled.extend(self._rebalance(portfolio, target_w, date))
+                with portfolio.batch():
+                    unfilled.extend(self._rebalance(portfolio, target_w, date))
                 # Re-price after rebalance
                 self._update_portfolio_prices(portfolio, date)
             elif inflow > 0.0 or settled > 0.0 or self._working:
