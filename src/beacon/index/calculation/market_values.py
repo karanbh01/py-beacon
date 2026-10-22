@@ -4,8 +4,10 @@ MarketValuesMixin: constituent market values, holding values and the index
 level.
 """
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from itertools import repeat
 
+import numpy as np
 import pandas as pd
 
 from ...asset.base import Asset
@@ -27,6 +29,9 @@ class _Book:
     counts: list[float]
     tickers: list[str]
     currencies: list[str]
+    # The distinct currencies, and each holding's position among them.
+    currency_order: list[str]
+    currency_codes: np.ndarray
 
 
 class MarketValuesMixin(PriceGapsMixin):
@@ -506,6 +511,12 @@ class MarketValuesMixin(PriceGapsMixin):
         book = self._book(units)
         tickers = book.tickers
 
+        if isinstance(self.data, DataFetcher):
+            array = self.data.price_array_on(tickers, date_str, self.price_column)
+
+            if array is not None:
+                return self._value_book(book, array, current_date, date_str)
+
         # The batch read is a capability, not a contract -- a provider built by
         # hand need not offer it, the same way it need not offer `warm_session`
         # -- so one without it is asked name by name, as before.
@@ -546,6 +557,49 @@ class MarketValuesMixin(PriceGapsMixin):
 
         return dict(zip(book.assets, worth, strict=True))
 
+    def _value_book(self,
+                    book: "_Book",
+                    prices: np.ndarray,
+                    current_date: pd.Timestamp,
+                    date_str: str) -> dict[Asset, float]:
+        """The loop below, on arrays (BN-351): the same reads, gaps, warnings
+        and refusals in the same order, and each value the same product."""
+        tickers = book.tickers
+        found = ~np.isnan(prices)
+        priced = np.flatnonzero(found)
+        self._last_bars.update(zip([tickers[position] for position in priced],
+                                   zip(repeat(current_date), prices[priced].tolist()),
+                                   strict=True))
+
+        for position in np.flatnonzero(~found):
+            price = self.carried_price(tickers[position], current_date)
+
+            if price is None:
+                logger.warning(
+                    f"asset_unit_value: No price for {tickers[position]} on {date_str}; "
+                    "it cannot be priced today.")
+                continue
+
+            prices[position] = price
+            found[position] = True
+
+        # Each currency's rate asked for once, in the order its first priced
+        # holding comes in the book, so an unknown pair is refused naming the
+        # holding the loop would have named.
+        rates = np.ones(len(tickers))
+        held = np.flatnonzero(found)
+        currencies = [book.currencies[position] for position in held]
+
+        for currency in dict.fromkeys(currencies):
+            first = held[currencies.index(currency)]
+            rate = self._fx_rate(book.equities[first], current_date, date_str)
+            rates[book.currency_codes == book.currency_order.index(currency)] = rate
+
+        worth = np.asarray(book.counts, dtype=float) * prices * rates
+        worth[~found] = 0.0
+
+        return dict(zip(book.assets, worth.tolist(), strict=True))
+
     def _book(self,
               units: dict[Asset, float]) -> "_Book":
         """*units* as lists, in its order, built once per holdings dict.
@@ -559,10 +613,25 @@ class MarketValuesMixin(PriceGapsMixin):
         if held is not None and held[0] is units:
             return held[1]
 
+        # The same holdings with new counts, as a split elsewhere in the
+        # universe leaves them (BN-351): the lists are kept, so the tickers'
+        # codes are too, and only the counts are new.
+        assets = list(units)
+
+        if held is not None and assets == held[1].assets:
+            book = replace(held[1], counts=list(units.values()))
+            self._booked = (units, book)
+
+            return book
+
         equities = [require_equity(asset, "AssetUnitValue", "be valued") for asset in units]
-        book = _Book(assets=list(units), equities=equities, counts=list(units.values()),
+        currencies = [equity.currency.upper() for equity in equities]
+        order = list(dict.fromkeys(currencies))
+        book = _Book(assets=assets, equities=equities, counts=list(units.values()),
                      tickers=[equity.ticker for equity in equities],
-                     currencies=[equity.currency.upper() for equity in equities])
+                     currencies=currencies, currency_order=order,
+                     currency_codes=np.array([order.index(currency)
+                                              for currency in currencies], dtype=np.int64))
         self._booked = (units, book)
 
         return book

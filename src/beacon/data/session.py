@@ -53,6 +53,7 @@ class SessionPanel:
         self._identifiers: set[str] = {str(name) for name in frame.index}
         # The rows a panel made `from_rows` builds its columns from (BN-348).
         self._lazy: tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]] | None = None
+        self._names: np.ndarray | None = None
         # Whether this holds every row the data has on its session (BN-347).
         # Then a name it lacks has no row that day, which is the answer the
         # data would give, so it answers for that name too.
@@ -79,7 +80,7 @@ class SessionPanel:
     @classmethod
     def from_rows(cls,
                   session: pd.Timestamp,
-                  names: np.ndarray,
+                  identifiers: np.ndarray,
                   rows: np.ndarray,
                   arrays: dict[str, np.ndarray]) -> "SessionPanel":
         """Build a whole-session panel that turns a column into a dict only
@@ -87,12 +88,13 @@ class SessionPanel:
 
         A daily valuation reads the close and nothing else, so building every
         column's dict for every name every day was most of the read.
-        *names* and *rows* are already reversed, as `session_columns` gives
-        them, so a repeated name keeps its first row.
+        *identifiers* and *arrays* are the frame's, one entry per row, and
+        *rows* the session's row positions, as `session_rows` gives them.
         """
         panel = cls(session, pd.DataFrame())
-        panel._identifiers = {str(name) for name in names}
-        panel._lazy = (names, rows, arrays)
+        # No set of its names (BN-351): a complete panel answers for every
+        # name, so `covers` and `answers` never consult one.
+        panel._lazy = (identifiers, rows, arrays)
         panel._values = {}
         panel.complete = True
 
@@ -130,8 +132,16 @@ class SessionPanel:
         if lazy is None or name not in lazy[2]:
             return None
 
-        names, rows, arrays = lazy
-        self._values[name] = dict(zip(names, arrays[name][rows][::-1], strict=True))
+        identifiers, rows, arrays = lazy
+
+        # The names gathered on the first column read, not when the panel is
+        # built (BN-351): most days nothing reads it, and gathering thousands
+        # of names scattered through the frame was most of a warm's cost.
+        # Reversed so that a repeated name keeps its first row.
+        if self._names is None:
+            self._names = identifiers[rows][::-1]
+
+        self._values[name] = dict(zip(self._names, arrays[name][rows][::-1], strict=True))
 
         return self._values[name]
 

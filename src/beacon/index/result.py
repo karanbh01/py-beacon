@@ -4,6 +4,7 @@ IndexResult: the output of an index calculation run.
 """
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 from ..assumptions import ModellingAssumptions
@@ -64,6 +65,7 @@ class DailyWeightColumns:
 
     def __init__(self) -> None:
         self._dates: list[pd.Timestamp] = []
+        self._counts: list[int] = []
         self._identifiers: list[str] = []
         self._amounts: list[float] = []
         self._weights: list[float] = []
@@ -77,7 +79,11 @@ class DailyWeightColumns:
                amounts: list[float],
                weights: list[float]) -> None:
         """Add one day's rows."""
-        self._dates.extend([date] * len(identifiers))
+        # The date once per day rather than once per row (BN-351): turning
+        # millions of Timestamps into a date column was most of the frame's
+        # build.
+        self._dates.append(date)
+        self._counts.append(len(identifiers))
         self._identifiers.extend(identifiers)
         self._amounts.extend(amounts)
         self._weights.extend(weights)
@@ -87,7 +93,9 @@ class DailyWeightColumns:
         if not self._identifiers:
             return daily_weights_frame([])
 
-        return pd.DataFrame({"DATE": self._dates, "IDENTIFIER": self._identifiers,
+        dates = np.repeat(pd.DatetimeIndex(self._dates).as_unit("ns").to_numpy(), self._counts)
+
+        return pd.DataFrame({"DATE": dates, "IDENTIFIER": self._identifiers,
                              "AMOUNT": self._amounts, "WEIGHT": self._weights},
                             columns=DAILY_WEIGHT_COLUMNS).astype(_DAILY_WEIGHT_DTYPES)
 

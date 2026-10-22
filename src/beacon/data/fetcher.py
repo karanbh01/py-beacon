@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from . import fx
@@ -1075,6 +1076,21 @@ class DataFetcher:
             prices[name] = None if value is None or value != value else float(value)  # type: ignore[arg-type]
 
         return prices
+
+    def price_array_on(self,
+                       identifiers: list[str],
+                       date: str,
+                       column: str = "CLOSE") -> np.ndarray | None:
+        """:meth:`prices_on` as one float array in the order of *identifiers*,
+        NaN where it gives None; None when the column cannot be read this way,
+        and the caller reads :meth:`prices_on` instead.
+
+        For a caller that asks about the same list of names day after day:
+        the names are looked up once per list, so pass the same list object.
+        """
+        # BN-351.
+        return self._market.session_values(pd.Timestamp(date),
+                                           self._market.codes_for(identifiers), column)
 
     def fetch_price(self,
                     identifier: str,

@@ -162,9 +162,16 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
 
         # One pass over the frame rather than a slice per name: `iloc` per row
         # costs what a frame read costs, which is the shape being removed.
-        for label, row in zip(frame.index, frame.to_dict("records"),
-                              strict=True):
-            rows.setdefault(str(label), row)
+        # Each column through `tolist`, which gives the Python values
+        # `to_dict("records")` gave cell by cell (BN-351).
+        columns = list(frame.columns)
+        cells = [frame.iloc[:, position].tolist() for position in range(len(columns))]
+
+        for label, *row in zip(frame.index, *cells, strict=True):
+            name = str(label)
+
+            if name not in rows:
+                rows[name] = dict(zip(columns, row, strict=True))
 
         return rows
 

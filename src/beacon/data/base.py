@@ -308,10 +308,9 @@ class MarketData:
     def session_rows(self,
                      date: str | pd.Timestamp) -> tuple["np.ndarray", "np.ndarray",
                                                         dict[str, "np.ndarray"]] | None:
-        """One session's identifiers (reversed, so a repeated name keeps its
-        first row), its row positions, and the column arrays, with no dict
-        built; None for a date with no rows. What a lazy session panel holds
-        (BN-348)."""
+        """The frame's identifiers, one session's row positions, and the
+        column arrays, with nothing gathered or built; None for a date with
+        no rows. What a lazy session panel holds (BN-348, BN-351)."""
         order, bounds, identifiers, arrays = self._date_index()
         span = bounds.get(pd.Timestamp(date))
 
@@ -320,7 +319,76 @@ class MarketData:
 
         rows = order[span[0]:span[1]]
 
-        return identifiers[rows][::-1], rows, arrays
+        return identifiers, rows, arrays
+
+    def codes_for(self,
+                  identifiers: list[str]) -> "np.ndarray":
+        """Each identifier's code among this frame's rows, -1 for a name with
+        no rows (BN-351).
+
+        The last answer is kept for the same list object, so a caller asking
+        about the same names day after day looks them up once.
+        """
+        cached = getattr(self, "_codes_for_cache", None)
+
+        if cached is not None and cached[0] is identifiers and cached[1] is self._df:
+            return cached[2]  # type: ignore[no-any-return]
+
+        _, lookup = self._identifier_codes()
+        codes = np.array([lookup.get(name, -1) for name in identifiers], dtype=np.int64)
+        self._codes_for_cache = (identifiers, self._df, codes)
+
+        return codes
+
+    def session_values(self,
+                       date: pd.Timestamp,
+                       codes: "np.ndarray",
+                       column: str) -> "np.ndarray | None":
+        """*column* on *date* for the names with *codes*, NaN where a name has
+        no row; None when the column is missing or not a float column.
+
+        The values the session panel gives, as one array (BN-351): where a
+        name has several rows on the day the first is taken, as the panel's
+        reversed fill takes it.
+        """
+        order, bounds, _, arrays = self._date_index()
+        array = arrays.get(column)
+
+        if array is None or array.dtype.kind != "f":
+            return None
+
+        values = np.full(len(codes), np.nan)
+        span = bounds.get(pd.Timestamp(date))
+
+        if span is None:
+            return values
+
+        rows = order[span[0]:span[1]]
+        row_codes = self._identifier_codes()[0][rows]
+
+        # Stable, so among a name's rows the first stays first, and a
+        # left-hand search lands on it.
+        sorter = np.argsort(row_codes, kind="stable")
+        ordered = row_codes[sorter]
+        at = np.minimum(np.searchsorted(ordered, codes), len(ordered) - 1)
+        found = (codes >= 0) & (ordered[at] == codes)
+        values[found] = array[rows[sorter[at[found]]]]
+
+        return values
+
+    def _identifier_codes(self) -> tuple["np.ndarray", dict[str, int]]:
+        """A code per row for its identifier, and identifier -> code, built
+        once per frame like `_date_index`."""
+        cached = getattr(self, "_identifier_codes_cache", None)
+
+        if cached is not None and cached[0] is self._df:
+            return cached[1], cached[2]
+
+        codes, uniques = pd.factorize(self._date_index()[2])
+        lookup = {str(name): position for position, name in enumerate(uniques)}
+        self._identifier_codes_cache = (self._df, codes, lookup)
+
+        return codes, lookup
 
     def _date_index(self) -> tuple["np.ndarray", dict[pd.Timestamp, tuple[int, int]],
                                    "np.ndarray", dict[str, "np.ndarray"]]:
