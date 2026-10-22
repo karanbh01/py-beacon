@@ -21,7 +21,6 @@ from .screens import (
     DEFAULT_LIQUIDITY_DAYS,
     ScreenContext,
     average_traded,
-    converted_closes,
 )
 
 
@@ -57,16 +56,37 @@ class MarketImpact:
         unknown."""
         traded = average_traded(asset_id, date, context, self.lookback_days)
         start = date - pd.Timedelta(days=int(self.lookback_days * 1.6) + 10)
-        closes = converted_closes(asset_id, start, date, context)
-        returns = closes.pct_change().dropna().tail(self.lookback_days)
+        # The window's returns as an array (BN-345), as `pct_change` gave them.
+        returns = history(context.fetcher, asset_id, context.currency).returns(
+            start, date, self.lookback_days)
 
         if traded is None or traded <= 0.0 or len(returns) < 2:
             return 0.0
 
-        volatility = float(returns.std())
+        volatility = _sample_std(returns)
 
         return float(self.coefficient * volatility
                      * math.sqrt(max(trade_value, 0.0) / traded))
+
+
+def _sample_std(values: np.ndarray) -> float:
+    """The sample standard deviation, summed in order as pandas' `Series.std`
+    sums it (through bottleneck), so an answer from an array is the one the
+    Series gave to the last bit. numpy's sums are unrolled, and differ in the
+    last bit about a third of the time."""
+    count = len(values)
+    total = 0.0
+
+    for value in values:
+        total += value
+
+    mean = total / count
+    squares = 0.0
+
+    for value in values:
+        squares += (value - mean) * (value - mean)
+
+    return math.sqrt(squares / (count - 1))
 
 
 class ExecutionLimit:

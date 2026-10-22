@@ -18,7 +18,9 @@ the whole history converts each day as converting its window did.
 # of a 600-name run went to these reads.
 import weakref
 from dataclasses import dataclass
+from functools import cached_property
 
+import numpy as np
 import pandas as pd
 
 from ..data.base import MarketData
@@ -43,6 +45,82 @@ class History:
                        end: pd.Timestamp) -> pd.Series:
         """Its closes from *start* to *end*, both included, blanks dropped."""
         return self.closes.loc[start:end]
+
+    # The same series as arrays (BN-345). Slicing a Series costs about a
+    # millisecond, which market impact paid on every holding of an ETF's
+    # basket every week; a binary search on an array costs microseconds.
+    @cached_property
+    def _volume_arrays(self) -> tuple[np.ndarray, np.ndarray]:
+        volume = self.volume if self.volume is not None else pd.Series(dtype=float)
+        return volume.index.to_numpy(dtype="datetime64[ns]"), volume.to_numpy()
+
+    @cached_property
+    def _close_arrays(self) -> tuple[np.ndarray, np.ndarray]:
+        return self.closes.index.to_numpy(dtype="datetime64[ns]"), self.closes.to_numpy()
+
+    def average_traded(self,
+                       start: pd.Timestamp,
+                       end: pd.Timestamp,
+                       days: int,
+                       by_value: bool = True) -> float | None:
+        """Its average daily traded value (close times volume) or share
+        volume over its last *days* reported days from *start* to *end*;
+        None when it has none."""
+        if self.volume is None:
+            return None
+
+        dates, volumes = self._volume_arrays
+        lo, hi = _bounds(dates, start, end)
+        lo = max(lo, hi - days)
+
+        if hi <= lo:
+            return None
+
+        volume = volumes[lo:hi]
+
+        if not by_value:
+            return float(volume.mean())
+
+        close_dates, closes = self._close_arrays
+        c_lo, c_hi = _bounds(close_dates, start, end)
+        window, window_closes = close_dates[c_lo:c_hi], closes[c_lo:c_hi]
+        at = np.searchsorted(window, dates[lo:hi])
+        found = at < len(window)
+        found[found] = window[at[found]] == dates[lo:hi][found]
+        aligned = np.full(len(volume), np.nan)
+        aligned[found] = window_closes[at[found]]
+        traded = aligned * volume
+        traded = traded[~np.isnan(traded)]
+
+        return float(traded.mean()) if len(traded) else None
+
+    def last_close(self,
+                   date: pd.Timestamp) -> float | None:
+        """Its last close on or before *date*, or None (BN-346)."""
+        dates, closes = self._close_arrays
+        at = int(np.searchsorted(dates, np.datetime64(date, "ns"), side="right"))
+
+        return float(closes[at - 1]) if at else None
+
+    def returns(self,
+                start: pd.Timestamp,
+                end: pd.Timestamp,
+                days: int) -> np.ndarray:
+        """Its last *days* daily returns from its closes from *start* to
+        *end*."""
+        dates, closes = self._close_arrays
+        lo, hi = _bounds(dates, start, end)
+        window = closes[lo:hi]
+
+        return (window[1:] / window[:-1] - 1.0)[-days:] if len(window) > 1 else window[:0]
+
+
+def _bounds(dates: np.ndarray,
+            start: pd.Timestamp,
+            end: pd.Timestamp) -> tuple[int, int]:
+    """The slice of sorted *dates* from *start* to *end*, both included."""
+    return (int(np.searchsorted(dates, np.datetime64(start, "ns"), side="left")),
+            int(np.searchsorted(dates, np.datetime64(end, "ns"), side="right")))
 
 
 # By market data, so a refresh that replaces it starts afresh, and the

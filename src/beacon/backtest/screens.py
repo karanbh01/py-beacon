@@ -385,26 +385,10 @@ def average_traded(asset_id: str,
     volume."""
     # Calendar days enough to hold the trading days asked for.
     start = date - pd.Timedelta(days=int(lookback_days * 1.6) + 10)
-    # From the name's history, read once per run (BN-338), cut to the window
-    # this always read.
-    held = history(context.fetcher, asset_id, context.currency)
-    reported = held.volume_between(start, date)
-
-    if reported is None:
-        return None
-
-    volume = reported.tail(lookback_days)
-
-    if volume.empty:
-        return None
-
-    if not by_value:
-        return float(volume.mean())
-
-    closes = held.closes_between(start, date)
-    traded = (closes.reindex(volume.index) * volume).dropna()
-
-    return None if traded.empty else float(traded.mean())
+    # From the name's history, read once per run (BN-338) and held as arrays
+    # (BN-345), cut to the window this always read.
+    return history(context.fetcher, asset_id, context.currency).average_traded(
+        start, date, lookback_days, by_value)
 
 
 def converted_closes(asset_id: str,

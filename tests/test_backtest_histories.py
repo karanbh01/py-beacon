@@ -145,3 +145,25 @@ class TestTheLastBar:
         frame = source.fetch_market_data("AAA", "2023-05-01", "2023-06-15")["CLOSE"].dropna()
 
         assert (closes.index[-1], closes.iloc[-1]) == (frame.index[-1], frame.iloc[-1])
+
+
+class TestTheArrays:
+    """BN-345: market impact and traded value from arrays, to the last bit."""
+
+    def test_the_volatility_is_the_series_standard_deviation(self):
+        from beacon.backtest.costs import _sample_std
+
+        rng = np.random.default_rng(5)
+
+        for _ in range(500):
+            values = rng.normal(0.0, 0.02, int(rng.integers(2, 64)))
+
+            assert _sample_std(values) == pd.Series(values).std()
+
+    def test_the_returns_are_pct_change_of_the_window(self):
+        source = fetcher()
+        start, date = pd.Timestamp("2023-05-01"), pd.Timestamp("2023-09-29")
+        held = histories.history(source, "BBB", "USD")
+        expected = held.closes_between(start, date).pct_change().dropna().tail(63).to_numpy()
+
+        assert np.array_equal(held.returns(start, date, 63), expected)
