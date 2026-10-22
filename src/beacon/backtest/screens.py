@@ -46,6 +46,7 @@ from ..expressions import data
 from ..expressions.core import Expression
 from ..expressions.resolve import resolve, value_of
 from ..expressions.validation import require_valid
+from .histories import history
 
 logger = logging.getLogger(__name__)
 
@@ -384,14 +385,15 @@ def average_traded(asset_id: str,
     volume."""
     # Calendar days enough to hold the trading days asked for.
     start = date - pd.Timedelta(days=int(lookback_days * 1.6) + 10)
-    frame = context.fetcher.fetch_market_data(asset_id,
-                                              start.strftime("%Y-%m-%d"),
-                                              date.strftime("%Y-%m-%d"))
+    # From the name's history, read once per run (BN-338), cut to the window
+    # this always read.
+    held = history(context.fetcher, asset_id, context.currency)
+    reported = held.volume_between(start, date)
 
-    if frame.empty or "VOLUME" not in frame.columns:
+    if reported is None:
         return None
 
-    volume = frame["VOLUME"].dropna().tail(lookback_days)
+    volume = reported.tail(lookback_days)
 
     if volume.empty:
         return None
@@ -399,7 +401,7 @@ def average_traded(asset_id: str,
     if not by_value:
         return float(volume.mean())
 
-    closes = converted_closes(asset_id, start, date, context)
+    closes = held.closes_between(start, date)
     traded = (closes.reindex(volume.index) * volume).dropna()
 
     return None if traded.empty else float(traded.mean())
@@ -410,14 +412,7 @@ def converted_closes(asset_id: str,
                       end: pd.Timestamp,
                       context: ScreenContext) -> pd.Series:
     """*asset_id*'s closes in the book's currency, blanks dropped."""
-    prices = context.fetcher.fetch_prices([asset_id], start.strftime("%Y-%m-%d"),
-                                          end.strftime("%Y-%m-%d"),
-                                          currency=context.currency)
-
-    if asset_id not in prices.columns:
-        return pd.Series(dtype=float)
-
-    return prices[asset_id].dropna()
+    return history(context.fetcher, asset_id, context.currency).closes_between(start, end)
 
 
 def _any_in(record: pd.DataFrame,

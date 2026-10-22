@@ -10,6 +10,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Changed
 
+- Market impact, the liquidity screen and cap, and execution limits read each name's volume and converted closes once per run, and answer each day from that history over the same window as before, instead of reading and converting the window again every day. The answers are unchanged. On 600 names over the full history, with the lookup fix below: market impact 506 s to 18 s, capacity caps and screens 176 s to about 21 s, execution limits 31 s to 18 s, against 12 s for the same backtest with none of them.
 - Reading several names' market data checks them against a set built once, not against every row label of the store on each call. That check was most of the time in market impact, the liquidity screen and cap, and execution limits: on 600 names over the full history, a backtest with market impact went from 506 s to 50 s and one with capacity caps from 176 s to 33 s.
 
 ## [0.9.5] - 2026-10-21

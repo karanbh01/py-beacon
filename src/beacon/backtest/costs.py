@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from ..data.fetcher import DataFetcher
+from .histories import history
 from .screens import (
     DEFAULT_LIQUIDITY_DAYS,
     ScreenContext,
@@ -115,14 +116,12 @@ class ExecutionLimit:
         volume, else the last reported within *backfill_days* calendar days,
         else the average daily volume. None when it has no volume at all."""
         start = date - pd.Timedelta(days=int(self.lookback_days * 1.6) + 10)
-        frame = fetcher.fetch_market_data(asset_id, start.strftime("%Y-%m-%d"),
-                                          date.strftime("%Y-%m-%d"))
+        # From the name's history, read once per run (BN-338). Volume is in
+        # shares, so the currency the history is held in does not matter.
+        reported = history(fetcher, asset_id, None).volume_between(start, date)
 
-        if frame.empty or "VOLUME" not in frame.columns:
+        if reported is None:
             return None
-
-        reported = frame["VOLUME"].dropna()
-        reported = reported[reported.index <= date]
 
         if reported.empty:
             return None
