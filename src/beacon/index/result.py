@@ -54,6 +54,44 @@ def daily_weights_frame(records: list[dict[str, object]]) -> pd.DataFrame:
                         columns=DAILY_WEIGHT_COLUMNS).astype(_DAILY_WEIGHT_DTYPES)
 
 
+class DailyWeightColumns:
+    """The daily weights panel collected column by column during a run.
+
+    The frame :func:`daily_weights_frame` builds from records, without a dict
+    per constituent per day on the way (BN-348): over six thousand names that
+    was millions of dicts built only to be taken apart again.
+    """
+
+    def __init__(self) -> None:
+        self._dates: list[pd.Timestamp] = []
+        self._identifiers: list[str] = []
+        self._amounts: list[float] = []
+        self._weights: list[float] = []
+
+    def __len__(self) -> int:
+        return len(self._identifiers)
+
+    def extend(self,
+               date: pd.Timestamp,
+               identifiers: list[str],
+               amounts: list[float],
+               weights: list[float]) -> None:
+        """Add one day's rows."""
+        self._dates.extend([date] * len(identifiers))
+        self._identifiers.extend(identifiers)
+        self._amounts.extend(amounts)
+        self._weights.extend(weights)
+
+    def frame(self) -> pd.DataFrame:
+        """The panel, as :func:`daily_weights_frame` gives it."""
+        if not self._identifiers:
+            return daily_weights_frame([])
+
+        return pd.DataFrame({"DATE": self._dates, "IDENTIFIER": self._identifiers,
+                             "AMOUNT": self._amounts, "WEIGHT": self._weights},
+                            columns=DAILY_WEIGHT_COLUMNS).astype(_DAILY_WEIGHT_DTYPES)
+
+
 def empty_daily_weights() -> pd.DataFrame:
     """The panel an :class:`IndexResult` carries when nothing recorded one."""
     return daily_weights_frame([])

@@ -69,6 +69,12 @@ class DeletionMixin:
         """Provided by MarketValuesMixin; declared so this one type-checks."""
         raise NotImplementedError
 
+    def holding_values(self,
+                       units: dict[Asset, float],
+                       current_date: pd.Timestamp) -> dict[Asset, float]:
+        """Provided by MarketValuesMixin; declared so this one type-checks."""
+        raise NotImplementedError
+
     def delisting_schedule(self) -> dict[str, pd.Timestamp]:
         """The last date each identifier is listed, for those that end.
 
@@ -134,8 +140,12 @@ class DeletionMixin:
 
             return units, divisor, []
 
-        before = self.aggregate_value(units, valuation_date)
-        after = self.aggregate_value(surviving, valuation_date)
+        # One valuation for both totals (BN-348): each holding's value does
+        # not depend on the others, so the survivors' total from it is the
+        # one a second valuation of them gave, summed in the same order.
+        values = self.holding_values(units, valuation_date)
+        before = float(sum(values.values()))
+        after = float(sum(value for asset, value in values.items() if asset in surviving))
 
         if before <= 0.0 or after <= 0.0:
             logger.warning(

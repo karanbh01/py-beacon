@@ -4,6 +4,7 @@ MarketValuesMixin: constituent market values, holding values and the index
 level.
 """
 import logging
+from dataclasses import dataclass
 
 import pandas as pd
 
@@ -16,6 +17,17 @@ from ..constructor import IndexDefinition
 from .price_gaps import PriceGapsMixin
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _Book:
+    """A holdings dict as parallel lists, for a day's valuation (BN-348)."""
+    assets: list[Asset]
+    equities: list[Equity]
+    counts: list[float]
+    tickers: list[str]
+    currencies: list[str]
+
 
 class MarketValuesMixin(PriceGapsMixin):
     """Market-value and index-level calculation logic, mixed into IndexCalculator."""
@@ -467,13 +479,32 @@ class MarketValuesMixin(PriceGapsMixin):
         # name, and an FX rate is a fact about a currency on a day, so a book
         # of 200 names in three currencies needs three lookups rather than 200.
         # 0.84 ms a day to 0.12 on the benchmark, identical to the last digit.
+        #
+        # The same holdings on the same day are valued once (BN-348): the run
+        # values yesterday's book, and a deletion today values it again at
+        # yesterday's prices. A holdings dict is never changed once built, so
+        # the very same object on the same date has the same answer.
+        held: tuple[dict[Asset, float], pd.Timestamp, dict[Asset, float]] | None = (
+            getattr(self, "_valued", None))
+
+        if held is not None and held[0] is units and held[1] == current_date:
+            return held[2]
+
+        values = self._value_holdings(units, current_date)
+        self._valued = (units, current_date, values)
+
+        return values
+
+    def _value_holdings(self,
+                        units: dict[Asset, float],
+                        current_date: pd.Timestamp) -> dict[Asset, float]:
+        """The body of :meth:`holding_values`, uncached."""
         if not units:
             return {}
 
         date_str = current_date.strftime('%Y-%m-%d')
-        equities = {asset: require_equity(asset, "AssetUnitValue", "be valued")
-                    for asset in units}
-        tickers = [equity.ticker for equity in equities.values()]
+        book = self._book(units)
+        tickers = book.tickers
 
         # The batch read is a capability, not a contract -- a provider built by
         # hand need not offer it, the same way it need not offer `warm_session`
@@ -487,33 +518,54 @@ class MarketValuesMixin(PriceGapsMixin):
         self.remember_bars(prices, current_date)
 
         rates: dict[str, float] = {}
-        values: dict[Asset, float] = {}
+        worth: list[float] = []
 
-        for asset, count in units.items():
-            equity = equities[asset]
-            price = prices.get(equity.ticker)
+        # One pass over the book's lists (BN-348): looking each holding up by
+        # its Asset hashed every field of it, several times a holding a day.
+        for equity, count, ticker, currency in zip(book.equities, book.counts, tickers,
+                                                   book.currencies, strict=True):
+            price = prices.get(ticker)
 
             if price is None:
-                price = self.carried_price(equity.ticker, current_date)
+                price = self.carried_price(ticker, current_date)
 
             if price is None:
                 logger.warning(
-                    f"asset_unit_value: No price for {equity.ticker} on {date_str}; "
+                    f"asset_unit_value: No price for {ticker} on {date_str}; "
                     "it cannot be priced today.")
-                values[asset] = 0.0
+                worth.append(0.0)
                 continue
 
             # Keyed on the currency, and computed only for a name that priced:
             # `_fx_rate` refuses an unknown pair naming the asset, and asking it
             # in the same order as before means the refusal names the same one.
-            currency = equity.currency.upper()
-
             if currency not in rates:
                 rates[currency] = self._fx_rate(equity, current_date, date_str)
 
-            values[asset] = count * price * rates[currency]
+            worth.append(count * price * rates[currency])
 
-        return values
+        return dict(zip(book.assets, worth, strict=True))
+
+    def _book(self,
+              units: dict[Asset, float]) -> "_Book":
+        """*units* as lists, in its order, built once per holdings dict.
+
+        Each holding is checked to be an equity here, once, as the valuation
+        used to check it every day; a holdings dict is never changed once
+        built, so the check's answer cannot change either.
+        """
+        held: tuple[dict[Asset, float], _Book] | None = getattr(self, "_booked", None)
+
+        if held is not None and held[0] is units:
+            return held[1]
+
+        equities = [require_equity(asset, "AssetUnitValue", "be valued") for asset in units]
+        book = _Book(assets=list(units), equities=equities, counts=list(units.values()),
+                     tickers=[equity.ticker for equity in equities],
+                     currencies=[equity.currency.upper() for equity in equities])
+        self._booked = (units, book)
+
+        return book
 
     def aggregate_value(self,
                         units: dict[Asset, float],

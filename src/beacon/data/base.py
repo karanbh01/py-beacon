@@ -305,6 +305,23 @@ class MarketData:
 
         return values, {str(name) for name in names}
 
+    def session_rows(self,
+                     date: str | pd.Timestamp) -> tuple["np.ndarray", "np.ndarray",
+                                                        dict[str, "np.ndarray"]] | None:
+        """One session's identifiers (reversed, so a repeated name keeps its
+        first row), its row positions, and the column arrays, with no dict
+        built; None for a date with no rows. What a lazy session panel holds
+        (BN-348)."""
+        order, bounds, identifiers, arrays = self._date_index()
+        span = bounds.get(pd.Timestamp(date))
+
+        if span is None:
+            return None
+
+        rows = order[span[0]:span[1]]
+
+        return identifiers[rows][::-1], rows, arrays
+
     def _date_index(self) -> tuple["np.ndarray", dict[pd.Timestamp, tuple[int, int]],
                                    "np.ndarray", dict[str, "np.ndarray"]]:
         """Everything a session read needs, built once per frame.

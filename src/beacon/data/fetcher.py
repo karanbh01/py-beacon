@@ -286,6 +286,12 @@ class DataFetcher:
         # index take longer than the rest of the suite put together. Cleared
         # whenever the market data underneath it is replaced.
         self._fx_series: dict[tuple[str, str], pd.Series] = {}
+        # Answers asked for again and again in a run (BN-348): a selection
+        # resolves the session and converts the currency of every candidate,
+        # thousands of times a rebalance, for one date and a few currencies.
+        # Cleared with the FX series whenever the data under them changes.
+        self._rates_on: dict[tuple[str, str, pd.Timestamp], float | None] = {}
+        self._sessions_resolved: dict[pd.Timestamp, pd.Timestamp | None] = {}
         # How each cached pair was found: direct, inverse, or a cross (BN-235).
         self._fx_routes: dict[tuple[str, str], str | None] = {}
         # Each currency's short rate series, read once (BN-308).
@@ -489,12 +495,16 @@ class DataFetcher:
             outside the data's coverage on either side.
         """
         as_of = pd.Timestamp(date)
+
+        if as_of in self._sessions_resolved:
+            return self._sessions_resolved[as_of]
+
         first, last = self.date_range
+        found = (None if pd.isna(first) or as_of < first or as_of > last
+                 else self._market.last_session_on_or_before(as_of))
+        self._sessions_resolved[as_of] = found
 
-        if pd.isna(first) or as_of < first or as_of > last:
-            return None
-
-        return self._market.last_session_on_or_before(as_of)
+        return found
 
     @property
     def corporate_actions(self) -> CorporateActions:
@@ -763,6 +773,8 @@ class DataFetcher:
         # cache held over the swap would answer out of the old frame. The
         # session panel is the same story one day wide.
         self._fx_series.clear()
+        self._rates_on.clear()
+        self._sessions_resolved.clear()
         self._fx_routes.clear()
         self._short_rate_series.clear()
         self._free_float_history.clear()
@@ -813,6 +825,8 @@ class DataFetcher:
         a record can make a series a pair or a short rate."""
         self._kinds = self._classified()
         self._fx_series.clear()
+        self._rates_on.clear()
+        self._sessions_resolved.clear()
         self._fx_routes.clear()
         self._short_rate_series.clear()
 
@@ -939,9 +953,12 @@ class DataFetcher:
         # Straight from the column index, with no DataFrame built on the way
         # (BN-213). `get` filtered the whole frame to find one day's rows,
         # which is 13.5 ms against 0.017.
-        values, present = self._market.session_columns(session)
+        # Columns built only as they are read (BN-348): a daily valuation reads
+        # the close alone, and every column for every name was most of this.
+        found = self._market.session_rows(session)
 
-        self._session_panel = SessionPanel.from_columns(session, values, present)
+        self._session_panel = (SessionPanel.from_rows(session, *found) if found is not None
+                               else SessionPanel.from_columns(session, {}, set()))
 
     # -- auxiliary market data -----------------------------------------------
     #
@@ -1053,7 +1070,9 @@ class DataFetcher:
                 continue
 
             value = stored.get(name)
-            prices[name] = None if value is None or pd.isna(value) else float(value)  # type: ignore[arg-type]
+            # NaN is the one value not equal to itself: pandas' `isna` per name
+            # was most of this read's time (BN-348).
+            prices[name] = None if value is None or value != value else float(value)  # type: ignore[arg-type]
 
         return prices
 
@@ -1247,13 +1266,22 @@ class DataFetcher:
             return 1.0
 
         pair = (from_currency.upper(), to_currency.upper())
+        stamp = pd.Timestamp(date)
+        key = (pair[0], pair[1], stamp)
 
+        if key not in self._rates_on:
+            self._rates_on[key] = self._rate_on(pair, stamp)
+
+        return self._rates_on[key]
+
+    def _rate_on(self,
+                 pair: tuple[str, str],
+                 stamp: pd.Timestamp) -> float | None:
+        """The body of :meth:`fx_rate_on`, unmemoised."""
         series = self._rate_series(*pair)
 
         if series.empty:
             return None
-
-        stamp = pd.Timestamp(date)
 
         if self.fx_policy == FX_EXACT_DAY:
             # No carry at all: the rate must have printed on this very day.

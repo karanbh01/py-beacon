@@ -113,6 +113,14 @@ class CountingMarket(MarketData):
 
         return super().session_columns(date)
 
+    def session_rows(self,
+                     date):
+        """Counted on the same terms: since BN-348 `warm_session` reads the
+        day's rows here and builds a column only when it is read."""
+        self.calls.append(date)
+
+        return super().session_rows(date)
+
 
 def counting_fetcher(rows: list[dict[str, object]] | None = None) -> DataFetcher:
     """A fetcher whose market reads are counted."""

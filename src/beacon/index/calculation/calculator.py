@@ -17,7 +17,7 @@ from ..capping import CapReport, apply_cap
 from ..constructor import IndexDefinition
 from ..context import IndexContext
 from ..requirements import require_columns
-from ..result import IndexResult, PriceGap, daily_weights_frame
+from ..result import DailyWeightColumns, IndexResult, PriceGap
 from ..schedule import calendar_coverage, describe_bounds, effective_date, sessions
 from .corporate_actions import CorporateActionsMixin
 from .deletions import DeletionMixin
@@ -34,10 +34,11 @@ from .total_return import REINVESTING, TotalReturnMixin, withholding_for
 logger = logging.getLogger(__name__)
 
 
-def weight_rows(date: pd.Timestamp,
-                units: dict[Asset, float],
-                values: dict[Asset, float]) -> list[dict[str, object]]:
-    """One record per constituent for one day: what was held, and its share.
+def weight_columns(date: pd.Timestamp,
+                   units: dict[Asset, float],
+                   values: dict[Asset, float],
+                   panel: DailyWeightColumns) -> None:
+    """Add one day's records to *panel*: what was held, and its share.
 
     The weights are *realised* shares of the day's aggregate (value over
     total), so they drift with prices between rebalances, and they renormalise
@@ -45,32 +46,27 @@ def weight_rows(date: pd.Timestamp,
     calculation runs rather than derived later from the rebalance snapshot:
     the two only agree on the rebalance date itself.
 
-    Plain dicts, appended during the run and converted once at the end with
-    :func:`~beacon.index.result.daily_weights_frame`.
-
     Args:
         date: The calculation day.
         units: What the index holds after the day's events.
         values: Those holdings valued for *date*, from
-            :meth:`~.market_values.MarketValuesMixin.holding_values`.
+            :meth:`~.market_values.MarketValuesMixin.holding_values`, in the
+            same order as *units*.
+        panel: Where the day's records go.
 
-    Returns:
-        list: Records keyed by :data:`~beacon.index.result.DAILY_WEIGHT_COLUMNS`.
-        A day whose holdings are worth nothing at all records nothing, because
-        it has no weights to record: the level is carried forward on such a
-        day, and a row of zeros would read as "held nothing" rather than
-        "could not be valued".
+    A day whose holdings are worth nothing at all records nothing, because it
+    has no weights to record: the level is carried forward on such a day, and a
+    row of zeros would read as "held nothing" rather than "could not be valued".
     """
     total = sum(values.values())
 
     if total <= 0.0:
-        return []
+        return
 
-    return [{"DATE": date,
-             "IDENTIFIER": asset.asset_id,
-             "AMOUNT": units[asset],
-             "WEIGHT": values[asset] / total}
-            for asset in units]
+    # Columns rather than a dict per row (BN-348); `values` is built in the
+    # order of `units`, so the two zip without looking either up.
+    panel.extend(date, [asset.asset_id for asset in units], list(units.values()),
+                 [value / total for value in values.values()])
 
 
 class IndexCalculator(MarketValuesMixin, DeletionMixin,
@@ -740,7 +736,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
         # the frame, so a 6,000-name decade would hold ~3.6 GB here before
         # collapsing to ~286 MB. Chunked conversion is the fix if that ever
         # binds; nothing in this repository runs at that size yet.
-        daily_records: list[dict[str, object]] = []
+        daily_records = DailyWeightColumns()
 
         # Cash distributions, loaded once. A price index skips this entirely,
         # so it costs nothing and reads no action history — which is what keeps
@@ -949,7 +945,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
 
             index_levels[date] = level
             divisor_values[date] = divisor
-            daily_records.extend(weight_rows(date, units, values))
+            weight_columns(date, units, values, daily_records)
 
             # Deletions are valued on the last day the leaver still had a
             # price, so the loop has to remember which day that was.
@@ -970,7 +966,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             weight_snapshots=weight_snapshots,
             cap_reports=cap_reports,
             announcement_dates=announcements,
-            daily_weights=daily_weights_frame(daily_records),
+            daily_weights=daily_records.frame(),
             calendar_coverage=coverage if coverage.is_partial else None,
             price_gaps=self.recorded_gaps(),
             currency=self.definition.currency,

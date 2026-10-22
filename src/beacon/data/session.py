@@ -2,6 +2,7 @@
 """One market session, read for a whole set of names at once."""
 from collections.abc import Iterable
 
+import numpy as np
 import pandas as pd
 
 
@@ -50,6 +51,8 @@ class SessionPanel:
         self._values: dict[str, dict[str, object]] = {
             str(column): frame[column].to_dict() for column in frame.columns}
         self._identifiers: set[str] = {str(name) for name in frame.index}
+        # The rows a panel made `from_rows` builds its columns from (BN-348).
+        self._lazy: tuple[np.ndarray, np.ndarray, dict[str, np.ndarray]] | None = None
         # Whether this holds every row the data has on its session (BN-347).
         # Then a name it lacks has no row that day, which is the answer the
         # data would give, so it answers for that name too.
@@ -70,6 +73,27 @@ class SessionPanel:
         panel._values = values
         panel._identifiers = identifiers
         # `session_columns` gives every row the data has on the session.
+        panel.complete = True
+        return panel
+
+    @classmethod
+    def from_rows(cls,
+                  session: pd.Timestamp,
+                  names: np.ndarray,
+                  rows: np.ndarray,
+                  arrays: dict[str, np.ndarray]) -> "SessionPanel":
+        """Build a whole-session panel that turns a column into a dict only
+        when that column is read (BN-348).
+
+        A daily valuation reads the close and nothing else, so building every
+        column's dict for every name every day was most of the read.
+        *names* and *rows* are already reversed, as `session_columns` gives
+        them, so a repeated name keeps its first row.
+        """
+        panel = cls(session, pd.DataFrame())
+        panel._identifiers = {str(name) for name in names}
+        panel._lazy = (names, rows, arrays)
+        panel._values = {}
         panel.complete = True
 
         return panel
@@ -93,6 +117,23 @@ class SessionPanel:
             frame = frame.droplevel("DATE")
 
         return cls(session, frame[~frame.index.duplicated(keep="first")])
+
+    def _column(self,
+                name: str) -> dict[str, object] | None:
+        """One column's values by identifier, built on first read for a panel
+        made `from_rows`; None for a column it does not hold."""
+        if name in self._values:
+            return self._values[name]
+
+        lazy = self._lazy
+
+        if lazy is None or name not in lazy[2]:
+            return None
+
+        names, rows, arrays = lazy
+        self._values[name] = dict(zip(names, arrays[name][rows][::-1], strict=True))
+
+        return self._values[name]
 
     def covers(self,
                identifiers: Iterable[str]) -> bool:
@@ -135,7 +176,7 @@ class SessionPanel:
         the same terms as `value`.
         """
         # BN-218.
-        return self._values.get(name, {})
+        return self._column(name) or {}
 
     def value(self,
               identifier: str,
@@ -147,7 +188,7 @@ class SessionPanel:
         "the data does not say", and a caller that has to tell them apart is
         asking a question about the store rather than about the instrument.
         """
-        column_values = self._values.get(column)
+        column_values = self._column(column)
 
         if column_values is None:
             return None

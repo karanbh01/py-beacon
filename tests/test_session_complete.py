@@ -64,3 +64,33 @@ class TestPricesOn:
         source = fetcher()
 
         assert source.prices_on(["AAA", "BBB"], "2024-01-13") == {"AAA": None, "BBB": None}
+
+
+class TestALazyPanel:
+    """BN-348: a whole-session panel builds a column only when it is read."""
+
+    def test_its_columns_are_the_session_columns(self):
+        source = fetcher()
+        source.warm_session(["AAA"], DAYS[1])
+        panel = source._session_panel
+        values, _ = source._market.session_columns(DAYS[1])
+
+        assert panel is not None and panel._values == {}
+        assert panel.column("CLOSE") == values["CLOSE"]
+        assert list(panel._values) == ["CLOSE"]
+
+
+class TestMemoisedAnswers:
+    """BN-348: a resolved session is answered once per date, and a merge
+    starts afresh."""
+
+    def test_a_merge_clears_them(self):
+        source = fetcher()
+        late = DAYS[-1] + pd.Timedelta(days=3)
+
+        assert source.resolve_session(late) is None
+
+        source.merge_market_data(pd.DataFrame({"IDENTIFIER": ["AAA"], "DATE": [late],
+                                               "CLOSE": [20.0]}))
+
+        assert source.resolve_session(late) == late
