@@ -133,3 +133,15 @@ class TestTheCache:
                                                "CLOSE": [1.0], "VOLUME": [1e12]}))
 
         assert average_traded("AAA", date, ScreenContext(source, "USD")) != before
+
+
+class TestTheLastBar:
+    """BN-340: a carried close comes from the cached closes."""
+
+    def test_matches_the_windowed_read_through_a_gap(self):
+        source = fetcher()
+        start, date = pd.Timestamp("2023-05-01"), pd.Timestamp("2023-06-15")
+        closes = histories.history(source, "AAA", None).closes_between(start, date)
+        frame = source.fetch_market_data("AAA", "2023-05-01", "2023-06-15")["CLOSE"].dropna()
+
+        assert (closes.index[-1], closes.iloc[-1]) == (frame.index[-1], frame.iloc[-1])
