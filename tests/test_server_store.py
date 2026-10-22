@@ -491,3 +491,28 @@ class TestTheJobErrorMigration:
                                                   encoding="utf-8")
 
         assert store.read("IDX")["error"] == "not a job"
+
+
+class TestPayloadConversion:
+    """BN-349: a frame's payload is built column by column, with the cells
+    `_json_safe` gave one at a time."""
+
+    def test_matches_the_cell_by_cell_conversion(self):
+        import numpy as np
+        import pandas as pd
+
+        from beacon.server import serialisation
+
+        dates = pd.date_range("2024-01-01", periods=6)
+        frame = pd.DataFrame({"f64": [0.1, np.nan, np.inf, -0.0, 2.5, 1e-300],
+                              "f32": np.arange(6, dtype="float32") / 3,
+                              "i": range(6), "b": [True, False] * 3,
+                              "s": list("abcdef"), "t": dates,
+                              "nullable": pd.array([1, None] * 3, dtype="Int64")}, index=dates)
+        cells = [[serialisation._json_safe(cell) for cell in row]
+                 for row in frame.itertuples(index=False)]
+        payload = serialisation.dataframe_to_payload(frame)
+
+        assert payload["data"] == cells
+        assert [type(cell) for cell in payload["data"][0]] == [type(cell) for cell in cells[0]]
+        assert serialisation.dataframe_to_payload(pd.DataFrame(index=range(3)))["data"] == []

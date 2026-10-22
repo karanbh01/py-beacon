@@ -260,7 +260,10 @@ class DocumentStore:
         handle, temporary = tempfile.mkstemp(dir=self.directory, suffix=".tmp")
         try:
             with os.fdopen(handle, "w", encoding="utf-8") as file:
-                json.dump(stored, file, indent=2, sort_keys=True)
+                # Without an indent, so the C encoder writes it (BN-349):
+                # with one, json falls back to its Python encoder, which took
+                # most of a minute over a 6,000-name backtest's record.
+                json.dump(stored, file, sort_keys=True)
             os.replace(temporary, path)
         except BaseException:
             Path(temporary).unlink(missing_ok=True)

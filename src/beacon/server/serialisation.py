@@ -44,11 +44,34 @@ def dataframe_to_payload(frame: pd.DataFrame) -> dict[str, Any]:
         names), and ``data`` (list of rows, each a list of cell values).
         NaN, NaT and infinities all become None.
     """
+    columns = [_column_values(frame.iloc[:, position]) for position in range(frame.shape[1])]
+
     return {
         "index": [_json_safe(label) for label in frame.index],
         "columns": [str(column) for column in frame.columns],
-        "data": [[_json_safe(cell) for cell in row] for row in frame.itertuples(index=False)],
+        # Column by column, then into rows (BN-349): a numeric column through
+        # numpy's `tolist`, which gives the Python numbers `_json_safe` gave
+        # cell by cell, about twelve million calls on a 6,000-name run.
+        "data": [list(row) for row in zip(*columns, strict=True)],
     }
+
+
+def _column_values(column: pd.Series) -> list[Any]:
+    """One column's cells as `_json_safe` gives them, numeric columns at once."""
+    # Plain numpy dtypes only: a pandas extension dtype (a nullable integer,
+    # say) becomes floats on the way to numpy, where its cells did not.
+    if not isinstance(column.dtype, np.dtype) or column.dtype.kind not in "fiub":
+        return [_json_safe(cell) for cell in column]
+
+    values = column.to_numpy()
+
+    cells: list[Any] = values.tolist()
+
+    if values.dtype.kind == "f":
+        for position in np.flatnonzero(~np.isfinite(values)):
+            cells[position] = None
+
+    return cells
 
 
 def series_to_payload(series: pd.Series) -> dict[str, Any]:
