@@ -26,7 +26,9 @@ answer. Two conversions sit between a stored bar and a usable price:
 # told apart from a hole in the data, which are the same absence with opposite
 # meanings.
 import logging
+from itertools import repeat
 
+import numpy as np
 import pandas as pd
 
 from ..data.fetcher import DataFetcher
@@ -107,11 +109,75 @@ class PricingMixin:
         session, carried bar, recorded gap -- because that is one name on a
         bad day, not the hot path.
         """
+        array = self._close_array(asset_ids, date)
+
+        if array is not None:
+            return self._priced_book(asset_ids, date, array)
+
         closes = self._closes_on(asset_ids, date)
         rates: dict[str, float] = {}
 
         return {asset_id: self._priced(asset_id, date, closes.get(asset_id), rates)
                 for asset_id in asset_ids}
+
+    def _close_array(self,
+                     asset_ids: list[str],
+                     date: pd.Timestamp) -> np.ndarray | None:
+        """The day's closes for *asset_ids* as one array, NaN where a name has
+        none; None when the data cannot answer this way, or fails to."""
+        if not isinstance(self.data_provider, DataFetcher):
+            return None
+
+        try:
+            return self.data_provider.price_array_on(asset_ids, date.strftime("%Y-%m-%d"),
+                                                     self.price_column)
+        except Exception:
+            # The name-by-name path reads again, and logs what fails.
+            return None
+
+    def _priced_book(self,
+                     asset_ids: list[str],
+                     date: pd.Timestamp,
+                     closes: np.ndarray) -> dict[str, float | None]:
+        """:meth:`_priced` for a whole book, on arrays (BN-347).
+
+        A name with a close is converted at its currency's rate, as one
+        product over the book. A name without one goes through `_priced`.
+        Rates are looked up in the order the per-name loop met them, so an
+        unknown pair is refused naming the same holding.
+        """
+        found = ~np.isnan(closes)
+        priced = np.flatnonzero(found)
+        names = [asset_ids[position] for position in priced]
+        raw = closes[priced].tolist()
+        currencies = [self._currency_of(name) for name in names]
+        self._last_bars.update(zip(names, zip(repeat(date), raw), strict=True))
+
+        # Each name without a close, and the first priced name in each
+        # currency, in the book's order.
+        firsts = [int(priced[currencies.index(currency)])
+                  for currency in dict.fromkeys(currencies)]
+        missing = np.flatnonzero(~found).tolist()
+        rates: dict[str, float] = {}
+        prices: dict[str, float | None] = dict.fromkeys(asset_ids)
+
+        for position in sorted(set(missing).union(firsts)):
+            asset_id = asset_ids[position]
+
+            if found[position]:
+                self._rate_for(asset_id, date, rates)
+            else:
+                prices[asset_id] = self._priced(asset_id, date, None, rates)
+
+        # As `_rate_for` answers: 1 in the book's own currency, else the rate
+        # the first holding in it looked up.
+        rate_of = {currency: 1.0 if currency is None or currency == self.currency
+                   else rates[currency] for currency in dict.fromkeys(currencies)}
+        converted = (np.asarray(raw) * np.asarray([rate_of[currency]
+                                                    for currency in currencies])).tolist()
+        prices.update(zip(names, converted, strict=True))
+
+        return prices
 
     def _priced(self,
                 asset_id: str,
@@ -341,7 +407,17 @@ class PricingMixin:
         this name's silence on it is the name's, not the market's.
         """
         if self.calendar is not None:
-            return is_session(date, self.calendar)
+            # Once per day (BN-352): a gap is asked about for each name that
+            # did not print, tens of thousands of times a run, and each
+            # answer built the calendar's sessions afresh.
+            answers: dict[tuple[str, pd.Timestamp], bool] = self.__dict__.setdefault(
+                "_open_days", {})
+            key = (self.calendar, date)
+
+            if key not in answers:
+                answers[key] = is_session(date, self.calendar)
+
+            return answers[key]
 
         return bool(session == date)
 

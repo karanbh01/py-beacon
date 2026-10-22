@@ -596,3 +596,30 @@ class TestTheEngineUsesTheLibrarysOneConversion:
 
         assert (engine._rate_for("UKCO", date)
                 == fetcher.fx_rate_on("GBP", "USD", date))
+
+
+class TestABookPricedOnArrays:
+    """BN-347: a day's book priced as one array gives the per-name answers,
+    gaps and all."""
+
+    def test_matches_the_name_by_name_read(self,
+                                           monkeypatch):
+        fetcher = build_fetcher(missing={"AAA": {OPEN_DAY}}, stop_prices={"BBB": "2021-01-25"})
+        days = [OPEN_DAY, pd.Timestamp("2021-01-21"), pd.Timestamp("2021-01-27")]
+        names = ["AAA", "BBB", "ZZZ"]
+
+        arrays = build_engine(fetcher, pd.Timestamp(START))
+        by_name = build_engine(fetcher, pd.Timestamp(START))
+        monkeypatch.setattr(by_name, "_close_array", lambda *args: None)
+
+        for engine in (arrays, by_name):
+            engine._last_bars = {}
+            engine._price_gaps, engine._gaps_seen = [], set()
+            engine._delistings, engine._currencies = {}, {}
+
+        for day in days:
+            assert arrays._prices_for(names, day) == by_name._prices_for(names, day)
+
+        assert arrays._last_bars == by_name._last_bars
+        assert arrays._price_gaps == by_name._price_gaps
+        assert [gap.asset_id for gap in arrays._price_gaps] == ["AAA", "BBB"]
