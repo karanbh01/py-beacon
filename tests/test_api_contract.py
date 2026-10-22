@@ -141,7 +141,9 @@ BACKTEST_RUN_FIELDS = {"level", "returns", "drawdown", "annual_returns",
                        "swap_value", "counterparty_exposure", "swap_resets",
                        "futures_notional", "futures_exposure", "futures_rolls",
                        # BN-323: the run against its index and its benchmark.
-                       "comparisons"}
+                       "comparisons",
+                       # BN-356: the dividends owed, which the NAV includes.
+                       "dividends_receivable"}
 BACKTEST_RUN_REQUIRED = {"level", "returns", "drawdown", "annual_returns",
                          "index_level", "metrics"}
 

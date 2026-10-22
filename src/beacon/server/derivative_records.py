@@ -1,6 +1,6 @@
 # src/beacon/server/derivative_records.py
 """
-What a fund's swap and index futures add to a run's result.
+What a fund's swap, index futures and dividends owed add to a run's result.
 
 A synthetic fund's swap: its value and the counterparty exposure it makes each
 day, and each reset. A fund's index futures, whether it holds the index
@@ -22,6 +22,11 @@ def derivative_payloads(result: BacktestResult,
                         days: pd.Index) -> dict[str, Any]:
     """The swap and futures records a run's payload carries."""
     payloads: dict[str, Any] = {}
+
+    # BN-356: not a derivative, but like the swap a part of the NAV the
+    # portfolio does not hold.
+    if (result.dividends_receivable != 0.0).any():
+        payloads["dividends_receivable"] = _on(result.dividends_receivable, days)
 
     if not result.swap_value.empty:
         payloads.update(

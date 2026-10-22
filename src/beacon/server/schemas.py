@@ -4353,6 +4353,12 @@ class BacktestRunResult(BaseModel):
         default=None,
         description="The hedged classes' forwards together, in the book's currency; "
                     "null without a hedged class.")
+    # BN-356.
+    dividends_receivable: SeriesPayload | None = Field(
+        default=None,
+        description="The dividends the fund is owed at the end of each day, in the book's "
+                    "currency: gone ex, not yet paid, net of withholding tax. The NAV "
+                    "includes them. Null for a run that is never owed one.")
     # BN-315.
     swap_value: SeriesPayload | None = Field(
         default=None,

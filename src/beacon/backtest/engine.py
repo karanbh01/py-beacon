@@ -548,6 +548,10 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             # 1. Update prices for existing holdings
             self._update_portfolio_prices(portfolio, date)
 
+            # 1'. The dividends owed and not yet paid, at today's rates, which
+            # the NAV includes from their ex-date (BN-356).
+            self._mark_receivable(date)
+
             # 1a. The swap's value at today's prices, before flows are dealt
             # at a NAV per unit that includes it.
             self._mark_swap(portfolio, last, date)
@@ -692,5 +696,6 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             futures_notional=pd.Series(self._futures_notional, dtype=float),
             futures_rolls=list(self._futures_rolls),
             hedge_value=pd.Series(self._hedge_history, dtype=float),
+            dividends_receivable=pd.Series(self._receivable_history, dtype=float),
             share_classes=self._class_books(),
         ).with_data(self.data_provider)

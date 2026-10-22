@@ -183,11 +183,17 @@ source country when the vehicle has a domicile (see
 pay date is still paid. Cancelled distributions are ignored, and the price
 data must already show the ex-date drop, as an unadjusted feed does.
 
+From the ex-date until it is paid, the dividend is a receivable: the NAV
+includes it, at the day's exchange rate and net of withholding tax, as a
+fund's accounts do, so the NAV does not dip on the ex-date and recover on the
+pay date. It is not cash, so nothing is bought with it until it arrives.
+`result.dividends_receivable` holds it for each day.
+
 `Backtest(dividends=...)` decides what happens to the cash:
 
 | Policy | The cash |
 | --- | --- |
-| `"reinvest"` (default) | buys the current holdings, in proportion to their value, the day it arrives, as a total-return index assumes |
+| `"reinvest"` (default) | is invested the day it arrives: in the name that paid it, or across the holdings in proportion to their value with `reinvest_into="holdings"` |
 | `"cash"` | stays in the book as cash and is invested at the next rebalance |
 | `"distribute"` | is paid out of the book; returns add it back, so performance is still total return |
 
@@ -519,9 +525,11 @@ Differences come from what the index does not model or models differently:
   an execution limit trades into them over several days, and a name with no
   price leaves its weight in cash.
 - **Distributions.** A `TOTAL_RETURN` or `NET_TOTAL_RETURN` index reinvests
-  a dividend on its ex-date. The book is paid it on the pay date and, by
-  default, reinvests it that day, so the two agree exactly when the pay date
-  is the ex-date. With `dividends="cash"` the book holds the cash until the
+  a dividend on its ex-date. The book counts it in its NAV from the ex-date,
+  but is paid it on the pay date and, by default, reinvests it then, so
+  until it is paid the dividend earns nothing in the book. The two agree
+  exactly when the pay date is the ex-date. A `PRICE` index leaves dividends
+  out, so a book that keeps them beats it by about the dividend yield. With `dividends="cash"` the book holds the cash until the
   next rebalance (see [Dividends](#dividends)). Set `withholding_tax_rate` to
   the index's rate to track a net-total-return index.
 - **Price gaps.** On an open session with no bar, both carry the name's last

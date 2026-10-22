@@ -91,6 +91,7 @@ class AccountingMixin:
     _fees_payable: float
     _swap_value: float
     _hedge_value: float
+    _receivable: float
     _ledgers: list[Any]
 
     def _start_classes(self,
@@ -199,10 +200,10 @@ class AccountingMixin:
     def _net_value(self,
                    portfolio: Portfolio) -> float:
         """The fund's net assets: what it holds, less the fee it owes, plus
-        a synthetic fund's swap and hedged share classes' forwards (zero for
-        any other)."""
-        return (portfolio.get_total_value() - self._fees_payable + self._swap_value
-                + self._hedge_value)
+        the dividends it is owed, a synthetic fund's swap and hedged share
+        classes' forwards (zero for any other)."""
+        return (portfolio.get_total_value() - self._fees_payable + self._receivable
+                + self._swap_value + self._hedge_value)
 
     def _nav_per_unit(self,
                       portfolio: Portfolio) -> float:

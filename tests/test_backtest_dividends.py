@@ -272,3 +272,56 @@ class TestWhereReinvestmentGoes:
     def test_an_unknown_target_is_refused(self):
         with pytest.raises(ValueError, match="reinvestment"):
             run(reinvest_into="everything")
+
+
+class TestWhatTheBookIsOwed:
+    """BN-356: from the ex-date the NAV includes the dividend the book is
+    owed, so it does not dip and recover against an index that reinvests it
+    on the ex-date."""
+
+    PAY = DAYS[25]
+
+    def test_on_the_ex_date_the_book_is_the_index(self):
+        data = fetcher(pay_date=self.PAY)
+        index = total_return_index(data)
+        result = run(data, index)
+
+        levels = index.index_levels / index.index_levels.iloc[0]
+        nav = result.trading_nav / CAPITAL
+
+        assert nav.loc[EX] == pytest.approx(levels.loc[EX], rel=1e-9)
+
+    def test_it_does_not_dip_before_the_pay_date(self):
+        """Until the cash comes the owed dividend earns nothing, where the
+        index has it reinvested, so the two part only by that."""
+        data = fetcher(pay_date=self.PAY)
+        index = total_return_index(data)
+        nav = run(data, index).trading_nav / CAPITAL
+        levels = (index.index_levels / index.index_levels.iloc[0]).reindex(nav.index)
+
+        gap = (nav / levels - 1.0).loc[EX:self.PAY]
+
+        assert gap.abs().max() < 1e-3
+
+    def test_it_is_owed_from_the_ex_date_until_paid(self):
+        result = run(fetcher(pay_date=self.PAY))
+        owed = result.dividends_receivable
+
+        assert owed.loc[:DAYS[19]].eq(0.0).all()
+        assert owed.loc[EX:DAYS[24]].to_numpy() == pytest.approx(
+            shares_at_ex() * DIVIDEND_PER_SHARE)
+        assert owed.loc[self.PAY:].eq(0.0).all()
+
+    def test_net_of_withholding(self):
+        result = run(fetcher(pay_date=self.PAY), modelling_assumptions=ModellingAssumptions(
+            withholding_tax_rate=0.15))
+
+        assert result.dividends_receivable.loc[EX] == pytest.approx(
+            shares_at_ex() * DIVIDEND_PER_SHARE * 0.85)
+
+    def test_nothing_is_bought_with_it_before_it_is_paid(self):
+        result = run(fetcher(pay_date=self.PAY))
+        buys = {trade.transaction_date for trade in result.portfolio.transactions
+                if trade.transaction_type == "BUY" and trade.transaction_date > DAYS[0]}
+
+        assert buys == {self.PAY}

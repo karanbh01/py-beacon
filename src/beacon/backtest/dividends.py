@@ -158,6 +158,34 @@ class DividendsMixin:
         self._cash_events = cash_events(self.data_provider)
         self._owed: list[Entitlement] = []
         self._withheld: dict[str, float] = {}
+        self._receivable = 0.0
+        self._receivable_history: dict[pd.Timestamp, float] = {}
+
+    def _mark_receivable(self,
+                         date: pd.Timestamp) -> None:
+        """Value what the book is owed and not yet paid, at *date*'s rates
+        and net of withholding, and record it.
+
+        The NAV includes it from the ex-date, as a fund's accounts do: the
+        holding falls by the dividend on the ex-date, and leaving the
+        dividend out until the pay date made the NAV dip and recover against
+        an index that reinvests it on the ex-date. It is not cash, so nothing
+        is bought with it until it is paid.
+        """
+        # BN-356: against Karan's TTIX as a total-return index, tracking
+        # error 0.81% with the dividend left out until paid, 0.16% with it
+        # counted from the ex-date.
+        rates: dict[str, float] = {}
+        owed = 0.0
+
+        for entitlement in self._owed:
+            event = entitlement.event
+            owed += (entitlement.shares * event.per_share
+                     * self._rate_for(event.asset_id, date, rates)
+                     * (1.0 - self._withholding(event.asset_id, date)))
+
+        self._receivable = owed
+        self._receivable_history[date] = owed
 
     def _record_entitlements(self,
                              portfolio: Portfolio,
