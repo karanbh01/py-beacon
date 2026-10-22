@@ -353,3 +353,50 @@ class TestReinvestInto:
                                             client):
         assert paths(validate(client, reinvest_into="everything")) == {
             "reinvest_into": "invalid_value"}
+
+
+class TestTheCashBand:
+    """BN-358: the cash band and the futures' whole contracts, multiplier and
+    band are request settings."""
+
+    def test_they_reach_the_run(self,
+                                client):
+        result = run_backtest(client, implementation={
+            "cash_buffer": 0.05, "cash_band": {"lower": 0.03, "upper": 0.07},
+            "equitise": {"whole_contracts": False, "multiplier": 10.0, "band": 0.01}})
+        implementation = result["settings"]["implementation"]
+
+        assert implementation["cash_band"] == {"lower": 0.03, "upper": 0.07}
+        assert implementation["equitise"] == {"whole_contracts": False, "multiplier": 10.0,
+                                              "band": 0.01}
+
+    @staticmethod
+    def saved(client,
+              implementation: dict):
+        """Validate a stored strategy carrying *implementation*."""
+        return client.post("/strategies/validate", headers=auth(),
+                           json={"id": "S", "name": "S", "index_id": "BT",
+                                 "implementation": implementation})
+
+    def test_a_band_that_misses_the_buffer_is_found(self,
+                                                     client):
+        response = self.saved(client, {"cash_buffer": 0.05,
+                                       "cash_band": {"lower": 0.06, "upper": 0.07}})
+
+        assert "cash_band" in response.text
+
+    @pytest.mark.parametrize("equitise", [{"whole_contracts": 1}, {"band": True}])
+    def test_a_flag_and_a_number_are_not_mixed_up(self,
+                                                  client,
+                                                  equitise):
+        response = self.saved(client, {"equitise": equitise})
+
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_the_options_describe_them(self,
+                                       options):
+        described = {field["name"] for field in options["implementation_settings"]}
+
+        assert {"cash_band.lower", "cash_band.upper", "equitise.multiplier",
+                "equitise.whole_contracts", "equitise.band"} <= described

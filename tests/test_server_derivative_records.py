@@ -179,7 +179,9 @@ class TestTheFutures:
         assert [roll["date"][:7] for roll in rolls] == ["2024-03", "2024-06", "2024-09",
                                                         "2024-12"]
         for roll in rolls:
-            assert roll["contracts"] * roll["price"] == pytest.approx(roll["notional"])
+            assert roll["contracts"] == int(roll["contracts"])
+            assert (roll["contracts"] * roll["price"] * roll["multiplier"]
+                    == pytest.approx(roll["notional"]))
             assert roll["cost"] > 0
             assert roll["expiry"] > roll["date"]
 

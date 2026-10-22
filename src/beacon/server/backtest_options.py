@@ -86,6 +86,12 @@ IMPLEMENTATION_DISPLAYS = {
     "equitise.roll_cost_bps": Display("Cost of each futures roll", unit=BPS, minimum=0.0),
     "equitise.dividend_yield": Display("Index dividend yield", unit=FRACTION, minimum=0.0,
                                        help="Leave blank to estimate it."),
+    # BN-358.
+    "equitise.multiplier": Display("Value of an index point", unit=MONEY, minimum=0.0,
+                                   help="Per futures contract, in the book's currency."),
+    "equitise.whole_contracts": Display("Whole futures contracts"),
+    "equitise.band": Display("Resize futures when exposure drifts by", unit=FRACTION,
+                             minimum=0.0, maximum=1.0, help="A share of the net assets."),
 }
 
 # BN-314.
@@ -198,7 +204,16 @@ def _implementation_settings() -> list[ParameterSpec]:
                           unit=FRACTION, minimum=0.0, maximum=1.0),
             ParameterSpec(name="invest_flows", type=catalogue.STRING, required=False,
                           default="target", label="Inflows buy", order=len(specs) + 2,
-                          choices=list(FLOW_INVESTMENTS))]
+                          choices=list(FLOW_INVESTMENTS)),
+            # BN-358.
+            ParameterSpec(name="cash_band.lower", type=catalogue.NUMBER, required=False,
+                          default=None, label="Lowest cash", order=len(specs) + 3,
+                          unit=FRACTION, minimum=0.0, maximum=1.0,
+                          help="Below it, holdings are sold back to the cash buffer."),
+            ParameterSpec(name="cash_band.upper", type=catalogue.NUMBER, required=False,
+                          default=None, label="Highest cash", order=len(specs) + 4,
+                          unit=FRACTION, minimum=0.0, maximum=1.0,
+                          help="Above it, cash is invested back down to the cash buffer.")]
 
 
 def _run_settings() -> list[ParameterSpec]:

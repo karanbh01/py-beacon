@@ -25,6 +25,7 @@ from ..strategy.futures import IndexFutures
 from ..strategy.synthetic import SwapTerms
 from .accounting import AccountingMixin
 from .books import benchmark_book, index_books
+from .cash_band import CashBandMixin
 from .costs import WorkingOrder
 from .dividends import (
     DISTRIBUTE,
@@ -77,7 +78,7 @@ logger = logging.getLogger(__name__)
 # ShareClassesMixin comes before AccountingMixin and DividendsMixin, which
 # declare the methods it provides.
 class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionMixin,
-                     AccountingMixin, ListingsMixin, SwapMixin, FuturesMixin,
+                     AccountingMixin, CashBandMixin, ListingsMixin, SwapMixin, FuturesMixin,
                      HedgingMixin):
     """Simulates portfolio execution against a target weight schedule.
 
@@ -620,10 +621,14 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             if reset is not None:
                 self._open_swap(portfolio, date, reset, settled)
 
+            # 2a'. Between rebalances, the cash brought back to its target if
+            # it has left its band (BN-358).
+            banded = target_w is None and self._keep_cash_in_band(portfolio, date)
+
             # 2b'. Index futures opened, rolled or resized once the day's
             # trading is done (BN-305).
             self._adjust_futures(portfolio, date, target_w is not None,
-                                 len(self._flow_records) > dealt)
+                                 len(self._flow_records) > dealt or banded)
 
             # 2b''. Hedged share classes' forwards opened, rolled or resized
             # (BN-307).

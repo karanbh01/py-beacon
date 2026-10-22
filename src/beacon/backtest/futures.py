@@ -16,10 +16,11 @@ and T the time to expiry over calendar days (ACT/365). See
 
 The position opens at the first rebalance, rolls to the next contract the set
 number of sessions before expiry (paying the roll cost on its notional), and
-is resized to its target at each rebalance, each roll and on any day money
-flows in or out: the fund's net assets for a futures-based fund, its
-uninvested cash for one equitising a buffer. Between those days its exposure
-drifts with the market, as a real position's does.
+is resized to its target at each rebalance, each roll, on any day money flows
+in or out, and on any other day its exposure has drifted from the target by
+more than the band: the fund's net assets for a futures-based fund, its
+uninvested cash for one equitising. Each contract is worth its price times
+the multiplier, and the contracts are whole unless the terms say otherwise.
 """
 # BN-305. Variation margin rather than a valued position: the cash already
 # moves with the futures, so the NAV needs no second term (unlike the swap of
@@ -55,10 +56,10 @@ class FuturesRoll:
         notional: The exposure carried into the new contract.
         cost: What the roll cost, paid from cash.
         dividend_yield: The dividend yield the new contract is priced with.
-        contracts: How many contracts of the new expiry were held, each on
-            one unit of the index, so the contracts times the price is the
-            notional.
+        contracts: How many contracts of the new expiry were held; the
+            contracts times the price times the multiplier is the notional.
         price: The new contract's price, at fair value.
+        multiplier: The value of one index point per contract.
     """
     date: pd.Timestamp
     expiry: pd.Timestamp
@@ -68,6 +69,8 @@ class FuturesRoll:
     # BN-315: for the API's record of each roll.
     contracts: float = 0.0
     price: float = 0.0
+    # BN-358.
+    multiplier: float = 1.0
 
 
 class FuturesMixin:
@@ -125,7 +128,8 @@ class FuturesMixin:
             return
 
         price = self._fair_value(date, self._expiry)
-        self._settle_margin(portfolio, self._contracts * (price - self._futures_price), date)
+        self._settle_margin(portfolio, self._contracts * (price - self._futures_price)
+                            * self._multiplier, date)
         self._futures_price = price
 
     def _adjust_futures(self,
@@ -156,17 +160,22 @@ class FuturesMixin:
         if cost > 0.0:
             self._settle_margin(portfolio, -cost, date)
 
-        if rolling or rebalancing or flowed or self._contracts == 0.0:
-            target = self._futures_target(portfolio)
-            self._contracts = target / self._futures_price if self._futures_price > 0.0 else 0.0
+        # Between those days, resized once the exposure has drifted from its
+        # target by more than the band (BN-358): delisting proceeds, a
+        # dividend kept as cash or a fee all move the cash the futures cover.
+        if (rolling or rebalancing or flowed or self._contracts == 0.0
+                or self._outside_band(portfolio, terms)):
+            self._contracts = terms.contracts(self._futures_target(portfolio),
+                                              self._futures_price)
 
         if rolling:
-            notional = self._contracts * self._futures_price
+            notional = self._contracts * self._futures_price * terms.multiplier
             self._futures_rolls.append(FuturesRoll(date=date, expiry=self._expiry,
                                                    notional=notional, cost=cost,
                                                    dividend_yield=self._futures_yield,
                                                    contracts=self._contracts,
-                                                   price=self._futures_price))
+                                                   price=self._futures_price,
+                                                   multiplier=terms.multiplier))
             logger.debug("[%s] Futures rolled to %s: notional %.2f, cost %.2f.",
                          date.date(), self._expiry.date(), notional, cost)
 
@@ -174,7 +183,24 @@ class FuturesMixin:
                         date: pd.Timestamp) -> None:
         """Record the notional the position carried at the close."""
         if self._futures_terms is not None:
-            self._futures_notional[date] = self._contracts * self._futures_price
+            self._futures_notional[date] = (self._contracts * self._futures_price
+                                            * self._multiplier)
+
+    @property
+    def _multiplier(self) -> float:
+        """The value of one index point per contract, 1 with no futures."""
+        terms = self._futures_terms
+
+        return terms.multiplier if terms is not None else 1.0
+
+    def _outside_band(self,
+                      portfolio: Portfolio,
+                      terms: IndexFutures) -> bool:
+        """Whether the exposure is further from its target than the band."""
+        exposure = self._contracts * self._futures_price * terms.multiplier
+        gap = abs(exposure - self._futures_target(portfolio))
+
+        return gap > terms.band * max(self._net_value(portfolio), 0.0)
 
     def _futures_target(self,
                         portfolio: Portfolio) -> float:

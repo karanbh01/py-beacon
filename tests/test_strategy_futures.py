@@ -80,7 +80,10 @@ def growth(series: pd.Series) -> float:
     return float(series.iloc[-1] / series.iloc[0])
 
 
-NO_YIELD = {"dividend_yield": 0.0}
+# Fractional contracts, so the exposure is exactly the target and the tests
+# below can check the arithmetic to the last digit. Whole contracts, the
+# default since BN-358, are tested in TestWholeContracts.
+NO_YIELD = {"dividend_yield": 0.0, "whole_contracts": False}
 
 
 @pytest.fixture(scope="module")
@@ -247,7 +250,8 @@ class TestTheCatalogue:
         entry = catalogue.entry_for(catalogue.REPLICATION, "FuturesReplication")
 
         assert {parameter.name for parameter in entry.parameters} == {
-            "roll_days", "roll_cost_bps", "dividend_yield"}
+            "roll_days", "roll_cost_bps", "dividend_yield", "multiplier", "whole_contracts",
+            "band"}
 
     def test_its_settings_round_trip(self):
         from beacon.server.backtest_settings import typed_payload
@@ -257,4 +261,59 @@ class TestTheCatalogue:
 
         assert payload == {"type": "FuturesReplication",
                            "params": {"roll_days": 3, "roll_cost_bps": 1.5,
-                                      "dividend_yield": None}}
+                                      "dividend_yield": None, "multiplier": 50.0,
+                                      "whole_contracts": True, "band": 0.0025}}
+
+
+class TestWholeContracts:
+    """BN-358: a contract is worth its price times the multiplier, the
+    position holds a whole number of them, and it is resized whenever its
+    exposure drifts from the target by more than the band."""
+
+    def test_the_position_is_a_whole_number_of_contracts(self):
+        result = run(futures(dividend_yield=0.0))
+
+        assert result.futures_rolls
+        assert all(roll.contracts == int(roll.contracts) for roll in result.futures_rolls)
+        assert all(roll.notional == pytest.approx(roll.contracts * roll.price * 50.0)
+                   for roll in result.futures_rolls)
+
+    def test_the_exposure_is_within_half_a_contract_of_the_target(self):
+        result = run(futures(dividend_yield=0.0))
+
+        for step in result.replication:
+            roll = result.futures_rolls[0]
+            half = 0.5 * roll.price * 50.0 / 1e7
+            assert abs(result.futures_exposure[step.date] - 1.0) <= half * 1.1
+
+    def test_rounding_is_the_nearest_whole_contract(self):
+        terms = IndexFutures(multiplier=10.0)
+
+        assert terms.contracts(14_900.0, 1000.0) == 1.0
+        assert terms.contracts(15_100.0, 1000.0) == 2.0
+        assert IndexFutures(multiplier=10.0, whole_contracts=False).contracts(
+            15_100.0, 1000.0) == pytest.approx(1.51)
+
+    @pytest.mark.parametrize(("terms", "message"), [
+        ({"multiplier": 0.0}, "multiplier"),
+        ({"band": -0.1}, "band"),
+        ({"band": 1.0}, "band"),
+        ({"whole_contracts": "yes"}, "whole_contracts"),
+    ])
+    def test_settings_out_of_range_are_refused(self, terms, message):
+        with pytest.raises(ValueError, match=message):
+            IndexFutures(**terms)
+
+
+class TestTheDailyBand:
+    """BN-358: equitising futures follow the cash between rebalances."""
+
+    def test_cash_freed_between_rebalances_is_covered(self):
+        """Without a rebalance or a flow, cash moved by an outflow-free event
+        (here a dividend kept as cash) is covered within the band."""
+        result = run(index(), dividends="cash", implementation=Implementation(
+            cash_buffer=0.05, equitise=IndexFutures(dividend_yield=0.0, whole_contracts=False)))
+        cash = result.portfolio.cash / result.trading_nav
+        exposure = result.futures_exposure.reindex(cash.index)
+
+        assert (exposure - cash).abs().max() <= 0.0025 + 1e-9

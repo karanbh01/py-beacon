@@ -157,10 +157,15 @@ yield, less the cost of rolling.
   whose level already counts its dividends. For a price index it is estimated
   at each roll from the constituents' dividends over the trailing twelve
   months, at their index weights, unless `dividend_yield` gives one.
-- **Sizing.** The position is sized to the fund's net assets when it opens,
-  at each rebalance and roll, and on any day money flows in or out, and
-  drifts with the market between. Contracts are fractional, and initial
-  margin is not modelled, since it is the fund's own cash.
+- **Sizing.** A contract is worth its price times `multiplier`, the value of
+  one index point (50 by default, as an S&P 500 e-mini's is in dollars). The
+  position is sized to the fund's net assets when it opens, at each rebalance
+  and roll, on any day money flows in or out, and on any other day its
+  exposure has drifted from that by more than `band` of the net assets
+  (0.25% by default). Contracts are whole by default, so the exposure is the
+  nearest a whole number of contracts comes; `whole_contracts=False` holds
+  fractional ones that carry exactly the target. Initial margin is not
+  modelled, since it is the fund's own cash.
 
 `result.futures_notional`, `result.futures_rolls` and
 `result.futures_exposure` record the position. The same futures can

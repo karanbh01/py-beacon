@@ -40,7 +40,10 @@ A `cash_buffer` keeps that share of the book in cash: each rebalance invests
 the rest, and an outflow is paid from cash before anything is sold. Money
 arriving between rebalances is invested the day it arrives, toward the last
 rebalance's weights (``invest_flows="target"``, the default) or in proportion
-to the holdings (``"holdings"``), keeping the buffer topped up first.
+to the holdings (``"holdings"``), keeping the buffer topped up first. A
+`cash_band` around the buffer is checked every day: cash above it is
+invested back down to the buffer, and cash below it raised back up to it
+(see `beacon.backtest.cash_band`).
 """
 # BN-264. Capacity caps (BN-265) and execution limits and market impact
 # (BN-266) join this object as further stages; the cash buffer and how flows
@@ -86,6 +89,9 @@ class Implementation:
             (the default) across the remaining names, or ``"cash"``.
         cash_buffer: The share of the book kept in cash, such as 0.02 for 2%.
             Outflows are paid from cash first.
+        cash_band: The lowest and highest share of the book the cash may
+            be before it is brought back to *cash_buffer*, checked every
+            day; None (the default) leaves it to the next rebalance.
         invest_flows: What money arriving between rebalances buys: the last
             rebalance's weights (``"target"``, the default) or the holdings
             in proportion to their value (``"holdings"``).
@@ -95,7 +101,8 @@ class Implementation:
 
     Raises:
         ValueError: If *redistribution* or *invest_flows* is not one of its
-            choices, or *cash_buffer* is not from 0 up to 1.
+            choices, *cash_buffer* is not from 0 up to 1, or *cash_band* does
+            not hold it.
     """
 
     def __init__(self,
@@ -107,7 +114,8 @@ class Implementation:
                  redistribution: str = PRO_RATA,
                  cash_buffer: float = 0.0,
                  invest_flows: str = TARGET,
-                 equitise: IndexFutures | None = None):
+                 equitise: IndexFutures | None = None,
+                 cash_band: tuple[float, float] | None = None):
         if redistribution not in REDISTRIBUTIONS:
             raise ValueError(f"Unknown redistribution {redistribution!r}. "
                              f"Supported: {', '.join(REDISTRIBUTIONS)}.")
@@ -120,6 +128,14 @@ class Implementation:
             raise ValueError(f"cash_buffer is a share of the book from 0 up "
                              f"to 1, got {cash_buffer!r}.")
 
+        if cash_band is not None:
+            lower, upper = cash_band
+
+            if not 0.0 <= lower <= cash_buffer <= upper < 1.0:
+                raise ValueError(f"cash_band runs from a lower to an upper share of the "
+                                 f"book around cash_buffer ({cash_buffer!r}), from 0 up "
+                                 f"to 1, got {cash_band!r}.")
+
         self.screens: tuple[Screen, ...] = tuple(screens)
         self.caps: tuple[CapacityCap, ...] = tuple(caps)
         self.minimum_position = minimum_position
@@ -129,6 +145,8 @@ class Implementation:
         self.cash_buffer = cash_buffer
         self.invest_flows = invest_flows
         self.equitise = equitise
+        # BN-358.
+        self.cash_band = cash_band
 
     def __repr__(self) -> str:
         screens = ", ".join(screen.name for screen in self.screens)

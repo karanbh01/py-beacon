@@ -388,7 +388,20 @@ buying, and an outflow draws on it first. Add `equitise=IndexFutures()` and
 the fund holds index futures on the cash it keeps uninvested, so the buffer
 earns the index's return rather than cash's (see
 [futures-based replication](strategies.md#futures-based-replication) for how
-they are priced and rolled).
+they are priced and rolled). The futures are checked every day and resized
+once their exposure is further from the cash than their `band` (0.25% of the
+net assets by default), so cash that arrives between rebalances, such as a
+delisted holding's proceeds, is covered.
+
+**Cash band.** Between rebalances the cash moves: a delisted holding is
+settled into it, a dividend kept as cash lands in it, fees and margin are
+paid from it. `Implementation(cash_buffer=0.01, cash_band=(0.005, 0.02))`
+checks it at the close of every day. Above 2% of the book, the cash above the
+buffer is invested, as an inflow is; below 0.5%, holdings are sold pro rata
+back up to the buffer; inside the band nothing is traded. Without a band
+(the default) the cash waits for the next rebalance. With
+`dividends="cash"`, a dividend then stays as cash until the band's upper edge
+or the next rebalance, whichever comes first.
 
 **The vehicle and its fee.** `Vehicle(management_fee_bps=20)` charges 0.20% a
 year, accrued every calendar day on the net assets (ACT/365). It is owed as a

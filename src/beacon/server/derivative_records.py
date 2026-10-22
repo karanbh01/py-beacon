@@ -43,6 +43,7 @@ def derivative_payloads(result: BacktestResult,
             futures_rolls=[FuturesRollPayload(date=str(roll.date.date()),
                                               expiry=str(roll.expiry.date()),
                                               contracts=roll.contracts, price=roll.price,
+                                              multiplier=roll.multiplier,
                                               notional=roll.notional, cost=roll.cost,
                                               dividend_yield=roll.dividend_yield)
                            for roll in result.futures_rolls])

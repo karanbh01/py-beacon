@@ -3393,6 +3393,16 @@ class StrategySpec(BaseModel):
                     "to be measured; 126 when null.")
 
 
+class CashBandSpec(BaseModel):
+    """The shares of the book the cash may move between before it is brought
+    back to the cash buffer."""
+    model_config = ConfigDict(extra="forbid")
+    lower: Number = Field(ge=0.0, lt=1.0, description="The lowest share of the book in "
+                                                       "cash, a fraction.")
+    upper: Number = Field(ge=0.0, lt=1.0, description="The highest share of the book in "
+                                                       "cash, a fraction.")
+
+
 class ImplementationSpec(BaseModel):
     """How the strategy is carried out at the fund's size."""
     model_config = ConfigDict(extra="forbid")
@@ -3423,12 +3433,37 @@ class ImplementationSpec(BaseModel):
         default="target",
         description="What money arriving between rebalances buys: 'target' "
                     "(the last rebalance's weights) or 'holdings'.")
-    equitise: dict[str, Number | None] | None = Field(
+    equitise: dict[str, Number | bool | None] | None = Field(
         default=None,
         description="Index futures held on the uninvested cash, so the buffer "
-                    "earns the index's return: `roll_days`, `roll_cost_bps` and "
-                    "`dividend_yield` (null to estimate it). Null leaves the cash "
-                    "as cash.")
+                    "earns the index's return: `roll_days`, `roll_cost_bps`, "
+                    "`dividend_yield` (null to estimate it), `multiplier` (the value "
+                    "of an index point per contract, 50 by default), "
+                    "`whole_contracts` (true by default) and `band` (how far the "
+                    "exposure may drift from the cash before the futures are resized, "
+                    "as a share of the net assets; 0.0025 by default). Null leaves the "
+                    "cash as cash.")
+    # BN-358.
+    cash_band: CashBandSpec | None = Field(
+        default=None,
+        description="Checked every day between rebalances: cash above `upper` is "
+                    "invested down to `cash_buffer`, and cash below `lower` raised back "
+                    "up to it by selling pro rata. `lower` <= `cash_buffer` <= `upper`. "
+                    "Null leaves the cash to the next rebalance.")
+
+    @field_validator("equitise")
+    @classmethod
+    def _flags_only_where_they_belong(cls,
+                                      value: dict[str, float | bool | None] | None
+                                      ) -> dict[str, float | bool | None] | None:
+        """True or false only for `whole_contracts`, which takes nothing else."""
+        # BN-358: the one flag among numbers, kept from loosening the rest.
+        for name, setting in (value or {}).items():
+            if (name == "whole_contracts") != isinstance(setting, bool):
+                kind = "true or false" if name == "whole_contracts" else "a number"
+                raise ValueError(f"equitise.{name} must be {kind}.")
+
+        return value
 
 
 class VehicleSpec(BaseModel):
@@ -4209,9 +4244,12 @@ class FuturesRollPayload(BaseModel):
     date: str = Field(description="YYYY-MM-DD.")
     expiry: str = Field(description="The new contract's expiry, YYYY-MM-DD.")
     contracts: float = Field(
-        description="Contracts held of it, each on one unit of the index, so the "
-                    "contracts times the price is the notional.")
+        description="Contracts held of it, so the contracts times the price times the "
+                    "multiplier is the notional. Whole unless the run holds fractional "
+                    "contracts.")
     price: float = Field(description="The new contract's price, at fair value.")
+    multiplier: float = Field(default=1.0, description="The value of one index point per "
+                                                       "contract, in the book's currency.")
     notional: float = Field(description="The exposure carried into it, in the book's "
                                         "currency.")
     cost: float = Field(description="What the roll cost, paid from cash.")

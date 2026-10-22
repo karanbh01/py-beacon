@@ -539,9 +539,12 @@ def _implementation(request: BacktestRequest,
         return None
 
     try:
+        band = ((spec.cash_band.lower, spec.cash_band.upper)
+                if spec.cash_band is not None else None)
+
         return Implementation(screens=screens, caps=caps, redistribution=spec.redistribution,
                               cash_buffer=spec.cash_buffer, invest_flows=spec.invest_flows,
-                              **parts)
+                              cash_band=band, **parts)
     except ValueError as error:
         findings.add("implementation", "invalid_value", str(error))
         return None

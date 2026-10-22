@@ -27,10 +27,15 @@ counts its dividends, so its futures carry none. A price index's are
 estimated at each roll from its constituents' dividends over the trailing
 twelve months, at their index weights, unless *dividend_yield* gives one.
 
-**Sizing.** The position is sized to the fund's net assets when it opens, at
-each rebalance and roll, and on any day money flows in or out. Contracts are
-fractional, so the exposure is exactly what was asked for; initial margin is
-not modelled, since it is the fund's own cash, held with a broker.
+**Sizing.** A contract is worth its price times its *multiplier*, the
+value of one index point (50 by default, as an S&P 500 e-mini's is in
+dollars). The position is sized to the fund's net assets when it opens, at
+each rebalance and roll, on any day money flows in or out, and on any other
+day its exposure is further from that than *band* of the net assets.
+Contracts are whole by default, so the exposure is the nearest a whole
+number of contracts comes; fractional contracts carry exactly what was asked
+for. Initial margin is not modelled, since it is the fund's own cash, held
+with a broker.
 
 The same futures can equitise a physical fund's cash buffer instead:
 `Implementation(cash_buffer=0.03, equitise=IndexFutures())` holds futures on
@@ -44,7 +49,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from ..catalogue import COUNT, FRACTION, REPLICATION, Display, register
+from ..catalogue import COUNT, FRACTION, MONEY, REPLICATION, Display, register
 from .base import StrategyContext
 from .tracking import Replication, ReplicationStep
 
@@ -54,6 +59,13 @@ EXPIRY_MONTHS = (3, 6, 9, 12)
 # Sessions before expiry a position rolls, a common practice for index
 # futures, whose liquidity moves to the next contract in the last week.
 DEFAULT_ROLL_DAYS = 5
+
+# The value of one index point per contract, as an S&P 500 e-mini's is $50.
+DEFAULT_MULTIPLIER = 50.0
+
+# How far the exposure may drift from its target, as a share of the net
+# assets, before the position is resized between rebalances.
+DEFAULT_BAND = 0.0025
 
 
 @dataclass(frozen=True)
@@ -67,10 +79,21 @@ class IndexFutures:
         dividend_yield: The index's annual dividend yield the futures are
             priced with. None estimates it (zero for an index that reinvests
             its dividends).
+        multiplier: The value of one index point per contract, in the
+            book's currency.
+        whole_contracts: Hold a whole number of contracts (the default), or
+            fractional ones that carry exactly the target.
+        band: How far the exposure may drift from its target, as a share of
+            the net assets, before the position is resized between
+            rebalances.
     """
     roll_days: int = DEFAULT_ROLL_DAYS
     roll_cost_bps: float = 0.0
     dividend_yield: float | None = None
+    # BN-358.
+    multiplier: float = DEFAULT_MULTIPLIER
+    whole_contracts: bool = True
+    band: float = DEFAULT_BAND
 
     def __post_init__(self) -> None:
         if self.roll_days < 0 or self.roll_days != int(self.roll_days):
@@ -88,12 +111,42 @@ class IndexFutures:
             raise ValueError(f"dividend_yield is an annual share from 0 up to 1, "
                              f"got {self.dividend_yield!r}.")
 
+        if not math.isfinite(self.multiplier) or self.multiplier <= 0.0:
+            raise ValueError(f"multiplier must be above zero, got {self.multiplier!r}.")
+
+        if not isinstance(self.whole_contracts, bool):
+            raise ValueError(f"whole_contracts is true or false, got "
+                             f"{self.whole_contracts!r}.")
+
+        if not math.isfinite(self.band) or not 0.0 <= self.band < 1.0:
+            raise ValueError(f"band is a share of the net assets from 0 up to 1, "
+                             f"got {self.band!r}.")
+
+    def contracts(self,
+                  target: float,
+                  price: float) -> float:
+        """How many contracts carry *target* at *price*: whole, the nearest
+        number, or fractional, exactly."""
+        value = price * self.multiplier
+
+        if value <= 0.0:
+            return 0.0
+
+        held = target / value
+
+        return float(math.floor(held + 0.5)) if self.whole_contracts else held
+
 
 @register(REPLICATION, "Futures", fields={
     "roll_days": Display("Days before expiry to roll", unit=COUNT, minimum=0),
     "roll_cost_bps": Display("Cost of each roll"),
     "dividend_yield": Display("Dividend yield", unit=FRACTION, minimum=0.0,
                               help="Leave blank to estimate it from the constituents."),
+    "multiplier": Display("Value of an index point", unit=MONEY, minimum=0.0,
+                          help="Per contract, in the book's currency."),
+    "whole_contracts": Display("Whole contracts"),
+    "band": Display("Resize when exposure drifts by", unit=FRACTION, minimum=0.0,
+                    maximum=1.0, help="A share of the net assets."),
 })
 class FuturesReplication(Replication):
     """Cash, with the index held through rolled futures.
@@ -103,6 +156,10 @@ class FuturesReplication(Replication):
         roll_cost_bps: What each roll costs, in basis points of the notional.
         dividend_yield: The index's annual dividend yield the futures are
             priced with. None estimates it.
+        multiplier: The value of one index point per contract.
+        whole_contracts: Hold a whole number of contracts, or fractional ones.
+        band: How far the exposure may drift before it is resized between
+            rebalances, as a share of the net assets.
 
     Raises:
         ValueError: If a setting is out of range.
@@ -111,9 +168,13 @@ class FuturesReplication(Replication):
     def __init__(self,
                  roll_days: int = DEFAULT_ROLL_DAYS,
                  roll_cost_bps: float = 0.0,
-                 dividend_yield: float | None = None):
+                 dividend_yield: float | None = None,
+                 multiplier: float = DEFAULT_MULTIPLIER,
+                 whole_contracts: bool = True,
+                 band: float = DEFAULT_BAND):
         self.futures = IndexFutures(roll_days=roll_days, roll_cost_bps=roll_cost_bps,
-                                    dividend_yield=dividend_yield)
+                                    dividend_yield=dividend_yield, multiplier=multiplier,
+                                    whole_contracts=whole_contracts, band=band)
 
     @property
     def roll_days(self) -> int:
@@ -130,6 +191,21 @@ class FuturesReplication(Replication):
         """The dividend yield given, or None to estimate it."""
         return self.futures.dividend_yield
 
+    @property
+    def multiplier(self) -> float:
+        """The value of one index point per contract."""
+        return self.futures.multiplier
+
+    @property
+    def whole_contracts(self) -> bool:
+        """Whether the position holds whole contracts."""
+        return self.futures.whole_contracts
+
+    @property
+    def band(self) -> float:
+        """How far the exposure may drift before it is resized."""
+        return self.futures.band
+
     def replicate(self,
                   target: dict[str, float],
                   date: pd.Timestamp,
@@ -141,7 +217,9 @@ class FuturesReplication(Replication):
     def __repr__(self) -> str:
         return (f"FuturesReplication(roll_days={self.roll_days!r}, "
                 f"roll_cost_bps={self.roll_cost_bps!r}, "
-                f"dividend_yield={self.dividend_yield!r})")
+                f"dividend_yield={self.dividend_yield!r}, "
+                f"multiplier={self.multiplier!r}, "
+                f"whole_contracts={self.whole_contracts!r}, band={self.band!r})")
 
 
 def expiries(start: pd.Timestamp,
