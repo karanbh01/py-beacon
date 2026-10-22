@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Changed
+
+- Reading several names' market data checks them against a set built once, not against every row label of the store on each call. That check was most of the time in market impact, the liquidity screen and cap, and execution limits: on 600 names over the full history, a backtest with market impact went from 506 s to 50 s and one with capacity caps from 176 s to 33 s.
+
 ## [0.9.5] - 2026-10-21
 
 The engine stays responsive: it answers while a backtest or any other job runs, and announces its port before loading its data. Synthetic prices never go negative, and a missing or bad price is carried at its last close on any day, rebalances included, instead of failing a run.

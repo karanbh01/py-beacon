@@ -179,6 +179,19 @@ class MarketData:
         return values
 
     @property
+    def identifier_set(self) -> frozenset[str]:
+        """:attr:`identifiers` as a set, cached the same way."""
+        cached: tuple[object, frozenset[str]] | None = getattr(self, "_identifier_set", None)
+
+        if cached is not None and cached[0] is self._df:
+            return cached[1]
+
+        values = frozenset(self.identifiers)
+        self._identifier_set = (self._df, values)
+
+        return values
+
+    @property
     def columns(self) -> list[str]:
         """Non-index column names.
 
@@ -363,7 +376,10 @@ class MarketData:
             DataFrame if no matching data is found.
         """
         if isinstance(identifier, list):
-            existing = self._df.index.get_level_values("IDENTIFIER")
+            # Against the cached set (BN-337): the IDENTIFIER level rebuilt on
+            # each call is every row label of the frame, 11.6M of them on the
+            # default synthetic store, for a read that wants one name's rows.
+            existing = self.identifier_set
             identifier = [i for i in identifier if i in existing]
             if not identifier:
                 return pd.DataFrame()

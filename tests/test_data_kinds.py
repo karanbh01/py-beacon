@@ -244,3 +244,27 @@ class TestImporting:
                                        tmp_path):
         assert ("reference", 4, "DAY_COUNT", "UNKNOWN_VALUE") in self.codes(
             tmp_path, day_count="30/360")
+
+
+class TestListLookups:
+    """BN-337: a lookup by a list of names checks a cached set of them."""
+
+    def test_the_set_is_built_once_per_frame(self):
+        from beacon.data.base import MarketData
+
+        data = MarketData.from_dataframe(pd.DataFrame({
+            "IDENTIFIER": ["AAA", "AAA", "BBB"], "DATE": ["2024-01-02", "2024-01-03", "2024-01-02"],
+            "CLOSE": [1.0, 2.0, 3.0]}))
+
+        assert data.identifier_set == frozenset({"AAA", "BBB"})
+        assert data.identifier_set is data.identifier_set
+
+    def test_a_list_still_skips_names_it_does_not_hold(self):
+        from beacon.data.base import MarketData
+
+        data = MarketData.from_dataframe(pd.DataFrame({
+            "IDENTIFIER": ["AAA", "BBB"], "DATE": ["2024-01-02", "2024-01-02"],
+            "CLOSE": [1.0, 3.0]}))
+
+        assert sorted(data.get(["AAA", "ZZZ"]).index.get_level_values("IDENTIFIER")) == ["AAA"]
+        assert data.get(["ZZZ"]).empty
