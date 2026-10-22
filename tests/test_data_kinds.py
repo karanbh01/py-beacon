@@ -284,3 +284,21 @@ class TestActionLookups:
         assert actions.get("AAA").equals(actions.data.loc[["AAA"]])
         assert actions._by_name() is actions._by_name()
         assert actions.get("ZZZ").empty
+
+
+class TestTrailingCash:
+    """BN-346: a trailing cash total comes from the name's cached arrays."""
+
+    def test_matches_the_window_and_skips_what_was_cancelled(self):
+        from beacon.data.corporate_actions import CorporateActions
+
+        actions = CorporateActions.from_dataframe(pd.DataFrame({
+            "IDENTIFIER": ["AAA"] * 4,
+            "EX_DATE": ["2023-03-01", "2023-06-01", "2023-09-01", "2024-03-01"],
+            "TYPE": ["DIVIDEND"] * 4, "VALUE": [1.0, 0.5, 0.25, 2.0],
+            "STATUS": [None, "CANCELLED", None, None]}))
+
+        # Half-open: the action exactly a year before 2024-03-01 has rolled out.
+        assert actions.trailing_cash("AAA", "2024-03-01") == 2.25
+        assert actions.trailing_cash("AAA", "2023-09-01") == 1.25
+        assert actions.trailing_cash("ZZZ", "2024-03-01") == 0.0

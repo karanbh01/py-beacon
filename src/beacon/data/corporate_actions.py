@@ -36,6 +36,7 @@ paid on the anniversary would be counted in two consecutive years' figures.
 import logging
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 from ..exceptions import CalculationError
@@ -165,6 +166,9 @@ def status_of(value: object) -> Status | None:
 # One trailing year. A DateOffset rather than a Timedelta so February the 29th
 # behaves.
 TRAILING_YEAR = pd.DateOffset(years=1)
+
+# One name's cash actions as ex-date and value arrays (BN-346).
+_CashArrays = tuple[np.ndarray, np.ndarray]
 
 
 def ratios_between(schedule: dict[pd.Timestamp, dict[str, float]],
@@ -364,9 +368,39 @@ class CorporateActions:
                 f"a ratio, not an amount, and cannot be added to a cash total. "
                 f"Use cumulative_ratio() instead.")
 
-        window = self._window(identifier, as_of, sorted(wanted))
+        # From the name's cash actions as arrays (BN-346): the same rows the
+        # window kept, summed in the same order, without a frame per call. A
+        # futures roll asks this of every constituent.
+        dates, values = self._cash_arrays(identifier, tuple(sorted(wanted)))
+        end = pd.Timestamp(as_of)
+        start = end - TRAILING_YEAR
+        kept = (dates > start.to_datetime64()) & (dates <= end.to_datetime64())
 
-        return float(window["VALUE"].sum())
+        return float(values[kept].sum())
+
+    def _cash_arrays(self,
+                     identifier: str,
+                     types: tuple[str, ...]) -> _CashArrays:
+        """*identifier*'s actions of *types*, cancelled ones left out, as ex-date
+        and value arrays in the table's order; cached on the frame's identity."""
+        cached: tuple[object, dict[tuple[str, tuple[str, ...]], _CashArrays]] | None = (
+            getattr(self, "_cash_cache", None))
+
+        if cached is None or cached[0] is not self._df:
+            cached = (self._df, {})
+            self._cash_cache = cached
+
+        key = (identifier, types)
+        found = cached[1].get(key)
+
+        if found is None:
+            rows = without_cancelled(self.get(identifier, types=list(types)))
+            found = cached[1][key] = (
+                rows.index.get_level_values("EX_DATE").to_numpy(dtype="datetime64[ns]"),
+                rows["VALUE"].to_numpy(dtype="float64") if not rows.empty
+                else np.empty(0, dtype="float64"))
+
+        return found
 
     def trailing_dividend(self,
                           identifier: str,
