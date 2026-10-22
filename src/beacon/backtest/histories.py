@@ -16,6 +16,7 @@ the whole history converts each day as converting its window did.
 """
 # BN-338, from the backtest performance analysis: with market impact on, 95%
 # of a 600-name run went to these reads.
+import math
 import weakref
 from dataclasses import dataclass
 from functools import cached_property
@@ -96,6 +97,66 @@ class History:
 
         return float(traded.mean()) if len(traded) else None
 
+    # Running totals over the whole history (BN-352), so market impact's
+    # average traded value and volatility over any window are a difference
+    # of two totals rather than a pass over the window, for every holding of
+    # an ETF's basket on every day it is quoted. Agrees with the windowed
+    # sums to about 1e-14, not to the last bit.
+    @cached_property
+    def _impact_totals(self) -> tuple[np.ndarray, np.ndarray, np.ndarray,
+                                      np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        dates, volumes = self._volume_arrays
+        close_dates, closes = self._close_arrays
+        traded = np.full(len(dates), np.nan)
+
+        if len(close_dates):
+            at = np.minimum(np.searchsorted(close_dates, dates), len(close_dates) - 1)
+            found = close_dates[at] == dates
+            traded[found] = closes[at[found]] * volumes[found]
+
+        valid = ~np.isnan(traded)
+        returns = closes[1:] / closes[:-1] - 1.0
+        # Centred on the name's mean return, which leaves every window's
+        # variance as it is and keeps the totals' cancellation small.
+        centred = returns - returns.mean() if len(returns) else returns
+
+        return (dates.view("i8"), close_dates.view("i8"),
+                _running(np.where(valid, traded, 0.0)), _running(valid.astype(float)),
+                _running(centred), _running(centred * centred), returns)
+
+    def impact_inputs(self,
+                      start: pd.Timestamp,
+                      end: pd.Timestamp,
+                      days: int) -> tuple[float | None, int, float]:
+        """What market impact reads of the window from *start* to *end*: the
+        average traded value over its last *days* reported days (None when
+        there is none), the number of daily returns in its last *days*, and
+        their sample standard deviation (0 when fewer than two)."""
+        if self.volume is None:
+            return None, 0, 0.0
+
+        dates, close_dates, traded, counted, sums, squares, _ = self._impact_totals
+        first, last = start.value, end.value
+        lo = int(np.searchsorted(dates, first, side="left"))
+        hi = int(np.searchsorted(dates, last, side="right"))
+        lo = max(lo, hi - days)
+        count = counted[hi] - counted[lo] if hi > lo else 0.0
+        average = (traded[hi] - traded[lo]) / count if count > 0 else None
+
+        c_lo = int(np.searchsorted(close_dates, first, side="left"))
+        c_hi = int(np.searchsorted(close_dates, last, side="right"))
+        # The window's returns are those between its closes, the last *days*.
+        r_lo, r_hi = max(c_lo, c_hi - 1 - days), c_hi - 1
+        number = max(r_hi - r_lo, 0)
+
+        if number < 2:
+            return average, number, 0.0
+
+        total = sums[r_hi] - sums[r_lo]
+        variance = (squares[r_hi] - squares[r_lo] - total * total / number) / (number - 1)
+
+        return average, number, math.sqrt(max(variance, 0.0))
+
     def last_bar(self,
                  start: pd.Timestamp,
                  end: pd.Timestamp) -> tuple[pd.Timestamp, float] | None:
@@ -125,6 +186,11 @@ class History:
         window = closes[lo:hi]
 
         return (window[1:] / window[:-1] - 1.0)[-days:] if len(window) > 1 else window[:0]
+
+
+def _running(values: np.ndarray) -> np.ndarray:
+    """Running totals with a leading 0, so a window's total is a difference."""
+    return np.concatenate(([0.0], np.cumsum(values)))
 
 
 def _bounds(dates: np.ndarray,

@@ -150,15 +150,25 @@ class TestTheLastBar:
 class TestTheArrays:
     """BN-345: market impact and traded value from arrays, to the last bit."""
 
-    def test_the_volatility_is_the_series_standard_deviation(self):
-        from beacon.backtest.costs import _sample_std
+    def test_impact_reads_the_windowed_values_from_running_totals(self):
+        # BN-352: to about 1e-14, not to the last bit.
+        source = fetcher()
 
-        rng = np.random.default_rng(5)
+        for name, currency in (("AAA", None), ("BBB", "USD")):
+            held = histories.history(source, name, currency)
 
-        for _ in range(500):
-            values = rng.normal(0.0, 0.02, int(rng.integers(2, 64)))
+            for date in DATES[5::7]:
+                start = date - pd.Timedelta(days=110)
+                traded, count, volatility = held.impact_inputs(start, date, 63)
+                returns = held.returns(start, date, 63)
+                expected = held.average_traded(start, date, 63)
 
-            assert _sample_std(values) == pd.Series(values).std()
+                assert (traded is None) == (expected is None)
+                assert traded is None or math.isclose(traded, expected, rel_tol=1e-12)
+                assert count == len(returns)
+
+                if count >= 2:
+                    assert math.isclose(volatility, pd.Series(returns).std(), rel_tol=1e-12)
 
     def test_the_returns_are_pct_change_of_the_window(self):
         source = fetcher()

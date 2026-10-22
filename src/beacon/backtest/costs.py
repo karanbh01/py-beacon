@@ -20,7 +20,6 @@ from .histories import history
 from .screens import (
     DEFAULT_LIQUIDITY_DAYS,
     ScreenContext,
-    average_traded,
 )
 
 
@@ -54,39 +53,19 @@ class MarketImpact:
         """The impact of trading *trade_value* of *asset_id*, as a fraction
         of the value. 0 when the name's volatility or traded value is
         unknown."""
-        traded = average_traded(asset_id, date, context, self.lookback_days)
+        # The same window as `average_traded` and the volatility always read,
+        # from running totals (BN-352): equal to the windowed sums to about
+        # 1e-14, at a fraction of the cost.
         start = date - pd.Timedelta(days=int(self.lookback_days * 1.6) + 10)
-        # The window's returns as an array (BN-345), as `pct_change` gave them.
-        returns = history(context.fetcher, asset_id, context.currency).returns(
+        traded, returns, volatility = history(context.fetcher, asset_id,
+                                              context.currency).impact_inputs(
             start, date, self.lookback_days)
 
-        if traded is None or traded <= 0.0 or len(returns) < 2:
+        if traded is None or traded <= 0.0 or returns < 2:
             return 0.0
-
-        volatility = _sample_std(returns)
 
         return float(self.coefficient * volatility
                      * math.sqrt(max(trade_value, 0.0) / traded))
-
-
-def _sample_std(values: np.ndarray) -> float:
-    """The sample standard deviation, summed in order as pandas' `Series.std`
-    sums it (through bottleneck), so an answer from an array is the one the
-    Series gave to the last bit. numpy's sums are unrolled, and differ in the
-    last bit about a third of the time."""
-    count = len(values)
-    total = 0.0
-
-    for value in values:
-        total += value
-
-    mean = total / count
-    squares = 0.0
-
-    for value in values:
-        squares += (value - mean) * (value - mean)
-
-    return math.sqrt(squares / (count - 1))
 
 
 class ExecutionLimit:
