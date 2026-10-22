@@ -148,6 +148,18 @@ class TestReading:
         assert [(problem.sheet, problem.row, problem.code)
                 for problem in raised.value.problems] == [("market", 4, "BAD_DATE")]
 
+    def test_a_blank_number_is_a_blank_not_a_bad_number(self,
+                                                         tmp_path):
+        """BN-350: a NULL in an optional number column came back as NaN, was
+        written as the text 'nan', and refused as not a number."""
+        path = database(tmp_path / "db.sqlite",
+                        "ALTER TABLE market ADD COLUMN volume REAL",
+                        "UPDATE market SET volume = NULL")
+
+        data = postgres.load(source(), connector=sqlite_connector(path))
+
+        assert data.fetch_price("AAA", "2024-01-02") == 100
+
     def test_a_database_that_cannot_be_reached_says_so(self):
         def refuse(_source):
             raise OSError("connection refused")
@@ -322,6 +334,41 @@ class TestARealPostgres:
 
         assert data.identifiers == ["AAA"]
         assert data.fetch_price("AAA", "2024-01-02") == pytest.approx(100.5)
+
+    def test_a_blank_number_loads(self,
+                                  real_schema,
+                                  monkeypatch):
+        psycopg = pytest.importorskip("psycopg")
+
+        with psycopg.connect(REAL, autocommit=True) as connection:
+            connection.execute(f'ALTER TABLE "{real_schema}".prices ADD COLUMN volume '
+                               f'double precision')
+            connection.execute(f'CREATE OR REPLACE VIEW "{real_schema}".market AS '
+                               f'SELECT ticker AS identifier, day AS date, px AS close, '
+                               f'volume FROM "{real_schema}".prices')
+
+        data = postgres.load(real_source(real_schema, monkeypatch))
+
+        assert data.fetch_price("AAA", "2024-01-02") == pytest.approx(100.5)
+
+    def test_a_date_stored_as_text_is_named(self,
+                                            real_schema,
+                                            monkeypatch):
+        """BN-350: a column is read as the type the database holds it in, so
+        one of the wrong type is refused naming it rather than parsed."""
+        psycopg = pytest.importorskip("psycopg")
+
+        with psycopg.connect(REAL, autocommit=True) as connection:
+            connection.execute(f'DROP VIEW "{real_schema}".market')
+            connection.execute(f'CREATE VIEW "{real_schema}".market AS '
+                               f'SELECT ticker AS identifier, day::text AS date, '
+                               f'px AS close FROM "{real_schema}".prices')
+
+        with pytest.raises(layout.DataImportError) as raised:
+            postgres.load(real_source(real_schema, monkeypatch))
+
+        assert [(problem.sheet, problem.column, problem.code)
+                for problem in raised.value.problems] == [("market", "DATE", "WRONG_TYPE")]
 
     def test_the_engines_connection_cannot_write(self,
                                                  real_schema,

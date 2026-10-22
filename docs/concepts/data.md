@@ -495,6 +495,18 @@ above (`market` and `reference`, and optionally `corporate_actions` and
 with those names and columns over your own tables. The rows go through the
 same checks as an import.
 
+Each column is read as the type the database holds it in, so the date and
+number columns must have Postgres date and number types; a column of
+another type (dates kept as `text`, say) is refused, naming it:
+
+| Columns | Postgres type |
+| --- | --- |
+| `DATE` (market, features), `DATE_FROM`, `DATE_TO`, `EX_DATE`, `PAY_DATE` | `date`, or `timestamp` with or without a time zone |
+| `CLOSE`, `OPEN`, `HIGH`, `LOW`, `VOLUME`, `SHARES_OUTSTANDING`, `FREE_FLOAT`, `VALUE` | `double precision`, `real`, `numeric`, or an integer type |
+| Everything else (`IDENTIFIER`, `NAME`, `CURRENCY`, `TYPE`, ...) | `text` or `varchar` |
+
+A NULL is a blank cell. Column names are matched without regard to case.
+
 py-beacon only reads: it connects with a read-only session and never creates,
 changes or deletes anything. The password is never stored. Name an
 environment variable that holds it (`password_env`), and it is read each time

@@ -313,6 +313,12 @@ def _parsed(sheet: Sheet,
 
 def _blank(values: pd.Series) -> pd.Series:
     """Which cells are empty: missing, or only spaces."""
+    # A column of numbers or dates (from a database) holds no spaces, and
+    # writing each of millions of them as text to look was most of a check
+    # (BN-350).
+    if values.dtype.kind in "fiubmM":
+        return values.isna()
+
     return values.isna() | values.astype(str).str.strip().eq("")
 
 

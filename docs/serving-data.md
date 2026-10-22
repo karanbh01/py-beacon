@@ -207,9 +207,10 @@ An import checks every row before saving anything. If a row is wrong, the
 answer is 422 `INVALID_RULE` with one finding per problem, each naming its
 sheet, row and column.
 
-A Postgres store needs the `postgres` extra. The engine only reads it, and
-never stores the password: the store names an environment variable that
-holds it.
+The engine only reads a Postgres store, and never stores the password: the
+store names an environment variable that holds it. Its date and number
+columns must have Postgres date and number types (see
+[Postgres](concepts/data.md#postgres)).
 
 ## Refreshing a store
 
