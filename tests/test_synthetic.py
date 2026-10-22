@@ -364,9 +364,12 @@ class TestStylizedFacts:
         assert (skew < 0).mean() > 0.8
 
     def test_squared_returns_are_autocorrelated(self, panel):
-        """The volatility-clustering signature."""
+        """The volatility-clustering signature. Not of a name taken over: once
+        a bid is announced its price only closes the spread to the offer
+        (BN-360)."""
+        taken = set(panel.universe.index[panel.universe["exit"].eq("takeover")])
         rejected = [ljung_box(panel.returns[name].to_numpy() ** 2) < 0.05
-                    for name in panel.returns]
+                    for name in panel.returns if name not in taken]
 
         assert np.mean(rejected) > 0.95
 

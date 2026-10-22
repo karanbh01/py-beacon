@@ -41,6 +41,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+from . import exits
 from .regimes import CRISES, Regime, market_multipliers
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,10 @@ ANNUAL_LISTING_RATE = 0.030
 # failures in 2008-09 ran several times their normal rate, and the whole
 # reason to model this is that the failures land inside the drawdown.
 CRISIS_FAILURE_MULTIPLIER = 4.0
+
+# How far a full-intensity crisis suppresses takeover bids (BN-360): deals
+# are struck in calm markets, and fewer are announced in a crash.
+CRISIS_TAKEOVER_MULTIPLIER = 0.5
 
 # ...and how far it suppresses new listings. IPO issuance essentially stopped
 # in the second half of 2008, so a crisis shrinks the universe rather than
@@ -154,7 +159,8 @@ def draw(count: int,
          delisting_rate: float = ANNUAL_DELISTING_RATE,
          listing_rate: float = ANNUAL_LISTING_RATE,
          regimes: tuple[Regime, ...] = CRISES,
-         alpha: np.ndarray | None = None) -> pd.DataFrame:
+         alpha: np.ndarray | None = None,
+         market_cap: np.ndarray | None = None) -> pd.DataFrame:
     """Draw a listed life for every name.
 
     Args:
@@ -168,6 +174,9 @@ def draw(count: int,
         regimes: Dated episodes, for the clustering.
         alpha: Each name's alpha. When given, delistings tilt towards the
             weakest names without changing how many there are.
+        market_cap: Each name's market cap. When given, delistings tilt
+            towards the smallest names too, again without changing how many
+            there are.
 
     Returns:
         pd.DataFrame: ``listed_from`` and ``listed_to`` per name, both
@@ -188,7 +197,7 @@ def draw(count: int,
         if delisting_rate > 0.0:
             listed_to = _sample(inner, count, rng, delisting_rate,
                                 CRISIS_FAILURE_MULTIPLIER, regimes, pd.NaT,
-                                propensity=_weakness(alpha))
+                                propensity=_propensity(alpha, market_cap))
 
     frame = pd.DataFrame({"listed_from": pd.to_datetime(listed_from),
                           "listed_to": pd.to_datetime(listed_to)})
@@ -206,6 +215,35 @@ def draw(count: int,
                 int(frame["listed_to"].notna().sum()), last.date())
 
     return frame
+
+
+def _propensity(alpha: np.ndarray | None,
+                market_cap: np.ndarray | None) -> np.ndarray | None:
+    """Per-name relative likelihood of leaving: by weakness, and by size when
+    *market_cap* is given, with a mean of one."""
+    weakness = _weakness(alpha)
+
+    if market_cap is None or len(market_cap) == 0:
+        return weakness
+
+    combined = exits.smallness(market_cap) * (weakness if weakness is not None else 1.0)
+
+    return np.asarray(combined / combined.mean())
+
+
+def exit_sessions(dates: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """The sessions a generated name may leave on: all but the first and last
+    month."""
+    return dates[EDGE_BUFFER_DAYS:-EDGE_BUFFER_DAYS] if len(dates) > 2 * EDGE_BUFFER_DAYS \
+        else dates[:0]
+
+
+def takeover_hazard(inner: pd.DatetimeIndex,
+                    delisting_rate: float = ANNUAL_DELISTING_RATE,
+                    regimes: tuple[Regime, ...] = CRISES) -> np.ndarray:
+    """The per-session hazard of a takeover's last day, over *inner*: fewer
+    in a crisis."""
+    return _hazard(inner, delisting_rate, CRISIS_TAKEOVER_MULTIPLIER, regimes)
 
 
 def _weakness(alpha: np.ndarray | None) -> np.ndarray | None:
@@ -287,17 +325,19 @@ def leaving(alpha: np.ndarray,
             dates: pd.DatetimeIndex,
             rng: np.random.Generator,
             delisting_rate: float = ANNUAL_DELISTING_RATE,
-            regimes: tuple[Regime, ...] = CRISES) -> pd.DatetimeIndex:
+            regimes: tuple[Regime, ...] = CRISES,
+            market_cap: np.ndarray | None = None) -> pd.DatetimeIndex:
     """When each listed name leaves over an extension's dates, NaT if it stays.
 
     The same hazard as the original delistings, clustered in crises and
-    tilted towards the weakest names by their alpha.
+    tilted towards the weakest names by their alpha, and towards the
+    smallest by their *market_cap* when it is given.
     """
     if delisting_rate <= 0.0 or len(alpha) == 0:
         return pd.DatetimeIndex([pd.NaT] * len(alpha))
 
     drawn = _sample(dates, len(alpha), rng, delisting_rate,
                     CRISIS_FAILURE_MULTIPLIER, regimes, pd.NaT,
-                    propensity=_weakness(alpha))
+                    propensity=_propensity(alpha, market_cap))
 
     return pd.DatetimeIndex(pd.to_datetime(drawn))

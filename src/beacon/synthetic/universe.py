@@ -33,7 +33,7 @@ somebody reviewing a layout is reviewing it against realistic numbers.
 import numpy as np
 import pandas as pd
 
-from . import listings, regions
+from . import exits, listings, regions
 
 # The eleven GICS sectors. A public taxonomy, unlike the company names.
 SECTORS = (
@@ -181,7 +181,8 @@ def build(count: int,
           dates: pd.DatetimeIndex | None = None,
           currency: str = DEFAULT_CURRENCY,
           delisting_rate: float = listings.ANNUAL_DELISTING_RATE,
-          listing_rate: float = listings.ANNUAL_LISTING_RATE) -> pd.DataFrame:
+          listing_rate: float = listings.ANNUAL_LISTING_RATE,
+          exit_seed: int | None = None) -> pd.DataFrame:
     """Draw the static universe.
 
     Args:
@@ -224,10 +225,24 @@ def build(count: int,
                       market_cap=market_cap)
 
     if dates is not None and len(dates) > 0:
+        # Sized exits, and takeovers among them, when the store's seed is
+        # given for their stream of their own (BN-360).
+        caps = frame["market_cap"].to_numpy()
         lives = listings.draw(count, dates, rng,
                               delisting_rate=delisting_rate,
                               listing_rate=listing_rate,
-                              alpha=frame["alpha"].to_numpy())
+                              alpha=frame["alpha"].to_numpy(),
+                              market_cap=caps if exit_seed is not None else None)
+        lives.index = frame.index
+
+        if exit_seed is not None:
+            inner = listings.exit_sessions(dates)
+            lives = exits.classify(lives, caps, inner,
+                                   listings.takeover_hazard(inner, delisting_rate), exit_seed)
+
+            for column in ("exit", "announced", "premium", "spread"):
+                frame[column] = lives[column].to_numpy()
+
         frame["listed_from"] = lives["listed_from"].to_numpy()
         frame["listed_to"] = lives["listed_to"].to_numpy()
 

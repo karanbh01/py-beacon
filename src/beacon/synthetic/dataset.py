@@ -37,7 +37,7 @@ from ..data.corporate_actions import CorporateActions
 from ..data.features import FeatureData
 from ..data.fetcher import DataFetcher
 from ..index.schedule import DEFAULT_CALENDAR, is_known_calendar, sessions
-from . import dividends, fx, listings, prices, profiles, returns, state, universe
+from . import dividends, exits, fx, listings, prices, profiles, returns, state, universe
 from . import features as features_module
 
 logger = logging.getLogger(__name__)
@@ -213,12 +213,15 @@ def generate(config: SyntheticConfig | None = None,
     names = universe.build(settings.assets, rng, dates=dates,
                            currency=settings.currency,
                            delisting_rate=settings.delisting_rate,
-                           listing_rate=settings.listing_rate)
+                           listing_rate=settings.listing_rate,
+                           exit_seed=settings.seed)
 
     progress(0.02, "Simulating returns")
     panel = returns.simulate(names, dates, rng,
                              risk_free_rate=settings.risk_free_rate,
                              equity_premium=settings.equity_premium)
+    # Each takeover's bid and close written into its name's returns (BN-360).
+    panel = exits.apply(names, panel)
 
     progress(0.05, "Building prices and corporate actions")
     market_frame, action_frame = prices.build(
@@ -304,4 +307,5 @@ def settings_of(config: SyntheticConfig) -> state.Settings:
                           delisting_rate=config.delisting_rate,
                           listing_rate=config.listing_rate,
                           features=config.features,
-                          dividend_schedule=dividends.SPREAD)
+                          dividend_schedule=dividends.SPREAD,
+                          exit_model=exits.SIZED)

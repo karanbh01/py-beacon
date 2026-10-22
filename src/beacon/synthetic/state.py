@@ -26,6 +26,7 @@ from typing import Any
 import pandas as pd
 
 from .dividends import FIXED
+from .exits import UNIFORM
 
 # Inside the store folder.
 STATE_DIRECTORY = "synthetic"
@@ -67,6 +68,9 @@ class Settings:
         dividend_schedule: How its dividends are timed (see
             `beacon.synthetic.dividends`). A store generated before
             py-beacon 0.9.7 saved none, and has the fixed timing.
+        exit_model: How its names leave (see `beacon.synthetic.exits`). A
+            store generated before py-beacon 0.9.7 saved none, and has
+            every exit a failure, whatever the name's size.
     """
     seed: int
     assets: int
@@ -81,6 +85,7 @@ class Settings:
     extensions: list[dict[str, str]] = field(default_factory=list)
     version: int = STATE_VERSION
     dividend_schedule: str = FIXED
+    exit_model: str = UNIFORM
 
 
 def directory(path: Path) -> Path:

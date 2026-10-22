@@ -62,7 +62,19 @@ from ..data.base import MarketData, ReferenceData
 from ..data.corporate_actions import ANNOUNCED, PAID, CorporateActions
 from ..data.features import FeatureData
 from ..index.schedule import sessions
-from . import dividends, features, fx, listings, prices, profiles, regions, returns, state, universe
+from . import (
+    dividends,
+    exits,
+    features,
+    fx,
+    listings,
+    prices,
+    profiles,
+    regions,
+    returns,
+    state,
+    universe,
+)
 from .dataset import Progress
 
 logger = logging.getLogger(__name__)
@@ -164,8 +176,21 @@ def extend(path: Path,
     progress(0.20, "Drawing listings and delistings")
     live = names.loc[names["listed_to"].isna()].copy()
     joined = _newcomers(live, len(names), dates, settings, rng)
+    sized = settings.exit_model == exits.SIZED
     live["listed_to"] = listings.leaving(live["alpha"].to_numpy(), dates, rng,
-                                         settings.delisting_rate)
+                                         settings.delisting_rate,
+                                         market_cap=(live["market_cap"].to_numpy()
+                                                     if sized else None))
+
+    # A store generated with sized exits has takeovers among them (BN-360),
+    # drawn from a stream of the extension's own.
+    if sized:
+        drawn = exits.classify(live[["listed_from", "listed_to"]], live["market_cap"].to_numpy(),
+                               dates, listings.takeover_hazard(dates, settings.delisting_rate),
+                               settings.seed ^ dates[0].toordinal())
+
+        for column in ("exit", "announced", "premium", "spread", "listed_to"):
+            live[column] = drawn[column]
 
     progress(0.30, "Simulating returns")
     frame = pd.concat([_carried(live, history, turnover), joined])
@@ -175,6 +200,7 @@ def extend(path: Path,
                              risk_free_rate=settings.risk_free_rate,
                              equity_premium=settings.equity_premium
                              ).iloc[:len(dates)]
+    panel = exits.apply(frame, panel)
 
     progress(0.50, "Building prices and corporate actions")
     schedule = sessions(pd.Timestamp(year=last.year, month=1, day=1),
