@@ -94,15 +94,21 @@ def cash_events(data_provider: DataFetcher) -> dict[pd.Timestamp, list[CashEvent
     cash = frame[frame["TYPE"].map(lambda value: kind_of(value) == CASH)]
     events: dict[pd.Timestamp, list[CashEvent]] = {}
 
-    for _, row in cash.iterrows():
-        ex_date = pd.Timestamp(row["EX_DATE"])
-        paid = row.get(PAY_DATE_COLUMN) if PAY_DATE_COLUMN in cash.columns else None
-        pay_date = (max(pd.Timestamp(paid), ex_date) if pd.notna(paid)
-                    else ex_date)
+    if cash.empty:
+        return events
+
+    # From whole columns rather than row by row (BN-348): `iterrows` over the
+    # actions of six thousand names took seconds before the run began.
+    ex_dates = [pd.Timestamp(value) for value in cash["EX_DATE"]]
+    paid = (list(cash[PAY_DATE_COLUMN]) if PAY_DATE_COLUMN in cash.columns
+            else [None] * len(cash))
+
+    for name, value, ex_date, pay in zip(cash["IDENTIFIER"].tolist(), cash["VALUE"].tolist(),
+                                         ex_dates, paid, strict=True):
+        pay_date = max(pd.Timestamp(pay), ex_date) if pd.notna(pay) else ex_date
 
         events.setdefault(ex_date, []).append(
-            CashEvent(asset_id=str(row["IDENTIFIER"]),
-                      per_share=float(row["VALUE"]),
+            CashEvent(asset_id=str(name), per_share=float(value),
                       ex_date=ex_date, pay_date=pay_date))
 
     return events

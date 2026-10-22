@@ -96,6 +96,16 @@ class History:
 
         return float(traded.mean()) if len(traded) else None
 
+    def last_bar(self,
+                 start: pd.Timestamp,
+                 end: pd.Timestamp) -> tuple[pd.Timestamp, float] | None:
+        """Its last close from *start* to *end*, both included, and its date;
+        None when it printed none (BN-348)."""
+        dates, closes = self._close_arrays
+        lo, hi = _bounds(dates, start, end)
+
+        return (pd.Timestamp(dates[hi - 1]), float(closes[hi - 1])) if hi > lo else None
+
     def last_close(self,
                    date: pd.Timestamp) -> float | None:
         """Its last close on or before *date*, or None (BN-346)."""

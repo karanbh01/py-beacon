@@ -264,10 +264,7 @@ class PricingMixin:
         # From the name's closes, read once per run (BN-340), when that is
         # what this would read: a store's CLOSE, through a DataFetcher.
         if isinstance(self.data_provider, DataFetcher) and self.price_column == "CLOSE":
-            closes = history(self.data_provider, asset_id, None).closes_between(start, date)
-
-            return ((pd.Timestamp(closes.index[-1]), float(closes.iloc[-1]))
-                    if len(closes) else None)
+            return history(self.data_provider, asset_id, None).last_bar(start, date)
 
         try:
             frame = self.data_provider.fetch_market_data(asset_id,
