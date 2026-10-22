@@ -268,3 +268,19 @@ class TestListLookups:
 
         assert sorted(data.get(["AAA", "ZZZ"]).index.get_level_values("IDENTIFIER")) == ["AAA"]
         assert data.get(["ZZZ"]).empty
+
+
+class TestActionLookups:
+    """BN-339: a name's corporate actions come from rows split once per table."""
+
+    def test_the_split_is_built_once_and_matches_a_slice(self):
+        from beacon.data.corporate_actions import CorporateActions
+
+        actions = CorporateActions.from_dataframe(pd.DataFrame({
+            "IDENTIFIER": ["AAA", "AAA", "BBB"],
+            "EX_DATE": ["2024-01-02", "2024-04-02", "2024-02-01"],
+            "TYPE": ["DIVIDEND", "DIVIDEND", "SPLIT"], "VALUE": [1.0, 1.5, 2.0]}))
+
+        assert actions.get("AAA").equals(actions.data.loc[["AAA"]])
+        assert actions._by_name() is actions._by_name()
+        assert actions.get("ZZZ").empty

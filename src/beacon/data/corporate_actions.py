@@ -277,6 +277,20 @@ class CorporateActions:
         """Whether the store holds nothing."""
         return bool(self._df.empty)
 
+    def _by_name(self) -> dict[str, pd.DataFrame]:
+        """Each identifier's rows, as `.loc[[identifier]]` gives them, cached
+        on the frame's identity."""
+        cached: tuple[object, dict[str, pd.DataFrame]] | None = getattr(self, "_name_cache", None)
+
+        if cached is not None and cached[0] is self._df:
+            return cached[1]
+
+        split = {str(name): rows
+                 for name, rows in self._df.groupby(level="IDENTIFIER", sort=False)}
+        self._name_cache = (self._df, split)
+
+        return split
+
     def get(self,
             identifier: str,
             start_date: str | pd.Timestamp | None = None,
@@ -295,10 +309,15 @@ class CorporateActions:
             columns when there are none, so a caller can read ``VALUE`` off
             the result without checking first.
         """
-        if identifier not in set(self.identifiers):
+        # Each name's rows, split once per frame (BN-339): a lookup used to
+        # build a set of every identifier and slice the whole table, and a
+        # futures roll asks it for every constituent.
+        rows = self._by_name().get(identifier)
+
+        if rows is None:
             return self._df.iloc[0:0].copy()
 
-        subset = self._df.loc[[identifier]].copy()
+        subset = rows.copy()
         dates = subset.index.get_level_values("EX_DATE")
 
         if start_date is not None:
