@@ -94,7 +94,9 @@ class TestTheAnswersAreUnchanged:
         volatility = float(prices["BBB"].dropna().pct_change().dropna().tail(63).std())
         expected = volatility * math.sqrt(1e6 / windowed_traded(source, "BBB", date, "USD"))
 
-        assert MarketImpact().rate("BBB", 1e6, date, context) == expected
+        # From running totals since BN-352: to about 1e-14, not to the last bit.
+        assert math.isclose(MarketImpact().rate("BBB", 1e6, date, context), expected,
+                            rel_tol=1e-12)
 
     def test_execution_volume_backfills_as_before(self):
         source = fetcher()
