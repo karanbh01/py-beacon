@@ -36,6 +36,7 @@ from ..index.result import IndexResult
 from ..portfolio.base import Portfolio
 from ..portfolio.cash_flows import FUTURES
 from ..strategy.futures import IndexFutures, expiries
+from .histories import history
 from .implementation import Implementation
 
 logger = logging.getLogger(__name__)
@@ -249,5 +250,16 @@ class FuturesMixin:
         if total <= 0.0:
             return 0.0
 
-        return sum(weight * (trailing(name, date) or 0.0)
+        return sum(weight * (trailing(name, date, self._close_for_yield(name, date)) or 0.0)
                    for name, weight in weights.items()) / total
+
+    def _close_for_yield(self,
+                         name: str,
+                         date: pd.Timestamp) -> float | None:
+        """*name*'s last close on or before *date*, from its history read once
+        per run (BN-346), as the yield read it from the data; None leaves the
+        data provider to find it."""
+        if not isinstance(self.data_provider, DataFetcher):
+            return None
+
+        return history(self.data_provider, name, None).last_close(date)
