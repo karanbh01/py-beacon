@@ -37,8 +37,8 @@ from ..data.corporate_actions import CorporateActions
 from ..data.features import FeatureData
 from ..data.fetcher import DataFetcher
 from ..index.schedule import DEFAULT_CALENDAR, is_known_calendar, sessions
+from . import dividends, fx, listings, prices, profiles, returns, state, universe
 from . import features as features_module
-from . import fx, listings, prices, profiles, returns, state, universe
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +221,9 @@ def generate(config: SyntheticConfig | None = None,
                              equity_premium=settings.equity_premium)
 
     progress(0.05, "Building prices and corporate actions")
-    market_frame, action_frame = prices.build(names, panel, rng)
+    market_frame, action_frame = prices.build(
+        names, panel, rng,
+        timing=dividends.timings(names.index, settings.seed, dividends.SPREAD))
 
     # FX pairs live in the market data as identifiers of their own, and a
     # reference row each says what they are. Concatenated rather than merged: an
@@ -301,4 +303,5 @@ def settings_of(config: SyntheticConfig) -> state.Settings:
                           equity_premium=config.equity_premium,
                           delisting_rate=config.delisting_rate,
                           listing_rate=config.listing_rate,
-                          features=config.features)
+                          features=config.features,
+                          dividend_schedule=dividends.SPREAD)

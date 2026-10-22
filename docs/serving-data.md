@@ -249,7 +249,11 @@ being served, whichever dataset is named, and ignores its body.
 `python -m beacon.synthetic` produces market-like data: a factor model with
 GJR-GARCH volatility, Student-t innovations and negative skew, plus reference
 data, shares outstanding, free float, dividends and splits that agree with the
-prices, and exchange rates. The model draws log returns, so however fat the
+prices, and exchange rates. Each name pays quarterly on its own day of the
+month and in its own cycle of months, and is paid two to five weeks later, so
+a large universe's dividends land across the year. (A store generated before
+py-beacon 0.9.7 has every name going ex on the same day each quarter, and an
+extension of it keeps that.) The model draws log returns, so however fat the
 tail, a price can come close to zero but never reach or pass it.
 
 It also generates **features**: four fundamental ratios (`pe_ratio`,

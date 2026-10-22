@@ -62,7 +62,7 @@ from ..data.base import MarketData, ReferenceData
 from ..data.corporate_actions import ANNOUNCED, PAID, CorporateActions
 from ..data.features import FeatureData
 from ..index.schedule import sessions
-from . import features, fx, listings, prices, profiles, regions, returns, state, universe
+from . import dividends, features, fx, listings, prices, profiles, regions, returns, state, universe
 from .dataset import Progress
 
 logger = logging.getLogger(__name__)
@@ -179,7 +179,9 @@ def extend(path: Path,
     progress(0.50, "Building prices and corporate actions")
     schedule = sessions(pd.Timestamp(year=last.year, month=1, day=1),
                         dates[-1], settings.calendar)
-    market, actions = prices.build(frame, panel, rng, calendar=schedule)
+    # Each name's dividends timed as the store times them (BN-357).
+    timing = dividends.timings(frame.index, settings.seed, settings.dividend_schedule)
+    market, actions = prices.build(frame, panel, rng, calendar=schedule, timing=timing)
 
     progress(0.65, "Carrying on exchange rates")
     rates = fx.build(dates, rng, start_from=_last_rates(history))

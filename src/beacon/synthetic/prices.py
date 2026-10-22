@@ -51,15 +51,10 @@ import numpy as np
 import pandas as pd
 
 from ..data.corporate_actions import ANNOUNCED, PAID
+from . import dividends as timing_of
 from .returns import BLOCK_SIZE
 
 logger = logging.getLogger(__name__)
-
-# Ex-dividend months, and the day within the month. Quarterly, deliberately
-# off the quarter ends where index rebalances land: an action falling on a
-# rebalance date every single time would hide any bug in ordering the two.
-DIVIDEND_MONTHS = (2, 5, 8, 11)
-DIVIDEND_DAY = 15
 
 # A price above this at an annual review splits. Measured rather than guessed:
 # at 500 some seeds produce no split at all over five years, which leaves the
@@ -85,13 +80,6 @@ MAX_TURNOVER = 0.012
 VOLUME_ACTIVITY = 0.45
 VOLUME_NOISE = 0.35
 
-# Days between an ex-date and the cash actually landing. Real dividends settle
-# a few weeks later, and the gap is what makes "announced" a state the pane can
-# show: an action whose pay date has not arrived by the end of the panel is
-# announced rather than paid. A split settles on its ex-date, so its pay date
-# is the same day.
-DIVIDEND_SETTLEMENT_DAYS = 21
-
 # Prices are stored at the precision a real feed quotes them, not at the
 # seventeen significant figures a float carries. It is more realistic and it is
 # a third off the store, and rounding cannot break the OHLC ordering because
@@ -114,22 +102,6 @@ PRICE_DECIMALS = 4
 # of 1e-7) and would not be for a share count anybody had to reconcile, which
 # this is not -- it is generated.
 STORAGE_DTYPE = "float32"
-
-
-def dividend_dates(dates: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    """The ex-dividend dates inside a panel's date range.
-
-    The first business day on or after the 15th of each dividend month, so
-    every ex-date is a day the panel actually has a price for.
-    """
-    candidates = [date for date in dates
-                  if date.month in DIVIDEND_MONTHS and date.day >= DIVIDEND_DAY]
-
-    seen: dict[tuple[int, int], pd.Timestamp] = {}
-    for date in candidates:
-        seen.setdefault((date.year, date.month), date)
-
-    return pd.DatetimeIndex(sorted(seen.values()))
 
 
 def review_dates(dates: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -185,24 +157,12 @@ def _split_paths(pre_split: pd.DataFrame,
     return factor, actions
 
 
-def _dividend_fractions(universe: pd.DataFrame,
-                        dates: pd.DatetimeIndex,
-                        calendar: pd.DatetimeIndex) -> pd.DataFrame:
-    """The ex-date price drop, as a fraction of price, per name and date."""
-    fractions = pd.DataFrame(0.0, index=dates, columns=universe.index)
-    quarterly = universe["dividend_yield"].to_numpy() / 4.0
-
-    for date in dividend_dates(calendar).intersection(dates):
-        fractions.loc[date] = quarterly
-
-    return fractions
-
-
 def build(universe: pd.DataFrame,
           returns: pd.DataFrame,
           rng: np.random.Generator,
           block_size: int = BLOCK_SIZE,
-          calendar: pd.DatetimeIndex | None = None
+          calendar: pd.DatetimeIndex | None = None,
+          timing: pd.DataFrame | None = None
           ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the market-data panel and the corporate-action history.
 
@@ -228,6 +188,9 @@ def build(universe: pd.DataFrame,
             sessions reaching back before its first date, so a month or year
             the existing data already began is not given a second ex-date or
             review.
+        timing: Each name's dividend timing, from
+            `beacon.synthetic.dividends.timings`. Defaults to the fixed
+            timing every store generated before py-beacon 0.9.7 has.
 
     Returns:
         tuple: Long-form market data with IDENTIFIER/DATE and OHLCV plus
@@ -239,11 +202,13 @@ def build(universe: pd.DataFrame,
     step = max(block_size, 1)
     schedule = (calendar if calendar is not None
                 else pd.DatetimeIndex(returns.index))
+    timing = (timing if timing is not None
+              else timing_of.timings(universe.index, 0, timing_of.FIXED))
 
     blocks = [_build_block(universe.iloc[start:start + step],
                            returns.iloc[:, start:start + step],
                            children[start:start + step],
-                           schedule)
+                           schedule, timing)
               for start in range(0, len(universe), step)]
 
     return (pd.concat([market for market, _ in blocks], ignore_index=True),
@@ -254,11 +219,12 @@ def _build_block(universe: pd.DataFrame,
                  returns: pd.DataFrame,
                  children: list[np.random.Generator],
                  calendar: pd.DatetimeIndex,
+                 timing: pd.DataFrame,
                  ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Everything `build` does, for one block of names."""
     dates = pd.DatetimeIndex(returns.index)
 
-    drops = _dividend_fractions(universe, dates, calendar)
+    drops = timing_of.fractions(universe, dates, calendar, timing)
 
     # One multiplicative path carrying both the economic return and the ex-date
     # drop, so the close and the dividend cannot drift apart.
@@ -285,7 +251,7 @@ def _build_block(universe: pd.DataFrame,
 
     market = _long_form(frames, shares, universe)
     actions = _listed_actions(
-        _action_frame(split_actions, dividends, drops, dates[-1]), universe)
+        _action_frame(split_actions, dividends, drops, dates[-1], timing), universe)
 
     return market, actions
 
@@ -472,7 +438,8 @@ def _listed_only(market: pd.DataFrame,
 def _action_frame(splits: list[dict[str, object]],
                   dividends: pd.DataFrame,
                   drops: pd.DataFrame,
-                  last_date: pd.Timestamp) -> pd.DataFrame:
+                  last_date: pd.Timestamp,
+                  timing: pd.DataFrame) -> pd.DataFrame:
     """Assemble the action history from the splits and the dividend amounts.
 
     Args:
@@ -481,6 +448,8 @@ def _action_frame(splits: list[dict[str, object]],
         drops: Which (name, date) pairs are ex-dates.
         last_date: End of the panel, which decides whether a pay date has
             arrived — and so whether an action reads as paid or announced.
+        timing: Each name's dividend timing, whose settlement days set the
+            pay date.
     """
     paying = drops > 0.0
 
@@ -498,9 +467,10 @@ def _action_frame(splits: list[dict[str, object]],
     frame = pd.concat([cash, pd.DataFrame(splits)], ignore_index=True)
     frame["VALUE"] = frame["VALUE"].round(PRICE_DECIMALS)
 
-    # A split is effective on its ex-date; a dividend settles weeks later.
-    settlement = pd.to_timedelta(
-        np.where(frame["TYPE"] == "DIVIDEND", DIVIDEND_SETTLEMENT_DAYS, 0), unit="D")
+    # A split is effective on its ex-date; a dividend settles weeks later,
+    # as many days as the name's timing says.
+    days = frame["IDENTIFIER"].map(timing["settlement"]).to_numpy(dtype=float)
+    settlement = pd.to_timedelta(np.where(frame["TYPE"] == "DIVIDEND", days, 0), unit="D")
     frame["PAY_DATE"] = frame["EX_DATE"] + settlement
 
     frame["STATUS"] = np.where(frame["PAY_DATE"] <= last_date, PAID, ANNOUNCED)

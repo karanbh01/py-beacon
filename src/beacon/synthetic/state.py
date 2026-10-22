@@ -25,6 +25,8 @@ from typing import Any
 
 import pandas as pd
 
+from .dividends import FIXED
+
 # Inside the store folder.
 STATE_DIRECTORY = "synthetic"
 SETTINGS_FILE = "settings.json"
@@ -62,6 +64,9 @@ class Settings:
         listing_rate: Annualised hazard of a name joining.
         features: Whether it carries features.
         extensions: Each extension, as the first and last new session.
+        dividend_schedule: How its dividends are timed (see
+            `beacon.synthetic.dividends`). A store generated before
+            py-beacon 0.9.7 saved none, and has the fixed timing.
     """
     seed: int
     assets: int
@@ -75,6 +80,7 @@ class Settings:
     features: bool
     extensions: list[dict[str, str]] = field(default_factory=list)
     version: int = STATE_VERSION
+    dividend_schedule: str = FIXED
 
 
 def directory(path: Path) -> Path:
