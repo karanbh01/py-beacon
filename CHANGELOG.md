@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-10-22
+
+Backtests are many times faster, and data stores load in a fraction of the time. Over 6,000 names and seven years, a London-calendar UCITS ETF backtest with market impact, a weight cap and flows went from 807 s to 43 s, and a plain backtest of 3,908 holdings from 756 s to 47 s. At 600 names a market-impact backtest went from 506 s to 6 s. Stores are now Parquet: a store saved by an earlier version is converted the first time it is loaded, and the 6,000-name store loads in 2.0 s rather than 17.7 s. Results are unchanged except where noted below: a reinvested dividend now buys the name that paid it by default, and market impact agrees with 0.9.5 to about 5e-13 of each cost rather than to the last bit.
+
 ### Changed
 
 - Data stores are Parquet rather than gzipped CSV, and pyarrow is a core dependency. Loading the 6,000-name synthetic store went from 17.7 s to 2.0 s, and it takes 242 MB rather than 312 MB. Writing a backtest's index to the index cache, now Parquet too, is most of a second rather than most of fifteen, so the 6,000-name base backtest went from 68 s to 47 s. A store saved by an earlier version is converted the first time it is loaded, and reads the same. A store saved from now on keeps its numbers exactly: CSV read about one float64 in six back a bit away from its value, so a store generated or imported now can differ from one made by 0.9.5 in the last digits. With pyarrow installed, pandas holds text columns in pyarrow arrays; results are the same either way.
