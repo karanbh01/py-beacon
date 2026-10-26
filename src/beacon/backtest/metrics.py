@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from ..analysis.attribution import AttributionResult, attribute
+from ..analysis.performance import formulas
 from ..assumptions import DEFAULT_PERIODS_PER_YEAR, ModellingAssumptions
 from ..exceptions import CalculationError
 from ..portfolio.base import Portfolio
@@ -25,37 +26,12 @@ def headline_metrics(returns: pd.Series,
                      periods_per_year: int = DEFAULT_PERIODS_PER_YEAR,
                      risk_free_rate: float = 0.0) -> dict[str, float]:
     """The five headline figures of a performance: total and annualised
-    return, volatility, Sharpe ratio and maximum drawdown.
-
-    Args:
-        returns: The period returns.
-        total_return: The return over the whole performance.
-        path: The level the drawdown is measured along, from its start.
-        periods_per_year: How many periods of *returns* make a year.
-        risk_free_rate: The annual rate the Sharpe ratio is in excess of.
-
-    Returns:
-        dict: total_return, annualised_return, volatility, sharpe_ratio and
-        max_drawdown.
-    """
+    return, volatility, Sharpe ratio and maximum drawdown; see
+    `beacon.analysis.performance.formulas.headline_figures`."""
     # One definition for a backtest's summary and an index's figures (BN-316),
-    # so the two can be compared.
-    n_periods = len(returns)
-    years = n_periods / float(periods_per_year)
-    annualised_return = (float((1 + total_return) ** (1 / years) - 1)
-                         if n_periods > 0 and years > 0 else 0.0)
-    volatility = (float(returns.std() * np.sqrt(periods_per_year))
-                  if n_periods > 1 else 0.0)
-    sharpe_ratio = (float((annualised_return - risk_free_rate) / volatility)
-                    if volatility > 0 else 0.0)
-    max_drawdown = (float((path / path.cummax() - 1).min())
-                    if not path.empty else 0.0)
-
-    return {"total_return": total_return,
-            "annualised_return": annualised_return,
-            "volatility": volatility,
-            "sharpe_ratio": sharpe_ratio,
-            "max_drawdown": max_drawdown}
+    # since BN-371 the formula's.
+    return formulas.headline_figures(returns, total_return, path, periods_per_year,
+                                     risk_free_rate)
 
 
 class MetricsMixin:
@@ -349,46 +325,23 @@ class MetricsMixin:
         paid out of the book added back.
 
         With flows every figure is a unit's, and the money-weighted return
-        is added.
+        is added. The figures are `beacon.analysis.performance.PerformanceAnalytics`'s
+        over the whole run, with an ETF's trading and an active strategy's
+        own figures added.
 
         Returns:
             dict: Dictionary containing: total_return, annualised_return,
-            volatility, sharpe_ratio, max_drawdown, and, when the run tracked
-            an index, tracking_error and tracking_difference; with flows,
-            money_weighted_return.
+            volatility, sharpe_ratio, max_drawdown, hit_rate_monthly, and,
+            when the run tracked an index, tracking_error and
+            tracking_difference; with flows, money_weighted_return.
         """
-        returns = self.get_returns()
-        # BN-263: with dividends paid out, the NAV understates performance;
-        # BN-267: with flows it is the fund's size, so a unit is measured.
-        nav, initial = self._performance_nav()
+        # BN-371: through the run's analysis, which a stored run is measured
+        # with too. Imported here, as both read the result this mixin is part
+        # of, which is why it passes itself as one.
+        from ..analysis.data import RunData  # noqa: PLC0415
+        from ..analysis.performance.analytics import PerformanceAnalytics  # noqa: PLC0415
 
-        # Total return
-        total_return = (0.0 if nav.empty or initial == 0
-                        else float(nav.iloc[-1] / initial - 1))
-
-        # Max drawdown from the initial capital, so a fall on the first day
-        # (the cost of buying in, say) counts.
-        path = (pd.concat([pd.Series([initial]), nav], ignore_index=True)
-                if not nav.empty and initial > 0 else nav)
-        result: dict[str, float | None] = {**headline_metrics(returns,
-                                                              total_return,
-                                                              path,
-                                                              self._periods_per_year(),
-                                                              self._risk_free_rate())}
-
-        # BN-323: the share of calendar months with a positive return.
-        result["hit_rate_monthly"] = _hit_rate_monthly(returns)
-
-        # Tracking metrics (only if the run tracked an index)
-        te = self.get_tracking_error()
-        td = self.get_tracking_difference()
-        if te is not None:
-            result["tracking_error"] = te
-        if td is not None:
-            result["tracking_difference"] = td
-
-        if self.flows:
-            result["money_weighted_return"] = self.money_weighted_return()
+        result = PerformanceAnalytics(RunData.from_result(self)).summary()  # type: ignore[arg-type]
 
         if not self.market.empty:
             result.update(self.market_summary())
@@ -469,7 +422,8 @@ class MetricsMixin:
         if self.market.empty:
             return None
 
-        return float(self.market["bid"].iloc[-1] / self.market["ask"].iloc[0] - 1.0)
+        return formulas.market_return(float(self.market["ask"].iloc[0]),
+                                      float(self.market["bid"].iloc[-1]))
 
     def market_summary(self) -> dict[str, float | None]:
         """An ETF's trading on the exchange: the investor's return at market

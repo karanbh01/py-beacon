@@ -25,6 +25,7 @@ import pandas as pd
 
 from ..backtest.result import BacktestResult
 from ..exceptions import ConfigurationError
+from ..portfolio.cash_flows import DISTRIBUTION, REDEMPTION, SUBSCRIPTION
 from .packing import CLOSES_FLOAT, CLOSES_PACKED, CLOSES_SCALE, pack_closes, unpack_closes
 from .panels import (
     CASH,
@@ -53,6 +54,9 @@ RUN_VERSION = 1
 # The fund's own series and the comparators' levels, each kept as a table of
 # one column so it reads back exactly, its gaps included.
 RETURNS, NAV, UNITS = "returns", "nav", "units"
+# The level a run's figures are measured along, and its investors' cash
+# flows, for a run that had them (BN-371).
+PERFORMANCE, INVESTOR_FLOWS = "performance", "investor_flows"
 INDEX, OPTIMISED, BENCHMARK = "index", "optimised", "benchmark"
 _LEVELS = "levels_"
 _VALUE = "value"
@@ -84,8 +88,18 @@ class RunData:
         risk_free_rate: The annual rate excess returns are measured over.
         comparators: Each comparator's levels by name: ``index``,
             ``optimised`` and ``benchmark``, for those the run had.
-        tables: The run's tables by name (`beacon.analysis.panels`).
+        tables: The run's tables by name (`beacon.analysis.panels`), each
+            built or read the first time it is asked for.
         missing: For each table or series a stored run lacks, why.
+        performance: The level the fund's total return and drawdown are
+            measured along: its NAV, or, when it had flows or paid cash out,
+            what it started with grown by its returns. None for a run stored
+            before it was kept, whose NAV is used.
+        performance_start: What *performance* starts from: the initial
+            capital, or a unit's launch price.
+        investor_flows: The investors' cash flows, dated, from their side
+            (money put in negative, the final NAV positive), for a run with
+            flows; None for any other.
     """
     currency: str
     returns: pd.Series
@@ -97,15 +111,22 @@ class RunData:
     comparators: Mapping[str, pd.Series] = field(default_factory=dict)
     tables: Mapping[str, pd.DataFrame] = field(default_factory=dict)
     missing: Mapping[str, str] = field(default_factory=dict)
+    performance: pd.Series | None = None
+    performance_start: float | None = None
+    investor_flows: pd.Series | None = None
 
     @classmethod
     def from_result(cls,
                     result: BacktestResult) -> "RunData":
-        """A finished run's data, with every table it keeps."""
+        """A finished run's data, with every table it keeps, built the first
+        time any is asked for."""
         books = {INDEX: result.index.target, OPTIMISED: result.index.optimised,
                  BENCHMARK: result.benchmark}
         nav = result.trading_nav
-        tables = run_panels(result)
+        # Built when first asked for (BN-371): a backtest's summary reads a
+        # run's data without its tables, which take seconds at 6,000 names.
+        tables = _Built(partial(run_panels, result))
+        performance, start = result._performance_nav()
 
         return cls(currency=result.currency,
                    returns=result.get_returns(),
@@ -117,8 +138,10 @@ class RunData:
                    comparators={name: book.levels for name, book in books.items()
                                 if book is not None and not book.levels.empty},
                    tables=tables,
-                   missing={name: "the run did not have it" for name in EXPECTED
-                            if name not in tables})
+                   missing=_Lacking(tables),
+                   performance=performance,
+                   performance_start=float(start),
+                   investor_flows=_investor_flows(result) if result.flows else None)
 
     def latest(self,
                name: str,
@@ -138,6 +161,12 @@ class RunData:
         ``run.json``."""
         series = {RETURNS: self.returns, NAV: self.nav, UNITS: self.units,
                   **{_LEVELS + name: levels for name, levels in self.comparators.items()}}
+
+        if self.performance is not None:
+            series[PERFORMANCE] = self.performance
+
+        if self.investor_flows is not None:
+            series[INVESTOR_FLOWS] = self.investor_flows
         # What is worked out again on reading is not written; the closes it
         # is worked out from are written packed (BN-403).
         derived = [name for name in self.tables if name in DERIVED and (
@@ -155,6 +184,7 @@ class RunData:
                "initial_capital": self.initial_capital,
                "periods_per_year": self.periods_per_year,
                "risk_free_rate": self.risk_free_rate,
+               "performance_start": self.performance_start,
                "missing": dict(self.missing),
                "derived": derived,
                "dtypes": {name: str(self.tables[name].dtypes.iloc[0]) for name in derived
@@ -194,7 +224,8 @@ class RunData:
         # performance figures reads only what they need (BN-403).
         held = list((read_manifest(folder) or {}).get("panels", {}))
         series = {name: _column(table) for name, table in read_panels(
-            folder, [name for name in held if name in (RETURNS, NAV, UNITS)
+            folder, [name for name in held if name in (RETURNS, NAV, UNITS, PERFORMANCE,
+                                                       INVESTOR_FLOWS)
                      or name.startswith(_LEVELS)]).items()}
         packed = [name for name in (CLOSES_PACKED, CLOSES_SCALE, CLOSES_FLOAT) if name in held]
         kept = [name for name in held if name not in series and name not in packed]
@@ -217,7 +248,78 @@ class RunData:
                    comparators={name[len(_LEVELS):]: levels for name, levels in series.items()
                                 if name.startswith(_LEVELS)},
                    tables=tables,
-                   missing=run.get("missing", {}))
+                   missing=run.get("missing", {}),
+                   performance=series.get(PERFORMANCE),
+                   performance_start=(None if run.get("performance_start") is None
+                                      else float(run["performance_start"])),
+                   investor_flows=series.get(INVESTOR_FLOWS))
+
+
+def _investor_flows(result: BacktestResult) -> pd.Series:
+    """A run's investor cash flows, as its money-weighted return counts
+    them: the initial capital, every subscription, redemption and
+    distribution, and the final NAV, each on its date; empty with no NAV."""
+    nav = result.trading_nav
+
+    if nav.empty:
+        return pd.Series(dtype=float)
+
+    portfolio = result.portfolio
+    start = portfolio.inception if portfolio.inception is not None else nav.index[0]
+    flows = [(pd.Timestamp(start), -portfolio.initial_capital)]
+    flows += [(flow.date, -flow.amount) for flow in portfolio.cash_flows
+              if flow.kind in (SUBSCRIPTION, REDEMPTION, DISTRIBUTION)]
+    flows.append((pd.Timestamp(nav.index[-1]), float(nav.iloc[-1])))
+
+    return pd.Series([amount for _, amount in flows],
+                     index=pd.DatetimeIndex([date for date, _ in flows]), dtype=float)
+
+
+class _Built(Mapping[str, pd.DataFrame]):
+    """A finished run's tables, built the first time any is asked for."""
+
+    def __init__(self,
+                 build: Callable[[], dict[str, pd.DataFrame]]):
+        self._build = build
+        self._tables: dict[str, pd.DataFrame] | None = None
+
+    def _all(self) -> dict[str, pd.DataFrame]:
+        if self._tables is None:
+            self._tables = self._build()
+
+        return self._tables
+
+    def __getitem__(self,
+                    name: str) -> pd.DataFrame:
+        return self._all()[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._all())
+
+    def __len__(self) -> int:
+        return len(self._all())
+
+
+class _Lacking(Mapping[str, str]):
+    """The tables every run keeps that a finished run did not have, worked
+    out when first asked."""
+
+    def __init__(self,
+                 tables: Mapping[str, pd.DataFrame]):
+        self._tables = tables
+
+    def _all(self) -> dict[str, str]:
+        return {name: "the run did not have it" for name in EXPECTED if name not in self._tables}
+
+    def __getitem__(self,
+                    name: str) -> str:
+        return self._all()[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._all())
+
+    def __len__(self) -> int:
+        return len(self._all())
 
 
 class _Tables(Mapping[str, pd.DataFrame]):
