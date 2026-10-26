@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from beacon.analysis.panels import (
+    COSTS,
     FUND_WEIGHTS,
     MANIFEST_FILE,
     NAME_RETURNS,
@@ -196,5 +197,18 @@ class TestARunsTables:
 
         kept = run_panels(result)
 
-        assert set(kept) == {FUND_WEIGHTS}
+        assert NAME_RETURNS not in kept and FUND_WEIGHTS in kept
         assert "name returns were not kept" in caplog.text
+
+    def test_its_costs_read_back_as_the_breakdown_gives_them(self,
+                                                            tmp_path):
+        from beacon.backtest.breakdown import daily_costs
+        from test_strategy_futures import index, run
+
+        result = run(index(), transaction_cost_bps=5.0)
+        write_panels(tmp_path / "run", run_panels(result))
+
+        back = read_panels(tmp_path / "run", [COSTS])[COSTS]
+
+        np.testing.assert_array_equal(back.to_numpy(), daily_costs(result).to_numpy())
+        assert back["fixed"].sum() > 0

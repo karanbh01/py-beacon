@@ -99,14 +99,21 @@ class ExecutionMixin:
                     notional: float,
                     date: pd.Timestamp) -> float:
         """The fixed cost plus any market impact of trading *notional*."""
-        rate = self.transaction_cost_bps / 10_000.0
+        return sum(self._trade_costs(asset_id, notional, date))
+
+    def _trade_costs(self,
+                     asset_id: str,
+                     notional: float,
+                     date: pd.Timestamp) -> tuple[float, float]:
+        """The fixed cost and the market impact of trading *notional*."""
+        fixed = notional * self.transaction_cost_bps / 10_000.0
         impact = self.implementation.impact
 
-        if impact is not None and notional > 0.0:
-            rate += impact.rate(asset_id, notional, date,
-                                ScreenContext(self.data_provider, self.currency))
+        if impact is None or notional <= 0.0:
+            return fixed, 0.0
 
-        return notional * rate
+        return fixed, notional * impact.rate(asset_id, notional, date,
+                                             ScreenContext(self.data_provider, self.currency))
 
     def _instruction(self,
                      asset_id: str,
@@ -115,8 +122,9 @@ class ExecutionMixin:
                      price: float,
                      date: pd.Timestamp) -> TradeInstruction:
         """A trade, costed."""
-        return TradeInstruction(asset_id, side, quantity, price,
-                                self._trade_cost(asset_id, quantity * price, date))
+        fixed, impact = self._trade_costs(asset_id, quantity * price, date)
+
+        return TradeInstruction(asset_id, side, quantity, price, fixed + impact, impact)
 
     # -- what to trade -------------------------------------------------------
 
@@ -420,9 +428,12 @@ class ExecutionMixin:
                                  shortfall_value=trade.quantity * trade.price,
                                  reason=CASH_SHORT)
 
+        # The impact scaled down with the trade, as the cost is.
+        filled = affordable / trade.quantity
         portfolio.apply(TradeInstruction(trade.asset_id, "BUY", affordable,
                                          trade.price,
-                                         affordable * trade.price * rate), date)
+                                         affordable * trade.price * rate,
+                                         trade.impact * filled), date)
         logger.warning(f"[{date}] Partially filled {trade.asset_id}: bought "
                        f"{affordable:.4f} of {trade.quantity:.4f} requested.")
 

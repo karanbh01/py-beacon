@@ -35,6 +35,8 @@ class Transaction:
     transaction_type: str  # 'BUY' or 'SELL'
     transaction_date: pd.Timestamp
     transaction_cost: float = 0.0
+    # Of the cost, what was market impact; the rest is the fixed cost (BN-363).
+    impact_cost: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.asset_id:
@@ -71,12 +73,15 @@ class TradeInstruction:
         quantity: Number of units to trade.
         price: Execution price per unit.
         cost: Transaction cost in currency terms.
+        impact: Of *cost*, the part that was market impact; the rest is the
+            fixed cost.
     """
     asset_id: str
     side: str      # "SELL" or "BUY"
     quantity: float
     price: float
     cost: float
+    impact: float = 0.0
 
 
 @dataclass
@@ -367,7 +372,8 @@ class Portfolio:
                     quantity: float,
                     price: float,
                     cost: float = 0.0,
-                    date: pd.Timestamp | None = None) -> None:
+                    date: pd.Timestamp | None = None,
+                    impact: float = 0.0) -> None:
         """Buy an asset: deduct cash, create/update holding, record transaction.
 
         The holding's average cost is updated as a quantity-weighted average
@@ -430,7 +436,7 @@ class Portfolio:
         logger.debug(f"BUY: {quantity} of {asset_id} @ {price:.2f}. Cash: {self.cash_balance:.2f}")
 
         self.transactions.append(
-            Transaction(asset_id, quantity, price, 'BUY', tx_date, cost)
+            Transaction(asset_id, quantity, price, 'BUY', tx_date, cost, impact)
         )
 
         # Update market data using execution price
@@ -443,7 +449,8 @@ class Portfolio:
                      quantity: float,
                      price: float,
                      cost: float = 0.0,
-                     date: pd.Timestamp | None = None) -> None:
+                     date: pd.Timestamp | None = None,
+                     impact: float = 0.0) -> None:
         """Sell an asset: add cash proceeds, reduce/remove holding, record transaction.
 
         Cash rises by ``quantity * price - cost``. A holding reduced to
@@ -497,7 +504,7 @@ class Portfolio:
             self.holdings[asset_id].update_market_data(price, tx_date)
 
         self.transactions.append(
-            Transaction(asset_id, quantity, price, 'SELL', tx_date, cost)
+            Transaction(asset_id, quantity, price, 'SELL', tx_date, cost, impact)
         )
 
         self._record(tx_date)
@@ -535,10 +542,10 @@ class Portfolio:
 
         if side == "BUY":
             self.execute_buy(trade.asset_id, trade.quantity, trade.price,
-                             cost=trade.cost, date=date)
+                             cost=trade.cost, date=date, impact=trade.impact)
         elif side == "SELL":
             self.execute_sell(trade.asset_id, trade.quantity, trade.price,
-                              cost=trade.cost, date=date)
+                              cost=trade.cost, date=date, impact=trade.impact)
         else:
             raise ValueError(
                 f"Unknown trade side '{trade.side}'. Expected BUY or SELL.")
