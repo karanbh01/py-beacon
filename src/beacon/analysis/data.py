@@ -15,7 +15,7 @@ A run stored before its tables were kept loads with what it has, and
 """
 # BN-369.
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,15 +24,18 @@ import pandas as pd
 
 from ..backtest.result import BacktestResult
 from ..exceptions import ConfigurationError
+from .packing import CLOSES_FLOAT, CLOSES_PACKED, CLOSES_SCALE, pack_closes, unpack_closes
 from .panels import (
     CASH,
     CHARACTERISTICS,
+    CLOSES,
     COSTS,
     FUND_WEIGHTS,
     INDEX_WEIGHTS,
     NAME_RETURNS,
     REFERENCE,
     TRADED_VALUES,
+    name_returns_from,
     read_panels,
     run_panels,
     write_panels,
@@ -48,6 +51,9 @@ RETURNS, NAV, UNITS = "returns", "nav", "units"
 INDEX, OPTIMISED, BENCHMARK = "index", "optimised", "benchmark"
 _LEVELS = "levels_"
 _VALUE = "value"
+
+# The tables a stored run works out again from the ones it keeps.
+DERIVED = frozenset({NAME_RETURNS})
 
 # The tables every run keeps, which a record without them says it lacks.
 EXPECTED = (FUND_WEIGHTS, NAME_RETURNS, COSTS, CASH, INDEX_WEIGHTS, REFERENCE,
@@ -115,14 +121,25 @@ class RunData:
         ``run.json``."""
         series = {RETURNS: self.returns, NAV: self.nav, UNITS: self.units,
                   **{_LEVELS + name: levels for name, levels in self.comparators.items()}}
+        # What is worked out again on reading is not written; the closes it
+        # is worked out from are written packed (BN-403).
+        derived = [name for name in self.tables if name in DERIVED]
+        kept = {name: self.tables[name] for name in self.tables
+                if name not in DERIVED and name != CLOSES}
+        closes = self.tables.get(CLOSES)
 
-        write_panels(folder, {**self.tables,
+        if closes is not None:
+            kept.update(pack_closes(closes))
+
+        write_panels(folder, {**kept,
                               **{name: values.to_frame(_VALUE) for name, values in series.items()}})
         run = {"version": RUN_VERSION, "currency": self.currency,
                "initial_capital": self.initial_capital,
                "periods_per_year": self.periods_per_year,
                "risk_free_rate": self.risk_free_rate,
-               "missing": dict(self.missing)}
+               "missing": dict(self.missing),
+               "derived": derived,
+               "closes": [] if closes is None else [str(name) for name in closes.columns]}
         (folder / RUN_FILE).write_text(json.dumps(run, sort_keys=True), encoding="utf-8")
 
     @classmethod
@@ -156,6 +173,11 @@ class RunData:
         series = {name: _column(tables.pop(name)) for name in list(tables)
                   if name in (RETURNS, NAV, UNITS) or name.startswith(_LEVELS)}
 
+        if CLOSES_PACKED in tables:
+            packed = {name: tables.pop(name) for name in (CLOSES_PACKED, CLOSES_SCALE, CLOSES_FLOAT)
+                      if name in tables}
+            tables[CLOSES] = unpack_closes(packed, run.get("closes") or None)
+
         return cls(currency=run["currency"],
                    returns=series[RETURNS],
                    nav=series[NAV],
@@ -165,8 +187,47 @@ class RunData:
                    risk_free_rate=float(run["risk_free_rate"]),
                    comparators={name[len(_LEVELS):]: levels for name, levels in series.items()
                                 if name.startswith(_LEVELS)},
-                   tables=tables,
+                   tables=_Tables(tables, _rebuilds(tables, run)),
                    missing=run.get("missing", {}))
+
+
+class _Tables(Mapping[str, pd.DataFrame]):
+    """A stored run's tables: those it kept, and those worked out from them
+    the first time each is asked for."""
+
+    def __init__(self,
+                 kept: dict[str, pd.DataFrame],
+                 rebuilds: dict[str, Callable[[], pd.DataFrame]]):
+        self._kept = kept
+        self._rebuilds = rebuilds
+
+    def __getitem__(self,
+                    name: str) -> pd.DataFrame:
+        if name not in self._kept and name in self._rebuilds:
+            self._kept[name] = self._rebuilds[name]()
+
+        return self._kept[name]
+
+    def __iter__(self) -> Iterator[str]:
+        yield from self._kept
+        yield from (name for name in self._rebuilds if name not in self._kept)
+
+    def __len__(self) -> int:
+        return len(set(self._kept) | set(self._rebuilds))
+
+
+def _rebuilds(tables: dict[str, pd.DataFrame],
+              run: Mapping[str, Any]) -> dict[str, Callable[[], pd.DataFrame]]:
+    """How each table a stored run worked out again is rebuilt from the ones
+    it kept."""
+    rebuilds: dict[str, Callable[[], pd.DataFrame]] = {}
+
+    if NAME_RETURNS in run.get("derived", []):
+        # The run's days are the costs table's, a row for each.
+        rebuilds[NAME_RETURNS] = lambda: name_returns_from(tables, run["currency"],
+                                                           pd.DatetimeIndex(tables[COSTS].index))
+
+    return rebuilds
 
 
 def _column(table: pd.DataFrame) -> pd.Series:

@@ -33,6 +33,7 @@ from ..data.prices import PRICE_COLUMN
 from ..data.returns import name_returns
 from ..data.store import _read_frame, _write_frame
 from ..exceptions import CalculationError, ConfigurationError, DataNotFoundError
+from .packing import StoredSource, market_inputs
 from .snapshots import (
     characteristics_snapshots,
     liquidity_dates,
@@ -67,6 +68,11 @@ BENCHMARK_WEIGHTS = "benchmark_weights"
 REFERENCE = "reference"
 CHARACTERISTICS = "characteristics"
 TRADED_VALUES = "traded_values"
+# The market inputs the name returns are worked out from (BN-403).
+CLOSES = "closes"
+CURRENCIES = "currencies"
+RATES = "rates"
+ACTIONS = "actions"
 
 
 
@@ -101,6 +107,10 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
           momentum at each rebalance, as
           `beacon.analysis.snapshots.characteristics_snapshots` gives them;
           left out, with a warning, when they cannot be measured.
+        - ``closes``, ``currencies``, ``rates`` and ``actions``: the closes
+          the name returns are worked out from, in each name's own currency,
+          and what converts them and accounts for splits and cash; see
+          `beacon.analysis.packing`.
         - ``traded_values``: their average daily traded value at each
           rebalance and month end, as the liquidity screens measure it
           (`beacon.analysis.snapshots.traded_value_snapshots`).
@@ -125,12 +135,14 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
     # One read of the market data for every table built from it.
     market = market_history(source, names, dates or [days[0]], until=days[-1])
 
+    closes = market[PRICE_COLUMN].rename(columns=str)
+    panels[CLOSES] = closes
+    panels.update(market_inputs(source, closes, result.currency))
+
     # A table that cannot be built is left out rather than failing the run
     # it would have been kept with; its analysis then says what is missing.
     try:
-        returns = name_returns(source, names, currency=result.currency,
-                               closes=market[PRICE_COLUMN])
-        panels[NAME_RETURNS] = returns.reindex(days).rename(columns=str)
+        panels[NAME_RETURNS] = name_returns_from(panels, result.currency, days)
     except (CalculationError, DataNotFoundError) as error:
         logger.warning("The run's name returns were not kept: %s", error)
 
@@ -147,6 +159,23 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
         logger.warning("The run's traded values were not kept: %s", error)
 
     return panels
+
+
+def name_returns_from(tables: Mapping[str, pd.DataFrame],
+                      currency: str,
+                      days: pd.DatetimeIndex) -> pd.DataFrame:
+    """The name returns, worked out from a run's kept closes, currencies,
+    rates and corporate actions, on its NAV *days*.
+
+    The same calculation as `beacon.data.returns.name_returns` on the data
+    store, on the same numbers, so a finished run and a stored one give the
+    same table to the last bit.
+    """
+    stored = StoredSource(tables[CURRENCIES], tables[RATES], tables[ACTIONS], currency)
+    closes = tables[CLOSES]
+
+    return (name_returns(stored, list(closes.columns), currency=currency, closes=closes)
+            .reindex(days).rename(columns=str))
 
 
 def held_names(result: BacktestResult) -> list[str]:
@@ -186,7 +215,8 @@ def write_panels(folder: Path,
         manifest: dict[str, Any] = {"version": PANELS_VERSION, "panels": {}}
 
         for name, frame in panels.items():
-            _write_frame(frame.rename_axis(INDEX_COLUMN).reset_index(), staging / f"{name}.parquet")
+            _write_frame(frame.rename_axis(INDEX_COLUMN).reset_index(), staging / f"{name}.parquet",
+                         delta_integers=True)
             manifest["panels"][name] = {"rows": len(frame),
                                         "columns": len(frame.columns),
                                         "index": frame.index.name}

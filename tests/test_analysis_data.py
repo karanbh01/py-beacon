@@ -169,3 +169,37 @@ class TestRefusals:
 
         with pytest.raises(ConfigurationError, match="newer"):
             RunData.from_record(tmp_path / "run")
+
+
+class TestPackedTables:
+    """BN-403: a stored run keeps its closes packed and works its name
+    returns out again when first asked for."""
+
+    def test_the_name_returns_are_not_written(self,
+                                              data,
+                                              tmp_path):
+        data.write(tmp_path / "run")
+
+        assert not (tmp_path / "run" / f"{NAME_RETURNS}.parquet").exists()
+        assert (tmp_path / "run" / "closes_packed.parquet").exists()
+
+    def test_they_are_worked_out_only_when_asked_for(self,
+                                                     data,
+                                                     tmp_path,
+                                                     monkeypatch):
+        from beacon.analysis import data as module
+
+        data.write(tmp_path / "run")
+        calls = []
+        original = module.name_returns_from
+        monkeypatch.setattr(module, "name_returns_from",
+                            lambda *args: calls.append(1) or original(*args))
+
+        again = RunData.from_record(tmp_path / "run")
+        assert calls == [] and NAME_RETURNS in again.tables
+
+        first = again.tables[NAME_RETURNS]
+        second = again.tables[NAME_RETURNS]
+
+        assert calls == [1] and first is second
+        assert first.equals(data.tables[NAME_RETURNS])

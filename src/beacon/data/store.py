@@ -49,7 +49,7 @@ import zlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -323,7 +323,8 @@ def as_stored(frame: pd.DataFrame,
 
 def _write_frame(frame: pd.DataFrame,
                  path: Path,
-                 progress: Callable[[float], None] | None = None) -> None:
+                 progress: Callable[[float], None] | None = None,
+                 delta_integers: bool = False) -> None:
     """Write one Parquet file reproducibly.
 
     Args:
@@ -331,6 +332,8 @@ def _write_frame(frame: pd.DataFrame,
         path: The file to write.
         progress: Called after each row group with the share of the rows
             written.
+        delta_integers: Delta-pack whole-number columns, which halves a
+            column of prices kept as whole cents.
     """
     import pyarrow as pa  # noqa: PLC0415
     import pyarrow.parquet as pq  # noqa: PLC0415
@@ -338,10 +341,19 @@ def _write_frame(frame: pd.DataFrame,
     table = pa.Table.from_pandas(frame, preserve_index=False)
     floats = [field.name for field in table.schema if pa.types.is_floating(field.type)]
     rows = table.num_rows
+    integers = ([field.name for field in table.schema if pa.types.is_integer(field.type)]
+                if delta_integers else [])
+    # BN-403: a column delta-packed is kept out of the dictionary, which
+    # Parquet would otherwise try first.
+    encoding: dict[str, Any] = {"use_dictionary": [name for name in table.column_names
+                                                   if name not in integers]} if integers else {}
+
+    if integers:
+        encoding["column_encoding"] = dict.fromkeys(integers, "DELTA_BINARY_PACKED")
 
     with pq.ParquetWriter(path, table.schema, compression="zstd",
                           compression_level=ZSTD_LEVEL,
-                          use_byte_stream_split=floats or False) as writer:
+                          use_byte_stream_split=floats or False, **encoding) as writer:
         # One pass even for an empty frame, which still writes its schema.
         for start in range(0, max(rows, 1), CHUNK_ROWS):
             writer.write_table(table.slice(start, CHUNK_ROWS), row_group_size=CHUNK_ROWS)

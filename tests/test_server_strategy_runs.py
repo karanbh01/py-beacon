@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from beacon.analysis import RunData
 from beacon.analysis.panels import (
     BENCHMARK_WEIGHTS,
     CHARACTERISTICS,
@@ -218,7 +219,7 @@ class TestTheRunsTables:
         store = client.app.state.backtest_record_store
 
         for strategy_id in STRATEGIES:
-            tables = read_panels(store.panels_directory(strategy_id))
+            tables = RunData.from_record(store.panels_directory(strategy_id)).tables
             record = client.get(f"/strategies/{strategy_id}/record", headers=auth()).json()
             weights = tables[FUND_WEIGHTS]
 
@@ -253,7 +254,7 @@ class TestTheRunsTables:
                                            headers=auth()))
         assert job["status"] == SUCCEEDED, job
         store = client.app.state.backtest_record_store
-        tables = read_panels(store.panels_directory("plain"))
+        tables = RunData.from_record(store.panels_directory("plain")).tables
         record = client.get("/strategies/plain/record", headers=auth()).json()
 
         assert BENCHMARK_WEIGHTS in tables and INDEX_WEIGHTS in tables
