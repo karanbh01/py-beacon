@@ -283,10 +283,9 @@ class TestCharacteristicsTable:
 
     def test_it_reads_back_as_the_snapshot_gives_it(self,
                                                     tmp_path):
-        from test_strategy_futures import index, run
-
         from beacon.analysis.panels import held_names
         from beacon.analysis.snapshots import characteristics_snapshots, rebalance_dates
+        from test_strategy_futures import index, run
 
         result = run(index())
         write_panels(tmp_path / "run", run_panels(result))
