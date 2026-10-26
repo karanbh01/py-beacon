@@ -41,6 +41,7 @@ from ..market_caps import (
     uses_free_float,
 )
 from ..periods import build_periods
+from ..record_tables import whole_record
 from ..schemas import (
     AssetView,
     AttributionView,
@@ -446,7 +447,9 @@ def build_strategy_runs_router() -> APIRouter:
         run = _latest_run(request, strategy_id)
         fetcher = _data_fetcher(request)
         records: DocumentStore = request.app.state.backtest_record_store
-        saved = (records.read(strategy_id) or {}).get(HOLDINGS_KEY)
+        # Only the holdings document, of the parts kept as tables (BN-404).
+        saved = whole_record(records.read(strategy_id) or {}, records.panels_directory(strategy_id),
+                             {HOLDINGS_KEY}).get(HOLDINGS_KEY)
         names = set((saved or {}).get("units") or {}) | {
             name for snapshot in run.get("rebalances") or [] for name in snapshot["weights"]}
         selections = ((saved or {}).get("selections") or {}).values()
@@ -480,7 +483,8 @@ def build_strategy_runs_router() -> APIRouter:
         records: DocumentStore = request.app.state.backtest_record_store
         record = load_document(records,
                                strategy_id,
-                               validated(BacktestResultSummary),
+                               lambda name, document: BacktestResultSummary.model_validate(
+                                   whole_record(document, records.panels_directory(name))),
                                f"a backtest record for strategy '{strategy_id}'",
                                source=RECORD_SOURCE)
 

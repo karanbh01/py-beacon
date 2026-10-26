@@ -44,16 +44,34 @@ def dataframe_to_payload(frame: pd.DataFrame) -> dict[str, Any]:
         names), and ``data`` (list of rows, each a list of cell values).
         NaN, NaT and infinities all become None.
     """
-    columns = [_column_values(frame.iloc[:, position]) for position in range(frame.shape[1])]
-
     return {
         "index": [_json_safe(label) for label in frame.index],
         "columns": [str(column) for column in frame.columns],
-        # Column by column, then into rows (BN-349): a numeric column through
-        # numpy's `tolist`, which gives the Python numbers `_json_safe` gave
-        # cell by cell, about twelve million calls on a 6,000-name run.
-        "data": [list(row) for row in zip(*columns, strict=True)],
+        "data": _rows(frame),
     }
+
+
+def _rows(frame: pd.DataFrame) -> list[list[Any]]:
+    """A frame's cells, row by row, as `_json_safe` gives them."""
+    kinds = set(frame.dtypes)
+
+    # A frame of one float dtype, as a book's daily weights are, all at once
+    # (BN-404): picking out thousands of columns one at a time was most of
+    # serving a 6,000-name panel. The same Python floats, and None for NaN.
+    if (frame.shape[0] and frame.shape[1] and len(kinds) == 1
+            and isinstance(next(iter(kinds)), np.dtype) and next(iter(kinds)).kind == "f"):
+        grid = frame.to_numpy()
+        cells = grid.astype(object)
+        cells[~np.isfinite(grid)] = None
+
+        return list(cells.tolist())
+
+    # Column by column, then into rows (BN-349): a numeric column through
+    # numpy's `tolist`, which gives the Python numbers `_json_safe` gave cell
+    # by cell, about twelve million calls on a 6,000-name run.
+    columns = [_column_values(frame.iloc[:, position]) for position in range(frame.shape[1])]
+
+    return [list(row) for row in zip(*columns, strict=True)]
 
 
 def _column_values(column: pd.Series) -> list[Any]:

@@ -242,8 +242,9 @@ def create_app(config: ServerConfig) -> FastAPI:
     # /strategies/{id}/record. A collection of its own since runs are kept per
     # strategy (BN-313): the records filed under index ids before it are not
     # read, so none is taken for a strategy of the same name.
+    # Written compactly (BN-404): the spaces were about 5% of a record.
     app.state.backtest_record_store = DocumentStore(
-        "strategy_backtest_records", root=config.storage_root)
+        "strategy_backtest_records", root=config.storage_root, compact=True)
 
     # A dataset with no universe document is a dataset the editor cannot
     # select from, so one covering everything is written as soon as data is

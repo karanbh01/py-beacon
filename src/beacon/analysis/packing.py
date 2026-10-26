@@ -98,17 +98,15 @@ def unpack_closes(tables: Mapping[str, pd.DataFrame],
     (or packed names first)."""
     packed = tables[CLOSES_PACKED]
     scales = tables[CLOSES_SCALE]["decimals"]
-    columns: dict[str, np.ndarray] = {}
-
-    for name in packed.columns:
-        whole = packed[name].to_numpy(dtype=float, na_value=np.nan)
-        columns[name] = whole / 10.0 ** int(scales[name])
-
+    # In one array (BN-404): a name at a time took most of a second at 6,000
+    # names. The same division, by the same power of ten, for each close.
+    divisors = np.array([10.0 ** int(scales[name]) for name in packed.columns])
+    whole = packed.to_numpy(dtype=float, na_value=np.nan)
     floats = tables.get(CLOSES_FLOAT, pd.DataFrame())
-    frame = pd.DataFrame(columns, index=packed.index)
-
-    for name in floats.columns:
-        frame[name] = floats[name].to_numpy(dtype=float)
+    frame = pd.DataFrame(np.hstack([whole / divisors, floats.reindex(packed.index).to_numpy(
+                             dtype=float)]) if len(floats.columns) else whole / divisors,
+                         index=packed.index,
+                         columns=[*packed.columns, *floats.columns])
 
     return frame[order] if order is not None else frame
 

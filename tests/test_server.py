@@ -244,6 +244,23 @@ class TestSerialisation:
 
         assert dataframe_to_payload(frame)["data"] == [[1.0], [None]]
 
+    @pytest.mark.parametrize("dtype", ["float64", "float32"])
+    def test_an_all_float_frame_gives_what_a_mixed_one_would(self,
+                                                             dtype):
+        """BN-404: a frame of one float dtype is converted all at once; its
+        cells are those the column-by-column conversion gives."""
+        values = [[0.1, float("nan"), float("inf")], [-0.0, 2.5, float("-inf")]]
+        frame = pd.DataFrame(values, columns=["A", "B", "C"]).astype(dtype)
+        mixed = frame.assign(D="x")
+
+        rows = dataframe_to_payload(frame)["data"]
+        expected = [row[:3] for row in dataframe_to_payload(mixed)["data"]]
+
+        assert rows == expected
+        assert [type(cell) for row in rows for cell in row] == [
+            type(cell) for row in expected for cell in row]
+        assert rows[0][1] is None and rows[1][2] is None
+
     def test_empty_dataframe(self):
         payload = dataframe_to_payload(pd.DataFrame())
 

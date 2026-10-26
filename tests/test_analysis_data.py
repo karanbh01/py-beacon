@@ -231,3 +231,18 @@ class TestPackedTables:
         np.testing.assert_array_equal(fund.to_numpy(), result.portfolio.weights.to_numpy())
         np.testing.assert_array_equal(index.to_numpy(), result.index.target.weights.to_numpy())
         assert index.dtypes.iloc[0] == result.index.target.weights.dtypes.iloc[0]
+
+    def test_the_latest_weights_alone_are_those_rows_of_the_whole_table(self,
+                                                                       data,
+                                                                       tmp_path):
+        data.write(tmp_path / "run")
+        again = RunData.from_record(tmp_path / "run")
+
+        for name in (FUND_WEIGHTS, "index_weights"):
+            for rows in (1, 7, 40, 10_000):
+                latest = again.latest(name, rows)
+                whole = RunData.from_record(tmp_path / "run").tables[name].tail(rows)
+
+                np.testing.assert_array_equal(latest.to_numpy(), whole.to_numpy())
+                assert latest.index.equals(whole.index)
+                assert list(latest.columns) == list(whole.columns)

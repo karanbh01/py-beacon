@@ -253,13 +253,19 @@ def _book_tables(name: str,
 def weights_from(name: str,
                  tables: Mapping[str, pd.DataFrame],
                  currency: str,
-                 dtype: str) -> pd.DataFrame:
+                 dtype: str,
+                 last: int | None = None) -> pd.DataFrame:
     """A book's daily weights, worked out again from what was kept, with the
-    recorded cells put back, so they are exactly what was recorded."""
-    closes = tables[CLOSES].ffill()
+    recorded cells put back, so they are exactly what was recorded; for its
+    *last* days alone when given, which are those days of the whole table."""
     days = pd.DatetimeIndex(tables[name + DAYS].index)
+    days = days[-last:] if last is not None and last > 0 else days
+    # Carried over gaps across the whole run, then only the days worked out.
+    closes = tables[CLOSES].ffill().reindex(days)
     names = [str(item) for item in tables[name + NAMES].index]
     changes = tables[name + HOLDINGS]
+    patch = tables[name + PATCH]
+    patch = patch[pd.DatetimeIndex(patch.index) >= days[0]] if len(days) else patch
 
     if name == FUND_WEIGHTS:
         stored = StoredSource(tables[CURRENCIES], tables[RATES], tables[ACTIONS], currency)
@@ -270,7 +276,7 @@ def weights_from(name: str,
                                      rate_grid(tables[CURRENCIES], tables[RATES], days, names),
                                      days, names, dtype)
 
-    frame = patched(rebuilt, tables[name + PATCH])
+    frame = patched(rebuilt, patch)
     frame.index.name, frame.columns.name = None, None
 
     return frame.astype(dtype)

@@ -36,6 +36,7 @@ from .errors import FindingsError
 from .holdings import HOLDINGS_KEY, holdings_document
 from .job_threads import Report, run_in_thread
 from .jobs import JobBody, ProgressReporter
+from .record_tables import slim_record
 from .schemas import (
     ActiveStepPayload,
     BacktestRequest,
@@ -411,19 +412,25 @@ def build_backtest_job(strategy: StrategyDocument,
             # A report first, so a run cancelled by now stops before it files
             # its record (BN-333).
             report(0.95, "Saving the record.")
+            # The weights are left to the run's tables (BN-404), so they are
+            # not turned into lists only to be dropped.
             record = BacktestResultSummary.from_result(backtest,
                                                        cap=target_cap(definition),
-                                                       settings=resolved)
+                                                       settings=resolved,
+                                                       weights=False)
             # BN-326: what each rebalance decided, for the holdings workflow,
             # kept in the record under a key its model does not read, so the
             # record is served as before and goes when it goes.
             # BN-361: the tables too large for the JSON, beside it, written
             # before the record so a record never sits beside an older run's.
             # BN-369: as RunData keeps it, so its analysis can be rerun.
-            RunData.from_result(backtest).write(record_store.panels_directory(strategy.id))
-            record_store.write(strategy.id, {**record.model_dump(mode="json"),
-                                             HOLDINGS_KEY: holdings_document(backtest,
-                                                                             index_result)})
+            # BN-404: the record's large parts as tables there too.
+            run = RunData.from_result(backtest)
+            folder = record_store.panels_directory(strategy.id)
+            run.write(folder)
+            whole = {**record.model_dump(mode="json"),
+                     HOLDINGS_KEY: holdings_document(backtest, index_result)}
+            record_store.write(strategy.id, slim_record(whole, run, folder))
 
         report(1.0, "Complete.")
 

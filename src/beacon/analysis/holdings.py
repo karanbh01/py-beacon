@@ -75,15 +75,17 @@ def held_amounts(changes: pd.DataFrame,
                  dates: pd.DatetimeIndex,
                  names: list[str]) -> pd.DataFrame:
     """*changes* as amounts held on every one of *dates*, by name in *names*,
-    missing where a name was not held."""
+    missing where a name was not held; a holding that began before the
+    first of *dates* is carried into them."""
     if changes.empty:
         return pd.DataFrame(np.nan, index=dates, columns=names)
 
     keyed = changes.rename_axis("DAY").reset_index()
     amounts = keyed.pivot(index="DAY", columns=NAME, values=AMOUNT)
     held = keyed.pivot(index="DAY", columns=NAME, values=HELD).astype(float)
-    amounts = amounts.reindex(index=dates, columns=names).ffill()
-    held = held.reindex(index=dates, columns=names).ffill()
+    every = amounts.index.union(dates)
+    amounts = amounts.reindex(index=every, columns=names).ffill().reindex(dates)
+    held = held.reindex(index=every, columns=names).ffill().reindex(dates)
 
     return amounts.where(held == 1.0)
 
@@ -154,17 +156,17 @@ def rate_grid(currencies: pd.DataFrame,
               names: list[str]) -> pd.DataFrame:
     """Each name's rate into the book's currency on each of *dates*: its
     currency's kept rate, or 1 for a name in the book's own currency."""
-    grid = pd.DataFrame(1.0, index=dates, columns=names)
+    grid = np.ones((len(dates), len(names)))
     quoted = currencies["CURRENCY"]
 
+    # In one array: a column at a time took over half a second at 6,000 names.
     for code in rates.columns:
-        held = [name for name in names if quoted.get(name) == code]
+        held = [position for position, name in enumerate(names) if quoted.get(name) == code]
 
         if held:
-            column = rates[code].reindex(dates).to_numpy()
-            grid[held] = np.repeat(column[:, None], len(held), axis=1)
+            grid[:, held] = rates[code].reindex(dates).to_numpy(dtype=float)[:, None]
 
-    return grid
+    return pd.DataFrame(grid, index=dates, columns=names)
 
 
 def patch_of(rebuilt: pd.DataFrame,

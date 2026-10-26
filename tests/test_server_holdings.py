@@ -300,7 +300,7 @@ class TestOtherRuns:
         """Without the saved stages, the index's weights and the book still show."""
         records = client.app.state.backtest_record_store
         records.write("plain", {key: value for key, value in records.read("plain").items()
-                                if key not in ("holdings", "schema_version")})
+                                if key not in ("holdings", "tables", "schema_version")})
 
         view = client.get("/strategies/plain/holdings", params={"date": START},
                           headers=auth()).json()

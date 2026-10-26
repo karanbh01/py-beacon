@@ -120,6 +120,17 @@ class RunData:
                    missing={name: "the run did not have it" for name in EXPECTED
                             if name not in tables})
 
+    def latest(self,
+               name: str,
+               rows: int) -> pd.DataFrame:
+        """The last *rows* rows of table *name*. A stored run's daily weights
+        are worked out for those days alone, unless already read whole, and
+        are those rows of the whole table exactly."""
+        if isinstance(self.tables, _Tables):
+            return self.tables.latest(name, rows)
+
+        return self.tables[name].tail(rows)
+
     def write(self,
               folder: Path) -> None:
         """Keep this run in *folder*, replacing whatever it held: its tables
@@ -194,7 +205,7 @@ class RunData:
                                                      run.get("closes") or None))
 
         for name, rebuild in _rebuilds(tables, run).items():
-            tables.add(name, rebuild)
+            tables.add(name, rebuild, _window(name, tables, run))
 
         return cls(currency=run["currency"],
                    returns=series[RETURNS],
@@ -218,6 +229,7 @@ class _Tables(Mapping[str, pd.DataFrame]):
                  rebuilds: dict[str, Callable[[], pd.DataFrame]]):
         self._kept = kept
         self._rebuilds = rebuilds
+        self._windows: dict[str, Callable[[int], pd.DataFrame]] = {}
 
     def __getitem__(self,
                     name: str) -> pd.DataFrame:
@@ -235,9 +247,24 @@ class _Tables(Mapping[str, pd.DataFrame]):
 
     def add(self,
             name: str,
-            rebuild: Callable[[], pd.DataFrame]) -> None:
-        """Have *name* read or worked out the first time it is asked for."""
+            rebuild: Callable[[], pd.DataFrame],
+            window: Callable[[int], pd.DataFrame] | None = None) -> None:
+        """Have *name* read or worked out the first time it is asked for;
+        *window* works out only its last rows, when it can."""
         self._rebuilds[name] = rebuild
+
+        if window is not None:
+            self._windows[name] = window
+
+    def latest(self,
+               name: str,
+               rows: int) -> pd.DataFrame:
+        """The last *rows* rows of *name*: worked out for those alone when it
+        is worked out again and has not been already."""
+        if name in self._kept or name not in self._windows:
+            return self[name].tail(rows)
+
+        return self._windows[name](rows)
 
 
 def _read_one(folder: Path,
@@ -263,6 +290,27 @@ def _rebuilds(tables: Mapping[str, pd.DataFrame],
                                      run.get("dtypes", {}).get(name, "float64"))
 
     return rebuilds
+
+
+def _window(name: str,
+            tables: Mapping[str, pd.DataFrame],
+            run: Mapping[str, Any]) -> Callable[[int], pd.DataFrame] | None:
+    """How a stored run's daily weights are worked out for their last days
+    alone; None for any other table."""
+    if name not in WEIGHT_TABLES:
+        return None
+
+    return partial(_latest_weights, name, tables, run["currency"],
+                   run.get("dtypes", {}).get(name, "float64"))
+
+
+def _latest_weights(name: str,
+                    tables: Mapping[str, pd.DataFrame],
+                    currency: str,
+                    dtype: str,
+                    rows: int) -> pd.DataFrame:
+    """*name*'s daily weights on its last *rows* days."""
+    return weights_from(name, tables, currency, dtype, last=rows)
 
 
 def _column(table: pd.DataFrame) -> pd.Series:

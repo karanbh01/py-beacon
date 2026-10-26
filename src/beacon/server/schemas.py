@@ -878,7 +878,8 @@ class BacktestResultSummary(BaseModel):
     def from_result(cls,
                     result: BacktestResult,
                     cap: float | None = None,
-                    settings: dict[str, Any] | None = None) -> "BacktestResultSummary":
+                    settings: dict[str, Any] | None = None,
+                    weights: bool = True) -> "BacktestResultSummary":
         """Build from a library `BacktestResult`.
 
         Args:
@@ -889,14 +890,17 @@ class BacktestResultSummary(BaseModel):
                 that book's rebalance snapshots only: a solved index has no cap
                 of its own, since its constraints are what shaped its weights.
             settings: What ran, resolved, to keep with the record.
+            weights: Whether each book's daily weights are filled in. Left
+                empty, `weights_dates_total` still counts them, for a record
+                whose weights are served from the run's own tables.
         """
         metrics = metrics_from(result.summary())
 
-        return cls(portfolio=_portfolio_payload(result.portfolio),
+        return cls(portfolio=_portfolio_payload(result.portfolio, weights),
                    index=IndexBooksPayload(
-                       target=_book_payload(result.index.target, cap),
-                       optimised=_book_payload(result.index.optimised)),
-                   benchmark=_book_payload(result.benchmark),
+                       target=_book_payload(result.index.target, cap, weights),
+                       optimised=_book_payload(result.index.optimised, weights=weights)),
+                   benchmark=_book_payload(result.benchmark, weights=weights),
                    unfilled=unfilled_payloads(result),
                    price_gaps=price_gap_payloads(result),
                    rebalance_pricing=rebalance_pricing_payloads(result),
@@ -942,8 +946,10 @@ def rebalance_pricing_payloads(result: BacktestResult) -> list[RebalancePricingP
             for row in result.rebalance_pricing]
 
 
-def _portfolio_payload(portfolio: Any) -> PortfolioBookPayload:
-    """The portfolio's books, bounded."""
+def _portfolio_payload(portfolio: Any,
+                       weights: bool = True) -> PortfolioBookPayload:
+    """The portfolio's books, bounded; its daily weights empty unless
+    *weights*."""
     rows = [
         {
             "date": transaction.transaction_date,
@@ -960,23 +966,30 @@ def _portfolio_payload(portfolio: Any) -> PortfolioBookPayload:
         columns=["date", "asset_id", "type", "quantity", "price", "cost"])
 
     positions = portfolio.positions
-    weights = portfolio.weights
+    panel = portfolio.weights
 
     return PortfolioBookPayload(
         portfolio_id=portfolio.portfolio_id,
         initial_capital=portfolio.initial_capital,
         nav=SeriesPayload.from_series(portfolio.nav),
         cash=SeriesPayload.from_series(portfolio.cash),
-        weights=TableFrame.from_dataframe(weights.tail(MAX_WEIGHT_DATES)),
-        weights_dates_total=len(weights),
+        weights=_weights_payload(panel, weights),
+        weights_dates_total=len(panel),
         positions=TableFrame.from_dataframe(
             positions.tail(MAX_POSITION_ROWS)),
         positions_total=len(positions),
         transactions=TableFrame.from_dataframe(frame))
 
 
+def _weights_payload(panel: pd.DataFrame,
+                     shown: bool) -> TableFrame:
+    """A book's latest daily weights, or none when not *shown*."""
+    return TableFrame.from_dataframe(panel.tail(MAX_WEIGHT_DATES) if shown else pd.DataFrame())
+
+
 def _book_payload(book: Any,
-                  cap: float | None = None) -> BookPayload | None:
+                  cap: float | None = None,
+                  weights: bool = True) -> BookPayload | None:
     """One comparator's record, or None when the run had none.
 
     The decided weights come off the book's `source` — the `IndexResult` a
@@ -989,6 +1002,7 @@ def _book_payload(book: Any,
         cap: The maximum constituent weight the definition behind this book
             declares, if it has one. Carried rather than read off the cap
             reports, which exist only on the dates a cap actually bound.
+        weights: Whether its daily weights are filled in.
     """
     if book is None:
         return None
@@ -1004,7 +1018,7 @@ def _book_payload(book: Any,
 
     return BookPayload(
         levels=SeriesPayload.from_series(book.levels),
-        weights=TableFrame.from_dataframe(book.weights.tail(MAX_WEIGHT_DATES)),
+        weights=_weights_payload(book.weights, weights),
         weights_dates_total=len(book.weights),
         rebalances=snapshots[-MAX_REBALANCES:],
         rebalances_total=len(snapshots),

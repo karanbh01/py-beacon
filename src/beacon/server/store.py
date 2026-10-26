@@ -137,17 +137,21 @@ class DocumentStore:
             different collections never collide.
         root: Base directory. Defaults to the platform app-data location.
             Tests pass a temporary path.
+        compact: Write documents without the space after each comma and
+            colon, for a collection whose documents are large.
     """
 
     def __init__(self,
                  collection: str,
-                 root: Path | None = None):
+                 root: Path | None = None,
+                 compact: bool = False):
         if not collection:
             raise ValueError("collection cannot be empty.")
 
         base = root if root is not None else Path(platformdirs.user_data_dir(APP_NAME))
         self.directory = base / collection
         self.directory.mkdir(parents=True, exist_ok=True)
+        self._separators = (",", ":") if compact else None
 
     def _path(self,
               document_id: str) -> Path:
@@ -271,7 +275,7 @@ class DocumentStore:
                 # encoder builds it (BN-349): `dump` to a file and any indent
                 # both fall back to the Python encoder, which took most of a
                 # minute over a 6,000-name backtest's record.
-                file.write(json.dumps(stored, sort_keys=True))
+                file.write(json.dumps(stored, sort_keys=True, separators=self._separators))
             os.replace(temporary, path)
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
