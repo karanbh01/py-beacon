@@ -9,9 +9,11 @@ strategy's run.
 import uuid
 from datetime import UTC, datetime
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from beacon.analysis.panels import FUND_WEIGHTS, read_panels, write_panels
 from beacon.server import ServerConfig, create_app
 from beacon.server.jobs import SUCCEEDED
 from beacon.server.store import DocumentStore
@@ -198,6 +200,31 @@ class TestRunsArePerStrategy:
         assert "POST /strategies/idle/backtest" in response.json()["error"]["message"]
 
 
+class TestTheRunsTables:
+    """BN-361: the tables too large for the record, beside it."""
+
+    def test_each_record_keeps_its_fund_s_daily_weights_beside_it(self,
+                                                                 client):
+        store = client.app.state.backtest_record_store
+
+        for strategy_id in STRATEGIES:
+            tables = read_panels(store.panels_directory(strategy_id))
+            record = client.get(f"/strategies/{strategy_id}/record", headers=auth()).json()
+            weights = tables[FUND_WEIGHTS]
+
+            assert len(weights) == record["portfolio"]["weights_dates_total"]
+            assert weights.sum(axis=1).max() <= 1.0 + 1e-9
+
+    def test_a_record_kept_before_them_still_opens(self,
+                                                  client):
+        store = client.app.state.backtest_record_store
+        record = store.read("plain")
+        store.write("before-tables", record)
+
+        assert read_panels(store.panels_directory("before-tables")) == {}
+        assert store.read("before-tables") == {**record}
+
+
 class TestTheLatestResult:
     """BN-320: the run payload by strategy, so a client need not hold the job's id."""
 
@@ -287,7 +314,10 @@ class TestDeletingAStrategy:
                                             bare):
         bare.post("/strategies", json=strategy_document("doomed"), headers=auth())
         persist_result(bare, "backtest:doomed", {"settings": {"strategy_id": "doomed"}})
-        bare.app.state.backtest_record_store.write("doomed", {"run_at": None})
+        records = bare.app.state.backtest_record_store
+        records.write("doomed", {"run_at": None})
+        write_panels(records.panels_directory("doomed"), {FUND_WEIGHTS: pd.DataFrame(
+            {"AAA": [1.0]}, index=pd.DatetimeIndex(["2023-01-03"]))})
 
         deleted = bare.delete("/strategies/doomed", headers=auth())
 
@@ -296,6 +326,7 @@ class TestDeletingAStrategy:
                                   "backtest_results_deleted": 1}
         assert bare.app.state.jobs.latest_result("backtest:doomed") is None
         assert bare.get("/strategies/doomed/overview", headers=auth()).status_code == 404
+        assert not records.panels_directory("doomed").exists()
 
     def test_another_strategy_s_runs_survive(self,
                                              bare):

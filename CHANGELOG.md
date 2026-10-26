@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Added
+
+- A run's large tables are kept beside its record as Parquet files, with a small manifest saying what is there: `beacon.analysis.panels` writes and reads them (`write_panels`, `read_panels`, `read_manifest`), and they read back exactly. A strategy's backtest record now keeps the fund's weight in every name on every day, unabridged, where the JSON record keeps only the last 1,000 days. A record saved before has no tables, and still opens. Deleting a strategy removes its tables with its record. On a 7-year backtest over 6,000 names, writing them adds about a second.
+
 ## [0.9.7] - 2026-10-22
 
 A backtest tracks its index the way a real fund does. Dividends count in the NAV from their ex-date, a fund's cash can be held within a band, and index futures follow the cash every day in whole contracts. On the TTIX backtest over 6,000 names against a total-return index, tracking error went from 0.81% to 0.08%. Postgres stores load several times faster with a third of the memory, and no longer fail on a NULL number. Synthetic data spreads dividends across the year and has companies leave as a large-cap market's do, mostly small ones and mostly through takeovers. Results change for backtests holding names through an ex-date, runs holding futures, and stores generated anew.

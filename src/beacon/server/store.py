@@ -11,6 +11,7 @@ it reaches the caller.
 """
 import json
 import os
+import shutil
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -178,6 +179,12 @@ class DocumentStore:
 
         return self.directory / f"{document_id}.json"
 
+    def panels_directory(self,
+                         document_id: str) -> Path:
+        """The folder beside a document that holds its large tables, as a
+        run's record keeps them; the same identifier rules apply."""
+        return self._path(document_id).with_suffix(".panels")
+
     def exists(self,
                document_id: str) -> bool:
         """Whether a document with this id is stored."""
@@ -287,6 +294,8 @@ class DocumentStore:
             return False
 
         path.unlink()
+        # A record's tables go with it.
+        shutil.rmtree(self.panels_directory(document_id), ignore_errors=True)
 
         return True
 

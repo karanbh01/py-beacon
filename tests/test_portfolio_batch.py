@@ -86,3 +86,40 @@ class TestTheSnapshot:
                    for column in ("QUANTITY", "PRICE", "MARKET_VALUE", "WEIGHT"))
         assert positions["WEIGHT"].sum() == pytest.approx(
             positions["MARKET_VALUE"].sum() / portfolio.nav.iloc[-1])
+
+
+class TestTheWideWeights:
+    """BN-361: the pivot is made once per change of the books."""
+
+    def test_follow_the_books_as_they_change(self):
+        portfolio = Portfolio("wide", 10_000.0)
+        trade(portfolio)
+        first = portfolio.weights
+
+        portfolio.execute_buy("DDD", 4, 40.0, cost=0.0, date=NEXT)
+
+        assert "DDD" not in first.columns
+        assert portfolio.weights.loc[NEXT, "DDD"] > 0
+
+    def test_are_made_once_while_the_books_stand_still(self,
+                                                       monkeypatch):
+        portfolio = Portfolio("still", 10_000.0)
+        trade(portfolio)
+        first = portfolio.weights
+        pivots = []
+        original = pd.DataFrame.pivot_table
+        monkeypatch.setattr(pd.DataFrame, "pivot_table",
+                            lambda *args, **kwargs: pivots.append(1) or original(*args, **kwargs))
+
+        again = [portfolio.weights for _ in range(2)]
+
+        assert pivots == []
+        assert all(frame.equals(first) for frame in again)
+
+    def test_a_caller_cannot_alter_the_kept_copy(self):
+        portfolio = Portfolio("kept", 10_000.0)
+        trade(portfolio)
+
+        portfolio.weights.iloc[0, 0] = -1.0
+
+        assert portfolio.weights.iloc[0, 0] >= 0

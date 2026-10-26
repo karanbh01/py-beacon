@@ -171,6 +171,9 @@ class Portfolio:
         self.frozen: bool = False
 
         self._history = PortfolioHistory()
+        # The weights pivot and the positions frame it was pivoted from,
+        # reused while the positions are unchanged (BN-361).
+        self._weights: tuple[pd.DataFrame, pd.DataFrame] | None = None
         # The date a batch has changed the books on, while one is open
         # (BN-344); None outside a batch, or before its first change.
         self._batch: list[pd.Timestamp] | None = None
@@ -211,8 +214,17 @@ class Portfolio:
         if positions.empty:
             return pd.DataFrame()
 
-        return positions.pivot_table(index="DATE", columns="ASSET_ID",
-                                     values="WEIGHT", observed=True)
+        # A run's record and its tables both want the pivot, which takes
+        # about a second at 6,000 names, so it is made once per change of the
+        # books. A copy is handed out, so no caller alters the one kept.
+        kept = getattr(self, "_weights", None)
+
+        if kept is None or kept[0] is not positions:
+            kept = (positions, positions.pivot_table(index="DATE", columns="ASSET_ID",
+                                                     values="WEIGHT", observed=True))
+            self._weights = kept
+
+        return kept[1].copy()
 
     @property
     def cash(self) -> pd.Series:

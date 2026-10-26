@@ -16,6 +16,7 @@ from typing import Any
 
 import pandas as pd
 
+from ..analysis.panels import run_panels, write_panels
 from ..analysis.relative import align_on_common_window, relative_metrics
 from ..backtest.main import Backtest
 from ..backtest.result import BacktestResult
@@ -406,6 +407,9 @@ def build_backtest_job(strategy: StrategyDocument,
             # BN-326: what each rebalance decided, for the holdings workflow,
             # kept in the record under a key its model does not read, so the
             # record is served as before and goes when it goes.
+            # BN-361: the tables too large for the JSON, beside it, written
+            # before the record so a record never sits beside an older run's.
+            write_panels(record_store.panels_directory(strategy.id), run_panels(backtest))
             record_store.write(strategy.id, {**record.model_dump(mode="json"),
                                              HOLDINGS_KEY: holdings_document(backtest,
                                                                              index_result)})
