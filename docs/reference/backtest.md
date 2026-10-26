@@ -11,6 +11,6 @@ Simulating a portfolio that trades to an index's target weights: the `Backtest` 
 
 ## Daily breakdown
 
-What a run cost each day, by kind: fixed trading costs, market impact, futures rolls and creation fees.
+What a run cost each day, by kind (fixed trading costs, market impact, futures rolls and creation fees), and where its cash went: balances, cash that moved, and what was charged or owed without cash moving.
 
 ::: beacon.backtest.breakdown

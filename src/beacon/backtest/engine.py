@@ -34,6 +34,7 @@ from .dividends import (
     REINVEST,
     REINVESTMENT_TARGETS,
     DividendsMixin,
+    entitled_frame,
 )
 from .etf import Quote, quotes_frame
 from .execution import ExecutionMixin
@@ -702,5 +703,6 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             futures_rolls=list(self._futures_rolls),
             hedge_value=pd.Series(self._hedge_history, dtype=float),
             dividends_receivable=pd.Series(self._receivable_history, dtype=float),
+            dividends_entitled=entitled_frame(self._entitled_history),
             share_classes=self._class_books(),
         ).with_data(self.data_provider)

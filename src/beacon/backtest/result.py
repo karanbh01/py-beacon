@@ -202,6 +202,10 @@ class BacktestResult(MetricsMixin):
             each day: gone ex and not yet paid, at the day's exchange rates
             and net of withholding tax. The NAV includes it, as a fund's
             accounts do; nothing is bought with it until it is paid.
+        dividends_entitled: What the book became owed on each day a holding
+            went ex: ``GROSS``, the dividends before tax, and ``WITHHELD``,
+            the tax withheld from them, at that day's exchange rates. Only
+            days with a dividend have a row.
         share_classes: For a fund run with share classes, each class's book
             by name: its net assets, units, NAV per unit, fees, distributions
             and flows. The result's own NAV and metrics are the whole fund's.
@@ -234,6 +238,8 @@ class BacktestResult(MetricsMixin):
     futures_rolls: list[FuturesRoll] = field(default_factory=list)
     hedge_value: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     dividends_receivable: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    dividends_entitled: pd.DataFrame = field(
+        default_factory=lambda: pd.DataFrame(columns=["GROSS", "WITHHELD"], dtype=float))
     share_classes: dict[str, ShareClassBook] = field(default_factory=dict)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)

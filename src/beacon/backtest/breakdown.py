@@ -3,6 +3,7 @@
 A run's money, day by day: what it cost, and where its cash went.
 
     costs = daily_costs(result)
+    cash = daily_cash(result)
 
 Each table has a row for every day of the run's NAV and a column for each
 kind, in the book's currency, and is 0 on a day nothing of that kind
@@ -15,6 +16,17 @@ happened. Summed over the run, each column is the run's total of its kind.
 import pandas as pd
 
 from ..exceptions import CalculationError
+from ..portfolio.cash_flows import (
+    DISTRIBUTION,
+    DIVIDEND,
+    FEE,
+    FUTURES,
+    HEDGE,
+    INTEREST,
+    REDEMPTION,
+    SUBSCRIPTION,
+    SWAP,
+)
 from .result import BacktestResult
 
 # The columns of `daily_costs`.
@@ -23,6 +35,16 @@ IMPACT = "impact"
 FUTURES_ROLLS = "futures_rolls"
 CREATION_FEES = "creation_fees"
 COST_KINDS = (FIXED, IMPACT, FUTURES_ROLLS, CREATION_FEES)
+
+# The columns of `daily_cash`: balances at the end of each day, cash that
+# moved, and what was charged or owed without cash moving.
+BALANCES = ("cash", "dividends_receivable", "fees_payable", "futures_exposure")
+MOVEMENTS = {"interest": INTEREST, "dividends_received": DIVIDEND,
+             "distributions": DISTRIBUTION, "subscriptions": SUBSCRIPTION,
+             "redemptions": REDEMPTION, "fees_paid": FEE, "futures_settled": FUTURES,
+             "swap_settled": SWAP, "hedge_settled": HEDGE}
+ACCRUALS = ("dividends_gross", "withholding_tax", "fee_charged", "flows_dealt")
+CASH_KINDS = BALANCES + tuple(MOVEMENTS) + ACCRUALS
 
 
 def daily_costs(result: BacktestResult) -> pd.DataFrame:
@@ -62,6 +84,84 @@ def daily_costs(result: BacktestResult) -> pd.DataFrame:
     }
 
     return _table(result, columns)
+
+
+# BN-364. Gross dividends and withholding are recorded by the engine on each
+# ex-date, when the NAV first counts them; the rest is on the run's record.
+def daily_cash(result: BacktestResult) -> pd.DataFrame:
+    """Where the run's cash went, and what it was owed and charged, by day.
+
+    Balances, at the end of each day:
+
+    - ``cash``: the cash held.
+    - ``dividends_receivable``: dividends gone ex and not yet paid, net of
+      withholding, which the NAV includes.
+    - ``fees_payable``: the management fee charged and not yet paid, which
+      the NAV is net of.
+    - ``futures_exposure``: what any index futures were exposed to.
+
+    Cash that moved, positive into the fund and negative out of it:
+    ``interest``, ``dividends_received`` (net of withholding, on the pay
+    date), ``distributions``, ``subscriptions``, ``redemptions``,
+    ``fees_paid``, ``futures_settled`` (their daily margin and roll costs),
+    ``swap_settled`` and ``hedge_settled``.
+
+    Charged or owed without cash moving:
+
+    - ``dividends_gross``: dividends the book became owed on their ex-dates,
+      before tax.
+    - ``withholding_tax``: the tax withheld from them, on the same days.
+    - ``fee_charged``: the management fee charged for the day.
+    - ``flows_dealt``: investors' flows as dealt, positive in.
+
+    Args:
+        result: The finished run.
+
+    Returns:
+        pd.DataFrame: Dates of the NAV by kind, in the book's currency, 0
+        where nothing of a kind happened.
+    """
+    days = result.portfolio.nav.index
+    flows = result.portfolio.cash_flows
+    columns: dict[str, pd.Series] = {}
+
+    for name, kind in MOVEMENTS.items():
+        moved = [flow for flow in flows if flow.kind == kind]
+        columns[name] = _by_day([flow.date for flow in moved], [flow.amount for flow in moved])
+
+    entitled = result.dividends_entitled
+    columns["dividends_gross"] = _by_day(list(entitled.index), entitled["GROSS"])
+    columns["withholding_tax"] = _by_day(list(entitled.index), entitled["WITHHELD"])
+    columns["flows_dealt"] = _by_day([flow.date for flow in result.flows],
+                                     [flow.amount for flow in result.flows])
+
+    table = _table(result, columns)
+    balances = {"cash": result.portfolio.cash, "dividends_receivable": result.dividends_receivable,
+                "fees_payable": result.fees_payable, "futures_exposure": result.futures_notional}
+
+    for name, series in balances.items():
+        table[name] = _balance(series, days)
+
+    # The day's charge: what is owed at its end, less what was owed at the
+    # start, plus what was paid.
+    table["fee_charged"] = (table["fees_payable"].diff().fillna(table["fees_payable"])
+                            - table["fees_paid"])
+
+    return table[list(CASH_KINDS)]
+
+
+def _balance(series: pd.Series,
+             days: pd.DatetimeIndex) -> pd.Series:
+    """A balance recorded when it changed, on every day: carried forward from
+    its last record, 0 before its first."""
+    if series.empty:
+        return pd.Series(0.0, index=days)
+
+    recorded = series.copy()
+    recorded.index = pd.DatetimeIndex(recorded.index).normalize()
+    recorded = recorded.groupby(level=0).last()
+
+    return recorded.reindex(recorded.index.union(days)).ffill().reindex(days).fillna(0.0)
 
 
 def _by_day(days: list[pd.Timestamp],

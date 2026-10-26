@@ -79,6 +79,12 @@ class Entitlement:
     shares: float
 
 
+def entitled_frame(history: dict[pd.Timestamp, tuple[float, float]]) -> pd.DataFrame:
+    """Each day's gross dividends and tax withheld, as `dividends_entitled`."""
+    return pd.DataFrame.from_dict(history, orient="index", columns=["GROSS", "WITHHELD"],
+                                  dtype=float).sort_index()
+
+
 def cash_events(data_provider: DataFetcher) -> dict[pd.Timestamp, list[CashEvent]]:
     """Every cash distribution the data holds, by ex-date.
 
@@ -160,6 +166,9 @@ class DividendsMixin:
         self._withheld: dict[str, float] = {}
         self._receivable = 0.0
         self._receivable_history: dict[pd.Timestamp, float] = {}
+        # What the book became owed on each day, gross and withheld, at that
+        # day's rates (BN-364).
+        self._entitled_history: dict[pd.Timestamp, tuple[float, float]] = {}
 
     def _mark_receivable(self,
                          date: pd.Timestamp) -> None:
@@ -193,6 +202,9 @@ class DividendsMixin:
                              date: pd.Timestamp) -> None:
         """Note what the book is owed for ex-dates after *previous*, up to
         *date*, for the shares held now, before the day's trades."""
+        rates: dict[str, float] = {}
+        gross = withheld = 0.0
+
         for ex_date, events in self._cash_events.items():
             if not previous < ex_date <= date:
                 continue
@@ -202,6 +214,13 @@ class DividendsMixin:
 
                 if holding is not None and holding.quantity > 0:
                     self._owed.append(Entitlement(event, holding.quantity))
+                    amount = (holding.quantity * event.per_share
+                              * self._rate_for(event.asset_id, date, rates))
+                    gross += amount
+                    withheld += amount * self._withholding(event.asset_id, date)
+
+        if gross > 0.0:
+            self._entitled_history[date] = (gross, withheld)
 
     def _pay_dividends(self,
                        portfolio: Portfolio,

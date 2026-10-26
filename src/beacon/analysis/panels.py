@@ -27,7 +27,7 @@ from typing import Any
 
 import pandas as pd
 
-from ..backtest.breakdown import daily_costs
+from ..backtest.breakdown import daily_cash, daily_costs
 from ..backtest.result import BacktestResult
 from ..data.returns import name_returns
 from ..data.store import _read_frame, _write_frame
@@ -51,6 +51,7 @@ _NAME = re.compile(r"[a-z][a-z0-9_]*")
 FUND_WEIGHTS = "fund_weights"
 NAME_RETURNS = "name_returns"
 COSTS = "costs"
+CASH = "cash"
 
 # How far before the run's first day name returns are read from, so its first
 # day has a close before it.
@@ -75,9 +76,11 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
           be measured (a currency with no rate into the book's).
         - ``costs``: what the run cost each day, by kind, as
           `beacon.backtest.breakdown.daily_costs` gives it.
+        - ``cash``: its cash, income, fees and flows each day, as
+          `beacon.backtest.breakdown.daily_cash` gives them.
     """
     weights = result.portfolio.weights
-    panels = {FUND_WEIGHTS: weights, COSTS: daily_costs(result)}
+    panels = {FUND_WEIGHTS: weights, COSTS: daily_costs(result), CASH: daily_cash(result)}
     source = result.portfolio.source
     days = result.portfolio.nav.index
 
