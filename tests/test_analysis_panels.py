@@ -20,6 +20,7 @@ from beacon.analysis.panels import (
     NAME_RETURNS,
     OPTIMISED_WEIGHTS,
     PANELS_VERSION,
+    REFERENCE,
     read_manifest,
     read_panels,
     run_panels,
@@ -254,3 +255,23 @@ class TestComparatorsTables:
         panels = run_panels(run(index(), benchmark=levels))
 
         assert BENCHMARK_WEIGHTS not in panels
+
+
+class TestReferenceTable:
+    """BN-366: the grouping fields at each rebalance, kept with the run."""
+
+    def test_it_reads_back_as_the_snapshot_gives_it(self,
+                                                    tmp_path):
+        from beacon.analysis.panels import held_names
+        from beacon.analysis.snapshots import rebalance_dates, reference_snapshots
+        from test_strategy_futures import index, run
+
+        result = run(index())
+        write_panels(tmp_path / "run", run_panels(result))
+
+        back = read_panels(tmp_path / "run", [REFERENCE])[REFERENCE]
+        expected = reference_snapshots(result.portfolio.source, held_names(result),
+                                       rebalance_dates(result))
+
+        assert back.equals(expected)
+        assert set(back.index) == set(rebalance_dates(result))

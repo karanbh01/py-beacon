@@ -18,6 +18,7 @@ from beacon.analysis.panels import (
     FUND_WEIGHTS,
     INDEX_WEIGHTS,
     NAME_RETURNS,
+    REFERENCE,
     read_panels,
     write_panels,
 )
@@ -222,6 +223,7 @@ class TestTheRunsTables:
             assert len(weights) == record["portfolio"]["weights_dates_total"]
             assert weights.sum(axis=1).max() <= 1.0 + 1e-9
             assert set(weights.columns) <= set(tables[NAME_RETURNS].columns)
+            assert set(weights.columns) <= set(tables[REFERENCE]["IDENTIFIER"])
 
     def test_a_benchmark_index_s_holdings_are_kept_with_the_run(self,
                                                                 client):

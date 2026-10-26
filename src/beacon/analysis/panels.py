@@ -32,6 +32,7 @@ from ..backtest.result import BacktestResult
 from ..data.returns import name_returns
 from ..data.store import _read_frame, _write_frame
 from ..exceptions import CalculationError, ConfigurationError, DataNotFoundError
+from .snapshots import rebalance_dates, reference_snapshots
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ CASH = "cash"
 INDEX_WEIGHTS = "index_weights"
 OPTIMISED_WEIGHTS = "optimised_weights"
 BENCHMARK_WEIGHTS = "benchmark_weights"
+REFERENCE = "reference"
 
 # How far before the run's first day name returns are read from, so its first
 # day has a close before it.
@@ -85,6 +87,9 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
           each comparator's daily weights in its names, for those the run has
           and that hold names (a benchmark given as a bare level series has
           none).
+        - ``reference``: the grouping fields (sector, industry, region,
+          country, currency, exchange) of every name held, as they stood at
+          each rebalance; see `beacon.analysis.snapshots`.
     """
     weights = result.portfolio.weights
     panels = {FUND_WEIGHTS: weights, COSTS: daily_costs(result), CASH: daily_cash(result)}
@@ -100,11 +105,14 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
     if source is None or len(days) == 0:
         return panels
 
+    names = held_names(result)
+    panels[REFERENCE] = reference_snapshots(source, names, rebalance_dates(result))
+
     # A table that cannot be built is left out rather than failing the run
     # it would have been kept with; its analysis then says the returns are
     # missing.
     try:
-        returns = name_returns(source, held_names(result),
+        returns = name_returns(source, names,
                                str((days[0] - _LEAD).date()), str(days[-1].date()),
                                result.currency)
     except (CalculationError, DataNotFoundError) as error:

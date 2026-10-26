@@ -14,3 +14,9 @@ Performance analytics: attribution, relative performance, concentration, liquidi
 The large tables a run keeps beside its record, such as the fund's daily weights in every name, as Parquet files.
 
 ::: beacon.analysis.panels
+
+## Snapshots at each rebalance
+
+What a run's names looked like at each rebalance, such as their sector and country, kept with the run so a later rerun of its analysis gives the same answer.
+
+::: beacon.analysis.snapshots
