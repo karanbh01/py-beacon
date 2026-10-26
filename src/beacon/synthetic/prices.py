@@ -84,9 +84,17 @@ VOLUME_NOISE = 0.35
 # seventeen significant figures a float carries. It is more realistic and it is
 # a third off the store, and rounding cannot break the OHLC ordering because
 # rounding is monotonic: if HIGH >= CLOSE then round(HIGH) >= round(CLOSE).
-PRICE_DECIMALS = 4
+# Whole cents since BN-403, kept as float64 so each price is exactly the
+# number a feed would print, which is what lets a run keep its closes packed
+# as whole cents. Dividends are paid in whole cents too.
+PRICE_DECIMALS = 2
+PRICE_COLUMNS = ("OPEN", "HIGH", "LOW", "CLOSE")
 
-# Single precision, on the panel that dominates memory. At 800 names over ten
+# A free-float factor is a share, not a price, and keeps four decimals.
+FREE_FLOAT_DECIMALS = 4
+
+# Single precision, on the panel that dominates memory, for the columns that
+# are not prices (volumes, shares, free float); prices are float64 (above). At 800 names over ten
 # years the market data holds 119 MB as float64 and 64 MB as float32, and the
 # whole point of the larger universes is to fit on an ordinary machine.
 #
@@ -357,7 +365,7 @@ def _long_form(frames: dict[str, pd.DataFrame],
     """Stack the per-field panels into the IDENTIFIER/DATE frame MarketData reads."""
     ordered = ["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]
 
-    stacked = {name: frames[name].round(PRICE_DECIMALS).stack()
+    stacked = {name: frames[name].astype("float64").round(PRICE_DECIMALS).stack()
                for name in ordered if name != "VOLUME"}
     stacked["VOLUME"] = frames["VOLUME"].stack()
     stacked["SHARES_OUTSTANDING"] = shares.stack()
@@ -369,10 +377,10 @@ def _long_form(frames: dict[str, pd.DataFrame],
     # Constant per name, but it lives in the market data because that is where
     # `fetch_free_float_factor` reads it from.
     market["FREE_FLOAT"] = market["IDENTIFIER"].map(
-        universe["free_float"].round(PRICE_DECIMALS))
+        universe["free_float"].round(FREE_FLOAT_DECIMALS))
 
     market = market.astype({name: STORAGE_DTYPE for name in market.columns
-                            if name not in ("DATE", "IDENTIFIER")})
+                            if name not in ("DATE", "IDENTIFIER", *PRICE_COLUMNS)})
 
     market = _listed_only(market, universe)
 

@@ -1068,3 +1068,29 @@ class TestRegionsAndCurrencies:
         assert (result.index_levels > 0).all()
         assert currencies.nunique() > 1, "not a multi-currency index"
         assert weights.sum() == pytest.approx(1.0)
+
+
+class TestWholeCents:
+    """BN-403: prices and dividends are quoted in whole cents, as a feed's
+    are, so a run can keep its closes packed as whole cents."""
+
+    def test_every_price_is_a_whole_number_of_cents(self, panel):
+        frame = panel.market.data.loc[list(panel.universe.index)]
+
+        for column in ("OPEN", "HIGH", "LOW", "CLOSE"):
+            values = frame[column].dropna().to_numpy()
+            assert values.dtype == np.float64, column
+            assert (np.round(values, 2) == values).all(), column
+
+    def test_every_dividend_is_a_whole_number_of_cents(self, panel):
+        actions = panel.actions.data.reset_index(drop=True)
+        cash = actions.loc[actions["TYPE"] == "DIVIDEND", "VALUE"].to_numpy(dtype=float)
+
+        assert len(cash) > 0
+        assert (np.round(cash, 2) == cash).all()
+
+    def test_exchange_rates_keep_their_precision(self, panel):
+        pairs = [pair for pair, _rate, _vol in regions_module.pairs()]
+        rates = panel.market.data.loc[pairs, "CLOSE"].dropna().to_numpy()
+
+        assert not (np.round(rates, 2) == rates).all()
