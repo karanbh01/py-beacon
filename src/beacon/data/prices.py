@@ -25,6 +25,7 @@ FX policy and through the same rate lookup every other conversion uses
 from collections.abc import Iterable
 from typing import Protocol
 
+import numpy as np
 import pandas as pd
 
 from ..exceptions import CalculationError
@@ -143,6 +144,40 @@ def currencies_of(source: _Source,
             for name in identifiers}
 
 
+def wide_columns(source: _Source,
+                 identifiers: Iterable[str],
+                 start: str | None,
+                 end: str | None,
+                 columns: list[str]) -> dict[str, pd.DataFrame]:
+    """Several market-data columns as dates by instrument, from one read,
+    each in its instruments' own currency.
+
+    Every frame has the same dates and the instruments that have any of the
+    columns, in the order given; a column the data lacks is all missing.
+    """
+    # BN-367: a run's tables read closes, shares and volumes over the same
+    # names and window, and each read of 6,000 names took about a second.
+    wanted = list(dict.fromkeys(identifiers))
+    market = source.fetch_market_data(wanted, start, end) if wanted else pd.DataFrame()
+
+    if market.empty or not isinstance(market.index, pd.MultiIndex):
+        return {column: _wide(source, wanted, start, end, column) for column in columns}
+
+    frames = {column: _grid(market[column]) if column in market.columns else None
+              for column in columns}
+    shape = next((frame for frame in frames.values() if frame is not None), None)
+
+    if shape is None:
+        return {column: pd.DataFrame() for column in columns}
+
+    order = [name for name in wanted if name in shape.columns]
+    dates = shape.index.sort_values()
+
+    return {column: (pd.DataFrame(np.nan, index=dates, columns=order) if frame is None
+                     else frame.reindex(index=dates, columns=order))
+            for column, frame in frames.items()}
+
+
 def _wide(source: _Source,
           identifiers: list[str],
           start: str | None,
@@ -158,7 +193,7 @@ def _wide(source: _Source,
         return pd.DataFrame()
 
     if isinstance(market.index, pd.MultiIndex):
-        wide = market[column].unstack(level="IDENTIFIER")
+        wide = _grid(market[column])
     else:
         # One instrument comes back indexed by date alone.
         wide = market[[column]].rename(columns={column: identifiers[0]})
@@ -166,3 +201,22 @@ def _wide(source: _Source,
     wide = wide.sort_index().astype(float)
 
     return wide[[name for name in identifiers if name in wide.columns]]
+
+
+def _grid(values: pd.Series) -> pd.DataFrame:
+    """A series indexed by identifier and date as dates by identifier.
+
+    What ``unstack`` gives, placed straight from the index's codes: at 6,000
+    names over seven years ``unstack`` took about two seconds a column.
+    """
+    # BN-367.
+    index = values.index
+    assert isinstance(index, pd.MultiIndex)
+    index = index.remove_unused_levels()
+    names = index.names.index("IDENTIFIER")
+    dates = 1 - names
+    grid = np.full((len(index.levels[dates]), len(index.levels[names])), np.nan)
+    grid[index.codes[dates], index.codes[names]] = values.to_numpy(dtype=float, na_value=np.nan)
+    return pd.DataFrame(grid,
+                        index=pd.Index(index.levels[dates], name=index.names[dates]),
+                        columns=pd.Index(index.levels[names], name="IDENTIFIER"))

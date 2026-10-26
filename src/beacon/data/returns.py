@@ -38,7 +38,8 @@ def name_returns(source: _Source,
                  start: str | None = None,
                  end: str | None = None,
                  currency: str | None = None,
-                 actions: pd.DataFrame | None = None) -> pd.DataFrame:
+                 actions: pd.DataFrame | None = None,
+                 closes: pd.DataFrame | None = None) -> pd.DataFrame:
     """Daily total returns by date and name, in *currency*.
 
     Args:
@@ -51,13 +52,17 @@ def name_returns(source: _Source,
             None.
         actions: The corporate actions, with `IDENTIFIER`, `TYPE`, `VALUE` and
             `EX_DATE`; read from *source*'s `corporate_actions` when None.
+        closes: The names' closes in their own currencies, dates by name, for
+            a caller that has read them already; read from *source* when
+            None.
 
     Returns:
         pd.DataFrame: Dates by name, NaN where a name has no close or no
         close before it.
     """
     names = list(dict.fromkeys(identifiers))
-    local = prices_in(source, names, start, end, None, PRICE_COLUMN)
+    local = (prices_in(source, names, start, end, None, PRICE_COLUMN) if closes is None
+             else closes)
 
     if local.empty:
         return local

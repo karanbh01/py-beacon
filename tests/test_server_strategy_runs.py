@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from beacon.analysis.panels import (
     BENCHMARK_WEIGHTS,
+    CHARACTERISTICS,
     FUND_WEIGHTS,
     INDEX_WEIGHTS,
     NAME_RETURNS,
@@ -224,6 +225,7 @@ class TestTheRunsTables:
             assert weights.sum(axis=1).max() <= 1.0 + 1e-9
             assert set(weights.columns) <= set(tables[NAME_RETURNS].columns)
             assert set(weights.columns) <= set(tables[REFERENCE]["IDENTIFIER"])
+            assert set(tables[CHARACTERISTICS].index) <= set(tables[REFERENCE].index)
 
     def test_a_benchmark_index_s_holdings_are_kept_with_the_run(self,
                                                                 client):

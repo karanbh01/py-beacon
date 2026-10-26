@@ -11,11 +11,19 @@ with an ``IDENTIFIER`` column and a column per field. A name with no record in
 force on a date has no row for it. Between rebalances, the latest snapshot on
 or before a day is the one in force.
 """
-# BN-366.
+# BN-366, and the characteristics BN-367.
+import numpy as np
 import pandas as pd
 
 from ..backtest.result import BacktestResult
+from ..data.base import count_through
+from ..data.corporate_actions import DIVIDEND, TRAILING_YEAR, without_cancelled
 from ..data.fetcher import DataFetcher
+from ..data.prices import PRICE_COLUMN, converted, wide_columns
+from ..data.returns import name_returns
+
+SHARES_COLUMN = "SHARES_OUTSTANDING"
+VOLUME_COLUMN = "VOLUME"
 
 IDENTIFIER = "IDENTIFIER"
 
@@ -74,3 +82,158 @@ def reference_snapshots(source: DataFetcher,
         return pd.DataFrame(columns=[IDENTIFIER])
 
     return pd.concat(frames)
+
+
+# The characteristics of `characteristics_snapshots`, and the features that
+# give the ratios.
+MARKET_CAP = "MARKET_CAP"
+PE_RATIO = "PE_RATIO"
+PB_RATIO = "PB_RATIO"
+DIVIDEND_YIELD = "DIVIDEND_YIELD"
+MOMENTUM = "MOMENTUM"
+CHARACTERISTICS = (MARKET_CAP, PE_RATIO, PB_RATIO, DIVIDEND_YIELD, MOMENTUM)
+RATIO_FEATURES = {PE_RATIO: "pe_ratio", PB_RATIO: "pb_ratio"}
+
+# Momentum is the return from a year before to a month before, in sessions.
+_MOMENTUM_FROM, _MOMENTUM_TO = 252, 21
+
+# How many sessions a close may be carried to a rebalance before a name is
+# taken to have stopped trading.
+_STALE_SESSIONS = 5
+
+# How far before the first rebalance prices are read, for a year of momentum.
+_HISTORY = pd.Timedelta(days=400)
+
+
+def characteristics_snapshots(source: DataFetcher,
+                              names: list[str],
+                              dates: list[pd.Timestamp],
+                              currency: str,
+                              market: dict[str, pd.DataFrame] | None = None) -> pd.DataFrame:
+    """Each name's characteristics as they stood on each of *dates*.
+
+    - ``MARKET_CAP``: the close times shares outstanding, in *currency*.
+    - ``PE_RATIO`` and ``PB_RATIO``: the ``pe_ratio`` and ``pb_ratio``
+      features in force on the date, by `DataFetcher.fetch_feature`'s rules.
+    - ``DIVIDEND_YIELD``: ordinary dividends over the trailing year over the
+      close, as `DataFetcher.fetch_trailing_dividend_yield` gives it.
+    - ``MOMENTUM``: the total return, in the name's own currency, from 252
+      sessions before the date to 21 sessions before it.
+
+    A value the data does not give is missing. A name only has a row while it
+    trades: one whose last close is more than five sessions old by the date
+    has stopped, and is left out.
+
+    Args:
+        source: The data the run used.
+        names: The names to describe.
+        dates: The days to describe them on.
+        currency: The currency market caps are in.
+        market: ``CLOSE`` and ``SHARES_OUTSTANDING`` by date and name, from at
+            least 400 days before the first date, for a caller that has read
+            them already (`market_history`); read from *source* when None.
+
+    Returns:
+        pd.DataFrame: Indexed by date, with ``IDENTIFIER`` and each of
+        `CHARACTERISTICS`.
+    """
+    if not dates or not names:
+        return pd.DataFrame(columns=[IDENTIFIER, *CHARACTERISTICS])
+
+    start, end = str((dates[0] - _HISTORY).date()), str(dates[-1].date())
+    market = market if market is not None else market_history(source, names, dates)
+    local = market[PRICE_COLUMN]
+
+    if local.empty:
+        return pd.DataFrame(columns=[IDENTIFIER, *CHARACTERISTICS])
+
+    names = list(local.columns)
+    sessions = local.index.to_numpy()
+    closes = local.ffill(limit=_STALE_SESSIONS)
+    book = converted(source, local, currency).ffill(limit=_STALE_SESSIONS)
+    shares = market[SHARES_COLUMN].reindex(index=local.index, columns=names).ffill()
+    growth = (1.0 + name_returns(source, names, start, end, None, closes=local)
+              .fillna(0.0)).cumprod().where(closes.notna())
+    ratios = {column: source.features.table_as_of(names, feature, dates)
+              for column, feature in RATIO_FEATURES.items()}
+    trailing = _trailing_dividends(source, names, dates)
+    frames = []
+
+    for date in dates:
+        count = count_through(sessions, np.datetime64(date))
+
+        if count == 0:
+            continue
+
+        row = count - 1
+        close = closes.iloc[row]
+        values = pd.DataFrame({
+            MARKET_CAP: book.iloc[row] * shares.iloc[row],
+            PE_RATIO: ratios[PE_RATIO].loc[date],
+            PB_RATIO: ratios[PB_RATIO].loc[date],
+            DIVIDEND_YIELD: (trailing.loc[date] / close).where(close > 0),
+            MOMENTUM: _momentum(growth, row),
+        }, index=names)
+        # A name that has stopped trading, or not yet started, is not
+        # described, though a ratio published before may still be in force.
+        values = values[close.notna()].dropna(how="all")
+        values.insert(0, IDENTIFIER, values.index.astype(str))
+        values.index = pd.DatetimeIndex([date] * len(values))
+        frames.append(values)
+
+    if not frames:
+        return pd.DataFrame(columns=[IDENTIFIER, *CHARACTERISTICS])
+
+    return pd.concat(frames)
+
+
+def market_history(source: DataFetcher,
+                   names: list[str],
+                   dates: list[pd.Timestamp],
+                   until: pd.Timestamp | None = None) -> dict[str, pd.DataFrame]:
+    """The market data `characteristics_snapshots` reads, by column: closes,
+    shares outstanding and volumes from 400 days before the first of *dates*
+    to the last of them, or to *until* when later, in one read."""
+    last = max([*dates, *([until] if until is not None else [])])
+
+    return wide_columns(source, names, str((dates[0] - _HISTORY).date()), str(last.date()),
+                        [PRICE_COLUMN, SHARES_COLUMN, VOLUME_COLUMN])
+
+
+def _momentum(growth: pd.DataFrame,
+              row: int) -> pd.Series:
+    """The return from a year of sessions before *row* to a month before."""
+    if row < _MOMENTUM_FROM:
+        return pd.Series(np.nan, index=growth.columns)
+
+    return growth.iloc[row - _MOMENTUM_TO] / growth.iloc[row - _MOMENTUM_FROM] - 1.0
+
+
+def _trailing_dividends(source: DataFetcher,
+                        names: list[str],
+                        dates: list[pd.Timestamp]) -> pd.DataFrame:
+    """Ordinary dividends per share over the year to each date, by date and
+    name: ex-dates after a year before and on or before the date."""
+    table = pd.DataFrame(0.0, index=pd.DatetimeIndex(dates), columns=names)
+    actions = source.corporate_actions
+
+    if actions.is_empty:
+        return table
+
+    frame = without_cancelled(actions.data.reset_index(drop=True))
+    frame = frame[(frame["TYPE"].astype(str).str.upper() == DIVIDEND)
+                  & frame["IDENTIFIER"].astype(str).isin(set(names))]
+
+    if frame.empty:
+        return table
+
+    ex_dates = pd.to_datetime(frame["EX_DATE"])
+    values = pd.to_numeric(frame["VALUE"], errors="coerce")
+    identifiers = frame["IDENTIFIER"].astype(str)
+
+    for date in dates:
+        inside = (ex_dates > date - TRAILING_YEAR) & (ex_dates <= date)
+        paid = values[inside].groupby(identifiers[inside]).sum()
+        table.loc[date, paid.index] = paid.to_numpy()
+
+    return table

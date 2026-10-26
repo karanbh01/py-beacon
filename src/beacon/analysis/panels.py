@@ -29,10 +29,16 @@ import pandas as pd
 
 from ..backtest.breakdown import daily_cash, daily_costs
 from ..backtest.result import BacktestResult
+from ..data.prices import PRICE_COLUMN
 from ..data.returns import name_returns
 from ..data.store import _read_frame, _write_frame
 from ..exceptions import CalculationError, ConfigurationError, DataNotFoundError
-from .snapshots import rebalance_dates, reference_snapshots
+from .snapshots import (
+    characteristics_snapshots,
+    market_history,
+    rebalance_dates,
+    reference_snapshots,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +63,8 @@ INDEX_WEIGHTS = "index_weights"
 OPTIMISED_WEIGHTS = "optimised_weights"
 BENCHMARK_WEIGHTS = "benchmark_weights"
 REFERENCE = "reference"
+CHARACTERISTICS = "characteristics"
 
-# How far before the run's first day name returns are read from, so its first
-# day has a close before it.
-_LEAD = pd.Timedelta(days=14)
 
 
 def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
@@ -90,6 +94,10 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
         - ``reference``: the grouping fields (sector, industry, region,
           country, currency, exchange) of every name held, as they stood at
           each rebalance; see `beacon.analysis.snapshots`.
+        - ``characteristics``: their market cap, P/E, P/B, dividend yield and
+          momentum at each rebalance, as
+          `beacon.analysis.snapshots.characteristics_snapshots` gives them;
+          left out, with a warning, when they cannot be measured.
     """
     weights = result.portfolio.weights
     panels = {FUND_WEIGHTS: weights, COSTS: daily_costs(result), CASH: daily_cash(result)}
@@ -106,20 +114,25 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
         return panels
 
     names = held_names(result)
-    panels[REFERENCE] = reference_snapshots(source, names, rebalance_dates(result))
+    dates = rebalance_dates(result)
+    panels[REFERENCE] = reference_snapshots(source, names, dates)
+    # One read of the market data for every table built from it.
+    market = market_history(source, names, dates or [days[0]], until=days[-1])
 
     # A table that cannot be built is left out rather than failing the run
-    # it would have been kept with; its analysis then says the returns are
-    # missing.
+    # it would have been kept with; its analysis then says what is missing.
     try:
-        returns = name_returns(source, names,
-                               str((days[0] - _LEAD).date()), str(days[-1].date()),
-                               result.currency)
+        returns = name_returns(source, names, currency=result.currency,
+                               closes=market[PRICE_COLUMN])
+        panels[NAME_RETURNS] = returns.reindex(days).rename(columns=str)
     except (CalculationError, DataNotFoundError) as error:
         logger.warning("The run's name returns were not kept: %s", error)
-        return panels
 
-    panels[NAME_RETURNS] = returns.reindex(days).rename(columns=str)
+    try:
+        panels[CHARACTERISTICS] = characteristics_snapshots(source, names, dates,
+                                                            result.currency, market)
+    except (CalculationError, DataNotFoundError) as error:
+        logger.warning("The run's characteristics were not kept: %s", error)
 
     return panels
 

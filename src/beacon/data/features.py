@@ -61,9 +61,10 @@ is what re-importing a corrected file should do.
 """
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
-from .base import _read_file
+from .base import _read_file, count_through
 
 # The columns a feature row cannot do without.
 REQUIRED_COLUMNS = ("IDENTIFIER", "DATE", "TYPE", "FIELD", "VALUE")
@@ -265,6 +266,83 @@ class FeatureData:
                          "VALUE"].iloc[-1]
 
         return None if pd.isna(value) else float(value)
+
+    def table_as_of(self,
+                    identifiers: list[str],
+                    field: str,
+                    dates: list[pd.Timestamp],
+                    feature_type: str | None = None,
+                    max_age_days: int | None = MAX_AGE_DAYS) -> pd.DataFrame:
+        """`value_as_of` for many instruments on many dates, as one table.
+
+        The same answer, read from the whole table at once rather than name
+        by name: on each date, each instrument's latest row on or before it,
+        missing when there is none, it is older than *max_age_days*, or its
+        value is not a number.
+
+        Args:
+            identifiers: The instruments, the table's columns.
+            field: The datapoint.
+            dates: The dates to stand on, the table's rows.
+            feature_type: Restrict to one dataset, as for `value_as_of`.
+            max_age_days: How stale is too stale. None disables the check.
+
+        Returns:
+            pd.DataFrame: Dates by instrument.
+        """
+        # BN-367: a run's characteristics at each rebalance ask this of every
+        # name it held, which name by name was hundreds of thousands of reads.
+        index = pd.DatetimeIndex(dates)
+        table = pd.DataFrame(np.nan, index=index, columns=list(identifiers))
+
+        if self._df.empty or table.empty:
+            return table
+
+        rows = self._df[self._df["FIELD"] == field]
+
+        if feature_type is not None:
+            rows = rows[rows["TYPE"] == feature_type]
+
+        rows = rows.reset_index()
+        rows = rows[rows["IDENTIFIER"].astype(str).isin(set(table.columns))]
+
+        if rows.empty:
+            return table
+
+        # The last row of each instrument's day, in the table's order, as
+        # `value_as_of` takes it, whether or not its value is a number.
+        latest = pd.DataFrame({"DATE": pd.to_datetime(rows["DATE"]).to_numpy(),
+                               "IDENTIFIER": rows["IDENTIFIER"].astype(str).to_numpy(),
+                               "VALUE": pd.to_numeric(rows["VALUE"], errors="coerce").to_numpy()})
+        latest = latest.groupby(["DATE", "IDENTIFIER"], sort=True).tail(1)
+        values = latest.pivot(index="DATE", columns="IDENTIFIER", values="VALUE")
+        stamps = values.index.to_numpy()
+        # The date of each instrument's latest row, carried forward.
+        held = pd.DataFrame(np.where(values.notna() | latest.pivot(
+            index="DATE", columns="IDENTIFIER", values="DATE").notna(),
+            stamps[:, None], np.datetime64("NaT")), index=values.index,
+            columns=values.columns).ffill()
+
+        grid = values.to_numpy()
+        columns = [table.columns.get_loc(name) for name in values.columns]
+
+        for row, date in enumerate(index):
+            count = count_through(stamps, np.datetime64(date))
+
+            if count == 0:
+                continue
+
+            when = pd.DatetimeIndex(held.iloc[count - 1])
+            found = ~when.isna()
+
+            if max_age_days is not None:
+                found &= (date - when).days <= max_age_days
+
+            positions = values.index.get_indexer(when[found])
+            picked = grid[positions, np.flatnonzero(found)]
+            table.iloc[row, [columns[i] for i in np.flatnonzero(found)]] = picked
+
+        return table
 
     def history(self,
                 identifier: str,

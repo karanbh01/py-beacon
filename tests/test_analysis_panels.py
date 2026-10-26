@@ -13,6 +13,7 @@ import pytest
 from beacon.analysis.panels import (
     BENCHMARK_WEIGHTS,
     CASH,
+    CHARACTERISTICS,
     COSTS,
     FUND_WEIGHTS,
     INDEX_WEIGHTS,
@@ -275,3 +276,24 @@ class TestReferenceTable:
 
         assert back.equals(expected)
         assert set(back.index) == set(rebalance_dates(result))
+
+
+class TestCharacteristicsTable:
+    """BN-367: the characteristics at each rebalance, kept with the run."""
+
+    def test_it_reads_back_as_the_snapshot_gives_it(self,
+                                                    tmp_path):
+        from test_strategy_futures import index, run
+
+        from beacon.analysis.panels import held_names
+        from beacon.analysis.snapshots import characteristics_snapshots, rebalance_dates
+
+        result = run(index())
+        write_panels(tmp_path / "run", run_panels(result))
+
+        back = read_panels(tmp_path / "run", [CHARACTERISTICS])[CHARACTERISTICS]
+        expected = characteristics_snapshots(result.portfolio.source, held_names(result),
+                                             rebalance_dates(result), result.currency)
+
+        assert back.equals(expected)
+        assert back["MARKET_CAP"].notna().all()

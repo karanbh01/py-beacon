@@ -100,3 +100,94 @@ class TestARunsRebalances:
         assert {pd.Timestamp(row.date) for row in result.rebalance_pricing} <= set(dates)
         assert all(days[0] <= date <= days[-1] for date in dates)
         assert len(dates) >= 4
+
+
+class TestCharacteristics:
+    """BN-367: market cap, ratios, yield and momentum at each rebalance."""
+
+    SESSIONS = pd.bdate_range("2022-01-03", "2024-06-28")
+    ON = pd.Timestamp("2024-06-03")
+
+    def data(self):
+        from beacon.data import pair_reference
+        from beacon.data.corporate_actions import CorporateActions
+        from beacon.data.features import FeatureData
+
+        sessions = self.SESSIONS
+        rows = []
+        for step, day in enumerate(sessions):
+            # GROW climbs 0.1% a session and halves on a 2-for-1 split.
+            split = 0.5 if day >= pd.Timestamp("2024-01-02") else 1.0
+            rows.append({"IDENTIFIER": "GROW", "DATE": day, "CLOSE": 50.0 * 1.001 ** step * split,
+                         "SHARES_OUTSTANDING": 1e6 / split})
+            rows.append({"IDENTIFIER": "QUID", "DATE": day, "CLOSE": 400.0,
+                         "SHARES_OUTSTANDING": 2e6})
+            rows.append({"IDENTIFIER": "GBPUSD", "DATE": day, "CLOSE": 1.25})
+            if day <= pd.Timestamp("2023-06-30"):
+                rows.append({"IDENTIFIER": "GONE", "DATE": day, "CLOSE": 10.0,
+                             "SHARES_OUTSTANDING": 1e6})
+        reference = pd.DataFrame([
+            {"IDENTIFIER": name, "DATE_FROM": "2020-01-01", "NAME": name, "CURRENCY": currency,
+             "EXCHANGE": "XNYS"}
+            for name, currency in (("GROW", "USD"), ("QUID", "GBP"), ("GONE", "USD"))]
+            + [pair_reference("GBPUSD")])
+        actions = pd.DataFrame([
+            {"IDENTIFIER": "GROW", "EX_DATE": "2024-01-02", "TYPE": "SPLIT", "VALUE": 2.0},
+            {"IDENTIFIER": "QUID", "EX_DATE": "2023-06-03", "TYPE": "DIVIDEND", "VALUE": 99.0},
+            {"IDENTIFIER": "QUID", "EX_DATE": "2023-09-01", "TYPE": "DIVIDEND", "VALUE": 6.0},
+            {"IDENTIFIER": "QUID", "EX_DATE": "2024-03-01", "TYPE": "DIVIDEND", "VALUE": 10.0},
+            {"IDENTIFIER": "QUID", "EX_DATE": "2024-04-01", "TYPE": "SPECIAL_DIVIDEND",
+             "VALUE": 50.0}])
+        features = pd.DataFrame([
+            {"IDENTIFIER": "GROW", "DATE": "2024-05-01", "TYPE": "f", "FIELD": "pe_ratio",
+             "VALUE": 21.0},
+            {"IDENTIFIER": "GROW", "DATE": "2024-06-04", "TYPE": "f", "FIELD": "pe_ratio",
+             "VALUE": 99.0},
+            {"IDENTIFIER": "QUID", "DATE": "2021-06-01", "TYPE": "f", "FIELD": "pb_ratio",
+             "VALUE": 1.5}])
+
+        return DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                           ReferenceData.from_dataframe(reference),
+                           CorporateActions.from_dataframe(actions),
+                           features=FeatureData.from_dataframe(features))
+
+    @pytest.fixture(scope="class")
+    def table(self):
+        from beacon.analysis.snapshots import characteristics_snapshots
+
+        frame = characteristics_snapshots(self.data(), ["GROW", "QUID", "GONE"],
+                                          [self.ON], "USD")
+
+        return frame.set_index("IDENTIFIER")
+
+    def test_market_cap_is_close_times_shares_in_the_book_s_currency(self,
+                                                                    table):
+        assert table.loc["QUID", "MARKET_CAP"] == pytest.approx(400.0 * 1.25 * 2e6, rel=1e-12)
+
+    def test_a_ratio_published_after_the_date_is_not_seen(self,
+                                                          table):
+        assert table.loc["GROW", "PE_RATIO"] == 21.0
+
+    def test_a_ratio_older_than_two_years_is_missing(self,
+                                                     table):
+        assert pd.isna(table.loc["QUID", "PB_RATIO"])
+
+    def test_the_yield_is_ordinary_dividends_over_the_trailing_year(self,
+                                                                    table):
+        """The dividend exactly a year old has rolled out; the special is
+        not ordinary."""
+        assert table.loc["QUID", "DIVIDEND_YIELD"] == pytest.approx(16.0 / 400.0, rel=1e-12)
+        assert table.loc["GROW", "DIVIDEND_YIELD"] == 0.0
+
+    def test_momentum_runs_a_year_to_a_month_and_sees_through_a_split(self,
+                                                                     table):
+        assert table.loc["GROW", "MOMENTUM"] == pytest.approx(1.001 ** (252 - 21) - 1.0,
+                                                              rel=1e-9)
+        # QUID's price stands still; its return is the cash it paid inside
+        # the window, the first dividend falling before it.
+        assert table.loc["QUID", "MOMENTUM"] == pytest.approx(
+            (1 + 6 / 400) * (1 + 10 / 400) * (1 + 50 / 400) - 1.0, rel=1e-9)
+
+    def test_a_name_that_stopped_trading_has_no_row(self,
+                                                    table):
+        assert "GONE" not in table.index
