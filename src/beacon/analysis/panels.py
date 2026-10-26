@@ -52,6 +52,9 @@ FUND_WEIGHTS = "fund_weights"
 NAME_RETURNS = "name_returns"
 COSTS = "costs"
 CASH = "cash"
+INDEX_WEIGHTS = "index_weights"
+OPTIMISED_WEIGHTS = "optimised_weights"
+BENCHMARK_WEIGHTS = "benchmark_weights"
 
 # How far before the run's first day name returns are read from, so its first
 # day has a close before it.
@@ -78,9 +81,19 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
           `beacon.backtest.breakdown.daily_costs` gives it.
         - ``cash``: its cash, income, fees and flows each day, as
           `beacon.backtest.breakdown.daily_cash` gives them.
+        - ``index_weights``, ``optimised_weights`` and ``benchmark_weights``:
+          each comparator's daily weights in its names, for those the run has
+          and that hold names (a benchmark given as a bare level series has
+          none).
     """
     weights = result.portfolio.weights
     panels = {FUND_WEIGHTS: weights, COSTS: daily_costs(result), CASH: daily_cash(result)}
+    comparators = {INDEX_WEIGHTS: result.index.target, OPTIMISED_WEIGHTS: result.index.optimised,
+                   BENCHMARK_WEIGHTS: result.benchmark}
+
+    for name, book in comparators.items():
+        if book is not None and not book.weights.empty:
+            panels[name] = book.weights.rename(columns=str)
     source = result.portfolio.source
     days = result.portfolio.nav.index
 

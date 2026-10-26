@@ -13,7 +13,14 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from beacon.analysis.panels import FUND_WEIGHTS, NAME_RETURNS, read_panels, write_panels
+from beacon.analysis.panels import (
+    BENCHMARK_WEIGHTS,
+    FUND_WEIGHTS,
+    INDEX_WEIGHTS,
+    NAME_RETURNS,
+    read_panels,
+    write_panels,
+)
 from beacon.server import ServerConfig, create_app
 from beacon.server.jobs import SUCCEEDED
 from beacon.server.store import DocumentStore
@@ -215,6 +222,28 @@ class TestTheRunsTables:
             assert len(weights) == record["portfolio"]["weights_dates_total"]
             assert weights.sum(axis=1).max() <= 1.0 + 1e-9
             assert set(weights.columns) <= set(tables[NAME_RETURNS].columns)
+
+    def test_a_benchmark_index_s_holdings_are_kept_with_the_run(self,
+                                                                client):
+        job = finished(client, client.post("/strategies/plain/backtest",
+                                           json={"start": START, "end": END,
+                                                 "benchmark": {"kind": "index",
+                                                               "id": FRESH_ID}},
+                                           headers=auth()))
+        assert job["status"] == SUCCEEDED, job
+        store = client.app.state.backtest_record_store
+        tables = read_panels(store.panels_directory("plain"))
+        record = client.get("/strategies/plain/record", headers=auth()).json()
+
+        assert BENCHMARK_WEIGHTS in tables and INDEX_WEIGHTS in tables
+        assert record["benchmark"]["rebalances_total"] > 0
+        assert tables[BENCHMARK_WEIGHTS].sum(axis=1).to_numpy() == pytest.approx(1.0)
+        assert set(tables[BENCHMARK_WEIGHTS].columns) <= set(tables[NAME_RETURNS].columns)
+
+        # Run again without one, so the module's other tests see the plain run.
+        assert finished(client, client.post("/strategies/plain/backtest",
+                                            json={"start": START, "end": END},
+                                            headers=auth()))["status"] == SUCCEEDED
 
     def test_a_record_kept_before_them_still_opens(self,
                                                   client):

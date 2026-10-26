@@ -11,11 +11,14 @@ import pandas as pd
 import pytest
 
 from beacon.analysis.panels import (
+    BENCHMARK_WEIGHTS,
     CASH,
     COSTS,
     FUND_WEIGHTS,
+    INDEX_WEIGHTS,
     MANIFEST_FILE,
     NAME_RETURNS,
+    OPTIMISED_WEIGHTS,
     PANELS_VERSION,
     read_manifest,
     read_panels,
@@ -215,3 +218,39 @@ class TestARunsTables:
         np.testing.assert_array_equal(back[CASH].to_numpy(), daily_cash(result).to_numpy())
         assert list(back[CASH].columns) == list(daily_cash(result).columns)
         assert back[COSTS]["fixed"].sum() > 0
+
+
+class TestComparatorsTables:
+    """BN-365: each comparator's daily weights, when it holds names."""
+
+    def test_the_index_s_daily_weights_are_its_book_s(self):
+        from test_strategy_futures import index, run
+
+        result = run(index())
+        panels = run_panels(result)
+
+        np.testing.assert_array_equal(panels[INDEX_WEIGHTS].to_numpy(),
+                                      result.index.target.weights.to_numpy())
+        assert OPTIMISED_WEIGHTS not in panels and BENCHMARK_WEIGHTS not in panels
+
+    def test_a_benchmark_index_s_daily_weights_are_kept(self):
+        from beacon.index.calculation import IndexCalculator
+        from test_strategy_futures import DATA, END, START, index, run
+
+        benchmark = IndexCalculator(index("TOTAL_RETURN"), DATA).run(start_date=START, end_date=END)
+        result = run(index(), benchmark=benchmark)
+        panels = run_panels(result)
+
+        assert panels[BENCHMARK_WEIGHTS].sum(axis=1).to_numpy() == pytest.approx(1.0)
+        np.testing.assert_array_equal(panels[BENCHMARK_WEIGHTS].to_numpy(),
+                                      result.benchmark.weights.to_numpy())
+
+    def test_a_benchmark_of_levels_alone_has_no_weights(self):
+        from beacon.index.calculation import IndexCalculator
+        from test_strategy_futures import DATA, END, START, index, run
+
+        levels = IndexCalculator(index("TOTAL_RETURN"), DATA).run(start_date=START,
+                                                           end_date=END).index_levels
+        panels = run_panels(run(index(), benchmark=levels))
+
+        assert BENCHMARK_WEIGHTS not in panels

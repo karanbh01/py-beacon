@@ -28,7 +28,7 @@ from ..index.result import IndexResult
 from ..portfolio.cash_flows import FEE
 from .backtest_settings import ACTIVE, INDEX_TRACKING, BuiltSettings
 from .backtest_settings import build as build_settings
-from .benchmarks import resolve_benchmark
+from .benchmarks import resolve_benchmark_book
 from .comparisons import Comparators, comparison_payloads
 from .definitions import build_definition
 from .derivative_records import derivative_payloads
@@ -327,6 +327,14 @@ def build_backtest_job(strategy: StrategyDocument,
         # store allows it, and hands the schedule to the engine. The two
         # stage messages collapse into one; the reporter and the later
         # milestones stay.
+        # BN-365: a benchmark is resolved first and given to the run, so a
+        # stored index's holdings are kept with it as well as its levels.
+        benchmark = None
+        if request.benchmark is not None:
+            report(0.03, f"Calculating benchmark '{request.benchmark.id}'.")
+            benchmark = resolve_benchmark_book(request.benchmark, fetcher, index_store,
+                                               start, end)
+
         report(0.05, _stage(settings))
 
         backtest = Backtest(initial_capital=settings.initial_capital,
@@ -339,6 +347,7 @@ def build_backtest_job(strategy: StrategyDocument,
                             flows=settings.flows or None,
                             share_classes=settings.share_classes or None,
                             vehicle=settings.vehicle,
+                            benchmark=benchmark,
                             data_provider=fetcher).run(
             settings.strategy(definition),
             start=start,
@@ -369,9 +378,10 @@ def build_backtest_job(strategy: StrategyDocument,
         benchmark_levels = None
         if request.benchmark is not None:
             report(0.8, f"Comparing against benchmark '{request.benchmark.id}'.")
-            # Resolved once, for this comparison and the run's comparisons.
-            benchmark_levels = resolve_benchmark(request.benchmark, fetcher, index_store,
-                                                 start, end)
+            # Resolved once, before the run, for this comparison and the
+            # run's comparisons.
+            benchmark_levels = (benchmark.index_levels if isinstance(benchmark, IndexResult)
+                                else benchmark)
             comparison = compare_against_benchmark(backtest.trading_nav, request.benchmark,
                                                    benchmark_levels)
 

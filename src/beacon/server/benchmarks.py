@@ -55,18 +55,35 @@ def resolve_benchmark(reference: BenchmarkRef,
         DataNotFoundError: If the referenced index or identifier does not
             exist, or carries no data over the window.
     """
+    resolved = resolve_benchmark_book(reference, fetcher, index_store, start, end)
+
+    return resolved.index_levels if isinstance(resolved, IndexResult) else resolved
+
+
+def resolve_benchmark_book(reference: BenchmarkRef,
+                           fetcher: DataFetcher,
+                           index_store: DocumentStore,
+                           start: str,
+                           end: str) -> IndexResult | pd.Series:
+    """A benchmark reference as a backtest takes it: a stored index's
+    calculation, which carries its holdings as well as its levels, or a
+    market-data series's levels.
+
+    Raises:
+        DataNotFoundError: As `resolve_benchmark`.
+    """
     if reference.kind == BENCHMARK_INDEX:
-        return _index_levels(reference, fetcher, index_store, start, end)
+        return _index_result(reference, fetcher, index_store, start, end)
 
     return _identifier_levels(reference, fetcher, start, end)
 
 
-def _index_levels(reference: BenchmarkRef,
+def _index_result(reference: BenchmarkRef,
                   fetcher: DataFetcher,
                   index_store: DocumentStore,
                   start: str,
-                  end: str) -> pd.Series:
-    """Calculate a stored index of either face and return its level series.
+                  end: str) -> IndexResult:
+    """Calculate a stored index of either face.
 
     Calculating a second index is real work, which is why a benchmark can only
     be requested inside a job rather than on a synchronous read.
@@ -88,7 +105,7 @@ def _index_levels(reference: BenchmarkRef,
             f"{start} and {end}",
             source="IndexCalculator")
 
-    return result.index_levels
+    return result
 
 
 def _calculated(definition: AnyIndexDefinition,
