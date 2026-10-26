@@ -191,3 +191,70 @@ class TestCharacteristics:
     def test_a_name_that_stopped_trading_has_no_row(self,
                                                     table):
         assert "GONE" not in table.index
+
+
+class TestTradedValues:
+    """BN-368: average daily traded value, as the liquidity screens read it."""
+
+    def test_it_is_the_screens_average_on_every_name_and_date(self):
+        import numpy as np
+
+        from beacon.analysis.snapshots import traded_value_snapshots
+        from beacon.backtest.screens import ScreenContext, average_traded
+        from beacon.data import pair_reference
+
+        days = pd.bdate_range("2024-01-02", "2024-04-30")
+        random = np.random.default_rng(5)
+        rows = [{"IDENTIFIER": name, "DATE": day, "CLOSE": 20.0 + random.random(),
+                 "VOLUME": None if random.random() < 0.1 else 1e4 * random.random()}
+                for name in ("AAA", "BBB") for day in days]
+        rows += [{"IDENTIFIER": "GBPUSD", "DATE": day, "CLOSE": 1.25 + 0.001 * step}
+                 for step, day in enumerate(days)]
+        reference = pd.DataFrame([
+            {"IDENTIFIER": "AAA", "DATE_FROM": "2020-01-01", "NAME": "A", "CURRENCY": "GBP"},
+            {"IDENTIFIER": "BBB", "DATE_FROM": "2020-01-01", "NAME": "B", "CURRENCY": "USD"},
+            pair_reference("GBPUSD")])
+        data = DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)),
+                           ReferenceData.from_dataframe(reference))
+        dates = [days[10], days[40], days[-1]]
+        table = traded_value_snapshots(data, ["AAA", "BBB"], dates, "USD", lookback_days=5)
+        context = ScreenContext(data, "USD")
+
+        for date in dates:
+            day = table.loc[[date]].set_index("IDENTIFIER")["TRADED_VALUE"]
+            for name in ("AAA", "BBB"):
+                expected = average_traded(name, date, context, lookback_days=5)
+                assert (expected is None and name not in day.index) or (
+                    day[name] == pytest.approx(expected, rel=1e-12))
+
+    def test_a_name_without_volumes_has_no_row(self):
+        from beacon.analysis.snapshots import traded_value_snapshots
+
+        table = traded_value_snapshots(fetcher(), ["MOVER"], [pd.Timestamp("2024-03-01")], "USD")
+
+        assert table.empty
+
+    def test_the_last_reported_days_are_averaged(self):
+        from beacon.analysis.snapshots import traded_value_snapshots
+
+        days = pd.bdate_range("2024-01-02", periods=10)
+        rows = [{"IDENTIFIER": "X", "DATE": day, "CLOSE": 10.0,
+                 "VOLUME": (100.0 * (step + 1)) if step != 8 else None}
+                for step, day in enumerate(days)]
+        data = DataFetcher(MarketData.from_dataframe(pd.DataFrame(rows)))
+        table = traded_value_snapshots(data, ["X"], [days[-1]], "USD", lookback_days=3)
+
+        # The last three days with a volume: steps 6, 7 and 9.
+        assert table["TRADED_VALUE"].iloc[0] == pytest.approx(10.0 * (700 + 800 + 1000) / 3)
+
+    def test_a_run_s_liquidity_dates_are_its_rebalances_and_month_ends(self):
+        from beacon.analysis.snapshots import liquidity_dates
+        from test_strategy_futures import index, run
+
+        result = run(index())
+        dates = liquidity_dates(result)
+        days = result.portfolio.nav.index
+        month_ends = {days[days.to_period("M") == period].max()
+                      for period in days.to_period("M").unique()}
+
+        assert set(rebalance_dates(result)) | month_ends == set(dates)

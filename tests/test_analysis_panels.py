@@ -22,6 +22,7 @@ from beacon.analysis.panels import (
     OPTIMISED_WEIGHTS,
     PANELS_VERSION,
     REFERENCE,
+    TRADED_VALUES,
     read_manifest,
     read_panels,
     run_panels,
@@ -296,3 +297,23 @@ class TestCharacteristicsTable:
 
         assert back.equals(expected)
         assert back["MARKET_CAP"].notna().all()
+
+
+class TestTradedValuesTable:
+    """BN-368: the traded values at each rebalance and month end."""
+
+    def test_it_reads_back_as_the_snapshot_gives_it(self,
+                                                    tmp_path):
+        from beacon.analysis.panels import held_names
+        from beacon.analysis.snapshots import liquidity_dates, traded_value_snapshots
+        from test_strategy_futures import index, run
+
+        result = run(index())
+        write_panels(tmp_path / "run", run_panels(result))
+
+        back = read_panels(tmp_path / "run", [TRADED_VALUES])[TRADED_VALUES]
+        expected = traded_value_snapshots(result.portfolio.source, held_names(result),
+                                          liquidity_dates(result), result.currency)
+
+        assert back.equals(expected)
+        assert list(back.columns) == ["IDENTIFIER", "TRADED_VALUE"]

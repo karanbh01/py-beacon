@@ -20,6 +20,7 @@ from beacon.analysis.panels import (
     INDEX_WEIGHTS,
     NAME_RETURNS,
     REFERENCE,
+    TRADED_VALUES,
     read_panels,
     write_panels,
 )
@@ -226,6 +227,7 @@ class TestTheRunsTables:
             assert set(weights.columns) <= set(tables[NAME_RETURNS].columns)
             assert set(weights.columns) <= set(tables[REFERENCE]["IDENTIFIER"])
             assert set(tables[CHARACTERISTICS].index) <= set(tables[REFERENCE].index)
+            assert set(weights.columns) <= set(tables[TRADED_VALUES]["IDENTIFIER"])
 
     def test_a_benchmark_index_s_holdings_are_kept_with_the_run(self,
                                                                 client):

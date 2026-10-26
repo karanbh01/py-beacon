@@ -11,11 +11,12 @@ with an ``IDENTIFIER`` column and a column per field. A name with no record in
 force on a date has no row for it. Between rebalances, the latest snapshot on
 or before a day is the one in force.
 """
-# BN-366, and the characteristics BN-367.
+# BN-366, the characteristics BN-367 and the traded values BN-368.
 import numpy as np
 import pandas as pd
 
 from ..backtest.result import BacktestResult
+from ..backtest.screens import DEFAULT_LIQUIDITY_DAYS
 from ..data.base import count_through
 from ..data.corporate_actions import DIVIDEND, TRAILING_YEAR, without_cancelled
 from ..data.fetcher import DataFetcher
@@ -237,3 +238,84 @@ def _trailing_dividends(source: DataFetcher,
         table.loc[date, paid.index] = paid.to_numpy()
 
     return table
+
+
+# The column of `traded_value_snapshots`.
+TRADED_VALUE = "TRADED_VALUE"
+
+
+def liquidity_dates(result: BacktestResult) -> list[pd.Timestamp]:
+    """Each rebalance and the last day of each month of the run, sorted."""
+    days = result.portfolio.nav.index
+
+    if len(days) == 0:
+        return []
+
+    month_ends = pd.Series(days, index=days).groupby(days.to_period("M")).max()
+
+    return sorted(set(rebalance_dates(result)) | {pd.Timestamp(day) for day in month_ends})
+
+
+def traded_value_snapshots(source: DataFetcher,
+                           names: list[str],
+                           dates: list[pd.Timestamp],
+                           currency: str,
+                           market: dict[str, pd.DataFrame] | None = None,
+                           lookback_days: int = DEFAULT_LIQUIDITY_DAYS) -> pd.DataFrame:
+    """Each name's average daily traded value on each of *dates*, as the
+    liquidity screens measure it.
+
+    The close times the volume, in *currency* converted day by day, averaged
+    over the name's last *lookback_days* days with a volume in the window the
+    screens read (`beacon.backtest.screens.average_traded`).
+
+    Args:
+        source: The data the run used.
+        names: The names to describe.
+        dates: The days to describe them on.
+        currency: The currency traded values are in.
+        market: ``CLOSE`` and ``VOLUME`` by date and name, from at least 400
+            days before the first date (`market_history`); read from *source*
+            when None.
+        lookback_days: How many days with a volume to average.
+
+    Returns:
+        pd.DataFrame: Indexed by date, with ``IDENTIFIER`` and
+        ``TRADED_VALUE``; a name with no volume in the window has no row.
+    """
+    if not dates or not names:
+        return pd.DataFrame(columns=[IDENTIFIER, TRADED_VALUE])
+
+    market = market if market is not None else market_history(source, names, dates)
+    local = market[PRICE_COLUMN]
+
+    if local.empty:
+        return pd.DataFrame(columns=[IDENTIFIER, TRADED_VALUE])
+
+    closes = converted(source, local, currency).to_numpy()
+    volumes = market[VOLUME_COLUMN].reindex(index=local.index, columns=local.columns).to_numpy()
+    sessions = local.index.to_numpy()
+    frames = []
+
+    for date in dates:
+        # The window the screens read: enough calendar days for the trading
+        # days asked for, both ends included.
+        start = date - pd.Timedelta(days=int(lookback_days * 1.6) + 10)
+        lo = int(np.searchsorted(sessions, np.datetime64(start), side="left"))
+        hi = count_through(sessions, np.datetime64(date))
+        reported = ~np.isnan(volumes[lo:hi])
+        # The last *lookback_days* reported days of each name.
+        kept = reported & (reported[::-1].cumsum(axis=0)[::-1] <= lookback_days)
+        traded = np.where(kept, closes[lo:hi] * volumes[lo:hi], np.nan)
+        counted = (~np.isnan(traded)).sum(axis=0)
+
+        with np.errstate(invalid="ignore"):
+            average = np.nansum(traded, axis=0) / counted
+
+        found = counted > 0
+        frame = pd.DataFrame({IDENTIFIER: local.columns[found].astype(str),
+                              TRADED_VALUE: average[found]},
+                             index=pd.DatetimeIndex([date] * int(found.sum())))
+        frames.append(frame)
+
+    return pd.concat(frames)

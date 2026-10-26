@@ -35,9 +35,11 @@ from ..data.store import _read_frame, _write_frame
 from ..exceptions import CalculationError, ConfigurationError, DataNotFoundError
 from .snapshots import (
     characteristics_snapshots,
+    liquidity_dates,
     market_history,
     rebalance_dates,
     reference_snapshots,
+    traded_value_snapshots,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,7 @@ OPTIMISED_WEIGHTS = "optimised_weights"
 BENCHMARK_WEIGHTS = "benchmark_weights"
 REFERENCE = "reference"
 CHARACTERISTICS = "characteristics"
+TRADED_VALUES = "traded_values"
 
 
 
@@ -98,6 +101,9 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
           momentum at each rebalance, as
           `beacon.analysis.snapshots.characteristics_snapshots` gives them;
           left out, with a warning, when they cannot be measured.
+        - ``traded_values``: their average daily traded value at each
+          rebalance and month end, as the liquidity screens measure it
+          (`beacon.analysis.snapshots.traded_value_snapshots`).
     """
     weights = result.portfolio.weights
     panels = {FUND_WEIGHTS: weights, COSTS: daily_costs(result), CASH: daily_cash(result)}
@@ -133,6 +139,12 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
                                                             result.currency, market)
     except (CalculationError, DataNotFoundError) as error:
         logger.warning("The run's characteristics were not kept: %s", error)
+
+    try:
+        panels[TRADED_VALUES] = traded_value_snapshots(source, names, liquidity_dates(result),
+                                                       result.currency, market)
+    except (CalculationError, DataNotFoundError) as error:
+        logger.warning("The run's traded values were not kept: %s", error)
 
     return panels
 
