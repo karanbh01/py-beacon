@@ -13,8 +13,9 @@ these.
 # BN-371.
 import pandas as pd
 
-from ..data import INDEX, OPTIMISED, RunData
+from ..data import BENCHMARK, INDEX, OPTIMISED, RunData
 from . import formulas
+from .comparisons import Comparison, Period, comparison_of, periods_of
 from .settings import AnalysisSettings
 
 
@@ -123,6 +124,39 @@ class PerformanceAnalytics:
         return formulas.money_weighted_return([(pd.Timestamp(date), float(amount))
                                                for date, amount in flows.items()
                                                if amount != 0.0])
+
+    def comparison(self,
+                   comparator: str | pd.Series) -> Comparison | None:
+        """The run against a comparator, given by name or by its levels, over
+        the days both have: the comparator's own figures and the run's
+        relative to it. None for a comparator the run does not have, or one
+        sharing fewer than two days with it."""
+        levels = (self.run.comparators.get(comparator) if isinstance(comparator, str)
+                  else comparator)
+
+        if levels is None:
+            return None
+
+        return comparison_of(self.returns, levels, self.periods_per_year, self.risk_free_rate)
+
+    def periods(self,
+                frequency: str,
+                comparators: list[str] | None = None) -> list[Period]:
+        """The run's figures in each calendar year, quarter or month, and its
+        comparators' in each, by name: the index and the benchmark, of those
+        the run has, unless *comparators* names others.
+
+        Raises:
+            ValueError: If the frequency is not ``annual``, ``quarterly`` or
+                ``monthly``.
+        """
+        names = comparators if comparators is not None else [
+            name for name in (INDEX, BENCHMARK) if name in self.run.comparators]
+        theirs = {name: formulas.returns_from_start(self.run.comparators[name])
+                  for name in names if name in self.run.comparators}
+
+        return periods_of(self.returns, frequency, self.periods_per_year, self.risk_free_rate,
+                          theirs)
 
     def summary(self) -> dict[str, float | None]:
         """The headline figures, the monthly hit rate, and, when the run has

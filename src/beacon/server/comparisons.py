@@ -13,8 +13,9 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from ..analysis.comparison import Comparison, compare
-from ..assumptions import DEFAULT_PERIODS_PER_YEAR
+from ..analysis.data import RunData
+from ..analysis.performance.analytics import PerformanceAnalytics
+from ..analysis.performance.comparisons import Comparison
 from ..backtest.result import BacktestResult
 from ..index.result import IndexResult
 from .schemas import (
@@ -42,17 +43,14 @@ def comparison_payloads(result: BacktestResult,
                         index_result: IndexResult,
                         comparators: Comparators) -> ComparisonsPayload:
     """The run against its index and its benchmark."""
-    returns = result.get_returns()
-    assumptions = result.modelling_assumptions
-    periods = (assumptions.periods_per_year if assumptions is not None else None)
-    risk_free = (assumptions.risk_free_rate if assumptions is not None else None)
-    periods_per_year = periods or DEFAULT_PERIODS_PER_YEAR
+    # BN-372: measured by the run's analysis, with its periods a year and
+    # risk-free rate.
+    analytics = PerformanceAnalytics(RunData.from_result(result))
 
     def against(levels: pd.Series | None,
                 identifier: str,
                 kind: str) -> ComparisonPayload | None:
-        comparison = (compare(returns, levels, periods_per_year, risk_free or 0.0)
-                      if levels is not None else None)
+        comparison = analytics.comparison(levels) if levels is not None else None
 
         return _payload(comparison, identifier, kind) if comparison is not None else None
 

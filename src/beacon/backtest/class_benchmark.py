@@ -33,9 +33,9 @@ them.
 # index hedged the same way, so its tracking difference leaves out the carry.
 from dataclasses import dataclass
 
-import numpy as np
 import pandas as pd
 
+from ..analysis.performance import formulas
 from ..assumptions import DEFAULT_PERIODS_PER_YEAR
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
@@ -109,15 +109,11 @@ def class_tracking(book: ShareClassBook,
                 "tracking_error": None}
 
     # The benchmark's first day returns nothing from its starting level, as
-    # the class's first return runs from its launch price (see `_from_start`).
-    benchmark_returns = benchmark.pct_change()
-    benchmark_returns.iloc[0] = 0.0
-    aligned = pd.DataFrame({"class": book.get_returns(),
-                            "benchmark": benchmark_returns}).dropna()
-    benchmark_total = float(benchmark.iloc[-1] / benchmark.iloc[0] - 1.0)
-    tracking_error = (float((aligned["class"] - aligned["benchmark"]).std()
-                            * np.sqrt(periods_per_year))
-                      if len(aligned) > 1 else None)
+    # the class's first return runs from its launch price.
+    benchmark_returns = formulas.returns_from_start(benchmark)
+    active = (book.get_returns() - benchmark_returns).dropna()
+    benchmark_total = formulas.total_return(float(benchmark.iloc[0]), float(benchmark.iloc[-1]))
+    tracking_error = formulas.tracking_error(active, periods_per_year)
 
     return {"total_return": total_return,
             "tracking_difference": total_return - benchmark_total,

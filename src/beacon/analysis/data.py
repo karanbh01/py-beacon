@@ -25,7 +25,6 @@ import pandas as pd
 
 from ..backtest.result import BacktestResult
 from ..exceptions import ConfigurationError
-from ..portfolio.cash_flows import DISTRIBUTION, REDEMPTION, SUBSCRIPTION
 from .packing import CLOSES_FLOAT, CLOSES_PACKED, CLOSES_SCALE, pack_closes, unpack_closes
 from .panels import (
     CASH,
@@ -141,7 +140,31 @@ class RunData:
                    missing=_Lacking(tables),
                    performance=performance,
                    performance_start=float(start),
-                   investor_flows=_investor_flows(result) if result.flows else None)
+                   investor_flows=result._investor_flows() if result.flows else None)
+
+    @classmethod
+    def of_returns(cls,
+                   returns: pd.Series,
+                   periods_per_year: int,
+                   risk_free_rate: float = 0.0,
+                   comparators: Mapping[str, pd.Series] | None = None,
+                   currency: str = "") -> "RunData":
+        """A run known only by its daily returns (the first from its start)
+        and its comparators' levels, for the figures that need nothing more:
+        its headline figures, measured from a start of 1, its comparisons and
+        its figures by period. It has no tables."""
+        path = (1.0 + returns).cumprod()
+
+        return cls(currency=currency,
+                   returns=returns,
+                   nav=path,
+                   units=pd.Series(1.0, index=returns.index),
+                   initial_capital=1.0,
+                   periods_per_year=periods_per_year,
+                   risk_free_rate=risk_free_rate,
+                   comparators=dict(comparators or {}),
+                   performance=path,
+                   performance_start=1.0)
 
     def latest(self,
                name: str,
@@ -253,26 +276,6 @@ class RunData:
                    performance_start=(None if run.get("performance_start") is None
                                       else float(run["performance_start"])),
                    investor_flows=series.get(INVESTOR_FLOWS))
-
-
-def _investor_flows(result: BacktestResult) -> pd.Series:
-    """A run's investor cash flows, as its money-weighted return counts
-    them: the initial capital, every subscription, redemption and
-    distribution, and the final NAV, each on its date; empty with no NAV."""
-    nav = result.trading_nav
-
-    if nav.empty:
-        return pd.Series(dtype=float)
-
-    portfolio = result.portfolio
-    start = portfolio.inception if portfolio.inception is not None else nav.index[0]
-    flows = [(pd.Timestamp(start), -portfolio.initial_capital)]
-    flows += [(flow.date, -flow.amount) for flow in portfolio.cash_flows
-              if flow.kind in (SUBSCRIPTION, REDEMPTION, DISTRIBUTION)]
-    flows.append((pd.Timestamp(nav.index[-1]), float(nav.iloc[-1])))
-
-    return pd.Series([amount for _, amount in flows],
-                     index=pd.DatetimeIndex([date for date, _ in flows]), dtype=float)
 
 
 class _Built(Mapping[str, pd.DataFrame]):

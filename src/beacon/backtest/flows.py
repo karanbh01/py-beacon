@@ -37,6 +37,8 @@ from typing import ClassVar
 import numpy as np
 import pandas as pd
 
+# The investors' rate of return, defined once (BN-372), still offered here.
+from ..analysis.performance.formulas import money_weighted_return  # noqa: F401
 from ..catalogue import FLOW, FRACTION, MONEY, RATIO, Display, register
 
 DAILY = "DAILY"
@@ -318,49 +320,6 @@ class PerformanceChasingFlows(_Periodic):
                          - 1.0)
 
         return (self.base + self.sensitivity * trailing) * context.aum
-
-
-def money_weighted_return(flows: list[tuple[pd.Timestamp, float]]) -> float | None:
-    """The annual rate that discounts an investor's cash flows to zero.
-
-    Args:
-        flows: (date, amount) from the investor's side: money put in is
-            negative, money taken out (and the final value) positive.
-
-    Returns:
-        float or None: The internal rate of return a year, over calendar days
-        (ACT/365), or None when the flows do not change sign, so no rate
-        exists.
-    """
-    if not flows or min(amount for _, amount in flows) >= 0 \
-            or max(amount for _, amount in flows) <= 0:
-        return None
-
-    start = min(date for date, _ in flows)
-    years = np.array([(date - start).days / 365.0 for date, _ in flows])
-    amounts = np.array([amount for _, amount in flows])
-
-    def value(rate: float) -> float:
-        return float(np.sum(amounts / (1.0 + rate) ** years))
-
-    low, high = -0.9999, 1.0
-
-    # Widen until the value changes sign; a rate above 1e6 a year is noise.
-    while value(high) > 0 and high < 1e6:
-        high *= 10.0
-
-    if value(low) * value(high) > 0:
-        return None
-
-    for _ in range(200):
-        middle = (low + high) / 2.0
-
-        if value(low) * value(middle) <= 0:
-            high = middle
-        else:
-            low = middle
-
-    return (low + high) / 2.0
 
 
 def _period(date: pd.Timestamp,

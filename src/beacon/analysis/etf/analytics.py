@@ -6,8 +6,9 @@ tracking error, and the premium or discount of market price to NAV.
 Each is available as a plain function and as a method of `ETFAnalytics`.
 """
 
-import numpy as np
 import pandas as pd
+
+from ..performance import formulas
 
 
 def calculate_tracking_difference(etf_returns: pd.Series,
@@ -43,10 +44,7 @@ def calculate_tracking_difference(etf_returns: pd.Series,
 
     # The arithmetic difference of cumulative returns over the whole period.
     # Annualising it would need the period length, which is not passed in.
-    etf_cumulative_return = (1 + etf_returns).prod() - 1
-    index_cumulative_return = (1 + index_returns).prod() - 1
-    tracking_difference = etf_cumulative_return - index_cumulative_return
-    return float(tracking_difference)
+    return formulas.tracking_difference(etf_returns, index_returns)
 
 def calculate_tracking_error(etf_returns: pd.Series,
                              index_returns: pd.Series,
@@ -83,9 +81,10 @@ def calculate_tracking_error(etf_returns: pd.Series,
     if periods_per_year <= 0:
         raise ValueError("periods_per_year must be a positive integer.")
 
-    difference_returns = etf_returns - index_returns
-    annualized_tracking_error = difference_returns.std() * np.sqrt(periods_per_year)
-    return float(annualized_tracking_error)
+    tracking_error = formulas.tracking_error((etf_returns - index_returns).dropna(),
+                                             periods_per_year)
+
+    return float("nan") if tracking_error is None else tracking_error
 
 def calculate_premium_discount(etf_price: float,
                                nav_price: float) -> float:

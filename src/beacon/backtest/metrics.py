@@ -6,6 +6,8 @@ money-weighted return. Mixed into `BacktestResult`.
 """
 # Moved out of result.py when it was split (BN-268). The metrics are
 # unchanged; they read the result's fields through the declarations below.
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
@@ -17,7 +19,7 @@ from ..portfolio.base import Portfolio
 from ..portfolio.cash_flows import DISTRIBUTION, REDEMPTION, SUBSCRIPTION
 from ..strategy.active import ActiveStep
 from .books import IndexBooks
-from .flows import FlowRecord, money_weighted_return
+from .flows import FlowRecord
 
 
 def headline_metrics(returns: pd.Series,
@@ -173,10 +175,23 @@ class MetricsMixin:
             float or None: The rate a year, or None when it does not exist
             (no money at risk, say).
         """
+        flows = self._investor_flows()
+
+        if flows.empty:
+            return None
+
+        return formulas.money_weighted_return([(pd.Timestamp(date), float(amount))
+                                               for date, amount in flows.items()
+                                               if amount != 0.0])
+
+    def _investor_flows(self) -> pd.Series:
+        """The investors' cash flows, dated, from their side: the initial
+        capital, every subscription, redemption and distribution, and the
+        final NAV. Empty with no NAV."""
         nav = self.trading_nav
 
         if nav.empty:
-            return None
+            return pd.Series(dtype=float)
 
         start = (self.portfolio.inception if self.portfolio.inception is not None
                  else nav.index[0])
@@ -187,8 +202,8 @@ class MetricsMixin:
                      if flow.kind in (SUBSCRIPTION, REDEMPTION, DISTRIBUTION)]
         investor.append((pd.Timestamp(nav.index[-1]), float(nav.iloc[-1])))
 
-        return money_weighted_return([(date, amount) for date, amount in investor
-                                      if amount != 0.0])
+        return pd.Series([amount for _, amount in investor],
+                         index=pd.DatetimeIndex([date for date, _ in investor]), dtype=float)
 
     def _paid_out(self) -> pd.Series:
         """Cash paid out of the book to its investors, by date, as positive
@@ -236,7 +251,8 @@ class MetricsMixin:
         if returns.empty:
             return pd.Series(dtype=float)
 
-        yearly = (1.0 + returns).groupby(returns.index.year).prod() - 1.0
+        yearly = formulas.period_returns(returns, formulas.ANNUAL)
+        yearly.index = yearly.index.astype(int)
 
         return yearly.astype(float)
 
@@ -254,6 +270,15 @@ class MetricsMixin:
 
         return rate or 0.0
 
+    def _analytics(self) -> Any:
+        """The run's performance analytics, which its figures are."""
+        # Imported here, as both read the result this mixin is part of, which
+        # is why it passes itself as one (BN-371).
+        from ..analysis.data import RunData  # noqa: PLC0415
+        from ..analysis.performance.analytics import PerformanceAnalytics  # noqa: PLC0415
+
+        return PerformanceAnalytics(RunData.from_result(self))  # type: ignore[arg-type]
+
     def get_tracking_error(self) -> float | None:
         """Calculate annualised tracking error against the tracked index.
 
@@ -261,32 +286,15 @@ class MetricsMixin:
         daily portfolio returns and index returns on their common dates,
         annualised by the square root of the run's periods per year (252
         unless its modelling assumptions say otherwise). The first day
-        compares the
-        portfolio's return from its initial capital (the opening trades'
-        cost) with the index's return of zero from its starting level.
+        compares the portfolio's return from its initial capital (the opening
+        trades' cost) with the index's return of zero from its starting
+        level.
 
         Returns:
             float or None: Annualised tracking error, or None if the run
-            tracked no index.
+            tracked no index or they share fewer than two days.
         """
-        tracked = self.index.tracked
-        if tracked is None:
-            return None
-
-        port_returns = self.get_returns()
-        index_returns = _from_start(tracked.levels)
-
-        # Align on common dates
-        aligned = pd.DataFrame({
-            "port": port_returns,
-            "index": index_returns,
-        }).dropna()
-
-        if aligned.empty:
-            return None
-
-        active_returns = aligned["port"] - aligned["index"]
-        return float(active_returns.std() * np.sqrt(self._periods_per_year()))
+        return self._analytics().tracking_error()  # type: ignore[no-any-return]
 
     def get_tracking_difference(self) -> float | None:
         """Calculate cumulative tracking difference against the tracked index.
@@ -300,19 +308,7 @@ class MetricsMixin:
             float or None: Tracking difference, or None if the run tracked
             no index.
         """
-        tracked = self.index.tracked
-        if tracked is None:
-            return None
-
-        port_returns = self.get_returns()
-        index_returns = _from_start(tracked.levels)
-
-        if port_returns.empty or index_returns.empty:
-            return None
-
-        port_cumulative = (1 + port_returns).prod() - 1
-        index_cumulative = (1 + index_returns).prod() - 1
-        return float(port_cumulative - index_cumulative)
+        return self._analytics().tracking_difference()  # type: ignore[no-any-return]
 
     def summary(self) -> dict[str, float | None]:
         """Calculate key performance metrics for the backtest.
@@ -336,12 +332,8 @@ class MetricsMixin:
             tracking_difference; with flows, money_weighted_return.
         """
         # BN-371: through the run's analysis, which a stored run is measured
-        # with too. Imported here, as both read the result this mixin is part
-        # of, which is why it passes itself as one.
-        from ..analysis.data import RunData  # noqa: PLC0415
-        from ..analysis.performance.analytics import PerformanceAnalytics  # noqa: PLC0415
-
-        result = PerformanceAnalytics(RunData.from_result(self)).summary()  # type: ignore[arg-type]
+        # with too.
+        result: dict[str, float | None] = self._analytics().summary()
 
         if not self.market.empty:
             result.update(self.market_summary())
@@ -354,18 +346,7 @@ class MetricsMixin:
     def information_ratio(self) -> float | None:
         """Annualised active return over annualised tracking error, against
         the tracked index. None without an index, or with no active risk."""
-        tracked = self.index.tracked
-
-        if tracked is None:
-            return None
-
-        active = (self.get_returns() - _from_start(tracked.levels)).dropna()
-        spread = float(active.std())
-
-        if len(active) < 2 or spread == 0.0:
-            return None
-
-        return float(active.mean() / spread * np.sqrt(self._periods_per_year()))
+        return self._analytics().information_ratio()  # type: ignore[no-any-return]
 
     def active_share(self) -> pd.Series:
         """An active strategy's active share at each rebalance."""
@@ -410,7 +391,7 @@ class MetricsMixin:
                                    "names' returns with.")
 
         active_returns = (self.get_returns()
-                          - _from_start(tracked.levels)).dropna()
+                          - formulas.returns_from_start(tracked.levels).dropna()).dropna()
 
         return attribute(active_returns, active_weights,
                          prices.ffill().pct_change(fill_method=None))
@@ -435,28 +416,3 @@ class MetricsMixin:
                 "average_premium": float(market["premium"].mean()),
                 "average_spread": float(market["spread"].mean()),
                 "days_at_premium": float((market["premium"] > 0).mean())}
-
-
-def _hit_rate_monthly(returns: pd.Series) -> float | None:
-    """The share of calendar months whose compounded return was positive."""
-    if returns.empty:
-        return None
-
-    index = pd.DatetimeIndex(returns.index)
-    monthly = (1.0 + returns).groupby([index.year, index.month]).prod() - 1.0
-
-    return float((monthly > 0).mean())
-
-
-def _from_start(levels: pd.Series) -> pd.Series:
-    """Daily returns of a level series, the first day's being zero.
-
-    The index starts at its level on the first day, so its return that day is
-    nothing; the portfolio's first return, from its capital, lines up with it.
-    """
-    returns = levels.pct_change()
-
-    if not returns.empty:
-        returns.iloc[0] = 0.0
-
-    return returns.dropna()

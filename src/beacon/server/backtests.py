@@ -17,6 +17,7 @@ from typing import Any
 import pandas as pd
 
 from ..analysis.data import RunData
+from ..analysis.performance import formulas
 from ..analysis.relative import align_on_common_window, relative_metrics
 from ..backtest.main import Backtest
 from ..backtest.result import BacktestResult
@@ -89,10 +90,7 @@ def _rebase(series: pd.Series) -> pd.Series:
 
 def _drawdown(level: pd.Series) -> pd.Series:
     """Drawdown from the running peak, derived from *level* itself."""
-    if level.empty:
-        return level
-
-    return level / level.cummax() - 1.0
+    return formulas.drawdown(level)
 
 
 def _performance_from_start(result: BacktestResult) -> pd.Series:

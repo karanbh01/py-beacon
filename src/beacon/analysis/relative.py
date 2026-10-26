@@ -17,10 +17,10 @@ share.
 import logging
 from dataclasses import dataclass
 
-import numpy as np
 import pandas as pd
 
 from ..exceptions import CalculationError
+from .performance import formulas
 
 logger = logging.getLogger(__name__)
 
@@ -143,9 +143,9 @@ def relative_metrics(portfolio: pd.Series,
 
     total = _total_return(aligned_portfolio, "portfolio")
     benchmark_total = _total_return(aligned_benchmark, "benchmark")
-
-    differences = portfolio_returns - benchmark_returns
-    tracking_error = float(differences.std(ddof=1) * np.sqrt(periods_per_year))
+    # Three shared dates at least, so two returns: always measurable.
+    tracking_error = float(formulas.tracking_error(portfolio_returns - benchmark_returns,
+                                                   periods_per_year) or 0.0)
 
     return RelativeMetrics(
         observations=len(aligned_portfolio),
@@ -155,8 +155,11 @@ def relative_metrics(portfolio: pd.Series,
         benchmark_return=benchmark_total,
         excess_return=total - benchmark_total,
         tracking_error=tracking_error,
-        correlation=_correlation(portfolio_returns, benchmark_returns),
-        beta=_beta(portfolio_returns, benchmark_returns))
+        # Zero rather than missing when either barely varies: nothing is
+        # measurable, and it keeps NaN out of a JSON payload.
+        correlation=formulas.correlation(portfolio_returns, benchmark_returns,
+                                         NEGLIGIBLE_RETURN_STD) or 0.0,
+        beta=formulas.beta(portfolio_returns, benchmark_returns, NEGLIGIBLE_RETURN_STD) or 0.0)
 
 
 def _total_return(levels: pd.Series,
@@ -169,47 +172,7 @@ def _total_return(levels: pd.Series,
             "BenchmarkComparison",
             f"the {label} series starts at zero, so its return is undefined.")
 
-    return float(levels.iloc[-1]) / first - 1.0
-
-
-def _varies(returns: pd.Series) -> bool:
-    """Whether a return series has variation beyond floating-point noise."""
-    if len(returns) < 2:
-        return False
-
-    return float(returns.std(ddof=1)) > NEGLIGIBLE_RETURN_STD
-
-
-def _correlation(portfolio_returns: pd.Series,
-                 benchmark_returns: pd.Series) -> float:
-    """Correlation of two return series, 0.0 when either barely varies.
-
-    A series with no variation has nothing to correlate, which pandas reports
-    as NaN. Zero is the honest summary — no relationship is measurable — and it
-    keeps NaN out of a JSON payload.
-    """
-    if not _varies(portfolio_returns) or not _varies(benchmark_returns):
-        return 0.0
-
-    value = portfolio_returns.corr(benchmark_returns)
-
-    return 0.0 if pd.isna(value) else float(value)
-
-
-def _beta(portfolio_returns: pd.Series,
-          benchmark_returns: pd.Series) -> float:
-    """Sensitivity of portfolio returns to benchmark returns.
-
-    Zero when the benchmark barely varies: with no benchmark movement there is
-    nothing for the portfolio to be sensitive to, and the ratio degenerates
-    into one rounding error divided by another.
-    """
-    if not _varies(benchmark_returns):
-        return 0.0
-
-    covariance = float(portfolio_returns.cov(benchmark_returns))
-
-    return covariance / float(benchmark_returns.var(ddof=1))
+    return formulas.total_return(first, float(levels.iloc[-1]))
 
 
 def _describe_span(series: pd.Series) -> str:

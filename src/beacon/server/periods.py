@@ -12,7 +12,8 @@ from typing import Any
 
 import pandas as pd
 
-from ..analysis.comparison import by_period, compare_returns, daily_returns
+from ..analysis.data import RunData
+from ..analysis.performance.analytics import PerformanceAnalytics
 from ..assumptions import DEFAULT_PERIODS_PER_YEAR
 from .schemas import PeriodComparison, PeriodFigures, PeriodRow, PeriodsView, SeriesPayload
 
@@ -30,23 +31,20 @@ def build_periods(strategy_id: str,
     risk_free = float(assumptions.get("risk_free_rate") or 0.0)
     returns = _series(run["returns"])
     comparisons = run.get("comparisons") or {}
-    comparators = {name: daily_returns(_series(comparison["level"]))
+    comparators = {name: _series(comparison["level"])
                    for name in ("index", "benchmark")
                    if (comparison := comparisons.get(name)) is not None}
-
-    rows = []
-
-    for period in by_period(returns, frequency, periods_per_year, risk_free):
-        against = {name: compare_returns(period["returns"], theirs, periods_per_year, risk_free)
-                   for name, theirs in comparators.items()}
-        rows.append(PeriodRow(
-            period=period["period"],
-            start=str(period["start"].date()),
-            end=str(period["end"].date()),
-            strategy=PeriodFigures(**{name: period["figures"][name]
-                                      for name in STRATEGY_FIGURES}),
-            index=_comparison(against.get("index")),
-            benchmark=_comparison(against.get("benchmark"))))
+    # BN-372: measured by the run's analysis, from what the run saved.
+    analytics = PerformanceAnalytics(RunData.of_returns(returns, periods_per_year, risk_free,
+                                                        comparators))
+    rows = [PeriodRow(period=period.period,
+                      start=str(period.start.date()),
+                      end=str(period.end.date()),
+                      strategy=PeriodFigures(**{name: period.figures[name]
+                                                for name in STRATEGY_FIGURES}),
+                      index=_comparison(period.against.get("index")),
+                      benchmark=_comparison(period.against.get("benchmark")))
+            for period in analytics.periods(frequency, list(comparators))]
 
     return PeriodsView(strategy_id=strategy_id, index_id=index_id, frequency=frequency,
                        periods=rows)

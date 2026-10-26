@@ -1,5 +1,6 @@
 # tests/test_comparison.py
-"""BN-323 and BN-324: a strategy against a comparator, and by period.
+"""BN-323 and BN-324: a strategy against a comparator, and by period; since
+BN-372 through `beacon.analysis.performance.comparisons`.
 
 Deterministic daily returns over 2024: a strategy and a comparator whose
 figures are known, and windows that start together and apart.
@@ -8,13 +9,23 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from beacon.analysis.comparison import (
-    by_period,
-    compare,
-    compare_returns,
-    daily_returns,
-    hit_rate_monthly,
-)
+from beacon.analysis.performance.comparisons import comparison_of, period_against, periods_of
+from beacon.analysis.performance.formulas import hit_rate_monthly
+from beacon.analysis.performance.formulas import returns_from_start as daily_returns
+
+PPY = 252
+
+
+def compare(returns, levels):
+    return comparison_of(returns, levels, PPY)
+
+
+def by_period(returns, frequency):
+    return periods_of(returns, frequency, PPY)
+
+
+def compare_returns(ours, theirs):
+    return period_against(ours, theirs, PPY)
 
 DAYS = pd.bdate_range("2024-01-02", "2024-12-31")
 RANDOM = np.random.default_rng(41)
@@ -98,26 +109,26 @@ class TestByPeriod:
                                             count):
         periods = by_period(STRATEGY_RETURNS, frequency)
 
-        assert periods[0]["period"] == first and len(periods) == count
+        assert periods[0].period == first and len(periods) == count
 
     def test_the_periods_compound_to_the_whole(self):
         periods = by_period(STRATEGY_RETURNS, "quarterly")
-        compounded = np.prod([1 + period["figures"]["total_return"] for period in periods]) - 1
+        compounded = np.prod([1 + period.figures["total_return"] for period in periods]) - 1
 
         assert compounded == pytest.approx((1 + STRATEGY_RETURNS).prod() - 1)
 
     def test_a_period_counts_its_positive_days(self):
         march = next(period for period in by_period(STRATEGY_RETURNS, "monthly")
-                     if period["period"] == "2024-03")
+                     if period.period == "2024-03")
 
-        assert march["figures"]["positive_days"] == pytest.approx(
+        assert march.figures["positive_days"] == pytest.approx(
             (STRATEGY_RETURNS.loc["2024-03"] > 0).mean())
 
     def test_a_period_compares_over_its_own_days(self):
         theirs = daily_returns(COMPARATOR_LEVELS)
         first = by_period(STRATEGY_RETURNS, "annual")[0]
 
-        figures = compare_returns(first["returns"], theirs)
+        figures = compare_returns(first.returns, theirs)
         whole = compare(STRATEGY_RETURNS, COMPARATOR_LEVELS)
 
         assert figures["relative"]["relative_return"] == pytest.approx(
