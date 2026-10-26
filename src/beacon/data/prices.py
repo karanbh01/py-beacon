@@ -85,6 +85,22 @@ def prices_in(source: _Source,
     if wide.empty or currency is None:
         return wide
 
+    return converted(source, wide, currency)
+
+
+def converted(source: _Source,
+              wide: pd.DataFrame,
+              currency: str) -> pd.DataFrame:
+    """*wide*, prices by date and instrument each in its own currency, in
+    *currency*: what `prices_in` converts after reading.
+
+    For a caller that wants the prices both ways, so the data is read once.
+
+    Raises:
+        CalculationError: If an instrument's currency has no rate into
+            *currency*.
+    """
+    wide = wide.copy()
     target = currency.upper()
     quoted = currencies_of(source, list(wide.columns), default=target)
 

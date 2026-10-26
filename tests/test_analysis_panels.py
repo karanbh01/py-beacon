@@ -13,6 +13,7 @@ import pytest
 from beacon.analysis.panels import (
     FUND_WEIGHTS,
     MANIFEST_FILE,
+    NAME_RETURNS,
     PANELS_VERSION,
     read_manifest,
     read_panels,
@@ -148,3 +149,52 @@ class TestARunsTables:
         np.testing.assert_array_equal(back.to_numpy(), expected.to_numpy())
         assert list(back.columns) == [str(name) for name in expected.columns]
         assert back.index.equals(expected.index)
+
+    def test_its_name_returns_explain_the_fund_s_return_on_quiet_days(self):
+        """On a day without trades the fund's return is the names' returns,
+        weighted by the day before's weights: the recorded returns are the
+        ones the engine priced the holdings with."""
+        from test_strategy_futures import index, run
+
+        result = run(index())
+        panels = run_panels(result)
+        returns = panels[NAME_RETURNS]
+        weights = panels[FUND_WEIGHTS].reindex(returns.index).ffill().fillna(0.0)
+        nav = result.portfolio.nav
+        traded = {pd.Timestamp(trade.transaction_date).normalize()
+                  for trade in result.portfolio.transactions}
+
+        explained = (weights.shift(1) * returns.reindex(columns=weights.columns)).sum(axis=1)
+        actual = nav / nav.shift(1) - 1.0
+        quiet = [day for day in returns.index[1:] if day not in traded]
+
+        assert len(quiet) > 100
+        np.testing.assert_allclose(explained[quiet], actual[quiet], rtol=0, atol=1e-12)
+
+    def test_its_name_returns_cover_every_name_held(self):
+        from test_strategy_futures import index, run
+
+        result = run(index())
+        returns = run_panels(result)[NAME_RETURNS]
+
+        assert set(result.portfolio.weights.columns) <= set(returns.columns)
+        assert set(result.index.target.weights.columns) <= set(returns.columns)
+        assert returns.index.equals(result.portfolio.nav.index)
+
+    def test_name_returns_that_cannot_be_measured_are_left_out(self,
+                                                               monkeypatch,
+                                                               caplog):
+        from beacon.analysis import panels as module
+        from beacon.exceptions import CalculationError
+        from test_strategy_futures import index, run
+
+        def refuse(*args, **kwargs):
+            raise CalculationError("Prices", "no GBP/USD rate")
+
+        result = run(index())
+        monkeypatch.setattr(module, "name_returns", refuse)
+
+        kept = run_panels(result)
+
+        assert set(kept) == {FUND_WEIGHTS}
+        assert "name returns were not kept" in caplog.text

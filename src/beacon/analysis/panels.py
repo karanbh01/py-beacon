@@ -16,6 +16,7 @@ has no folder, and reading one gives no tables rather than an error.
 # name wrote in 1.2 s and read in 0.6 s, against 1.6 s and 1.3 s for a long
 # table pivoted back, at the same size.
 import json
+import logging
 import os
 import re
 import shutil
@@ -27,8 +28,11 @@ from typing import Any
 import pandas as pd
 
 from ..backtest.result import BacktestResult
+from ..data.returns import name_returns
 from ..data.store import _read_frame, _write_frame
-from ..exceptions import ConfigurationError, DataNotFoundError
+from ..exceptions import CalculationError, ConfigurationError, DataNotFoundError
+
+logger = logging.getLogger(__name__)
 
 # Bump when the folder's layout changes. A folder written by a newer version
 # is refused rather than misread.
@@ -44,6 +48,11 @@ _NAME = re.compile(r"[a-z][a-z0-9_]*")
 
 # The tables a run writes, by name.
 FUND_WEIGHTS = "fund_weights"
+NAME_RETURNS = "name_returns"
+
+# How far before the run's first day name returns are read from, so its first
+# day has a close before it.
+_LEAD = pd.Timedelta(days=14)
 
 
 def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
@@ -53,10 +62,47 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
         result: The finished run.
 
     Returns:
-        dict: Each table by name: the fund's weight in each name held on
-        each day it was recorded, unabridged.
+        dict: Each table by name:
+
+        - ``fund_weights``: the fund's weight in each name held on each day
+          it was recorded, unabridged.
+        - ``name_returns``: each day's total return, in the book's currency,
+          of every name the fund held or its index or benchmark held, as
+          `beacon.data.returns.name_returns` measures it. Left out, with a
+          warning, when the run kept no data to read them from or they cannot
+          be measured (a currency with no rate into the book's).
     """
-    return {FUND_WEIGHTS: result.portfolio.weights}
+    weights = result.portfolio.weights
+    panels = {FUND_WEIGHTS: weights}
+    source = result.portfolio.source
+    days = result.portfolio.nav.index
+
+    if source is None or len(days) == 0:
+        return panels
+
+    # A table that cannot be built is left out rather than failing the run
+    # it would have been kept with; its analysis then says the returns are
+    # missing.
+    try:
+        returns = name_returns(source, held_names(result),
+                               str((days[0] - _LEAD).date()), str(days[-1].date()),
+                               result.currency)
+    except (CalculationError, DataNotFoundError) as error:
+        logger.warning("The run's name returns were not kept: %s", error)
+        return panels
+
+    panels[NAME_RETURNS] = returns.reindex(days).rename(columns=str)
+
+    return panels
+
+
+def held_names(result: BacktestResult) -> list[str]:
+    """Every name the fund, its index (both books) or its benchmark held at
+    any point in the run, sorted."""
+    books = [result.index.target, result.index.optimised, result.benchmark]
+    frames = [result.portfolio.weights] + [book.weights for book in books if book is not None]
+
+    return sorted({str(name) for frame in frames for name in frame.columns})
 
 
 def write_panels(folder: Path,

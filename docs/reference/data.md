@@ -8,3 +8,9 @@ description: "The data model and how data is read: DataFetcher and the container
 The data model and how data is read: `DataFetcher` and the containers behind it, currencies and FX, the data store, file import, Postgres stores and downloads.
 
 ::: beacon.data
+
+## Returns
+
+Each name's daily total return in one currency, counting splits and cash on their ex-dates.
+
+::: beacon.data.returns

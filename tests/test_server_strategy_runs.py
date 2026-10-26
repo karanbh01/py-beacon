@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from beacon.analysis.panels import FUND_WEIGHTS, read_panels, write_panels
+from beacon.analysis.panels import FUND_WEIGHTS, NAME_RETURNS, read_panels, write_panels
 from beacon.server import ServerConfig, create_app
 from beacon.server.jobs import SUCCEEDED
 from beacon.server.store import DocumentStore
@@ -214,6 +214,7 @@ class TestTheRunsTables:
 
             assert len(weights) == record["portfolio"]["weights_dates_total"]
             assert weights.sum(axis=1).max() <= 1.0 + 1e-9
+            assert set(weights.columns) <= set(tables[NAME_RETURNS].columns)
 
     def test_a_record_kept_before_them_still_opens(self,
                                                   client):
