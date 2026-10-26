@@ -203,3 +203,31 @@ class TestPackedTables:
 
         assert calls == [1] and first is second
         assert first.equals(data.tables[NAME_RETURNS])
+
+    def test_the_weights_are_not_written_but_their_holdings_are(self,
+                                                                data,
+                                                                tmp_path):
+        data.write(tmp_path / "run")
+        folder = tmp_path / "run"
+
+        for name in (FUND_WEIGHTS, "index_weights", "benchmark_weights"):
+            assert not (folder / f"{name}.parquet").exists(), name
+            assert (folder / f"{name}_holdings.parquet").exists(), name
+
+    def test_the_fund_s_weights_need_no_patch(self,
+                                              data):
+        assert data.tables[FUND_WEIGHTS + "_patch"].empty
+
+    def test_rebuilt_weights_are_the_recorded_ones_exactly(self,
+                                                           result,
+                                                           data,
+                                                           tmp_path):
+        data.write(tmp_path / "run")
+        again = RunData.from_record(tmp_path / "run")
+
+        fund = again.tables[FUND_WEIGHTS]
+        index = again.tables["index_weights"]
+
+        np.testing.assert_array_equal(fund.to_numpy(), result.portfolio.weights.to_numpy())
+        np.testing.assert_array_equal(index.to_numpy(), result.index.target.weights.to_numpy())
+        assert index.dtypes.iloc[0] == result.index.target.weights.dtypes.iloc[0]

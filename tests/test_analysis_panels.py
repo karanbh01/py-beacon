@@ -14,6 +14,7 @@ from beacon.analysis.panels import (
     BENCHMARK_WEIGHTS,
     CASH,
     CHARACTERISTICS,
+    CLOSES,
     COSTS,
     FUND_WEIGHTS,
     INDEX_WEIGHTS,
@@ -183,11 +184,26 @@ class TestARunsTables:
         from test_strategy_futures import index, run
 
         result = run(index())
-        returns = run_panels(result)[NAME_RETURNS]
+        panels = run_panels(result)
+        returns = panels[NAME_RETURNS]
+        days = result.portfolio.nav.index
 
         assert set(result.portfolio.weights.columns) <= set(returns.columns)
         assert set(result.index.target.weights.columns) <= set(returns.columns)
-        assert returns.index.equals(result.portfolio.nav.index)
+        assert returns.index.equals(days[days >= panels[CLOSES].index[0]])
+
+    def test_name_returns_start_with_the_kept_closes(self):
+        from beacon.analysis.panels import name_returns_from
+        from test_strategy_futures import index, run
+
+        result = run(index())
+        panels = run_panels(result)
+        late = {**panels, CLOSES: panels[CLOSES].iloc[40:]}
+
+        returns = name_returns_from(late, result.currency, result.portfolio.nav.index)
+
+        assert returns.index[0] >= late[CLOSES].index[0]
+        assert returns.iloc[1:].notna().any(axis=1).all()
 
     def test_name_returns_that_cannot_be_measured_are_left_out(self,
                                                                monkeypatch,

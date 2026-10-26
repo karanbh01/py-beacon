@@ -17,6 +17,7 @@ A run stored before its tables were kept loads with what it has, and
 import json
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -31,13 +32,17 @@ from .panels import (
     CLOSES,
     COSTS,
     FUND_WEIGHTS,
+    HOLDINGS,
     INDEX_WEIGHTS,
     NAME_RETURNS,
     REFERENCE,
     TRADED_VALUES,
+    WEIGHT_TABLES,
     name_returns_from,
+    read_manifest,
     read_panels,
     run_panels,
+    weights_from,
     write_panels,
 )
 
@@ -52,8 +57,9 @@ INDEX, OPTIMISED, BENCHMARK = "index", "optimised", "benchmark"
 _LEVELS = "levels_"
 _VALUE = "value"
 
-# The tables a stored run works out again from the ones it keeps.
-DERIVED = frozenset({NAME_RETURNS})
+# The tables a stored run works out again from the ones it keeps, when it
+# kept what they are worked out from.
+DERIVED = frozenset({NAME_RETURNS, *WEIGHT_TABLES})
 
 # The tables every run keeps, which a record without them says it lacks.
 EXPECTED = (FUND_WEIGHTS, NAME_RETURNS, COSTS, CASH, INDEX_WEIGHTS, REFERENCE,
@@ -123,9 +129,10 @@ class RunData:
                   **{_LEVELS + name: levels for name, levels in self.comparators.items()}}
         # What is worked out again on reading is not written; the closes it
         # is worked out from are written packed (BN-403).
-        derived = [name for name in self.tables if name in DERIVED]
+        derived = [name for name in self.tables if name in DERIVED and (
+            name == NAME_RETURNS or name + HOLDINGS in self.tables)]
         kept = {name: self.tables[name] for name in self.tables
-                if name not in DERIVED and name != CLOSES}
+                if name not in derived and name != CLOSES}
         closes = self.tables.get(CLOSES)
 
         if closes is not None:
@@ -139,6 +146,8 @@ class RunData:
                "risk_free_rate": self.risk_free_rate,
                "missing": dict(self.missing),
                "derived": derived,
+               "dtypes": {name: str(self.tables[name].dtypes.iloc[0]) for name in derived
+                          if name != NAME_RETURNS and len(self.tables[name].columns)},
                "closes": [] if closes is None else [str(name) for name in closes.columns]}
         (folder / RUN_FILE).write_text(json.dumps(run, sort_keys=True), encoding="utf-8")
 
@@ -169,14 +178,23 @@ class RunData:
             raise ConfigurationError(str(path), "the run was kept by a newer version of "
                                                 "Beacon than this one. Upgrade py-beacon-kit.")
 
-        tables = read_panels(folder)
-        series = {name: _column(tables.pop(name)) for name in list(tables)
-                  if name in (RETURNS, NAV, UNITS) or name.startswith(_LEVELS)}
+        # Only the series are read now; each table is read, or worked out
+        # again, the first time it is asked for, so a run opened for its
+        # performance figures reads only what they need (BN-403).
+        held = list((read_manifest(folder) or {}).get("panels", {}))
+        series = {name: _column(table) for name, table in read_panels(
+            folder, [name for name in held if name in (RETURNS, NAV, UNITS)
+                     or name.startswith(_LEVELS)]).items()}
+        packed = [name for name in (CLOSES_PACKED, CLOSES_SCALE, CLOSES_FLOAT) if name in held]
+        kept = [name for name in held if name not in series and name not in packed]
+        tables = _Tables({}, {name: partial(_read_one, folder, name) for name in kept})
 
-        if CLOSES_PACKED in tables:
-            packed = {name: tables.pop(name) for name in (CLOSES_PACKED, CLOSES_SCALE, CLOSES_FLOAT)
-                      if name in tables}
-            tables[CLOSES] = unpack_closes(packed, run.get("closes") or None)
+        if packed:
+            tables.add(CLOSES, lambda: unpack_closes(read_panels(folder, packed),
+                                                     run.get("closes") or None))
+
+        for name, rebuild in _rebuilds(tables, run).items():
+            tables.add(name, rebuild)
 
         return cls(currency=run["currency"],
                    returns=series[RETURNS],
@@ -187,13 +205,13 @@ class RunData:
                    risk_free_rate=float(run["risk_free_rate"]),
                    comparators={name[len(_LEVELS):]: levels for name, levels in series.items()
                                 if name.startswith(_LEVELS)},
-                   tables=_Tables(tables, _rebuilds(tables, run)),
+                   tables=tables,
                    missing=run.get("missing", {}))
 
 
 class _Tables(Mapping[str, pd.DataFrame]):
-    """A stored run's tables: those it kept, and those worked out from them
-    the first time each is asked for."""
+    """A stored run's tables, each read from its folder, or worked out again
+    from the ones it kept, the first time it is asked for."""
 
     def __init__(self,
                  kept: dict[str, pd.DataFrame],
@@ -215,8 +233,20 @@ class _Tables(Mapping[str, pd.DataFrame]):
     def __len__(self) -> int:
         return len(set(self._kept) | set(self._rebuilds))
 
+    def add(self,
+            name: str,
+            rebuild: Callable[[], pd.DataFrame]) -> None:
+        """Have *name* read or worked out the first time it is asked for."""
+        self._rebuilds[name] = rebuild
 
-def _rebuilds(tables: dict[str, pd.DataFrame],
+
+def _read_one(folder: Path,
+              name: str) -> pd.DataFrame:
+    """One stored table."""
+    return read_panels(folder, [name])[name]
+
+
+def _rebuilds(tables: Mapping[str, pd.DataFrame],
               run: Mapping[str, Any]) -> dict[str, Callable[[], pd.DataFrame]]:
     """How each table a stored run worked out again is rebuilt from the ones
     it kept."""
@@ -226,6 +256,11 @@ def _rebuilds(tables: dict[str, pd.DataFrame],
         # The run's days are the costs table's, a row for each.
         rebuilds[NAME_RETURNS] = lambda: name_returns_from(tables, run["currency"],
                                                            pd.DatetimeIndex(tables[COSTS].index))
+
+    for name in WEIGHT_TABLES:
+        if name in run.get("derived", []):
+            rebuilds[name] = partial(weights_from, name, tables, run["currency"],
+                                     run.get("dtypes", {}).get(name, "float64"))
 
     return rebuilds
 

@@ -101,9 +101,12 @@ def converted(source: _Source,
         CalculationError: If an instrument's currency has no rate into
             *currency*.
     """
-    wide = wide.copy()
     target = currency.upper()
     quoted = currencies_of(source, list(wide.columns), default=target)
+    # Multiplied in one array (BN-403): assigning thousands of columns back
+    # one block at a time took half a second at 6,000 names. The same
+    # products, close times rate, to the last bit.
+    grid = wide.to_numpy(dtype=float, copy=True)
 
     for from_currency in sorted(set(quoted.values()) - {target}):
         names = [name for name in wide.columns if quoted[name] == from_currency]
@@ -118,9 +121,10 @@ def converted(source: _Source,
                          f"with the rest on magnitude alone. Load the pair, or "
                          f"leave these names out."))
 
-        wide[names] = wide[names].mul(rates, axis=0)
+        positions = wide.columns.get_indexer(names)
+        grid[:, positions] = grid[:, positions] * rates.to_numpy(dtype=float)[:, None]
 
-    return wide
+    return pd.DataFrame(grid, index=wide.index, columns=wide.columns)
 
 
 def currencies_of(source: _Source,

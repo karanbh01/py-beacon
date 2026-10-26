@@ -29,10 +29,19 @@ import pandas as pd
 
 from ..backtest.breakdown import daily_cash, daily_costs
 from ..backtest.result import BacktestResult
-from ..data.prices import PRICE_COLUMN
+from ..data.prices import PRICE_COLUMN, converted
 from ..data.returns import name_returns
 from ..data.store import _read_frame, _write_frame
 from ..exceptions import CalculationError, ConfigurationError, DataNotFoundError
+from .holdings import (
+    fund_weights_from,
+    holding_changes,
+    index_weights_from,
+    patch_of,
+    patched,
+    rate_grid,
+    wide_of,
+)
 from .packing import StoredSource, market_inputs
 from .snapshots import (
     characteristics_snapshots,
@@ -73,6 +82,12 @@ CLOSES = "closes"
 CURRENCIES = "currencies"
 RATES = "rates"
 ACTIONS = "actions"
+
+# What a book's daily weights are worked out again from (BN-403): its
+# holdings on the days they changed, its days and names, its total value
+# each day (the fund's), and the cells kept as recorded.
+HOLDINGS, DAYS, NAMES, TOTALS, PATCH = "_holdings", "_days", "_names", "_totals", "_patch"
+WEIGHT_TABLES = (FUND_WEIGHTS, INDEX_WEIGHTS, OPTIMISED_WEIGHTS, BENCHMARK_WEIGHTS)
 
 
 
@@ -146,6 +161,8 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
     except (CalculationError, DataNotFoundError) as error:
         logger.warning("The run's name returns were not kept: %s", error)
 
+    panels.update(weights_inputs(result, panels))
+
     try:
         panels[CHARACTERISTICS] = characteristics_snapshots(source, names, dates,
                                                             result.currency, market)
@@ -165,7 +182,8 @@ def name_returns_from(tables: Mapping[str, pd.DataFrame],
                       currency: str,
                       days: pd.DatetimeIndex) -> pd.DataFrame:
     """The name returns, worked out from a run's kept closes, currencies,
-    rates and corporate actions, on its NAV *days*.
+    rates and corporate actions, on its NAV *days* from the first kept close:
+    a year before the fund's first holding, enough for a risk model's window.
 
     The same calculation as `beacon.data.returns.name_returns` on the data
     store, on the same numbers, so a finished run and a stored one give the
@@ -173,9 +191,89 @@ def name_returns_from(tables: Mapping[str, pd.DataFrame],
     """
     stored = StoredSource(tables[CURRENCIES], tables[RATES], tables[ACTIONS], currency)
     closes = tables[CLOSES]
+    # No rows before the closes start, which would all be blank (BN-403).
+    kept = days[days >= closes.index[0]] if len(closes.index) else days
 
     return (name_returns(stored, list(closes.columns), currency=currency, closes=closes)
-            .reindex(days).rename(columns=str))
+            .reindex(kept).rename(columns=str))
+
+
+def weights_inputs(result: BacktestResult,
+                   tables: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """What each book's daily weights are worked out again from: the fund's
+    quantities and daily totals, each index's units, and for every book its
+    days, its names and the cells that differ from what was recorded."""
+    kept: dict[str, pd.DataFrame] = {}
+    closes = tables[CLOSES].ffill()
+    currency = result.currency
+    stored = StoredSource(tables[CURRENCIES], tables[RATES], tables[ACTIONS], currency)
+    weights = result.portfolio.weights
+
+    if not weights.empty:
+        quantities = wide_of(result.portfolio.positions, "DATE", "ASSET_ID", "QUANTITY")
+        changes = holding_changes(quantities)
+        totals = result.portfolio.nav
+        rebuilt = fund_weights_from(changes, totals, converted(stored, closes, currency),
+                                    pd.DatetimeIndex(weights.index), list(weights.columns))
+        kept.update(_book_tables(FUND_WEIGHTS, weights, changes, rebuilt))
+        kept[FUND_WEIGHTS + TOTALS] = totals.to_frame("TOTAL")
+
+    books = {INDEX_WEIGHTS: result.index.target, OPTIMISED_WEIGHTS: result.index.optimised,
+             BENCHMARK_WEIGHTS: result.benchmark}
+
+    for name, book in books.items():
+        if book is None or book.source is None or book.weights.empty:
+            continue
+
+        daily = book.source.daily_weights
+        units = wide_of(daily, "DATE", "IDENTIFIER", "AMOUNT")
+        changes = holding_changes(units)
+        recorded = book.weights
+        names = [str(column) for column in recorded.columns]
+        days = pd.DatetimeIndex(recorded.index)
+        rebuilt = index_weights_from(changes, closes, rate_grid(tables[CURRENCIES], tables[RATES],
+                                                               days, names),
+                                     days, names, str(recorded.dtypes.iloc[0]))
+        kept.update(_book_tables(name, recorded, changes, rebuilt))
+
+    return kept
+
+
+def _book_tables(name: str,
+                 recorded: pd.DataFrame,
+                 changes: pd.DataFrame,
+                 rebuilt: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """A book's kept holdings, days, names and patch."""
+    return {name + HOLDINGS: changes,
+            name + DAYS: pd.DataFrame(index=pd.DatetimeIndex(recorded.index)),
+            name + NAMES: pd.DataFrame(index=pd.Index([str(item) for item in recorded.columns])),
+            name + PATCH: patch_of(rebuilt, recorded)}
+
+
+def weights_from(name: str,
+                 tables: Mapping[str, pd.DataFrame],
+                 currency: str,
+                 dtype: str) -> pd.DataFrame:
+    """A book's daily weights, worked out again from what was kept, with the
+    recorded cells put back, so they are exactly what was recorded."""
+    closes = tables[CLOSES].ffill()
+    days = pd.DatetimeIndex(tables[name + DAYS].index)
+    names = [str(item) for item in tables[name + NAMES].index]
+    changes = tables[name + HOLDINGS]
+
+    if name == FUND_WEIGHTS:
+        stored = StoredSource(tables[CURRENCIES], tables[RATES], tables[ACTIONS], currency)
+        rebuilt = fund_weights_from(changes, tables[name + TOTALS]["TOTAL"],
+                                    converted(stored, closes, currency), days, names)
+    else:
+        rebuilt = index_weights_from(changes, closes,
+                                     rate_grid(tables[CURRENCIES], tables[RATES], days, names),
+                                     days, names, dtype)
+
+    frame = patched(rebuilt, tables[name + PATCH])
+    frame.index.name, frame.columns.name = None, None
+
+    return frame.astype(dtype)
 
 
 def held_names(result: BacktestResult) -> list[str]:
