@@ -5,8 +5,12 @@ Analytics for indices, ETFs and portfolios.
 Covers performance attribution (`attribute`, `Attribution`, cost and cap
 drag), concentration and drift from target weights, liquidity, risk metrics
 (volatility, Sharpe ratio, maximum drawdown) and ETF tracking analytics
-(tracking difference, tracking error, premium or discount to NAV).
+(tracking difference, tracking error, premium or discount to NAV), and
+`RunData`, everything a run's analysis reads, from a finished run or a
+stored one.
 """
+from typing import Any
+
 from .attribution import (
     Attribution,
     AttributionResult,
@@ -43,6 +47,18 @@ from .risk import (
     calculate_volatility,
 )
 
+
+def __getattr__(name: str) -> Any:
+    # BN-369: `RunData` reads a `BacktestResult`, whose module imports this
+    # package, so it is imported when first asked for rather than here.
+    if name == "RunData":
+        from .data import RunData  # noqa: PLC0415
+
+        return RunData
+
+    raise AttributeError(f"module 'beacon.analysis' has no attribute '{name}'")
+
+
 __all__ = [
     "Attribution",
     "AttributionResult",
@@ -51,6 +67,7 @@ __all__ = [
     "DriftMetrics",
     "ETFAnalytics",
     "RiskMetricsCalculator",
+    "RunData",
     "attribute",
     "average_daily_volume",
     "calculate_max_drawdown",

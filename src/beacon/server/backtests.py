@@ -16,7 +16,7 @@ from typing import Any
 
 import pandas as pd
 
-from ..analysis.panels import run_panels, write_panels
+from ..analysis.data import RunData
 from ..analysis.relative import align_on_common_window, relative_metrics
 from ..backtest.main import Backtest
 from ..backtest.result import BacktestResult
@@ -419,7 +419,8 @@ def build_backtest_job(strategy: StrategyDocument,
             # record is served as before and goes when it goes.
             # BN-361: the tables too large for the JSON, beside it, written
             # before the record so a record never sits beside an older run's.
-            write_panels(record_store.panels_directory(strategy.id), run_panels(backtest))
+            # BN-369: as RunData keeps it, so its analysis can be rerun.
+            RunData.from_result(backtest).write(record_store.panels_directory(strategy.id))
             record_store.write(strategy.id, {**record.model_dump(mode="json"),
                                              HOLDINGS_KEY: holdings_document(backtest,
                                                                              index_result)})

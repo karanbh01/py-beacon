@@ -229,6 +229,21 @@ class TestTheRunsTables:
             assert set(tables[CHARACTERISTICS].index) <= set(tables[REFERENCE].index)
             assert set(weights.columns) <= set(tables[TRADED_VALUES]["IDENTIFIER"])
 
+    def test_each_stored_run_opens_as_run_data(self,
+                                              client):
+        from beacon.analysis import RunData
+
+        store = client.app.state.backtest_record_store
+
+        for strategy_id in STRATEGIES:
+            data = RunData.from_record(store.panels_directory(strategy_id))
+            record = client.get(f"/strategies/{strategy_id}/record", headers=auth()).json()
+
+            assert data.currency == record["currency"]
+            assert data.missing == {}
+            assert len(data.returns) == len(data.nav) > 200
+            assert data.nav.iloc[-1] == pytest.approx(record["portfolio"]["nav"]["data"][-1])
+
     def test_a_benchmark_index_s_holdings_are_kept_with_the_run(self,
                                                                 client):
         job = finished(client, client.post("/strategies/plain/backtest",

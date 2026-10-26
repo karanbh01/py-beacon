@@ -9,6 +9,12 @@ Performance analytics: attribution, relative performance, concentration, liquidi
 
 ::: beacon.analysis
 
+## A run's data
+
+Everything a run's analysis reads, from a finished run or a stored one, read back exactly as it was written.
+
+::: beacon.analysis.data
+
 ## A run's tables
 
 The large tables a run keeps beside its record, such as the fund's daily weights in every name, as Parquet files.
