@@ -22,6 +22,19 @@ September and December, and the position rolls to the next one *roll_days*
 sessions before expiry, paying *roll_cost_bps* on its notional each time:
 the richness that real rolls pay over fair value.
 
+**Prices.** Fair value is priced off the fund's own index unless
+*underlying* names another for the futures: a market series by its
+identifier, an index built in Beacon (its `IndexResult`), or a level series.
+Futures on another index than the fund tracks carry the gap between the two
+as well as their own. With *prices* naming a series in the data, each day's
+close there is the price of the contract held (a front-month series rolled
+on the same days); on a day it has none, and with no series, the price is
+fair value moved by an assumed mispricing: mean-reverting around 0, its
+typical size *mispricing_bps* (its standard deviation, in basis points of
+fair value; 0 by default, so the price is fair value), halving its distance
+from 0 in *mispricing_half_life* sessions on average, drawn from
+*mispricing_seed* so a run repeats.
+
 **Trading costs.** Every futures trade pays *cost_per_contract* on each
 contract it trades (a roll trades two: the old contract sold and the new one
 bought), and each trade between rolls (opening the position and each resize)
@@ -50,7 +63,8 @@ the cash the fund keeps uninvested, so the buffer earns the index's return.
 # value plus a roll cost rather than market futures prices, which few
 # datasets have.
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 import pandas as pd
 
@@ -95,6 +109,16 @@ class IndexFutures:
             currency: commission and fees.
         trading_cost_bps: What a trade between rolls costs, in basis points
             of the notional it trades: the spread paid.
+        underlying: The index the futures are on, when not the fund's: a
+            market series' identifier, an `IndexResult` or a level series.
+        prices: A series in the data whose close is the price of the
+            contract held each day.
+        mispricing_bps: The typical size of the assumed mispricing when the
+            data has no price: its standard deviation, in basis points of
+            fair value.
+        mispricing_half_life: The sessions the mispricing takes on average
+            to halve.
+        mispricing_seed: The seed its draws are made from.
     """
     roll_days: int = DEFAULT_ROLL_DAYS
     roll_cost_bps: float = 0.0
@@ -106,6 +130,13 @@ class IndexFutures:
     # BN-409: decided with Karan on 2026-10-27.
     cost_per_contract: float = 0.0
     trading_cost_bps: float = 0.0
+    # A level series does not compare as a value, so it is left out of
+    # equality.
+    underlying: Any = field(default=None, compare=False)
+    prices: str | None = None
+    mispricing_bps: float = 0.0
+    mispricing_half_life: float = 10.0
+    mispricing_seed: int = 0
 
     def __post_init__(self) -> None:
         if self.roll_days < 0 or self.roll_days != int(self.roll_days):
@@ -134,11 +165,37 @@ class IndexFutures:
             raise ValueError(f"band is a share of the net assets from 0 up to 1, "
                              f"got {self.band!r}.")
 
-        for name in ("cost_per_contract", "trading_cost_bps"):
+        for name in ("cost_per_contract", "trading_cost_bps", "mispricing_bps"):
             value = getattr(self, name)
 
             if not math.isfinite(value) or value < 0.0:
                 raise ValueError(f"{name} must be zero or more, got {value!r}.")
+
+        if not math.isfinite(self.mispricing_half_life) or self.mispricing_half_life <= 0.0:
+            raise ValueError(f"mispricing_half_life must be above zero, got "
+                             f"{self.mispricing_half_life!r}.")
+
+        if self.mispricing_seed != int(self.mispricing_seed):
+            raise ValueError(f"mispricing_seed is a whole number, got "
+                             f"{self.mispricing_seed!r}.")
+
+        object.__setattr__(self, "mispricing_seed", int(self.mispricing_seed))
+
+        if not (self.underlying is None or isinstance(self.underlying, str | pd.Series)
+                or hasattr(self.underlying, "index_levels")):
+            raise ValueError(f"underlying is an identifier, an IndexResult or a level "
+                             f"series, got {type(self.underlying).__name__}.")
+
+    def underlying_levels(self) -> pd.Series | None:
+        """The underlying's levels when given as an index or a series; None
+        for an identifier, which the data is asked for, or for none."""
+        if isinstance(self.underlying, pd.Series):
+            return self.underlying.sort_index()
+
+        if hasattr(self.underlying, "index_levels"):
+            return pd.Series(self.underlying.index_levels).sort_index()
+
+        return None
 
     def trade_cost(self,
                    contracts: float,
@@ -183,6 +240,17 @@ class IndexFutures:
                                  help="Each contract traded, in the book's currency."),
     "trading_cost_bps": Display("Cost of trading between rolls", unit=BPS, minimum=0.0,
                                 help="On the notional each trade between rolls deals."),
+    "underlying": Display("Index the futures are on",
+                          help="A market series' identifier. Leave blank for the fund's "
+                               "own index."),
+    "prices": Display("Futures prices",
+                      help="A series in the data with the held contract's price each day. "
+                           "Leave blank to price at fair value."),
+    "mispricing_bps": Display("Typical mispricing", unit=BPS, minimum=0.0,
+                              help="Its standard deviation, when the data has no price."),
+    "mispricing_half_life": Display("Mispricing half-life", unit=COUNT, minimum=0.0,
+                                    help="Sessions it takes on average to halve."),
+    "mispricing_seed": Display("Mispricing seed", unit=COUNT),
 })
 class FuturesReplication(Replication):
     """Cash, with the index held through rolled futures.
@@ -199,6 +267,13 @@ class FuturesReplication(Replication):
         cost_per_contract: What each contract traded costs.
         trading_cost_bps: What a trade between rolls costs, in basis points
             of the notional it trades.
+        underlying: The index the futures are on, when not the fund's: a
+            market series' identifier, or in Python an `IndexResult` or a
+            level series.
+        prices: A series in the data with the held contract's price.
+        mispricing_bps: The typical size of the assumed mispricing.
+        mispricing_half_life: The sessions it takes on average to halve.
+        mispricing_seed: The seed its draws are made from.
 
     Raises:
         ValueError: If a setting is out of range.
@@ -212,12 +287,21 @@ class FuturesReplication(Replication):
                  whole_contracts: bool = True,
                  band: float = DEFAULT_BAND,
                  cost_per_contract: float = 0.0,
-                 trading_cost_bps: float = 0.0):
+                 trading_cost_bps: float = 0.0,
+                 underlying: str | None = None,
+                 prices: str | None = None,
+                 mispricing_bps: float = 0.0,
+                 mispricing_half_life: float = 10.0,
+                 mispricing_seed: int = 0):
         self.futures = IndexFutures(roll_days=roll_days, roll_cost_bps=roll_cost_bps,
                                     dividend_yield=dividend_yield, multiplier=multiplier,
                                     whole_contracts=whole_contracts, band=band,
                                     cost_per_contract=cost_per_contract,
-                                    trading_cost_bps=trading_cost_bps)
+                                    trading_cost_bps=trading_cost_bps,
+                                    underlying=underlying, prices=prices,
+                                    mispricing_bps=mispricing_bps,
+                                    mispricing_half_life=mispricing_half_life,
+                                    mispricing_seed=mispricing_seed)
 
     @property
     def roll_days(self) -> int:
@@ -259,6 +343,31 @@ class FuturesReplication(Replication):
         """What a trade between rolls costs, in basis points of its notional."""
         return self.futures.trading_cost_bps
 
+    @property
+    def underlying(self) -> Any:
+        """The index the futures are on, when not the fund's."""
+        return self.futures.underlying
+
+    @property
+    def prices(self) -> str | None:
+        """The series in the data with the held contract's price."""
+        return self.futures.prices
+
+    @property
+    def mispricing_bps(self) -> float:
+        """The typical size of the assumed mispricing."""
+        return self.futures.mispricing_bps
+
+    @property
+    def mispricing_half_life(self) -> float:
+        """The sessions the mispricing takes on average to halve."""
+        return self.futures.mispricing_half_life
+
+    @property
+    def mispricing_seed(self) -> int:
+        """The seed its draws are made from."""
+        return self.futures.mispricing_seed
+
     def replicate(self,
                   target: dict[str, float],
                   date: pd.Timestamp,
@@ -274,7 +383,11 @@ class FuturesReplication(Replication):
                 f"multiplier={self.multiplier!r}, "
                 f"whole_contracts={self.whole_contracts!r}, band={self.band!r}, "
                 f"cost_per_contract={self.cost_per_contract!r}, "
-                f"trading_cost_bps={self.trading_cost_bps!r})")
+                f"trading_cost_bps={self.trading_cost_bps!r}, "
+                f"underlying={self.underlying!r}, prices={self.prices!r}, "
+                f"mispricing_bps={self.mispricing_bps!r}, "
+                f"mispricing_half_life={self.mispricing_half_life!r}, "
+                f"mispricing_seed={self.mispricing_seed!r})")
 
 
 def expiries(start: pd.Timestamp,

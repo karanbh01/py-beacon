@@ -3410,16 +3410,21 @@ class StrategySpec(BaseModel):
 # The settings `equitise` takes, by type (BN-358). Published as a closed set
 # of keys, so a client is told what is accepted rather than finding out.
 EQUITISE_NUMBERS = ("roll_days", "roll_cost_bps", "dividend_yield", "multiplier", "band",
-                    "cost_per_contract", "trading_cost_bps")
+                    "cost_per_contract", "trading_cost_bps", "mispricing_bps",
+                    "mispricing_half_life", "mispricing_seed")
 EQUITISE_FLAGS = ("whole_contracts",)
+# BN-409: identifiers of series in the data.
+EQUITISE_TEXTS = ("underlying", "prices")
 EquitiseSettings = Annotated[
-    dict[str, Number | bool | None],
+    dict[str, Number | bool | str | None],
     WithJsonSchema({
         "type": "object",
         "properties": {
             **{name: {"anyOf": [{"type": "number"}, {"type": "null"}]}
                for name in EQUITISE_NUMBERS},
             **{name: {"type": "boolean"} for name in EQUITISE_FLAGS},
+            **{name: {"anyOf": [{"type": "string"}, {"type": "null"}]}
+               for name in EQUITISE_TEXTS},
         },
         "additionalProperties": False,
     }),
@@ -3475,8 +3480,13 @@ class ImplementationSpec(BaseModel):
                     "`whole_contracts` (true by default), `band` (how far the "
                     "exposure may drift from the cash before the futures are resized, "
                     "as a share of the net assets; 0.0025 by default), "
-                    "`cost_per_contract` (each contract traded, in the book's currency) "
-                    "and `trading_cost_bps` (on the notional of each trade between rolls). "
+                    "`cost_per_contract` (each contract traded, in the book's currency), "
+                    "`trading_cost_bps` (on the notional of each trade between rolls), "
+                    "`underlying` (a market series the futures are on, when not the "
+                    "fund's index), `prices` (a series of the held contract's prices) and "
+                    "the assumed mispricing when there are none: `mispricing_bps` (its "
+                    "standard deviation, 0 by default), `mispricing_half_life` (sessions, "
+                    "10 by default) and `mispricing_seed`. "
                     "Null leaves the "
                     "cash as cash.")
     # BN-358.
@@ -3490,16 +3500,22 @@ class ImplementationSpec(BaseModel):
     @field_validator("equitise")
     @classmethod
     def _flags_only_where_they_belong(cls,
-                                      value: dict[str, float | bool | None] | None
-                                      ) -> dict[str, float | bool | None] | None:
+                                      value: dict[str, float | bool | str | None] | None
+                                      ) -> dict[str, float | bool | str | None] | None:
         """The keys the published schema names, each of its own type."""
         # BN-358: the one flag among numbers, kept from loosening the rest.
-        for name, setting in (value or {}).items():
-            if name not in EQUITISE_NUMBERS and name not in EQUITISE_FLAGS:
-                raise ValueError(f"equitise takes {', '.join(EQUITISE_NUMBERS + EQUITISE_FLAGS)}"
-                                 f"; not {name}.")
+        known = EQUITISE_NUMBERS + EQUITISE_FLAGS + EQUITISE_TEXTS
 
-            if (name in EQUITISE_FLAGS) != isinstance(setting, bool):
+        for name, setting in (value or {}).items():
+            if name not in known:
+                raise ValueError(f"equitise takes {', '.join(known)}; not {name}.")
+
+            if name in EQUITISE_TEXTS:
+                if setting is not None and not isinstance(setting, str):
+                    raise ValueError(f"equitise.{name} must be an identifier.")
+                continue
+
+            if isinstance(setting, str) or (name in EQUITISE_FLAGS) != isinstance(setting, bool):
                 kind = "true or false" if name in EQUITISE_FLAGS else "a number"
                 raise ValueError(f"equitise.{name} must be {kind}.")
 

@@ -199,8 +199,9 @@ class BacktestResult(MetricsMixin):
             resized, the contracts before, after and traded, the price, the
             notional traded and the cost.
         futures_days: Each day the futures were held: the contracts, their
-            price, the fair value it was priced from, the level of the index
-            they are on and their expiry. Empty for any other fund.
+            price, their fair value, the level of the index they are on and
+            of the fund's own, the assumed mispricing and their expiry. Empty
+            for any other fund.
         cash_band_events: For a fund with a cash band, each time its cash
             left the band and was brought back, by date: whether it was a
             raise or a spend-down, the cash's share of the fund before and

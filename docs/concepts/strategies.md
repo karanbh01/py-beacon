@@ -166,6 +166,16 @@ yield, less the cost of rolling.
   nearest a whole number of contracts comes; `whole_contracts=False` holds
   fractional ones that carry exactly the target. Initial margin is not
   modelled, since it is the fund's own cash.
+- **Prices.** Fair value is priced off the fund's own index, unless
+  `underlying` names the index the futures are on: a market series by its
+  identifier, or an `IndexResult` or level series built in Beacon. With
+  `prices` naming a series in the data, its close each day is the price of the
+  contract held (a front-month series rolled on the same days). On a day it
+  has none, or with no series, the price is fair value moved by an assumed
+  mispricing: mean-reverting around 0, with a standard deviation of
+  `mispricing_bps` of fair value (0 by default, so the price is fair value),
+  halving in `mispricing_half_life` sessions on average (10), and drawn from
+  `mispricing_seed` so a run repeats.
 - **Trading costs.** Every trade pays `cost_per_contract` on each contract it
   trades, a roll trading two (the old contract sold and the new one bought).
   Each trade between rolls (opening the position and each resize) also pays

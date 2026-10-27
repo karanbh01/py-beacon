@@ -9,9 +9,12 @@ are worth nothing after each day's settlement, and what they made or lost is
 already in the cash. What is recorded is the notional they carried, the rolls
 and what each cost.
 
-Each contract is priced at fair value, ``F = S x exp((r - q) x T)``: S the
-tracked index's level, r the run's cash rate, q the index's dividend yield
-and T the time to expiry over calendar days (ACT/365). See
+Each contract's fair value is ``F = S x exp((r - q) x T)``: S the level of
+the index the futures are on (the fund's own, unless they name another), r
+the run's cash rate, q the index's dividend yield and T the time to expiry
+over calendar days (ACT/365). Its price is the data's, when the terms name a
+series of futures prices and it has one that day, and otherwise fair value
+moved by the assumed mispricing, 0 unless the terms give it a size. See
 `beacon.strategy.futures`.
 
 The position opens at the first rebalance, rolls to the next contract the set
@@ -30,13 +33,16 @@ day's position, its price and the fair value it was priced from.
 # moves with the futures, so the NAV needs no second term (unlike the swap of
 # BN-270, which settles only at resets).
 import logging
+import math
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from ..assumptions import ModellingAssumptions
 from ..data.fetcher import DataFetcher
 from ..derivatives.pricing import cost_of_carry_fair_value
+from ..exceptions import CalculationError
 from ..index.result import IndexResult
 from ..portfolio import reasons
 from ..portfolio.base import Portfolio
@@ -126,7 +132,7 @@ def futures_days_frame(days: dict[pd.Timestamp, dict[str, float]]) -> pd.DataFra
     """Each day's position as a frame indexed by date."""
     frame = pd.DataFrame.from_dict(days, orient="index",
                                    columns=["contracts", "price", "fair_value", "level",
-                                            "expiry"])
+                                            "index_level", "mispricing", "expiry"])
     frame["expiry"] = pd.to_datetime(frame["expiry"])
     frame.index = pd.DatetimeIndex(frame.index, name="date")
 
@@ -180,7 +186,14 @@ class FuturesMixin:
         self._futures_trades: list[FuturesTrade] = []
         self._futures_days: dict[pd.Timestamp, dict[str, float]] = {}
         self._expiries = expiries(self.start_date, self.end_date)
-        self._futures_levels = self.index_result.index_levels.sort_index()
+        self._target_levels = self.index_result.index_levels.sort_index()
+        terms = self._futures_terms
+        self._futures_levels = self._underlying(terms)
+        self._futures_prices = (self._series(terms.prices) if terms is not None and terms.prices
+                                else pd.Series(dtype=float))
+        self._mispricing = 0.0
+        self._mispricing_draws = np.random.default_rng(
+            terms.mispricing_seed if terms is not None else 0)
 
     def _mark_futures(self,
                       portfolio: Portfolio,
@@ -189,7 +202,8 @@ class FuturesMixin:
         if not self._futures_open:
             return
 
-        price = self._fair_value(date, self._expiry)
+        self._move_mispricing()
+        price = self._price(date, self._expiry)
         self._settle_margin(portfolio, self._contracts * (price - self._futures_price)
                             * self._multiplier, date)
         self._futures_price = price
@@ -213,7 +227,7 @@ class FuturesMixin:
             self._expiry = next(expiry for expiry in self._expiries
                                 if self._roll_date(expiry, terms) > date)
             self._futures_yield = self._dividend_yield(terms, date)
-            self._futures_price = self._fair_value(date, self._expiry)
+            self._futures_price = self._price(date, self._expiry)
             self._futures_open = True
 
         # A roll's cost is paid before the new contracts are sized, so they
@@ -270,6 +284,8 @@ class FuturesMixin:
                 "contracts": self._contracts, "price": self._futures_price,
                 "fair_value": self._fair_value(date, self._expiry),
                 "level": float(self._futures_levels.asof(date)),
+                "index_level": float(self._target_levels.asof(date)),
+                "mispricing": self._mispricing,
                 "expiry": self._expiry.value}
 
     @property
@@ -320,6 +336,55 @@ class FuturesMixin:
                            "%.2f went unpaid.", date.date(), -amount, -amount - paid)
 
         portfolio.receive_cash(-paid, date, FUTURES)
+
+    def _underlying(self,
+                    terms: IndexFutures | None) -> pd.Series:
+        """The levels the futures are priced off: their own index's, or the
+        fund's."""
+        if terms is None or terms.underlying is None:
+            return self._target_levels
+
+        given = terms.underlying_levels()
+        levels = given if given is not None else self._series(terms.underlying)
+
+        if levels.dropna().empty:
+            raise CalculationError("Index futures",
+                                   f"their underlying {terms.underlying!r} has no levels "
+                                   f"to price them from")
+
+        return levels.dropna()
+
+    def _series(self,
+                identifier: str) -> pd.Series:
+        """*identifier*'s closes in the data, in its own currency."""
+        return history(self.data_provider, identifier, None).closes.sort_index()
+
+    def _move_mispricing(self) -> None:
+        """Move the assumed mispricing on a day: back toward 0 by its
+        half-life, and by a fresh draw scaled so its standard deviation stays
+        its typical size."""
+        terms = self._futures_terms
+
+        if terms is None or terms.mispricing_bps <= 0.0:
+            return
+
+        keep = 0.5 ** (1.0 / terms.mispricing_half_life)
+        size = terms.mispricing_bps / 10_000.0
+        self._mispricing = (keep * self._mispricing
+                            + size * math.sqrt(1.0 - keep * keep)
+                            * float(self._mispricing_draws.standard_normal()))
+
+    def _price(self,
+               date: pd.Timestamp,
+               expiry: pd.Timestamp) -> float:
+        """A contract's price on *date*: the data's, else fair value moved by
+        the mispricing."""
+        quoted = self._futures_prices.get(date)
+
+        if quoted is not None and pd.notna(quoted):
+            return float(quoted)
+
+        return self._fair_value(date, expiry) * (1.0 + self._mispricing)
 
     def _fair_value(self,
                     date: pd.Timestamp,

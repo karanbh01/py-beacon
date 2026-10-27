@@ -251,7 +251,8 @@ class TestTheCatalogue:
 
         assert {parameter.name for parameter in entry.parameters} == {
             "roll_days", "roll_cost_bps", "dividend_yield", "multiplier", "whole_contracts",
-            "band", "cost_per_contract", "trading_cost_bps"}
+            "band", "cost_per_contract", "trading_cost_bps", "underlying", "prices",
+            "mispricing_bps", "mispricing_half_life", "mispricing_seed"}
 
     def test_its_settings_round_trip(self):
         from beacon.server.backtest_settings import typed_payload
@@ -263,7 +264,10 @@ class TestTheCatalogue:
                            "params": {"roll_days": 3, "roll_cost_bps": 1.5,
                                       "dividend_yield": None, "multiplier": 50.0,
                                       "whole_contracts": True, "band": 0.0025,
-                                      "cost_per_contract": 0.0, "trading_cost_bps": 0.0}}
+                                      "cost_per_contract": 0.0, "trading_cost_bps": 0.0,
+                                      "underlying": None, "prices": None,
+                                      "mispricing_bps": 0.0, "mispricing_half_life": 10.0,
+                                      "mispricing_seed": 0}}
 
 
 class TestWholeContracts:

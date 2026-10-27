@@ -370,6 +370,16 @@ class TestTheCashBand:
         assert implementation["equitise"] == {"whole_contracts": False, "multiplier": 10.0,
                                               "band": 0.01}
 
+    def test_futures_pricing_and_costs_reach_the_run(self,
+                                                     client):
+        # BN-409.
+        equitise = {"cost_per_contract": 2.0, "trading_cost_bps": 1.0, "mispricing_bps": 5.0,
+                    "mispricing_half_life": 20.0, "mispricing_seed": 7}
+        result = run_backtest(client, implementation={"cash_buffer": 0.05,
+                                                      "equitise": equitise})
+
+        assert result["settings"]["implementation"]["equitise"] == equitise
+
     @staticmethod
     def saved(client,
               implementation: dict):
@@ -385,7 +395,8 @@ class TestTheCashBand:
 
         assert "cash_band" in response.text
 
-    @pytest.mark.parametrize("equitise", [{"whole_contracts": 1}, {"band": True}])
+    @pytest.mark.parametrize("equitise", [{"whole_contracts": 1}, {"band": True},
+                                          {"underlying": 3}, {"mispricing_bps": "wide"}])
     def test_a_flag_and_a_number_are_not_mixed_up(self,
                                                   client,
                                                   equitise):

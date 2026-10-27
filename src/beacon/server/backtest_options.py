@@ -99,6 +99,19 @@ IMPLEMENTATION_DISPLAYS = {
     "equitise.trading_cost_bps": Display("Cost of trading futures between rolls", unit=BPS,
                                          minimum=0.0,
                                          help="On the notional each trade between rolls deals."),
+    "equitise.underlying": Display("Index the futures are on",
+                                   help="A market series' identifier. Leave blank for the "
+                                        "fund's own index."),
+    "equitise.prices": Display("Futures prices",
+                               help="A series in the data with the held contract's price "
+                                    "each day. Leave blank to price at fair value."),
+    "equitise.mispricing_bps": Display("Typical futures mispricing", unit=BPS, minimum=0.0,
+                                       help="Its standard deviation, when the data has no "
+                                            "price."),
+    "equitise.mispricing_half_life": Display("Futures mispricing half-life", unit=COUNT,
+                                             minimum=0.0,
+                                             help="Sessions it takes on average to halve."),
+    "equitise.mispricing_seed": Display("Futures mispricing seed", unit=COUNT),
 }
 
 # BN-314.
