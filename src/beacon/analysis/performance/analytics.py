@@ -11,9 +11,12 @@ run and a stored one give the same figures, and a backtest's summary is
 these.
 """
 # BN-371.
+from typing import Any
+
 import pandas as pd
 
 from ..data import BENCHMARK, INDEX, OPTIMISED, RunData
+from . import distribution as shape
 from . import formulas, ratios, return_figures
 from .comparisons import Comparison, Period, comparison_of, periods_of
 from .drawdowns import WORST, DrawdownFigures, drawdown_figures, episodes
@@ -279,6 +282,35 @@ class PerformanceAnalytics:
                                                       trial_variance),
             "lo_sharpe": ratios.lo_sharpe(excess, self.periods_per_year),
         }
+
+    def distribution(self,
+                     bins: int = shape.BINS) -> dict[str, Any]:
+        """The shape of the daily returns, by name: ``downside_deviation``
+        (below the risk-free rate) and ``semi_variance`` (below the mean),
+        both annualised; ``skew`` and ``excess_kurtosis``; ``tail_ratio``;
+        ``serial_correlation`` by lag in days; and a ``histogram`` of *bins*
+        bins with the normal distribution to compare."""
+        returns = self.returns
+
+        return {"downside_deviation": shape.downside_deviation(
+                    returns, self.periods_per_year, self.risk_free_rate),
+                "semi_variance": shape.semi_variance(returns, self.periods_per_year),
+                "skew": shape.skew(returns),
+                "excess_kurtosis": shape.excess_kurtosis(returns),
+                "tail_ratio": shape.tail_ratio(returns),
+                "serial_correlation": shape.serial_correlation(returns),
+                "histogram": shape.histogram(returns, bins)}
+
+    def bootstrap(self,
+                  samples: int = shape.SAMPLES,
+                  confidence: float = shape.CONFIDENCE,
+                  block: int = 1,
+                  seed: int = shape.SEED) -> dict[str, shape.Interval] | None:
+        """How far the annualised return and the Sharpe ratio could have come
+        out otherwise, from runs made by drawing the run's own days again;
+        see `beacon.analysis.performance.distribution.bootstrap`."""
+        return shape.bootstrap(self.returns, self.periods_per_year, self.risk_free_rate,
+                                      samples, confidence, block, seed)
 
     def summary(self) -> dict[str, float | None]:
         """The headline figures, the monthly hit rate, and, when the run has
