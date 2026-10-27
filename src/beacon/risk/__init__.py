@@ -32,20 +32,18 @@ from .covariance import (
     scaled_identity_target,
     shrink_covariance,
 )
-from .factors import (
-    MARKET_FACTOR,
-    ActiveRiskDecomposition,
-    FactorRiskModel,
-    fit_factor_model,
-    z_scores,
-)
 from .model import (
     CONSTANT_CORRELATION,
+    MARKET_FACTOR,
     SCALED_IDENTITY,
     TARGETS,
+    ActiveRiskDecomposition,
+    FactorRiskModel,
     RiskDiagnostics,
     RiskModel,
     estimate_risk_model,
+    fit_factor_model,
+    z_scores,
 )
 
 __all__ = [

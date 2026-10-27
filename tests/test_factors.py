@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from beacon.exceptions import CalculationError
-from beacon.risk.factors import (
+from beacon.risk.model import (
     MARKET_FACTOR,
     fit_factor_model,
     z_scores,

@@ -47,7 +47,7 @@ from beacon.optimise import (
 )
 from beacon.portfolio.base import Portfolio
 from beacon.risk import estimate_risk_model
-from beacon.risk.factors import fit_factor_model, z_scores
+from beacon.risk.model import fit_factor_model, z_scores
 
 # ---------------------------------------------------------------------------
 # Shared strategies and helpers

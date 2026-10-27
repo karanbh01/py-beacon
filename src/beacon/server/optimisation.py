@@ -49,8 +49,7 @@ from ..data.fetcher import DataFetcher
 from ..exceptions import DataNotFoundError
 from ..optimise import minimise_tracking_error
 from ..optimise.frontier import efficient_frontier
-from ..risk.factors import fit_factor_model, z_scores
-from ..risk.model import estimate_risk_model
+from ..risk.model import estimate_risk_model, fit_factor_model, z_scores
 from .job_threads import Report, run_in_thread
 from .jobs import ProgressReporter
 from .schemas import (

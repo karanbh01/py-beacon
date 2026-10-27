@@ -1,4 +1,4 @@
-# src/beacon/risk/model.py
+# src/beacon/risk/model/sample.py
 """
 RiskModel: the output of a covariance estimation.
 
@@ -14,10 +14,10 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from ..data.fetcher import DataFetcher
-from ..exceptions import CalculationError
-from ..plot.base import PlotAccessor
-from .covariance import (
+from ...data.fetcher import DataFetcher
+from ...exceptions import CalculationError
+from ...plot.base import PlotAccessor
+from ..covariance import (
     PERIODS_PER_YEAR,
     Matrix,
     annualise,

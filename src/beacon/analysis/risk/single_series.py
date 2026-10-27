@@ -1,4 +1,4 @@
-# src/beacon/analysis/risk.py
+# src/beacon/analysis/risk/single_series.py
 """
 Risk metrics for a price or return series: annualised volatility, Sharpe ratio
 and maximum drawdown.
@@ -10,7 +10,7 @@ Each is available as a plain function and as a method of
 import numpy as np
 import pandas as pd
 
-from .performance import formulas
+from ..performance import formulas
 
 
 def calculate_volatility(price_series: pd.Series,

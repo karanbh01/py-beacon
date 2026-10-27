@@ -1,4 +1,4 @@
-# src/beacon/risk/factors.py
+# src/beacon/risk/model/factor.py
 """
 Factor risk models, and the decomposition of active risk they make possible.
 
@@ -55,8 +55,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from ..exceptions import CalculationError
-from .covariance import PERIODS_PER_YEAR, Matrix, annualise
+from ...exceptions import CalculationError
+from ..covariance import PERIODS_PER_YEAR, Matrix, annualise
 
 logger = logging.getLogger(__name__)
 
