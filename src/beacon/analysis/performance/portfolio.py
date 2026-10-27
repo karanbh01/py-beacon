@@ -8,15 +8,15 @@ benchmark's.
     portfolio.group_weights("SECTOR")
 
 A name's group on a day is the one it had at the latest rebalance on or
-before that day, as the run's reference table recorded it (the first
-rebalance's before it). A name with no group recorded is in ``Unknown``. A
-book's group weights add up to its invested weight each day: the fund's cash
-is in none of them.
+before that day, as the run's reference table recorded it. A name with no
+group recorded is in ``Unknown``. A book's group weights add up to its
+invested weight each day: the fund's cash is in none of them.
 """
 # BN-382.
 import numpy as np
 import pandas as pd
 
+from ...data.base import as_of_position
 from ..data import BENCHMARK, INDEX, RunData
 from ..panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, INDEX_WEIGHTS, REFERENCE
 
@@ -79,10 +79,11 @@ class PortfolioAnalytics:
         groups = sorted(pd.unique(np.concatenate(list(each.values()))))
         found = np.zeros((len(values), len(groups)))
         starts = sorted(memberships)
-        # Each day's groups are its latest rebalance's, the first's before it.
-        which = np.clip(np.searchsorted(np.array(starts, dtype="datetime64[ns]"),
-                                        values.index.to_numpy(dtype="datetime64[ns]"),
-                                        side="right") - 1, 0, len(starts) - 1)
+        # Each day's groups are its latest rebalance's. A day before the first
+        # rebalance holds nothing, as a book's first weights are its first
+        # rebalance's; its groups are taken as that rebalance's.
+        dates = pd.DatetimeIndex(starts)
+        which = np.array([as_of_position(dates, day) or 0 for day in values.index])
 
         for position, start in enumerate(starts):
             rows = which == position
