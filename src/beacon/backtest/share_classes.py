@@ -79,11 +79,13 @@ class ShareClass:
         hedge_band: How far the hedge ratio may drift between monthly rolls,
             such as 0.03 for 97% to 103%, before the forward is resized.
             None resizes only at the rolls.
+        hedge_cost_bps: What trading its forwards costs, in basis points of
+            the notional each trade deals.
 
     Raises:
         ValueError: If the distribution is not one of the two, the fee is
             negative, the currency is not a three-letter code, a hedge has no
-            currency, or the hedge ratio or band is out of range.
+            currency, or the hedge ratio, band or cost is out of range.
     """
     name: str
     management_fee_bps: float | None = None
@@ -92,6 +94,8 @@ class ShareClass:
     hedged: bool = False
     hedge_ratio: float = 1.0
     hedge_band: float | None = 0.03
+    # BN-408: decided with Karan on 2026-10-27.
+    hedge_cost_bps: float = 0.0
 
     def __post_init__(self) -> None:
         if self.currency is not None:
@@ -110,6 +114,10 @@ class ShareClass:
 
         if self.hedge_band is not None and self.hedge_band < 0.0:
             raise ValueError(f"hedge_band cannot be negative, got {self.hedge_band!r}.")
+
+        if not math.isfinite(self.hedge_cost_bps) or self.hedge_cost_bps < 0.0:
+            raise ValueError(f"hedge_cost_bps must be zero or more, got "
+                             f"{self.hedge_cost_bps!r}.")
 
         if self.distribution not in DISTRIBUTIONS:
             raise ValueError(f"Unknown distribution {self.distribution!r}. "

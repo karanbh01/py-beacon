@@ -120,7 +120,7 @@ capital and the trading cost, and, optionally, every other part of a
 | Field | What it says |
 | --- | --- |
 | `flows` | Money arriving and leaving, as a list of scenarios, or with share classes a list for each class by name. |
-| `share_classes` | The fund's share classes, sharing one book: each a `name`, and optionally a `currency`, `hedged`, `hedge_ratio`, `hedge_band`, `management_fee_bps` and `distribution`. With classes, `initial_capital` is by class name, each in its class's currency. See [Funds](concepts/funds.md). |
+| `share_classes` | The fund's share classes, sharing one book: each a `name`, and optionally a `currency`, `hedged`, `hedge_ratio`, `hedge_band`, `hedge_cost_bps`, `management_fee_bps` and `distribution`. With classes, `initial_capital` is by class name, each in its class's currency. See [Funds](concepts/funds.md). |
 | `vehicle` | A preset (`uk_oeic`, `ucits_etf`, ..., or null for the generic vehicle) and the settings to change. See [Fund vehicles and pricing](concepts/fund-vehicles.md). |
 | `modelling_assumptions` | What the run takes as given; each unset field takes the engine's default. |
 | `dividends`, `reinvest_into`, `currency` | The dividend policy, where a reinvested dividend goes (`payer`, the name that paid it, by default, or `holdings`, in proportion to value), and the book's currency. |

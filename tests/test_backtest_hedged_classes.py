@@ -176,6 +176,46 @@ class TestAHedgedClass:
                        for trade in loose.share_classes["EUR H"].hedges)
 
 
+class TestTheCostOfHedging:
+    """BN-408: the carry each forward locks in, and a cost on each trade."""
+
+    def test_each_trade_records_the_carry_it_locks_in(self):
+        hedges = run(ShareClass("EUR H", currency="EUR", hedged=True)).share_classes[
+            "EUR H"].hedges
+
+        for trade in hedges:
+            assert trade.expiry > trade.date
+            assert trade.carry == pytest.approx(
+                trade.notional * (trade.rate - trade.spot) / trade.spot)
+
+        # The euro's rate is below the dollar's, so every forward costs carry.
+        assert all(trade.carry < 0.0 for trade in hedges)
+
+    def test_a_cost_on_the_notional_each_trade_deals(self):
+        hedged = ShareClass("EUR H", currency="EUR", hedged=True, hedge_cost_bps=2.0)
+        result = run(ShareClass("USD"), hedged, data=NO_RATES)
+        hedges = result.share_classes["EUR H"].hedges
+        dealt = [trade.notional if trade.reason != "band" else
+                 abs(trade.notional - before.notional)
+                 for before, trade in zip([hedges[0], *hedges[:-1]], hedges, strict=True)]
+
+        assert [trade.cost for trade in hedges] == pytest.approx(
+            [notional * 2.0 / 10_000 for notional in dealt])
+
+    def test_the_cost_is_the_class_s_alone(self):
+        free = run(ShareClass("USD"), ShareClass("EUR H", currency="EUR", hedged=True),
+                   data=NO_RATES)
+        costly = run(ShareClass("USD"), ShareClass("EUR H", currency="EUR", hedged=True,
+                                                   hedge_cost_bps=5.0), data=NO_RATES)
+        paid = sum(trade.cost for trade in costly.share_classes["EUR H"].hedges)
+
+        assert paid > 0.0
+        assert growth(costly.share_classes["USD"].nav_per_unit) == pytest.approx(
+            growth(free.share_classes["USD"].nav_per_unit), rel=1e-6)
+        assert growth(costly.share_classes["EUR H"].nav_per_unit) < growth(
+            free.share_classes["EUR H"].nav_per_unit)
+
+
 class TestRefused:
 
     def test_a_hedge_needs_a_currency(self):
@@ -186,7 +226,8 @@ class TestRefused:
         with pytest.raises(ValueError, match="three-letter"):
             ShareClass("E", currency="EURO")
 
-    @pytest.mark.parametrize("settings", [{"hedge_ratio": 0.0}, {"hedge_band": -0.1}])
+    @pytest.mark.parametrize("settings", [{"hedge_ratio": 0.0}, {"hedge_band": -0.1},
+                                          {"hedge_cost_bps": -1.0}])
     def test_hedge_settings_are_checked(self, settings):
         with pytest.raises(ValueError, match="hedge"):
             ShareClass("H", currency="EUR", hedged=True, **settings)

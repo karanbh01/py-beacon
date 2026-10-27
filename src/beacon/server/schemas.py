@@ -3575,6 +3575,10 @@ class ShareClassSpec(BaseModel):
         default=0.03, ge=0.0,
         description="How far the hedge ratio may drift between monthly rolls before "
                     "the forward is resized, as a fraction. Null resizes only at rolls.")
+    hedge_cost_bps: Number = Field(
+        default=0.0, ge=0.0,
+        description="What trading its forwards costs, in basis points of the notional "
+                    "each trade deals: all of it at a roll, the change at a resize.")
     management_fee_bps: Number | None = Field(
         default=None, ge=0.0,
         description="The class's annual management fee in basis points. Null is the "

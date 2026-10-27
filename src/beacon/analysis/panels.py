@@ -33,6 +33,7 @@ from ..data.prices import PRICE_COLUMN, converted
 from ..data.returns import name_returns
 from ..data.store import _read_frame, _write_frame
 from ..exceptions import CalculationError, ConfigurationError, DataNotFoundError
+from .class_panels import class_tables
 from .holdings import (
     fund_weights_from,
     holding_changes,
@@ -121,6 +122,9 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
           and redeeming cost.
         - ``cash_band_events``: for a fund with a cash band, each time its
           cash left the band and was brought back, as the run recorded it.
+        - ``class_days``, ``class_flows`` and ``class_hedges``: for a run
+          with share classes, each class's days, flows and hedge trades, as
+          `beacon.analysis.class_panels.class_tables` gives them.
         - ``trades``: every trade, why it was made and its tags, as
           `beacon.backtest.breakdown.trades` gives them.
         - ``costs``: what the run cost each day, by kind, as
@@ -154,6 +158,7 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
         panels[MARKET] = result.market.rename(columns=str)
     if not result.cash_band_events.empty:
         panels[CASH_BAND_EVENTS] = result.cash_band_events
+    panels.update(class_tables(result))
     comparators = {INDEX_WEIGHTS: result.index.target, OPTIMISED_WEIGHTS: result.index.optimised,
                    BENCHMARK_WEIGHTS: result.benchmark}
 

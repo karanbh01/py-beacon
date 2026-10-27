@@ -154,5 +154,6 @@ def _described(share_class: ShareClass) -> dict[str, Any]:
     return {"name": share_class.name, "currency": share_class.currency,
             "hedged": share_class.hedged, "hedge_ratio": share_class.hedge_ratio,
             "hedge_band": share_class.hedge_band,
+            "hedge_cost_bps": share_class.hedge_cost_bps,
             "management_fee_bps": share_class.management_fee_bps,
             "distribution": share_class.distribution}

@@ -33,6 +33,12 @@ counted in them.
 
 The carry this earns or costs is the interest rate differential: a class in
 a higher-rate currency than the book's earns about the difference a year.
+Each trade records the carry it locks in over its term: its notional times
+the forward rate less spot, in the book's currency.
+
+**Costs.** A class's *hedge_cost_bps* is charged on the notional each trade
+deals: all of it when a forward is opened or rolled, the change in it when
+one is resized. It is paid from the book's cash and borne by the class alone.
 """
 # BN-307. Decided with Karan on 2026-10-12: interest rates from series in the
 # data, a monthly roll with a tolerance band, and unhedged classes in another
@@ -93,12 +99,23 @@ class HedgeTrade:
             the book's.
         settled: What the old forward was settled for, in the class's
             currency: gained when positive. 0 when one was opened.
+        spot: The spot rate when it was struck, class currency per unit of
+            the book's.
+        expiry: The day the new forward settles.
+        carry: The carry the new forward locks in over its term, in the
+            book's currency: its notional times the forward rate less spot,
+            over spot. Earned when positive.
+        cost: What the trade cost, in the book's currency.
     """
     date: pd.Timestamp
     reason: str
     notional: float
     rate: float
     settled: float
+    spot: float = 0.0
+    expiry: pd.Timestamp | None = None
+    carry: float = 0.0
+    cost: float = 0.0
 
 
 class HedgingMixin:
@@ -200,12 +217,19 @@ class HedgingMixin:
         """Settle the class's forward, if it has one, and open another to
         *expiry* sized to its net assets. Returns what the settlement
         received, in the book's currency: 0 for a loss."""
+        old = ledger.hedge.notional if ledger.hedge is not None else 0.0
         settled = self._settle(ledger, portfolio, date)
         notional = ledger.share_class.hedge_ratio * max(ledger.net, 0.0)
         rate = self._forward_rate(ledger, date, expiry)
         ledger.hedge = Forward(notional=notional, rate=rate, expiry=expiry)
+        dealt = abs(notional - old) if reason == BAND else notional
+        cost = self._pay_hedge_cost(ledger, portfolio, date,
+                                    dealt * ledger.share_class.hedge_cost_bps / 10_000.0)
+        carry = notional * (rate - ledger.fx) / ledger.fx if ledger.fx > 0.0 else 0.0
         ledger.hedge_trades.append(HedgeTrade(date=date, reason=reason, notional=notional,
-                                              rate=rate, settled=settled * ledger.fx))
+                                              rate=rate, settled=settled * ledger.fx,
+                                              spot=float(ledger.fx), expiry=expiry,
+                                              carry=float(carry), cost=cost))
 
         logger.debug("[%s] %s hedge %s: %.2f sold forward to %s at %.6f.", date.date(),
                      ledger.share_class.name, reason, notional, expiry.date(), rate)
@@ -245,6 +269,29 @@ class HedgingMixin:
         ledger.hedge = None
 
         return float(value)
+
+    def _pay_hedge_cost(self,
+                        ledger: Any,
+                        portfolio: Portfolio,
+                        date: pd.Timestamp,
+                        cost: float) -> float:
+        """Pay *cost*, in the book's currency, from the book's cash, selling
+        holdings for any shortfall, and take it from the class's net assets.
+        Returns what was paid."""
+        if cost <= 0.0:
+            return 0.0
+
+        short = cost - (portfolio.cash_balance - self._fees_payable)
+
+        if short > 0.0:
+            with portfolio.trading(reasons.SETTLEMENT):
+                self._sell_pro_rata(portfolio, short, date)
+
+        paid = min(cost, max(portfolio.cash_balance, 0.0))
+        portfolio.receive_cash(-paid, date, HEDGE)
+        ledger.net -= paid
+
+        return float(paid)
 
     def _worth(self,
                ledger: Any,

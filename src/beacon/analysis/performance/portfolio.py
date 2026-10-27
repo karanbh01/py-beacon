@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from ...data.base import as_of_position
+from ..class_panels import CLASS_DAYS, CLASS_FLOWS, CLASS_HEDGES
 from ..data import BENCHMARK, INDEX, RunData
 from ..panels import (
     BENCHMARK_WEIGHTS,
@@ -30,7 +31,7 @@ from ..panels import (
     REFERENCE,
     TRADES,
 )
-from . import cash_management, costs, fund_figures, trading
+from . import cash_management, costs, dealing, fund_figures, trading
 
 # The books, by name, and the tables their daily weights are in.
 FUND = "fund"
@@ -242,6 +243,35 @@ class PortfolioAnalytics:
     def cash_trading(self) -> pd.DataFrame:
         """Every trade made to raise or spend cash, by tag and reason."""
         return cash_management.cash_trading(self.run.tables[TRADES])
+
+    def dealing_costs(self) -> pd.DataFrame:
+        """Each day's subscriptions or redemptions (an ETF's creations or
+        redemptions): the trading they caused, what the dealing investors
+        paid toward it, the net cost to the fund, and for an ETF the cost to
+        the AP."""
+        return dealing.dealing_costs(self.run.tables[TRADES], self.run.tables[CASH],
+                                     self.run.tables[COSTS], self.run.tables.get(MARKET))
+
+    def dealing_summary(self,
+                        by: str = "run") -> pd.DataFrame:
+        """The flows' costs added up by kind, over the run (``run``) or each
+        year (``year``)."""
+        return dealing.dealing_summary(self.dealing_costs(), by)
+
+    def class_costs(self,
+                    by: str = "run") -> pd.DataFrame:
+        """Each share class's fees, hedging costs less the carry earned, the
+        trading its flows caused less what its dealing investors paid, and
+        its share of the rest of the fund's trading, in the book's currency:
+        over the run (``run``) or each year (``year``).
+
+        Raises:
+            KeyError: If the run had no share classes.
+        """
+        tables = {name: self.run.tables[name] for name in (CLASS_DAYS, CLASS_FLOWS, CLASS_HEDGES)}
+
+        return dealing.class_costs(tables, self.run.tables[TRADES], self.run.tables[CASH],
+                                   self.run.tables[COSTS], self.run.periods_per_year, by)
 
     def _band_events(self) -> pd.DataFrame:
         """The run's cash band events; none when it kept none."""

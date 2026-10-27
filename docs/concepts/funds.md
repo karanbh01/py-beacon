@@ -98,6 +98,11 @@ default):
   `"HEDGE"` cash flow. A loss is paid by selling across the book and a gain is
   invested across it, so the other classes are not left holding the hedged
   class's cash.
+- **Cost.** `hedge_cost_bps` (0 by default) is charged on the notional each
+  trade deals: all of it when a forward is opened or rolled, the change in it
+  when one is resized. The class pays it alone. Each trade in the class's
+  `hedges` records its spot rate, its expiry, the carry it locks in over its
+  term and its cost.
 
 The forward's gains and losses are the hedged class's alone, and its open
 value is part of its net assets and of the fund's NAV

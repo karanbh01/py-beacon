@@ -107,6 +107,8 @@ SHARE_CLASS_DISPLAYS = {
     "hedge_band": Display("Hedge drift allowed", unit=FRACTION, minimum=0.0,
                           help="How far the hedge ratio may move before the forward "
                                "is resized. Leave blank to resize only at the rolls."),
+    "hedge_cost_bps": Display("Hedge trading cost", unit=BPS, minimum=0.0,
+                              help="On the notional each hedge trade deals."),
 }
 
 ASSUMPTION_DISPLAYS = {
