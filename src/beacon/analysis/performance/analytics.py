@@ -16,6 +16,7 @@ import pandas as pd
 from ..data import BENCHMARK, INDEX, OPTIMISED, RunData
 from . import formulas, return_figures
 from .comparisons import Comparison, Period, comparison_of, periods_of
+from .drawdowns import WORST, DrawdownFigures, drawdown_figures
 from .settings import AnalysisSettings
 
 
@@ -210,6 +211,34 @@ class PerformanceAnalytics:
     def means(self) -> dict[str, float | None]:
         """The arithmetic and geometric mean daily return, and each a year."""
         return return_figures.means(self.returns, self.periods_per_year)
+
+    def levels(self) -> pd.Series:
+        """The level the figures are measured along, dated, from its start:
+        over the whole run what the fund started with, then its NAV or a
+        unit's value; over a window, 1 grown by its returns. The start is
+        dated the business day before the first return."""
+        if not self._windowed:
+            path, start = self._performance()
+        else:
+            path, start = (1.0 + self.returns).cumprod(), 1.0
+
+        if path.empty or not start > 0:
+            return path
+
+        eve = pd.Timestamp(path.index[0]) - pd.offsets.BDay(1)
+
+        return pd.concat([pd.Series([start], index=pd.DatetimeIndex([eve])), path])
+
+    def drawdowns(self,
+                  worst: int = WORST) -> DrawdownFigures:
+        """The run's drawdowns: the deepest *worst* with their peak, trough
+        and recovery dates, the current one, and the figures over all of
+        them. The deepest is the headline's maximum drawdown."""
+        return drawdown_figures(self.levels(), self.headline()["total_return"], worst)
+
+    def drawdown_series(self) -> pd.Series:
+        """How far below its peak the level stood each day."""
+        return formulas.drawdown(self.levels())
 
     def summary(self) -> dict[str, float | None]:
         """The headline figures, the monthly hit rate, and, when the run has
