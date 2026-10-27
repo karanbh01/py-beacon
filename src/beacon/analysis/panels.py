@@ -83,6 +83,9 @@ TRADES = "trades"
 # An ETF's quotes on the exchange each day (BN-385).
 MARKET = "market"
 
+# Each time the cash left its band and was brought back (BN-407).
+CASH_BAND_EVENTS = "cash_band_events"
+
 # The market inputs the name returns are worked out from (BN-403).
 CLOSES = "closes"
 CURRENCIES = "currencies"
@@ -116,6 +119,8 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
         - ``market``: for an ETF, its quote on the exchange each day: NAV per
           share, premium, spread, market price, bid, ask, and what creating
           and redeeming cost.
+        - ``cash_band_events``: for a fund with a cash band, each time its
+          cash left the band and was brought back, as the run recorded it.
         - ``trades``: every trade, why it was made and its tags, as
           `beacon.backtest.breakdown.trades` gives them.
         - ``costs``: what the run cost each day, by kind, as
@@ -147,6 +152,8 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
 
     if not result.market.empty:
         panels[MARKET] = result.market.rename(columns=str)
+    if not result.cash_band_events.empty:
+        panels[CASH_BAND_EVENTS] = result.cash_band_events
     comparators = {INDEX_WEIGHTS: result.index.target, OPTIMISED_WEIGHTS: result.index.optimised,
                    BENCHMARK_WEIGHTS: result.benchmark}
 

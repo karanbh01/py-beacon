@@ -195,6 +195,11 @@ class BacktestResult(MetricsMixin):
         futures_rolls: Each roll of those futures to the next contract: the
             day, the new expiry, the notional, the cost and the dividend
             yield it was priced with.
+        cash_band_events: For a fund with a cash band, each time its cash
+            left the band and was brought back, by date: whether it was a
+            raise or a spend-down, the cash's share of the fund before and
+            after, the target and the band, the value traded, its cost and
+            the number of trades. Empty otherwise.
         hedge_value: For a fund with currency-hedged share classes, the
             value of their open forwards at the end of each day, in the
             book's currency. The NAV includes it. Empty otherwise.
@@ -236,6 +241,7 @@ class BacktestResult(MetricsMixin):
     swap_resets: list[SwapReset] = field(default_factory=list)
     futures_notional: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     futures_rolls: list[FuturesRoll] = field(default_factory=list)
+    cash_band_events: pd.DataFrame = field(default_factory=pd.DataFrame)
     hedge_value: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     dividends_receivable: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     dividends_entitled: pd.DataFrame = field(

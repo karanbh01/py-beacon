@@ -26,7 +26,7 @@ from ..strategy.futures import IndexFutures
 from ..strategy.synthetic import SwapTerms
 from .accounting import AccountingMixin
 from .books import benchmark_book, index_books
-from .cash_band import CashBandMixin
+from .cash_band import CashBandEvent, CashBandMixin, band_events_frame
 from .costs import WorkingOrder
 from .dividends import (
     DISTRIBUTE,
@@ -290,6 +290,8 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             else list(flows or []))  # type: ignore[arg-type]
         self.vehicle: Vehicle | None = vehicle
         self._fees_payable = 0.0
+        # BN-407: each time the cash left its band and was brought back.
+        self._band_events: list[CashBandEvent] = []
         self._units = 0.0
         self._flow_records: list[FlowRecord] = []
         self._units_history: dict[pd.Timestamp, float] = {}
@@ -745,6 +747,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             swap_resets=list(self._swap_resets),
             futures_notional=pd.Series(self._futures_notional, dtype=float),
             futures_rolls=list(self._futures_rolls),
+            cash_band_events=band_events_frame(self._band_events),
             hedge_value=pd.Series(self._hedge_history, dtype=float),
             dividends_receivable=pd.Series(self._receivable_history, dtype=float),
             dividends_entitled=entitled_frame(self._entitled_history),

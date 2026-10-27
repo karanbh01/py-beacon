@@ -14,11 +14,58 @@ the cash waits for the next rebalance, as it always has.
 # BN-358: on the TTIX setup at 600 names, seven held names (4.7% of the fund)
 # delisted into the March 2020 crash and their cash waited for the April
 # rebalance while the index reinvested it at once.
+from dataclasses import dataclass
+
 import pandas as pd
 
 from ..portfolio import reasons
 from ..portfolio.base import Portfolio
 from .implementation import Implementation
+
+# BN-407: what each event's kind is called.
+RAISE = "raise"
+SPEND_DOWN = "spend-down"
+
+
+@dataclass(frozen=True)
+class CashBandEvent:
+    """One time the cash left its band and was brought back.
+
+    Attributes:
+        date: The day.
+        kind: ``raise`` when the cash fell below the band and holdings were
+            sold, ``spend-down`` when it rose above and was invested.
+        cash_before: The cash's share of the fund at the close, before.
+        cash_after: Its share after the trades.
+        target: The share it was brought back to: the cash buffer.
+        lower: The band's lower edge.
+        upper: The band's upper edge.
+        traded: The value bought or sold.
+        cost: What the trades cost.
+        trades: How many trades it took.
+    """
+    date: pd.Timestamp
+    kind: str
+    cash_before: float
+    cash_after: float
+    target: float
+    lower: float
+    upper: float
+    traded: float
+    cost: float
+    trades: int
+
+
+def band_events_frame(events: list[CashBandEvent]) -> pd.DataFrame:
+    """The events as a frame indexed by date."""
+    columns = [name for name in CashBandEvent.__dataclass_fields__ if name != "date"]
+
+    if not events:
+        return pd.DataFrame(columns=columns, index=pd.DatetimeIndex([], name="date"))
+
+    frame = pd.DataFrame([event.__dict__ for event in events]).set_index("date")
+
+    return frame[columns]
 
 
 class CashBandMixin:
@@ -27,6 +74,7 @@ class CashBandMixin:
 
     implementation: Implementation
     _fees_payable: float
+    _band_events: list[CashBandEvent]
 
     def _net_value(self,
                    portfolio: Portfolio) -> float:
@@ -75,6 +123,8 @@ class CashBandMixin:
         if lower <= share <= upper:
             return False
 
+        made = len(portfolio.transactions)
+
         if share > upper:
             # Invests what is above the target, as money arriving is.
             with portfolio.trading(reasons.CASH_SPEND_DOWN):
@@ -85,5 +135,25 @@ class CashBandMixin:
                                     date)
 
         self._update_portfolio_prices(portfolio, date)
+        self._record_band_event(portfolio, date, share, made)
 
         return True
+
+    def _record_band_event(self,
+                           portfolio: Portfolio,
+                           date: pd.Timestamp,
+                           before: float,
+                           made: int) -> None:
+        """Record the event just traded: the trades from *made* on, and the
+        cash's share before (*before*) and now."""
+        lower, upper = self.implementation.cash_band or (0.0, 0.0)
+        new = portfolio.transactions[made:]
+        net = self._net_value(portfolio)
+        after = (portfolio.cash_balance - self._fees_payable) / net if net > 0.0 else 0.0
+
+        self._band_events.append(CashBandEvent(
+            date=date, kind=SPEND_DOWN if before > upper else RAISE,
+            cash_before=before, cash_after=after, target=self.implementation.cash_buffer,
+            lower=lower, upper=upper,
+            traded=sum(trade.quantity * trade.price for trade in new),
+            cost=sum(trade.transaction_cost for trade in new), trades=len(new)))

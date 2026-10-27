@@ -21,6 +21,7 @@ from ..data import BENCHMARK, INDEX, RunData
 from ..panels import (
     BENCHMARK_WEIGHTS,
     CASH,
+    CASH_BAND_EVENTS,
     CHARACTERISTICS,
     COSTS,
     FUND_WEIGHTS,
@@ -29,7 +30,7 @@ from ..panels import (
     REFERENCE,
     TRADES,
 )
-from . import costs, fund_figures, trading
+from . import cash_management, costs, fund_figures, trading
 
 # The books, by name, and the tables their daily weights are in.
 FUND = "fund"
@@ -220,6 +221,37 @@ class PortfolioAnalytics:
         market = self.run.tables.get(MARKET)
 
         return None if market is None else fund_figures.premium_figures(market)
+
+    def cash_band_events(self) -> pd.DataFrame:
+        """Each time the cash left its band and was raised or spent back to
+        its target: the cash before and after, the target and band, the gap
+        closed, what was traded and its cost. Empty for a run without a band."""
+        return cash_management.band_events(self._band_events())
+
+    def cash_band_summary(self) -> pd.DataFrame:
+        """The raises, the spend-downs and both: how many, what they traded
+        and cost, and how close they brought the cash to its target."""
+        return cash_management.band_summary(self._band_events())
+
+    def cash_band_calendar(self,
+                           frequency: str = "M") -> pd.DataFrame:
+        """How many raises and spend-downs each month (``M``) or year (``Y``)
+        had, and their cost."""
+        return cash_management.band_calendar(self._band_events(), frequency)
+
+    def cash_trading(self) -> pd.DataFrame:
+        """Every trade made to raise or spend cash, by tag and reason."""
+        return cash_management.cash_trading(self.run.tables[TRADES])
+
+    def _band_events(self) -> pd.DataFrame:
+        """The run's cash band events; none when it kept none."""
+        found = self.run.tables.get(CASH_BAND_EVENTS)
+
+        if found is None:
+            return pd.DataFrame(columns=list(cash_management.EVENT_COLUMNS),
+                                index=pd.DatetimeIndex([], name="date"))
+
+        return found
 
     def _memberships(self,
                      field: str) -> dict[pd.Timestamp, pd.Series]:
