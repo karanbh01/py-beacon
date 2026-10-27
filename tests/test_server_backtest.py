@@ -245,10 +245,13 @@ class TestResultConsistency:
 
     def test_sharpe_is_consistent_with_the_other_metrics(self,
                                                          result):
+        """BN-405: the mean daily return over its spread, annualised, from
+        the run's own returns (no risk-free rate here)."""
         metrics = result["metrics"]
+        returns = pd.Series(result["returns"]["data"], dtype=float)
 
         if metrics["volatility"] > 0:
-            expected = metrics["annualised_return"] / metrics["volatility"]
+            expected = returns.mean() / returns.std() * math.sqrt(252)
             assert math.isclose(expected, metrics["sharpe_ratio"], rel_tol=1e-9)
 
 

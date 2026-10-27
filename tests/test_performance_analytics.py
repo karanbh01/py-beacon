@@ -91,8 +91,7 @@ class TestSettings:
 
         assert changed["total_return"] == base["total_return"]
         assert changed["volatility"] == formulas.volatility(data.returns, 12)
-        assert changed["sharpe_ratio"] == formulas.sharpe_ratio(
-            changed["annualised_return"], changed["volatility"], 0.03)
+        assert changed["sharpe_ratio"] == formulas.sharpe_ratio(data.returns, 12, 0.03)
 
     def test_tracking_can_be_measured_against_another_comparator(self,
                                                                  plain):

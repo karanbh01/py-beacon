@@ -9,22 +9,26 @@ its first return is nothing (`returns_from_start`), as a run's first return
 runs from its starting capital. Figures annualise over *periods_per_year*
 returns a year.
 
-A figure that cannot be measured (too few returns, a series that does not
-vary) is None, unless its definition says otherwise. Two figures are
-measured two ways today, and each way is kept under its own name:
-
-- the information ratio, as the mean active return over its spread
-  (`information_ratio`), and as the annualised relative return over the
-  tracking error (`annualised_information_ratio`);
-- correlation and beta, which treat a series as not varying when its
-  standard deviation is at most *negligible*: zero by default, or a small
-  threshold where rounding alone would make a series look as if it varied.
+A figure that cannot be measured (too few returns) is None, unless its
+definition says otherwise. The ratios of a mean return to its spread, the
+Sharpe and information ratios, are the mean daily return over its standard
+deviation, annualised by the square root of *periods_per_year*: both halves
+from the same daily returns, so the ratio does not change with leverage, and
+times the square root of the years it is the t-statistic of the mean.
 """
-# BN-370: every figure computed today, defined once. Each is today's
-# arithmetic, operation for operation, so a figure moved onto it is the same
-# to the last bit.
+# BN-370: every figure computed today, defined once. BN-405: one definition
+# each for the figures that were measured two ways (the information ratio,
+# the Sharpe ratio, correlation and beta), as decided with Karan.
 import numpy as np
 import pandas as pd
+
+# A return series whose standard deviation is at most this does not vary:
+# a hundred-millionth of a basis point a day. A threshold rather than zero,
+# because a perfectly smooth series has a standard deviation of about 1e-17
+# in floating point, and a beta measured against it is one rounding error
+# over another. A ratio over such a spread is 0.
+NEGLIGIBLE_SPREAD = 1e-12
+
 
 # How a calendar period is named and grouped.
 ANNUAL, QUARTERLY, MONTHLY = "annual", "quarterly", "monthly"
@@ -69,13 +73,32 @@ def volatility(returns: pd.Series,
     return float(returns.std() * np.sqrt(periods_per_year)) if len(returns) > 1 else 0.0
 
 
-def sharpe_ratio(annualised: float,
-                 annual_volatility: float,
-                 risk_free_rate: float) -> float:
-    """The annualised return in excess of *risk_free_rate*, over the
-    volatility; 0 when nothing varied."""
-    return (float((annualised - risk_free_rate) / annual_volatility)
-            if annual_volatility > 0 else 0.0)
+def daily_rate(annual_rate: float,
+               periods_per_year: int) -> float:
+    """The rate a period that compounds to *annual_rate* over a year."""
+    return float((1.0 + annual_rate) ** (1.0 / periods_per_year) - 1.0)
+
+
+def sharpe_ratio(returns: pd.Series,
+                 periods_per_year: int,
+                 risk_free_rate: float = 0.0) -> float:
+    """The mean daily return in excess of the risk-free rate, over its
+    standard deviation, annualised; 0 with fewer than two returns, or when
+    they do not vary (`NEGLIGIBLE_SPREAD`).
+
+    The annual *risk_free_rate* is taken as the daily rate that compounds to
+    it (`daily_rate`).
+    """
+    # BN-405: the mean of the daily excess returns, not the compounded growth
+    # rate less the rate, which counted volatility twice (its drag lowers the
+    # growth rate) and fell as a strategy was levered.
+    excess = returns - daily_rate(risk_free_rate, periods_per_year)
+    spread = float(excess.std()) if len(excess) > 1 else 0.0
+
+    if spread <= NEGLIGIBLE_SPREAD:
+        return 0.0
+
+    return float(excess.mean() / spread * np.sqrt(periods_per_year))
 
 
 def drawdown(levels: pd.Series) -> pd.Series:
@@ -115,13 +138,10 @@ def headline_figures(returns: pd.Series,
         dict: total_return, annualised_return, volatility, sharpe_ratio and
         max_drawdown.
     """
-    annualised = annualised_return(total, len(returns), periods_per_year)
-    spread = volatility(returns, periods_per_year)
-
     return {"total_return": total,
-            "annualised_return": annualised,
-            "volatility": spread,
-            "sharpe_ratio": sharpe_ratio(annualised, spread, risk_free_rate),
+            "annualised_return": annualised_return(total, len(returns), periods_per_year),
+            "volatility": volatility(returns, periods_per_year),
+            "sharpe_ratio": sharpe_ratio(returns, periods_per_year, risk_free_rate),
             "max_drawdown": max_drawdown(path)}
 
 
@@ -205,46 +225,43 @@ def annualised_relative_return(our_total: float,
 def information_ratio(active: pd.Series,
                       periods_per_year: int) -> float | None:
     """The mean active return over its standard deviation, annualised; None
-    with fewer than two or no spread."""
+    with fewer than two, or when they do not vary (`NEGLIGIBLE_SPREAD`), as
+    there is no active risk to measure it against."""
     spread = float(active.std())
 
-    if len(active) < 2 or spread == 0.0:
+    if len(active) < 2 or not spread > NEGLIGIBLE_SPREAD:
         return None
 
     return float(active.mean() / spread * np.sqrt(periods_per_year))
 
 
-def annualised_information_ratio(annualised_relative: float,
-                                 active_risk: float | None) -> float | None:
-    """The annualised relative return over the tracking error; None without
-    active risk."""
-    return float(annualised_relative / active_risk) if active_risk else None
-
-
 def correlation(ours: pd.Series,
-                theirs: pd.Series,
-                negligible: float = 0.0) -> float | None:
-    """The correlation of two return series over the same days; None with
-    fewer than two, or when either's standard deviation is at most
-    *negligible*."""
-    if len(ours) < 2 or not ours.std() > negligible or not theirs.std() > negligible:
-        return None
+                theirs: pd.Series) -> float:
+    """The correlation of two return series over the same days; 0 with
+    fewer than two, or when either does not vary (`NEGLIGIBLE_SPREAD`), as
+    nothing relates them."""
+    if not _varies(ours) or not _varies(theirs):
+        return 0.0
 
     value = ours.corr(theirs)
 
-    return None if pd.isna(value) else float(value)
+    return 0.0 if pd.isna(value) else float(value)
 
 
 def beta(ours: pd.Series,
-         theirs: pd.Series,
-         negligible: float = 0.0) -> float | None:
+         theirs: pd.Series) -> float:
     """The sensitivity of *ours* to *theirs*: their covariance over the
-    variance of *theirs*; None with fewer than two, or when the standard
-    deviation of *theirs* is at most *negligible*."""
-    if len(theirs) < 2 or not theirs.std() > negligible:
-        return None
+    variance of *theirs*; 0 with fewer than two, or when *theirs* does not
+    vary (`NEGLIGIBLE_SPREAD`), as there is nothing to be sensitive to."""
+    if not _varies(theirs):
+        return 0.0
 
     return float(ours.cov(theirs)) / float(theirs.var())
+
+
+def _varies(returns: pd.Series) -> bool:
+    """Whether *returns* vary by more than rounding."""
+    return len(returns) > 1 and float(returns.std()) > NEGLIGIBLE_SPREAD
 
 
 def market_return(first_ask: float,

@@ -4,6 +4,7 @@
 Reuses test_server_backtest's two-name index and data: a plain run, a run
 with one of the names as an external benchmark, and an active one.
 """
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -83,10 +84,19 @@ class TestAgainstTheIndex:
 
     def test_the_information_ratio_is_given(self,
                                             plain):
-        relative = plain["comparisons"]["index"]["relative"]
+        """BN-405: the mean daily active return over its spread, annualised:
+        the run's returns less the index's, from its level on the first day."""
+        comparison = plain["comparisons"]["index"]
+        relative = comparison["relative"]
+        levels = pd.Series(comparison["level"]["data"],
+                           index=pd.to_datetime(comparison["level"]["index"]), dtype=float)
+        ours = pd.Series(plain["returns"]["data"],
+                         index=pd.to_datetime(plain["returns"]["index"]), dtype=float)
+        theirs = levels.pct_change().fillna(0.0)
+        active = (ours.loc[theirs.index] - theirs)
 
         assert relative["information_ratio"] == pytest.approx(
-            relative["annualised_relative_return"] / relative["tracking_error"])
+            active.mean() * 252 / relative["tracking_error"], rel=1e-9)
 
 
 class TestAgainstTheBenchmark:

@@ -41,7 +41,7 @@ MINIMUM_ALIGNED_OBSERVATIONS = 3
 # a ratio of one rounding error to another: it varies wildly with the level the
 # series happens to be quoted at, which is nonsense for a scale-invariant
 # quantity.
-NEGLIGIBLE_RETURN_STD = 1e-12
+NEGLIGIBLE_RETURN_STD = formulas.NEGLIGIBLE_SPREAD
 
 
 @dataclass(frozen=True)
@@ -155,11 +155,8 @@ def relative_metrics(portfolio: pd.Series,
         benchmark_return=benchmark_total,
         excess_return=total - benchmark_total,
         tracking_error=tracking_error,
-        # Zero rather than missing when either barely varies: nothing is
-        # measurable, and it keeps NaN out of a JSON payload.
-        correlation=formulas.correlation(portfolio_returns, benchmark_returns,
-                                         NEGLIGIBLE_RETURN_STD) or 0.0,
-        beta=formulas.beta(portfolio_returns, benchmark_returns, NEGLIGIBLE_RETURN_STD) or 0.0)
+        correlation=formulas.correlation(portfolio_returns, benchmark_returns),
+        beta=formulas.beta(portfolio_returns, benchmark_returns))
 
 
 def _total_return(levels: pd.Series,

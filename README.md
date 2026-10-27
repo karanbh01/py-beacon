@@ -132,7 +132,7 @@ pd.DataFrame({"Portfolio": result.summary()}).round(4)
 | total_return | 0.1330 |
 | annualised_return | 0.1330 |
 | volatility | 0.1214 |
-| sharpe_ratio | 1.0950 |
+| sharpe_ratio | 1.0888 |
 | max_drawdown | -0.1148 |
 | hit_rate_monthly | 0.5000 |
 | tracking_error | 0.0005 |

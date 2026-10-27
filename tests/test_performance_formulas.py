@@ -1,6 +1,7 @@
 # tests/test_performance_formulas.py
 """BN-370: each performance formula equals the definition it replaces, to
-the last bit.
+the last bit; BN-405: the Sharpe ratio, the comparisons' information ratio,
+correlation and beta as decided, each checked by hand.
 
 The definitions are copied here as they stood before BN-370 (the backtest
 metrics, `analysis.comparison`, `analysis.relative`, the share-class
@@ -194,9 +195,13 @@ class TestHeadline:
                               rate):
         path = old_path(returns)
         total = float(path.iloc[-1] - 1.0)
+        figures = f.headline_figures(returns, total, path, PPY, rate)
+        old = old_headline(returns, total, path, PPY, rate)
 
-        assert f.headline_figures(returns, total, path, PPY, rate) == old_headline(
-            returns, total, path, PPY, rate)
+        # All but the Sharpe ratio, which BN-405 redefined.
+        assert {k: v for k, v in figures.items() if k != "sharpe_ratio"} == {
+            k: v for k, v in old.items() if k != "sharpe_ratio"}
+        assert figures["sharpe_ratio"] == f.sharpe_ratio(returns, PPY, rate)
 
     @pytest.mark.parametrize("returns", CASES, ids=range(len(CASES)))
     def test_each_figure_on_its_own(self,
@@ -272,10 +277,6 @@ class TestRelative:
         assert same(our_total - their_total, old["relative_return"])
         assert same(annualised, old["annualised_relative_return"])
         assert same(active_risk, old["tracking_error"])
-        assert same(f.annualised_information_ratio(annualised, active_risk),
-                    old["information_ratio"])
-        assert same(f.correlation(ours, theirs), old["correlation"])
-        assert same(f.beta(ours, theirs), old["beta"])
         assert same(f.relative_hit_rate_monthly(ours, theirs), old["hit_rate_monthly"])
 
     @pytest.mark.parametrize("ours, theirs", PAIRS, ids=range(len(PAIRS)))
@@ -290,15 +291,20 @@ class TestRelative:
         assert same(f.tracking_error(active, PPY), None if len(active) == 1 else old)
         assert len(active) > 1 or np.isnan(old)
         assert same(f.tracking_difference(ours, theirs), old_tracking_difference(ours, theirs))
-        assert same(f.information_ratio(active, PPY), old_information_ratio(active))
+        # BN-405: an active return that varies by no more than rounding has no
+        # ratio; it was one rounding error over another (about -5e11 here).
+        flat = len(active) > 1 and float(active.std()) <= f.NEGLIGIBLE_SPREAD
+        expected = None if flat else old_information_ratio(active)
+        assert same(f.information_ratio(active, PPY), expected)
 
     @pytest.mark.parametrize("ours, theirs", PAIRS, ids=range(len(PAIRS)))
-    def test_correlation_and_beta_with_a_threshold(self,
-                                                   ours,
-                                                   theirs):
-        assert same(f.correlation(ours, theirs, 1e-12) or 0.0,
-                    old_relative_correlation(ours, theirs))
-        assert same(f.beta(ours, theirs, 1e-12) or 0.0, old_relative_beta(ours, theirs))
+    def test_correlation_and_beta_are_relative_metrics_s(self,
+                                                         ours,
+                                                         theirs):
+        """BN-405: 0 when a series does not vary, as relative_metrics had it,
+        everywhere."""
+        assert same(f.correlation(ours, theirs), old_relative_correlation(ours, theirs))
+        assert same(f.beta(ours, theirs), old_relative_beta(ours, theirs))
 
     def test_the_etf_tracking_figures(self):
         from beacon.analysis.etf.analytics import (
@@ -325,3 +331,62 @@ class TestOthers:
 
     def test_the_market_return(self):
         assert f.market_return(101.0, 110.5) == float(110.5 / 101.0 - 1.0)
+
+
+class TestTheDecidedDefinitions:
+    """BN-405: the Sharpe ratio and the information ratio as the mean daily
+    return over its spread, annualised; correlation and beta 0 when a series
+    does not vary."""
+
+    def test_the_sharpe_ratio_by_hand(self):
+        returns = pd.Series([0.01, -0.02, 0.015, 0.005])
+        day = 1.03 ** (1 / 252) - 1
+        excess = [value - day for value in returns]
+        mean = sum(excess) / 4
+        spread = (sum((value - mean) ** 2 for value in excess) / 3) ** 0.5
+
+        assert f.sharpe_ratio(returns, PPY, 0.03) == pytest.approx(mean / spread * 252 ** 0.5,
+                                                                    rel=1e-12)
+
+    def test_the_daily_rate_compounds_to_the_annual_one(self):
+        assert (1 + f.daily_rate(0.03, PPY)) ** PPY == pytest.approx(1.03, rel=1e-14)
+
+    def test_the_sharpe_ratio_does_not_change_with_leverage(self):
+        """Borrowing at the risk-free rate scales the excess returns and their
+        spread alike."""
+        day = f.daily_rate(0.03, PPY)
+        excess = CASES[5]
+
+        ratios = [f.sharpe_ratio(day + leverage * excess, PPY, 0.03) for leverage in (1, 2, 3)]
+
+        assert ratios == pytest.approx([ratios[0]] * 3, rel=1e-9)
+
+    def test_returns_that_do_not_vary_have_no_sharpe_ratio(self):
+        assert f.sharpe_ratio(pd.Series([0.001] * 30), PPY, 0.0) == 0.0
+        assert f.sharpe_ratio(pd.Series([0.001]), PPY, 0.0) == 0.0
+
+    def test_the_information_ratio_by_hand(self):
+        active = pd.Series([0.001, -0.0005, 0.002, 0.0])
+        mean = 0.0025 / 4
+        spread = (sum((value - mean) ** 2 for value in active) / 3) ** 0.5
+
+        assert f.information_ratio(active, PPY) == pytest.approx(mean / spread * 252 ** 0.5,
+                                                                 rel=1e-12)
+
+    def test_the_comparisons_information_ratio_is_the_daily_average_one(self):
+        from beacon.analysis.performance.comparisons import relative_figures
+
+        ours, theirs = PAIRS[0]
+
+        assert relative_figures(ours, theirs, PPY)["information_ratio"] == f.information_ratio(
+            ours - theirs, PPY)
+
+    def test_a_series_that_does_not_vary_has_zero_correlation_and_beta(self):
+        flat = pd.Series([0.001] * 50, index=CASES[0].index[:50])
+        moving = CASES[0].iloc[:50]
+
+        assert f.correlation(moving, flat) == 0.0
+        assert f.correlation(flat, moving) == 0.0
+        assert f.beta(moving, flat) == 0.0
+        assert f.beta(flat, moving) == pytest.approx(0.0, abs=1e-15)
+        assert f.correlation(moving.iloc[:1], moving.iloc[:1]) == 0.0

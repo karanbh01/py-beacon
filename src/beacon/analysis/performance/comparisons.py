@@ -183,12 +183,12 @@ def relative_figures(ours: pd.Series,
     their_total = formulas.compounded_return(theirs)
     annualised = formulas.annualised_relative_return(our_total, their_total, len(ours),
                                                      periods_per_year)
-    active_risk = formulas.tracking_error(ours - theirs, periods_per_year)
+    active = ours - theirs
 
     return {"relative_return": our_total - their_total,
             "annualised_relative_return": annualised,
-            "tracking_error": active_risk,
-            "information_ratio": formulas.annualised_information_ratio(annualised, active_risk),
+            "tracking_error": formulas.tracking_error(active, periods_per_year),
+            "information_ratio": formulas.information_ratio(active, periods_per_year),
             "correlation": formulas.correlation(ours, theirs),
             "beta": formulas.beta(ours, theirs),
             "hit_rate_monthly": formulas.relative_hit_rate_monthly(ours, theirs)}

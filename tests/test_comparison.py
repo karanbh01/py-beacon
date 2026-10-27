@@ -77,11 +77,13 @@ class TestComparing:
         assert comparison.relative["tracking_error"] == pytest.approx(
             (STRATEGY_RETURNS - theirs).std() * np.sqrt(252))
 
-    def test_the_information_ratio_is_the_annualised_difference_over_the_error(self):
+    def test_the_information_ratio_is_the_mean_active_return_over_its_spread(self):
+        """BN-405: the mean daily active return over its spread, annualised."""
         relative = compare(STRATEGY_RETURNS, COMPARATOR_LEVELS).relative
+        active = STRATEGY_RETURNS - daily_returns(COMPARATOR_LEVELS)
 
         assert relative["information_ratio"] == pytest.approx(
-            relative["annualised_relative_return"] / relative["tracking_error"])
+            active.mean() * PPY / relative["tracking_error"], rel=1e-12)
         assert relative["beta"] == pytest.approx(1.0, abs=0.1)
         assert relative["correlation"] > 0.9
 

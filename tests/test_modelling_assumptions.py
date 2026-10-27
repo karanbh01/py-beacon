@@ -181,13 +181,16 @@ class TestTheSimulationConventions:
         assert earning.trading_nav.iloc[-1] > plain.trading_nav.iloc[-1]
 
     def test_sharpe_is_measured_against_the_risk_free_rate(self):
-        zero = half_in_cash().summary()
+        """BN-405: the mean daily return in excess of the daily rate that
+        compounds to the risk-free rate, over its spread, annualised."""
+        returns = half_in_cash().get_returns()
         four = half_in_cash(
             modelling_assumptions=ModellingAssumptions(risk_free_rate=0.04)
         ).summary()
+        excess = returns - (1.04 ** (1 / 252) - 1)
 
         assert four["sharpe_ratio"] == pytest.approx(
-            (zero["annualised_return"] - 0.04) / zero["volatility"])
+            excess.mean() / excess.std() * 252 ** 0.5, rel=1e-12)
 
     def test_annualising_uses_the_periods_per_year(self):
         """A calculated index, with costs so the book and index differ."""

@@ -10,6 +10,8 @@ Each is available as a plain function and as a method of
 import numpy as np
 import pandas as pd
 
+from .performance import formulas
+
 
 def calculate_volatility(price_series: pd.Series,
                          window: int = 252) -> float:
@@ -51,12 +53,11 @@ def calculate_sharpe_ratio(returns: pd.Series,
     """
     Calculates the annualized Sharpe Ratio.
 
-    The risk-free rate is divided evenly across periods
-    (``risk_free_rate / periods_per_year``) and subtracted from each return;
-    the ratio is the mean excess return over its sample standard deviation,
-    multiplied by ``sqrt(periods_per_year)``. When the excess returns do not
-    vary, the result is NaN if their mean is zero and positive or negative
-    infinity otherwise.
+    The mean return in excess of the risk-free rate over its sample standard
+    deviation, multiplied by ``sqrt(periods_per_year)``: the Sharpe ratio a
+    backtest reports, `beacon.analysis.performance.formulas.sharpe_ratio`.
+    The annual risk-free rate is taken as the period rate that compounds to
+    it. 0 when the returns do not vary.
 
     Args:
         returns: A pandas Series of periodic returns.
@@ -84,15 +85,9 @@ def calculate_sharpe_ratio(returns: pd.Series,
     if periods_per_year <= 0:
         raise ValueError("periods_per_year must be a positive integer.")
 
-    excess_returns = returns - (risk_free_rate / periods_per_year)
-    mean_excess_return = excess_returns.mean()
-    std_dev_excess_return = excess_returns.std()
-
-    if std_dev_excess_return == 0: # Avoid division by zero
-        return np.nan if mean_excess_return == 0 else np.inf * np.sign(mean_excess_return)
-
-    sharpe_ratio = (mean_excess_return / std_dev_excess_return) * np.sqrt(periods_per_year)
-    return float(sharpe_ratio)
+    # BN-405: one Sharpe ratio. This divided the rate by the periods and gave
+    # NaN or infinity for returns that did not vary.
+    return formulas.sharpe_ratio(returns, periods_per_year, float(risk_free_rate))
 
 def calculate_max_drawdown(price_series: pd.Series) -> float:
     """
