@@ -25,7 +25,7 @@ import pandas as pd
 from ..data import INDEX, RunData
 from . import formulas
 from .analytics import PerformanceAnalytics
-from .comparisons import relative_figures
+from .comparisons import aligned, relative_figures
 from .drawdowns import WORST, DrawdownFigures, drawdown_figures
 from .settings import AnalysisSettings
 
@@ -90,7 +90,7 @@ class RelativeAnalytics:
         self.performance = PerformanceAnalytics(run, settings)
         self.levels = (run.comparators[comparator] if isinstance(comparator, str)
                        else comparator)
-        self.ours, self.theirs = _aligned(self.performance.returns, self.levels)
+        self.ours, self.theirs = aligned(self.performance.returns, self.levels)
 
     @property
     def periods_per_year(self) -> int:
@@ -232,27 +232,6 @@ class RelativeAnalytics:
                 "relative_drawdowns": self.relative_drawdowns(),
                 "tracking_difference_by_year": years,
                 "tracking_difference_spread": spread}
-
-
-def _aligned(returns: pd.Series,
-             levels: pd.Series) -> tuple[pd.Series, pd.Series]:
-    """The fund's and the comparator's daily returns on the days both have,
-    as the run's comparisons align them."""
-    levels = levels.dropna()
-    window = returns.index.intersection(levels.index)
-
-    if len(window) < 2:
-        empty = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
-        return empty, empty
-
-    ours = returns.loc[window].astype(float)
-    theirs = formulas.returns_from_start(levels.loc[window])
-
-    if window[0] != returns.index[0]:
-        ours = ours.copy()
-        ours.iloc[0] = 0.0
-
-    return ours, theirs
 
 
 def _capture(ours: pd.Series,

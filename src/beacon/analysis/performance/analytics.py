@@ -18,7 +18,8 @@ import pandas as pd
 from ..data import BENCHMARK, INDEX, OPTIMISED, RunData
 from . import distribution as shape
 from . import formulas, ratios, return_figures
-from .comparisons import Comparison, Period, comparison_of, periods_of
+from . import rolling as moving
+from .comparisons import Comparison, Period, aligned, comparison_of, periods_of
 from .drawdowns import WORST, DrawdownFigures, drawdown_figures, episodes
 from .settings import AnalysisSettings
 
@@ -312,6 +313,35 @@ class PerformanceAnalytics:
         return shape.bootstrap(self.returns, self.periods_per_year, self.risk_free_rate,
                                       samples, confidence, block, seed)
 
+    def rolling(self,
+                window: int = moving.WINDOWS[1],
+                comparator: str | pd.Series | None = None) -> pd.DataFrame:
+        """Each day's return, volatility, Sharpe ratio, Sortino ratio and
+        maximum drawdown over the *window* days ending that day, blank until
+        the first full window; with a comparator (by name or levels), its
+        relative return, tracking error, information ratio, beta and
+        correlation too, on the days both have."""
+        figures = moving.rolling_figures(self.returns, window, self.periods_per_year,
+                                          self.risk_free_rate)
+        theirs = self._comparator_returns(comparator)
+
+        if theirs is None:
+            return figures
+
+        relative = moving.rolling_relative(theirs[0], theirs[1], window, self.periods_per_year)
+
+        return figures.join(relative, how="left")
+
+    def rolling_outcomes(self,
+                         window: int = moving.WINDOWS[1],
+                         comparator: str | pd.Series | None = None) -> dict[str, float | None]:
+        """Over every full *window*: the worst, middle and best return, the
+        share that gained, and the share ahead of the comparator when one is
+        given."""
+        figures = self.rolling(window, comparator)
+
+        return moving.outcomes(figures["return"], figures.get("relative_return"))
+
     def summary(self) -> dict[str, float | None]:
         """The headline figures, the monthly hit rate, and, when the run has
         them, the tracking error and difference against the tracked
@@ -353,6 +383,19 @@ class PerformanceAnalytics:
             return self.run.performance, self.run.performance_start
 
         return self.run.nav, self.run.initial_capital
+
+    def _comparator_returns(self,
+                            comparator: str | pd.Series | None) -> tuple[pd.Series,
+                                                                         pd.Series] | None:
+        """The run's and a comparator's daily returns on the days both have;
+        None without a comparator, or one the run does not have."""
+        if comparator is None:
+            return None
+
+        levels = (self.run.comparators.get(comparator) if isinstance(comparator, str)
+                  else comparator)
+
+        return None if levels is None else aligned(self.returns, levels)
 
     def _theirs(self) -> pd.Series | None:
         """The tracked comparator's daily returns over the days measured,

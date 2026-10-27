@@ -82,20 +82,13 @@ def comparison_of(returns: pd.Series,
         periods_per_year: How many daily returns make a year.
         risk_free_rate: The annual rate Sharpe ratios are in excess of.
     """
-    levels = comparator_levels.dropna()
-    window = returns.index.intersection(levels.index)
+    ours, theirs = aligned(returns, comparator_levels)
 
-    if len(window) < 2:
+    if ours.empty:
         return None
 
-    levels = levels.loc[window].astype(float)
-    ours = returns.loc[window].astype(float)
-    theirs = formulas.returns_from_start(levels)
-
-    # From a later start, the run starts there too, as the comparator does.
-    if window[0] != returns.index[0]:
-        ours = ours.copy()
-        ours.iloc[0] = 0.0
+    window = ours.index
+    levels = comparator_levels.dropna().loc[window].astype(float)
 
     return Comparison(start=window[0],
                       end=window[-1],
@@ -103,6 +96,30 @@ def comparison_of(returns: pd.Series,
                       level=levels / levels.iloc[0] * 100.0,
                       own=own_figures(theirs, levels, periods_per_year, risk_free_rate),
                       relative=relative_figures(ours, theirs, periods_per_year))
+
+
+def aligned(returns: pd.Series,
+            comparator_levels: pd.Series) -> tuple[pd.Series, pd.Series]:
+    """A run's and a comparator's daily returns on the days both have, empty
+    when they share fewer than two: the comparator's first day returns
+    nothing from its level that day, and so, when the comparator starts after
+    the run, does the run's."""
+    levels = comparator_levels.dropna()
+    window = returns.index.intersection(levels.index)
+
+    if len(window) < 2:
+        empty = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
+        return empty, empty
+
+    ours = returns.loc[window].astype(float)
+    theirs = formulas.returns_from_start(levels.loc[window].astype(float))
+
+    # From a later start, the run starts there too, as the comparator does.
+    if window[0] != returns.index[0]:
+        ours = ours.copy()
+        ours.iloc[0] = 0.0
+
+    return ours, theirs
 
 
 def periods_of(returns: pd.Series,
