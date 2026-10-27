@@ -178,6 +178,9 @@ class RebalanceStep:
     capped: dict[str, float] = field(default_factory=dict)
     weights: dict[str, float] = field(default_factory=dict)
     cash_weight: float = 0.0
+    # BN-406: of the capped names, those the vehicle's diversification limits
+    # cut, with the weight each was cut to, so a trade can say why.
+    diversified: dict[str, float] = field(default_factory=dict)
     # BN-326: each name's weight between the screens and the caps.
     screened: dict[str, float] = field(default_factory=dict)
 
@@ -231,14 +234,14 @@ def plan(implementation: Implementation,
         weights = {name: weight * invested for name, weight in weights.items()}
         total *= invested
 
-    weights, capped = _within_capacity(implementation, weights, total, date,
-                                       book_value, context, removed,
-                                       tuple(limits))
+    weights, capped, diversified = _within_capacity(implementation, weights, total, date,
+                                                    book_value, context, removed,
+                                                    tuple(limits))
 
     return RebalanceStep(date=date, target=dict(target), removed=removed,
                          capped=capped, weights=weights,
                          cash_weight=max(1.0 - sum(weights.values()), 0.0),
-                         screened=screened)
+                         screened=screened, diversified=diversified)
 
 
 def _within_capacity(implementation: Implementation,
@@ -249,13 +252,14 @@ def _within_capacity(implementation: Implementation,
                      context: ScreenContext,
                      removed: dict[str, str],
                      diversification: tuple[DiversificationLimit, ...] = ()
-                     ) -> tuple[dict[str, float], dict[str, float]]:
+                     ) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
     """Cut each name to its caps and the vehicle's diversification limits,
     and drop positions too small to keep, redistributing as the rule says,
     until none changes anything.
 
-    Names dropped as too small are added to *removed*. Returns the weights
-    and the names capped, with the weight each was cut to.
+    Names dropped as too small are added to *removed*. Returns the weights,
+    the names capped with the weight each was cut to, and of those the ones a
+    diversification limit cut.
     """
     minimum = implementation.minimum_position
 
@@ -263,18 +267,22 @@ def _within_capacity(implementation: Implementation,
             *(cap for limit in diversification for cap in limit.caps()))
 
     if (not caps and minimum is None and not diversification) or book_value <= 0.0:
-        return weights, {}
+        return weights, {}, {}
 
     limits = _limits(caps, weights, date, book_value, context)
     rule = implementation.redistribution
     capped: dict[str, float] = {}
+    diversified: dict[str, float] = {}
 
     # Each pass either finishes or drops at least one name, so this ends.
     for _ in range(len(weights) + 1):
         weights = water_filled(weights, limits, rule, capped)
 
         for limit in diversification:
+            before = dict(capped)
             weights = limit.limited(weights, rule, capped)
+            diversified.update({name: weight for name, weight in capped.items()
+                                if before.get(name) != weight})
 
         small = ([name for name, weight in weights.items()
                   if minimum.too_small(weight, book_value)]
@@ -286,11 +294,12 @@ def _within_capacity(implementation: Implementation,
         for name in small:
             removed[name] = TOO_SMALL
             capped.pop(name, None)
+            diversified.pop(name, None)
             del weights[name]
 
         weights = redistributed(weights, total, rule)
 
-    return weights, capped
+    return weights, capped, diversified
 
 
 def _limits(caps: tuple[CapacityCap, ...],

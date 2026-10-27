@@ -5,10 +5,12 @@ The reasons and their tags; the portfolio's blocks of trading; and runs that
 trade for each kind of reason: a rebalance, flows in and out, cash kept in
 its band, and an active strategy's model-driven rebalances.
 """
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 
-from beacon.backtest import Implementation
+from beacon.backtest import BacktestEngine, Implementation
 from beacon.backtest.breakdown import TAG_SEPARATOR, daily_costs, trades
 from beacon.backtest.flows import DatedFlows
 from beacon.portfolio.base import Portfolio, TradeInstruction
@@ -18,6 +20,7 @@ from beacon.portfolio.reasons import (
     CATEGORIES,
     DISTRIBUTION_FUNDING,
     DIVERSIFICATION,
+    LIQUIDITY,
     MODEL_DRIVEN,
     REASONS,
     REBALANCE,
@@ -121,6 +124,34 @@ class TestRuns:
                       if trade.reason == REBALANCE]
 
         assert rebalances and all(MODEL_DRIVEN in trade.tags for trade in rebalances)
+
+    def test_a_vehicle_s_diversification_limits_tag_diversification(self):
+        from beacon.backtest import UcitsLimits, Vehicle
+        from test_backtest_flows import run
+
+        result = run(vehicle=Vehicle(limits=[UcitsLimits(index_tracking=False)]))
+        first = result.rebalance_steps[0]
+        bought = [trade for trade in result.portfolio.transactions
+                  if trade.transaction_date == first.date and trade.reason == REBALANCE]
+
+        assert first.diversified == pytest.approx(first.capped)
+        assert bought and all(DIVERSIFICATION in trade.tags for trade in bought)
+        assert not any(LIQUIDITY in trade.tags for trade in bought)
+
+    def test_a_capacity_cut_is_liquidity_and_a_stale_price_is_untagged(self):
+        from beacon.backtest.engine import SCREEN_REASONS
+        from beacon.backtest.implementation import STALE, RebalanceStep
+
+        engine = SimpleNamespace(index_result=SimpleNamespace(capped_assets_on_date=lambda _: []),
+                                 _rebalance_steps=[RebalanceStep(
+                                     date=DAY, target={}, removed={"OLD": STALE},
+                                     capped={"BIG": 0.1, "THIN": 0.02},
+                                     diversified={"BIG": 0.1})])
+
+        tags = BacktestEngine._rebalance_reasons(engine, DAY)
+
+        assert SCREEN_REASONS[STALE] == ""
+        assert tags == {"BIG": (DIVERSIFICATION,), "THIN": (LIQUIDITY,)}
 
 
 class TestTheTable:

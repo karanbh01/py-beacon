@@ -42,7 +42,7 @@ from .execution import ExecutionMixin
 from .flows import FlowRecord, Flows
 from .futures import FuturesMixin
 from .hedging import HedgingMixin
-from .implementation import TOO_SMALL, Implementation, RebalanceStep, plan
+from .implementation import STALE, TOO_SMALL, Implementation, RebalanceStep, plan
 from .listings import ListingsMixin
 from .pricing import PricingMixin
 from .result import BacktestResult, RebalancePricing, UnfilledOrder
@@ -71,7 +71,8 @@ logger = logging.getLogger(__name__)
 
 # The tag a rebalance trade carries for the screen that took its name out
 # (BN-406); any other screen excludes by rule.
-SCREEN_REASONS = {"LiquidityScreen": reasons.LIQUIDITY, TOO_SMALL: reasons.POSITION_LIMIT}
+SCREEN_REASONS = {"LiquidityScreen": reasons.LIQUIDITY, TOO_SMALL: reasons.POSITION_LIMIT,
+                  STALE: ""}
 
 
 # The IndexResult has been the sole schedule source since BN-165, when the raw
@@ -689,9 +690,10 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
     def _rebalance_reasons(self,
                            date: pd.Timestamp) -> dict[str, tuple[str, ...]]:
         """The tags each name's rebalance trade carries for the stages that
-        changed its target: the index's cap (diversification), a screen
-        (liquidity or exclusion), the smallest position allowed (position
-        limit), or a cut to its capacity (liquidity)."""
+        changed its target: the index's cap or the vehicle's diversification
+        limits (diversification), a screen (liquidity or exclusion; none for
+        a stale price), the smallest position allowed (position limit), or a
+        cut to its capacity (liquidity)."""
         tags: dict[str, list[str]] = {}
         steps = [step for step in self._rebalance_steps if step.date == date]
 
@@ -700,10 +702,15 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
 
         for step in steps[-1:]:
             for name, screen in step.removed.items():
-                tags.setdefault(name, []).append(SCREEN_REASONS.get(screen, reasons.EXCLUSION))
+                tag = SCREEN_REASONS.get(screen, reasons.EXCLUSION)
+
+                if tag:
+                    tags.setdefault(name, []).append(tag)
 
             for name in step.capped:
-                tags.setdefault(name, []).append(reasons.LIQUIDITY)
+                tags.setdefault(name, []).append(reasons.DIVERSIFICATION
+                                                 if name in step.diversified
+                                                 else reasons.LIQUIDITY)
 
         return {name: tuple(found) for name, found in tags.items()}
 
