@@ -26,12 +26,14 @@ from ..panels import (
     CHARACTERISTICS,
     COSTS,
     FUND_WEIGHTS,
+    FUTURES_DAYS,
+    FUTURES_TRADES,
     INDEX_WEIGHTS,
     MARKET,
     REFERENCE,
     TRADES,
 )
-from . import cash_management, costs, dealing, fund_figures, trading
+from . import cash_management, costs, dealing, fund_figures, futures_figures, trading
 
 # The books, by name, and the tables their daily weights are in.
 FUND = "fund"
@@ -272,6 +274,33 @@ class PortfolioAnalytics:
 
         return dealing.class_costs(tables, self.run.tables[TRADES], self.run.tables[CASH],
                                    self.run.tables[COSTS], self.run.periods_per_year, by)
+
+    def futures_trading(self) -> pd.DataFrame:
+        """The fund's futures trading by why each trade was made, between
+        rolls and all of it: trades, contracts, notional, cost per contract
+        and in basis points, and turnover.
+
+        Raises:
+            KeyError: If the run held no index futures.
+        """
+        return futures_figures.futures_trading(self.run.tables[FUTURES_TRADES], self.run.nav,
+                                               self.run.periods_per_year)
+
+    def futures_basis(self,
+                      daily: bool = False) -> pd.DataFrame:
+        """The futures' basis to their index, its carry and its mispricing:
+        each day (*daily*), or their mean, volatility and extremes in basis
+        points."""
+        days = self.run.tables[FUTURES_DAYS]
+
+        return futures_figures.daily_basis(days) if daily else futures_figures.basis_summary(days)
+
+    def futures_basis_risk(self) -> pd.DataFrame:
+        """The tracking error the futures bring, split into the pricing basis
+        (against their own index) and the underlying mismatch (their index
+        against the fund's)."""
+        return futures_figures.basis_risk(self.run.tables[FUTURES_DAYS],
+                                          self.run.periods_per_year)
 
     def _band_events(self) -> pd.DataFrame:
         """The run's cash band events; none when it kept none."""
