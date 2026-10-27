@@ -80,6 +80,9 @@ TRADED_VALUES = "traded_values"
 # The run's trades, each with why it was made (BN-406).
 TRADES = "trades"
 
+# An ETF's quotes on the exchange each day (BN-385).
+MARKET = "market"
+
 # The market inputs the name returns are worked out from (BN-403).
 CLOSES = "closes"
 CURRENCIES = "currencies"
@@ -110,6 +113,9 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
           `beacon.data.returns.name_returns` measures it. Left out, with a
           warning, when the run kept no data to read them from or they cannot
           be measured (a currency with no rate into the book's).
+        - ``market``: for an ETF, its quote on the exchange each day: NAV per
+          share, premium, spread, market price, bid, ask, and what creating
+          and redeeming cost.
         - ``trades``: every trade, why it was made and its tags, as
           `beacon.backtest.breakdown.trades` gives them.
         - ``costs``: what the run cost each day, by kind, as
@@ -138,6 +144,9 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
     weights = result.portfolio.weights
     panels = {FUND_WEIGHTS: weights, COSTS: daily_costs(result), CASH: daily_cash(result),
               TRADES: trades(result)}
+
+    if not result.market.empty:
+        panels[MARKET] = result.market.rename(columns=str)
     comparators = {INDEX_WEIGHTS: result.index.target, OPTIMISED_WEIGHTS: result.index.optimised,
                    BENCHMARK_WEIGHTS: result.benchmark}
 

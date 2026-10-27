@@ -18,8 +18,18 @@ import pandas as pd
 
 from ...data.base import as_of_position
 from ..data import BENCHMARK, INDEX, RunData
-from ..panels import BENCHMARK_WEIGHTS, COSTS, FUND_WEIGHTS, INDEX_WEIGHTS, REFERENCE, TRADES
-from . import costs, trading
+from ..panels import (
+    BENCHMARK_WEIGHTS,
+    CASH,
+    CHARACTERISTICS,
+    COSTS,
+    FUND_WEIGHTS,
+    INDEX_WEIGHTS,
+    MARKET,
+    REFERENCE,
+    TRADES,
+)
+from . import costs, fund_figures, trading
 
 # The books, by name, and the tables their daily weights are in.
 FUND = "fund"
@@ -168,6 +178,48 @@ class PortfolioAnalytics:
     def costs_by_reason(self) -> pd.DataFrame:
         """The trading costs by why the trade was made."""
         return costs.by_reason(self.run.tables[TRADES])
+
+    def characteristics(self) -> pd.DataFrame:
+        """The weighted market cap, P/E, P/B and dividend yield of the fund,
+        its index and its benchmark (when it holds names) at each rebalance:
+        a row a rebalance, columns by book and figure."""
+        books = {name: weights for name in BOOKS
+                 if (weights := self.weights(name)) is not None}
+
+        return fund_figures.characteristics_over_time(self.run.tables[CHARACTERISTICS], books)
+
+    def income(self) -> pd.DataFrame:
+        """Each day's distribution yield and trailing dividend yield, over
+        the year to it."""
+        return fund_figures.trailing_yields(self.run.tables[CASH], self.run.nav)
+
+    def dividend_growth(self) -> pd.DataFrame:
+        """Each calendar year's dividends and their growth."""
+        return fund_figures.dividend_growth(self.run.tables[CASH])
+
+    def aum(self) -> pd.DataFrame:
+        """The fund's assets under management and units outstanding each
+        day."""
+        return pd.DataFrame({"aum": self.run.nav, "units": self.run.units})
+
+    def net_flows(self,
+                  frequency: str = "M") -> pd.DataFrame:
+        """Each month's (``M``) or year's (``Y``) net flows and their share of
+        the AUM it began with."""
+        return fund_figures.net_flows(self.run.tables[CASH], self.run.nav, frequency)
+
+    def flow_costs(self) -> pd.DataFrame:
+        """The cost of trading each day's flows, less the creation fees
+        received."""
+        return fund_figures.flow_costs(self.run.tables[TRADES], self.run.tables[CASH],
+                                       self.run.tables[COSTS])
+
+    def etf_premium(self) -> dict[str, float | None] | None:
+        """An ETF's premium to NAV on the exchange: its mean, volatility and
+        widest each way, and the mean spread; None for another vehicle."""
+        market = self.run.tables.get(MARKET)
+
+        return None if market is None else fund_figures.premium_figures(market)
 
     def _memberships(self,
                      field: str) -> dict[pd.Timestamp, pd.Series]:
