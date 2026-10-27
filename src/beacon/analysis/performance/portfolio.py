@@ -18,7 +18,8 @@ import pandas as pd
 
 from ...data.base import as_of_position
 from ..data import BENCHMARK, INDEX, RunData
-from ..panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, INDEX_WEIGHTS, REFERENCE
+from ..panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, INDEX_WEIGHTS, REFERENCE, TRADES
+from . import trading
 
 # The books, by name, and the tables their daily weights are in.
 FUND = "fund"
@@ -113,6 +114,33 @@ class PortfolioAnalytics:
         theirs = theirs.reindex(index=ours.index, columns=groups).ffill().fillna(0.0)
 
         return ours.reindex(columns=groups, fill_value=0.0) - theirs
+
+    def turnover(self,
+                 by: str = "day") -> pd.DataFrame:
+        """The fund's buys, sells, number of trades and their mean value, and
+        its one-way turnover (the lesser of buys and sells) and two-way
+        turnover (all of it), over its assets: each trading day (``day``,
+        with whether it was a rebalance), each rebalance's own trades
+        (``rebalance``) or each year (``year``).
+
+        Raises:
+            KeyError: If the run kept no trades (one stored before 0.10.0).
+            ValueError: If *by* is none of the three.
+        """
+        trades = self.run.tables[TRADES]
+
+        if by == "day":
+            return trading.daily_turnover(trades, self.run.nav, self.run.initial_capital)
+        if by == "rebalance":
+            return trading.rebalance_turnover(trades, self.run.nav, self.run.initial_capital)
+        if by == "year":
+            return trading.yearly_turnover(trades, self.run.nav)
+
+        raise ValueError(f"Unknown turnover by {by!r}. Known: day, rebalance, year.")
+
+    def trading_by_reason(self) -> pd.DataFrame:
+        """The fund's trading by why it was made, a row a reason."""
+        return trading.by_reason(self.run.tables[TRADES])
 
     def _memberships(self,
                      field: str) -> dict[pd.Timestamp, pd.Series]:
