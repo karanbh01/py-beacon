@@ -14,7 +14,7 @@ these.
 import pandas as pd
 
 from ..data import BENCHMARK, INDEX, OPTIMISED, RunData
-from . import formulas
+from . import formulas, return_figures
 from .comparisons import Comparison, Period, comparison_of, periods_of
 from .settings import AnalysisSettings
 
@@ -157,6 +157,59 @@ class PerformanceAnalytics:
 
         return periods_of(self.returns, frequency, self.periods_per_year, self.risk_free_rate,
                           theirs)
+
+    def trailing_returns(self) -> dict[str, return_figures.WindowReturn | None]:
+        """The returns over the last 1, 3 and 6 months and 1, 3, 5 and 10
+        years, for the month, quarter and year to date, and since inception,
+        by name (``1M`` ... ``10Y``, ``MTD``, ``QTD``, ``YTD``,
+        ``inception``). Each is annualised as well when it is longer than a
+        year. None for a window longer than the run.
+
+        Since inception is the headline's total and annualised return, so
+        over the whole run it starts from what the fund started with.
+        """
+        returns = self.returns
+        figures = return_figures.trailing_returns(returns, self.periods_per_year)
+        figures.update(return_figures.returns_to_date(returns, self.periods_per_year))
+        headline = self.headline()
+        figures["inception"] = (None if returns.empty else return_figures.WindowReturn(
+            start=returns.index[0], end=returns.index[-1], days=len(returns),
+            total=headline["total_return"],
+            annualised=(headline["annualised_return"]
+                        if return_figures.longer_than_a_year(returns.index[0], returns.index[-1])
+                        else None)))
+
+        return figures
+
+    def best_and_worst(self) -> dict[str, tuple[return_figures.PeriodReturn,
+                                                return_figures.PeriodReturn] | None]:
+        """The best and worst day, week, month, quarter and year, by
+        frequency (``daily`` ... ``annual``), with their dates and whether
+        the run covered all of each."""
+        return {frequency: return_figures.best_and_worst(self.returns, frequency)
+                for frequency in return_figures.EXTREMES}
+
+    def positive_shares(self) -> dict[str, float | None]:
+        """The share of days, months and years with a positive return, by
+        frequency."""
+        return {frequency: return_figures.positive_share(self.returns, frequency)
+                for frequency in (return_figures.DAILY, formulas.MONTHLY, formulas.ANNUAL)}
+
+    def gains_and_losses(self,
+                         frequency: str = return_figures.DAILY) -> return_figures.GainsAndLosses:
+        """The average gain and loss over days (or months, ...), and their
+        ratio."""
+        return return_figures.gains_and_losses(self.returns, frequency)
+
+    def longest_streaks(self) -> tuple[return_figures.Streak | None,
+                                       return_figures.Streak | None]:
+        """The longest run of months that all gained, and of months that all
+        lost."""
+        return return_figures.longest_streaks(self.returns)
+
+    def means(self) -> dict[str, float | None]:
+        """The arithmetic and geometric mean daily return, and each a year."""
+        return return_figures.means(self.returns, self.periods_per_year)
 
     def summary(self) -> dict[str, float | None]:
         """The headline figures, the monthly hit rate, and, when the run has
