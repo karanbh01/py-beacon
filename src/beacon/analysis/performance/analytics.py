@@ -17,7 +17,7 @@ import pandas as pd
 
 from ..data import BENCHMARK, INDEX, OPTIMISED, RunData
 from . import distribution as shape
-from . import formulas, ratios, return_figures
+from . import formulas, ratios, return_figures, tables
 from . import rolling as moving
 from .comparisons import Comparison, Period, aligned, comparison_of, periods_of
 from .drawdowns import WORST, DrawdownFigures, drawdown_figures, episodes
@@ -341,6 +341,57 @@ class PerformanceAnalytics:
         figures = self.rolling(window, comparator)
 
         return moving.outcomes(figures["return"], figures.get("relative_return"))
+
+    def monthly_grid(self,
+                     of: str = tables.FUND) -> pd.DataFrame:
+        """The calendar grid of monthly returns, a row a year, with each
+        year's: of the fund, of a comparator by name, or of the fund less a
+        comparator (``difference index``).
+
+        Raises:
+            KeyError: If the run has no such comparator.
+        """
+        if of == tables.FUND:
+            return tables.monthly_grid(self.returns)
+
+        name = of.removeprefix(f"{tables.DIFFERENCE} ")
+        ours, theirs = tables.comparator_returns(self.returns,
+                                                 {name: self.run.comparators[name]})[name]
+
+        return (tables.difference_grid(ours, theirs) if of != name
+                else tables.monthly_grid(theirs))
+
+    def period_table(self,
+                     frequency: str = formulas.ANNUAL) -> pd.DataFrame:
+        """Each year's (or quarter's, month's) return, volatility, Sharpe
+        ratio and maximum drawdown for the fund, with its share of positive
+        days, for its index and benchmark, and the fund's less each's."""
+        comparators = {name: formulas.returns_from_start(self.run.comparators[name])
+                       for name in (INDEX, BENCHMARK) if name in self.run.comparators}
+
+        return tables.period_table(self.returns, frequency, self.periods_per_year,
+                                   self.risk_free_rate, comparators)
+
+    def trailing_table(self) -> pd.DataFrame:
+        """The trailing returns (`trailing_returns`) of the fund, its index
+        and benchmark and the fund's less each's, a row a window."""
+        comparators = {}
+
+        for name, (_, theirs) in tables.comparator_returns(self.returns, {
+                name: self.run.comparators[name] for name in (INDEX, BENCHMARK)
+                if name in self.run.comparators}).items():
+            trailing = return_figures.trailing_returns(theirs, self.periods_per_year)
+            trailing.update(return_figures.returns_to_date(theirs, self.periods_per_year))
+            trailing["inception"] = return_figures.window_return(
+                theirs, theirs.index[0], self.periods_per_year,
+                annualise=return_figures.longer_than_a_year(theirs.index[0], theirs.index[-1]))
+            comparators[name] = trailing
+
+        return tables.trailing_table(self.trailing_returns(), comparators)
+
+    def month_of_year(self) -> pd.Series:
+        """The fund's mean return in each calendar month over the years."""
+        return tables.month_of_year(self.returns)
 
     def summary(self) -> dict[str, float | None]:
         """The headline figures, the monthly hit rate, and, when the run has
