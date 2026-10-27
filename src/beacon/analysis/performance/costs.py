@@ -11,10 +11,10 @@ the net cost is the costs less the fees.
 # BN-384. As agreed with Karan on 2026-10-27.
 import pandas as pd
 
-from ...backtest.breakdown import CREATION_FEES, FIXED, FUTURES_ROLLS, IMPACT
+from ...backtest.breakdown import CREATION_FEES, FIXED, FUTURES_ROLLS, FUTURES_TRADING, IMPACT
 
 # The rows of a cost table: what the fund paid, what it received, the net.
-PAID = (FIXED, IMPACT, FUTURES_ROLLS)
+PAID = (FIXED, IMPACT, FUTURES_ROLLS, FUTURES_TRADING)
 RECEIVED = "creation_fees_received"
 NET = "net"
 ROWS = (*PAID, RECEIVED, NET)
@@ -24,7 +24,8 @@ BASIS_POINTS = 10_000.0
 
 def _kinds(costs: pd.DataFrame) -> pd.DataFrame:
     """The daily costs as the table's rows: paid, received and net."""
-    found = costs[list(PAID)].astype(float).copy()
+    # A run stored before futures trading was costed (BN-409) has no column.
+    found = costs.reindex(columns=list(PAID), fill_value=0.0).astype(float)
     found[RECEIVED] = costs[CREATION_FEES].astype(float)
     found[NET] = found[list(PAID)].sum(axis=1) - found[RECEIVED]
 

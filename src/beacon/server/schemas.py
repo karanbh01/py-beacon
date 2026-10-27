@@ -3409,7 +3409,8 @@ class StrategySpec(BaseModel):
 
 # The settings `equitise` takes, by type (BN-358). Published as a closed set
 # of keys, so a client is told what is accepted rather than finding out.
-EQUITISE_NUMBERS = ("roll_days", "roll_cost_bps", "dividend_yield", "multiplier", "band")
+EQUITISE_NUMBERS = ("roll_days", "roll_cost_bps", "dividend_yield", "multiplier", "band",
+                    "cost_per_contract", "trading_cost_bps")
 EQUITISE_FLAGS = ("whole_contracts",)
 EquitiseSettings = Annotated[
     dict[str, Number | bool | None],
@@ -3471,9 +3472,12 @@ class ImplementationSpec(BaseModel):
                     "earns the index's return: `roll_days`, `roll_cost_bps`, "
                     "`dividend_yield` (null to estimate it), `multiplier` (the value "
                     "of an index point per contract, 50 by default), "
-                    "`whole_contracts` (true by default) and `band` (how far the "
+                    "`whole_contracts` (true by default), `band` (how far the "
                     "exposure may drift from the cash before the futures are resized, "
-                    "as a share of the net assets; 0.0025 by default). Null leaves the "
+                    "as a share of the net assets; 0.0025 by default), "
+                    "`cost_per_contract` (each contract traded, in the book's currency) "
+                    "and `trading_cost_bps` (on the notional of each trade between rolls). "
+                    "Null leaves the "
                     "cash as cash.")
     # BN-358.
     cash_band: CashBandSpec | None = Field(

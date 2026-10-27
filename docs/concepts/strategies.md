@@ -166,9 +166,15 @@ yield, less the cost of rolling.
   nearest a whole number of contracts comes; `whole_contracts=False` holds
   fractional ones that carry exactly the target. Initial margin is not
   modelled, since it is the fund's own cash.
+- **Trading costs.** Every trade pays `cost_per_contract` on each contract it
+  trades, a roll trading two (the old contract sold and the new one bought).
+  Each trade between rolls (opening the position and each resize) also pays
+  `trading_cost_bps` on the notional it trades. Both are 0 by default.
 
 `result.futures_notional`, `result.futures_rolls` and
-`result.futures_exposure` record the position. The same futures can
+`result.futures_exposure` record the position; `result.futures_trades` holds
+each trade with what it cost, and `result.futures_days` each day's contracts,
+price, fair value and index level. The same futures can
 equitise a physical fund's cash buffer: `Implementation(cash_buffer=0.03,
 equitise=IndexFutures())`.
 

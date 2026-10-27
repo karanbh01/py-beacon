@@ -31,6 +31,7 @@ the front door works on the core install exactly as it does on a full one.
 # walk-forward mode, not built here. Optimised runs are BN-167; `beacon.optimise`
 # has imported scipy-free since BN-166.
 import copy
+import dataclasses
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal
@@ -433,9 +434,10 @@ class Backtest:
         dividends, whose level already counts them; as given otherwise."""
         reinvesting = getattr(definition, "return_type", None) in REINVESTING
 
+        # BN-409: replaced, so every other term is kept (only the roll days
+        # and roll cost were before).
         if futures.dividend_yield is None and reinvesting:
-            return IndexFutures(roll_days=futures.roll_days,
-                                roll_cost_bps=futures.roll_cost_bps, dividend_yield=0.0)
+            return dataclasses.replace(futures, dividend_yield=0.0)
 
         return futures
 

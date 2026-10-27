@@ -21,6 +21,10 @@ in or out, and on any other day its exposure has drifted from the target by
 more than the band: the fund's net assets for a futures-based fund, its
 uninvested cash for one equitising. Each contract is worth its price times
 the multiplier, and the contracts are whole unless the terms say otherwise.
+
+Every trade is recorded with what it cost: per contract, and in basis points
+of its notional between rolls (see `beacon.strategy.futures`); so is each
+day's position, its price and the fair value it was priced from.
 """
 # BN-305. Variation margin rather than a valued position: the cash already
 # moves with the futures, so the NAV needs no second term (unlike the swap of
@@ -74,6 +78,61 @@ class FuturesRoll:
     multiplier: float = 1.0
 
 
+# BN-409: why a futures trade was made.
+OPEN = "open"
+ROLL = "roll"
+RESIZE = "resize"
+
+
+@dataclass(frozen=True)
+class FuturesTrade:
+    """One trade of a fund's index futures.
+
+    Attributes:
+        date: The day.
+        reason: ``open``, ``roll`` (the old contract sold and the next
+            bought) or ``resize`` (the position brought back to its target).
+        before: The contracts held before.
+        after: The contracts held after.
+        traded: The contracts traded: for a roll both legs, the old contracts
+            and the new.
+        price: The price of the contract held after.
+        notional: The notional traded: the contracts traded times the price
+            times the multiplier.
+        cost: What the trade cost, paid from cash: for a roll, the roll cost
+            and the cost per contract.
+    """
+    date: pd.Timestamp
+    reason: str
+    before: float
+    after: float
+    traded: float
+    price: float
+    notional: float
+    cost: float
+
+
+def futures_trades_frame(trades: list[FuturesTrade]) -> pd.DataFrame:
+    """The trades as a frame indexed by date."""
+    columns = [name for name in FuturesTrade.__dataclass_fields__ if name != "date"]
+
+    if not trades:
+        return pd.DataFrame(columns=columns, index=pd.DatetimeIndex([], name="date"))
+
+    return pd.DataFrame([trade.__dict__ for trade in trades]).set_index("date")[columns]
+
+
+def futures_days_frame(days: dict[pd.Timestamp, dict[str, float]]) -> pd.DataFrame:
+    """Each day's position as a frame indexed by date."""
+    frame = pd.DataFrame.from_dict(days, orient="index",
+                                   columns=["contracts", "price", "fair_value", "level",
+                                            "expiry"])
+    frame["expiry"] = pd.to_datetime(frame["expiry"])
+    frame.index = pd.DatetimeIndex(frame.index, name="date")
+
+    return frame
+
+
 class FuturesMixin:
     """Marks, rolls and sizes a fund's index futures."""
 
@@ -118,6 +177,8 @@ class FuturesMixin:
         self._expiry = pd.Timestamp(self.start_date)
         self._futures_notional: dict[pd.Timestamp, float] = {}
         self._futures_rolls: list[FuturesRoll] = []
+        self._futures_trades: list[FuturesTrade] = []
+        self._futures_days: dict[pd.Timestamp, dict[str, float]] = {}
         self._expiries = expiries(self.start_date, self.end_date)
         self._futures_levels = self.index_result.index_levels.sort_index()
 
@@ -145,8 +206,10 @@ class FuturesMixin:
             return
 
         rolling = self._futures_open and date >= self._roll_date(self._expiry, terms)
+        opening = not self._futures_open
+        before = self._contracts
 
-        if not self._futures_open or rolling:
+        if opening or rolling:
             self._expiry = next(expiry for expiry in self._expiries
                                 if self._roll_date(expiry, terms) > date)
             self._futures_yield = self._dividend_yield(terms, date)
@@ -169,6 +232,21 @@ class FuturesMixin:
             self._contracts = terms.contracts(self._futures_target(portfolio),
                                               self._futures_price)
 
+        traded = before + self._contracts if rolling else abs(self._contracts - before)
+
+        if traded > 0.0:
+            trading = terms.trade_cost(traded, self._futures_price, rolling)
+
+            if trading > 0.0:
+                self._settle_margin(portfolio, -trading, date)
+
+            cost += trading
+            self._futures_trades.append(FuturesTrade(
+                date=date, reason=ROLL if rolling else OPEN if opening else RESIZE,
+                before=before, after=self._contracts, traded=traded,
+                price=self._futures_price,
+                notional=traded * self._futures_price * terms.multiplier, cost=cost))
+
         if rolling:
             notional = self._contracts * self._futures_price * terms.multiplier
             self._futures_rolls.append(FuturesRoll(date=date, expiry=self._expiry,
@@ -186,6 +264,13 @@ class FuturesMixin:
         if self._futures_terms is not None:
             self._futures_notional[date] = (self._contracts * self._futures_price
                                             * self._multiplier)
+
+        if self._futures_open:
+            self._futures_days[date] = {
+                "contracts": self._contracts, "price": self._futures_price,
+                "fair_value": self._fair_value(date, self._expiry),
+                "level": float(self._futures_levels.asof(date)),
+                "expiry": self._expiry.value}
 
     @property
     def _multiplier(self) -> float:

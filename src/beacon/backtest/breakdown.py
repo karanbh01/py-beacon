@@ -27,14 +27,17 @@ from ..portfolio.cash_flows import (
     SUBSCRIPTION,
     SWAP,
 )
+from .futures import ROLL
 from .result import BacktestResult
 
 # The columns of `daily_costs`.
 FIXED = "fixed"
 IMPACT = "impact"
 FUTURES_ROLLS = "futures_rolls"
+# BN-409.
+FUTURES_TRADING = "futures_trading"
 CREATION_FEES = "creation_fees"
-COST_KINDS = (FIXED, IMPACT, FUTURES_ROLLS, CREATION_FEES)
+COST_KINDS = (FIXED, IMPACT, FUTURES_ROLLS, FUTURES_TRADING, CREATION_FEES)
 
 # The columns of `daily_cash`: balances at the end of each day, cash that
 # moved, and what was charged or owed without cash moving.
@@ -56,7 +59,9 @@ def daily_costs(result: BacktestResult) -> pd.DataFrame:
       paid them.
     - ``impact``: the market impact trades paid, when the run models it.
     - ``futures_rolls``: what rolling index futures to the next contract
-      cost.
+      cost: the roll cost and the cost per contract of both legs.
+    - ``futures_trading``: what trading them between rolls cost: opening the
+      position and each resize.
     - ``creation_fees``: what investors dealing in or out paid into the fund
       toward the trading their flow caused, through the dealing price or a
       levy (an ETF's creation fee among them). Received by the fund, so it
@@ -70,6 +75,7 @@ def daily_costs(result: BacktestResult) -> pd.DataFrame:
         where nothing of a kind happened.
     """
     trades = result.portfolio.transactions
+    between = [trade for trade in result.futures_trades if trade.reason != ROLL]
     costs = pd.Series([trade.transaction_cost for trade in trades], dtype=float)
     impact = pd.Series([trade.impact_cost for trade in trades], dtype=float)
     trade_days = [trade.transaction_date for trade in trades]
@@ -79,6 +85,8 @@ def daily_costs(result: BacktestResult) -> pd.DataFrame:
         IMPACT: _by_day(trade_days, impact),
         FUTURES_ROLLS: _by_day([roll.date for roll in result.futures_rolls],
                                [roll.cost for roll in result.futures_rolls]),
+        FUTURES_TRADING: _by_day([trade.date for trade in between],
+                                 [trade.cost for trade in between]),
         CREATION_FEES: _by_day([flow.date for flow in result.flows],
                                [flow.adjustment for flow in result.flows]),
     }

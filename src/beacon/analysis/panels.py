@@ -28,6 +28,7 @@ from typing import Any
 import pandas as pd
 
 from ..backtest.breakdown import daily_cash, daily_costs, trades
+from ..backtest.futures import futures_trades_frame
 from ..backtest.result import BacktestResult
 from ..data.prices import PRICE_COLUMN, converted
 from ..data.returns import name_returns
@@ -87,6 +88,10 @@ MARKET = "market"
 # Each time the cash left its band and was brought back (BN-407).
 CASH_BAND_EVENTS = "cash_band_events"
 
+# A fund's index futures: each trade, and each day held (BN-409).
+FUTURES_TRADES = "futures_trades"
+FUTURES_DAYS = "futures_days"
+
 # The market inputs the name returns are worked out from (BN-403).
 CLOSES = "closes"
 CURRENCIES = "currencies"
@@ -125,6 +130,9 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
         - ``class_days``, ``class_flows`` and ``class_hedges``: for a run
           with share classes, each class's days, flows and hedge trades, as
           `beacon.analysis.class_panels.class_tables` gives them.
+        - ``futures_trades`` and ``futures_days``: for a fund holding index
+          futures, each trade of them with its cost, and each day's position,
+          price, fair value and index level.
         - ``trades``: every trade, why it was made and its tags, as
           `beacon.backtest.breakdown.trades` gives them.
         - ``costs``: what the run cost each day, by kind, as
@@ -159,6 +167,9 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
     if not result.cash_band_events.empty:
         panels[CASH_BAND_EVENTS] = result.cash_band_events
     panels.update(class_tables(result))
+    if result.futures_trades:
+        panels[FUTURES_TRADES] = futures_trades_frame(result.futures_trades)
+        panels[FUTURES_DAYS] = result.futures_days
     comparators = {INDEX_WEIGHTS: result.index.target, OPTIMISED_WEIGHTS: result.index.optimised,
                    BENCHMARK_WEIGHTS: result.benchmark}
 

@@ -92,6 +92,13 @@ IMPLEMENTATION_DISPLAYS = {
     "equitise.whole_contracts": Display("Whole futures contracts"),
     "equitise.band": Display("Resize futures when exposure drifts by", unit=FRACTION,
                              minimum=0.0, maximum=1.0, help="A share of the net assets."),
+    # BN-409.
+    "equitise.cost_per_contract": Display("Cost per futures contract", unit=MONEY,
+                                          minimum=0.0,
+                                          help="Each contract traded, in the book's currency."),
+    "equitise.trading_cost_bps": Display("Cost of trading futures between rolls", unit=BPS,
+                                         minimum=0.0,
+                                         help="On the notional each trade between rolls deals."),
 }
 
 # BN-314.

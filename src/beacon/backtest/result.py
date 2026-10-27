@@ -65,7 +65,7 @@ from ..strategy.tracking import ReplicationStep
 from .asset_view import BacktestAssetView
 from .books import Book, IndexBooks
 from .flows import FlowRecord
-from .futures import FuturesRoll
+from .futures import FuturesRoll, FuturesTrade
 from .implementation import RebalanceStep
 from .metrics import MetricsMixin
 from .share_classes import ShareClassBook
@@ -195,6 +195,12 @@ class BacktestResult(MetricsMixin):
         futures_rolls: Each roll of those futures to the next contract: the
             day, the new expiry, the notional, the cost and the dividend
             yield it was priced with.
+        futures_trades: Each trade of those futures: opened, rolled or
+            resized, the contracts before, after and traded, the price, the
+            notional traded and the cost.
+        futures_days: Each day the futures were held: the contracts, their
+            price, the fair value it was priced from, the level of the index
+            they are on and their expiry. Empty for any other fund.
         cash_band_events: For a fund with a cash band, each time its cash
             left the band and was brought back, by date: whether it was a
             raise or a spend-down, the cash's share of the fund before and
@@ -242,6 +248,8 @@ class BacktestResult(MetricsMixin):
     futures_notional: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     futures_rolls: list[FuturesRoll] = field(default_factory=list)
     cash_band_events: pd.DataFrame = field(default_factory=pd.DataFrame)
+    futures_trades: list[FuturesTrade] = field(default_factory=list)
+    futures_days: pd.DataFrame = field(default_factory=pd.DataFrame)
     hedge_value: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     dividends_receivable: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     dividends_entitled: pd.DataFrame = field(

@@ -22,6 +22,11 @@ September and December, and the position rolls to the next one *roll_days*
 sessions before expiry, paying *roll_cost_bps* on its notional each time:
 the richness that real rolls pay over fair value.
 
+**Trading costs.** Every futures trade pays *cost_per_contract* on each
+contract it trades (a roll trades two: the old contract sold and the new one
+bought), and each trade between rolls (opening the position and each resize)
+pays *trading_cost_bps* on the notional it trades as well.
+
 **The dividend yield.** A total return or net total return index already
 counts its dividends, so its futures carry none. A price index's are
 estimated at each roll from its constituents' dividends over the trailing
@@ -49,7 +54,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from ..catalogue import COUNT, FRACTION, MONEY, REPLICATION, Display, register
+from ..catalogue import BPS, COUNT, FRACTION, MONEY, REPLICATION, Display, register
 from .base import StrategyContext
 from .tracking import Replication, ReplicationStep
 
@@ -86,6 +91,10 @@ class IndexFutures:
         band: How far the exposure may drift from its target, as a share of
             the net assets, before the position is resized between
             rebalances.
+        cost_per_contract: What each contract traded costs, in the book's
+            currency: commission and fees.
+        trading_cost_bps: What a trade between rolls costs, in basis points
+            of the notional it trades: the spread paid.
     """
     roll_days: int = DEFAULT_ROLL_DAYS
     roll_cost_bps: float = 0.0
@@ -94,6 +103,9 @@ class IndexFutures:
     multiplier: float = DEFAULT_MULTIPLIER
     whole_contracts: bool = True
     band: float = DEFAULT_BAND
+    # BN-409: decided with Karan on 2026-10-27.
+    cost_per_contract: float = 0.0
+    trading_cost_bps: float = 0.0
 
     def __post_init__(self) -> None:
         if self.roll_days < 0 or self.roll_days != int(self.roll_days):
@@ -122,6 +134,26 @@ class IndexFutures:
             raise ValueError(f"band is a share of the net assets from 0 up to 1, "
                              f"got {self.band!r}.")
 
+        for name in ("cost_per_contract", "trading_cost_bps"):
+            value = getattr(self, name)
+
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be zero or more, got {value!r}.")
+
+    def trade_cost(self,
+                   contracts: float,
+                   price: float,
+                   rolling: bool = False) -> float:
+        """What trading *contracts* at *price* costs: per contract, and in
+        basis points of the notional for a trade between rolls."""
+        traded = abs(contracts)
+        cost = traded * self.cost_per_contract
+
+        if not rolling:
+            cost += traded * price * self.multiplier * self.trading_cost_bps / 10_000.0
+
+        return float(cost)
+
     def contracts(self,
                   target: float,
                   price: float) -> float:
@@ -147,6 +179,10 @@ class IndexFutures:
     "whole_contracts": Display("Whole contracts"),
     "band": Display("Resize when exposure drifts by", unit=FRACTION, minimum=0.0,
                     maximum=1.0, help="A share of the net assets."),
+    "cost_per_contract": Display("Cost per contract", unit=MONEY, minimum=0.0,
+                                 help="Each contract traded, in the book's currency."),
+    "trading_cost_bps": Display("Cost of trading between rolls", unit=BPS, minimum=0.0,
+                                help="On the notional each trade between rolls deals."),
 })
 class FuturesReplication(Replication):
     """Cash, with the index held through rolled futures.
@@ -160,6 +196,9 @@ class FuturesReplication(Replication):
         whole_contracts: Hold a whole number of contracts, or fractional ones.
         band: How far the exposure may drift before it is resized between
             rebalances, as a share of the net assets.
+        cost_per_contract: What each contract traded costs.
+        trading_cost_bps: What a trade between rolls costs, in basis points
+            of the notional it trades.
 
     Raises:
         ValueError: If a setting is out of range.
@@ -171,10 +210,14 @@ class FuturesReplication(Replication):
                  dividend_yield: float | None = None,
                  multiplier: float = DEFAULT_MULTIPLIER,
                  whole_contracts: bool = True,
-                 band: float = DEFAULT_BAND):
+                 band: float = DEFAULT_BAND,
+                 cost_per_contract: float = 0.0,
+                 trading_cost_bps: float = 0.0):
         self.futures = IndexFutures(roll_days=roll_days, roll_cost_bps=roll_cost_bps,
                                     dividend_yield=dividend_yield, multiplier=multiplier,
-                                    whole_contracts=whole_contracts, band=band)
+                                    whole_contracts=whole_contracts, band=band,
+                                    cost_per_contract=cost_per_contract,
+                                    trading_cost_bps=trading_cost_bps)
 
     @property
     def roll_days(self) -> int:
@@ -206,6 +249,16 @@ class FuturesReplication(Replication):
         """How far the exposure may drift before it is resized."""
         return self.futures.band
 
+    @property
+    def cost_per_contract(self) -> float:
+        """What each contract traded costs."""
+        return self.futures.cost_per_contract
+
+    @property
+    def trading_cost_bps(self) -> float:
+        """What a trade between rolls costs, in basis points of its notional."""
+        return self.futures.trading_cost_bps
+
     def replicate(self,
                   target: dict[str, float],
                   date: pd.Timestamp,
@@ -219,7 +272,9 @@ class FuturesReplication(Replication):
                 f"roll_cost_bps={self.roll_cost_bps!r}, "
                 f"dividend_yield={self.dividend_yield!r}, "
                 f"multiplier={self.multiplier!r}, "
-                f"whole_contracts={self.whole_contracts!r}, band={self.band!r})")
+                f"whole_contracts={self.whole_contracts!r}, band={self.band!r}, "
+                f"cost_per_contract={self.cost_per_contract!r}, "
+                f"trading_cost_bps={self.trading_cost_bps!r})")
 
 
 def expiries(start: pd.Timestamp,

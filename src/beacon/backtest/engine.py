@@ -40,7 +40,7 @@ from .dividends import (
 from .etf import Quote, quotes_frame
 from .execution import ExecutionMixin
 from .flows import FlowRecord, Flows
-from .futures import FuturesMixin
+from .futures import FuturesMixin, futures_days_frame
 from .hedging import HedgingMixin
 from .implementation import STALE, TOO_SMALL, Implementation, RebalanceStep, plan
 from .listings import ListingsMixin
@@ -748,6 +748,8 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             futures_notional=pd.Series(self._futures_notional, dtype=float),
             futures_rolls=list(self._futures_rolls),
             cash_band_events=band_events_frame(self._band_events),
+            futures_trades=list(self._futures_trades),
+            futures_days=futures_days_frame(self._futures_days),
             hedge_value=pd.Series(self._hedge_history, dtype=float),
             dividends_receivable=pd.Series(self._receivable_history, dtype=float),
             dividends_entitled=entitled_frame(self._entitled_history),

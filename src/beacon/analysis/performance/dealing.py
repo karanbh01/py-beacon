@@ -174,7 +174,8 @@ def _trading_by_class(flows: pd.DataFrame,
     flow; the rest by each's share of the assets at the close before."""
     days = pd.DatetimeIndex(trades.index).normalize()
     total = trades["COST"].astype(float).groupby(days).sum()
-    total = total.add(costs["futures_rolls"].astype(float), fill_value=0.0)
+    futures = costs.reindex(columns=["futures_rolls", "futures_trading"], fill_value=0.0)
+    total = total.add(futures.astype(float).sum(axis=1), fill_value=0.0)
     caused = flow_costs(trades, cash, costs)["trading_cost"]
 
     sizes = _flows_in_book(flows, rate, "AMOUNT").abs()
