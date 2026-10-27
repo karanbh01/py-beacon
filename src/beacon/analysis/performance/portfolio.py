@@ -18,8 +18,8 @@ import pandas as pd
 
 from ...data.base import as_of_position
 from ..data import BENCHMARK, INDEX, RunData
-from ..panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, INDEX_WEIGHTS, REFERENCE, TRADES
-from . import trading
+from ..panels import BENCHMARK_WEIGHTS, COSTS, FUND_WEIGHTS, INDEX_WEIGHTS, REFERENCE, TRADES
+from . import costs, trading
 
 # The books, by name, and the tables their daily weights are in.
 FUND = "fund"
@@ -141,6 +141,33 @@ class PortfolioAnalytics:
     def trading_by_reason(self) -> pd.DataFrame:
         """The fund's trading by why it was made, a row a reason."""
         return trading.by_reason(self.run.tables[TRADES])
+
+    def costs(self,
+              by: str = "run") -> pd.DataFrame:
+        """The fund's costs by kind (fixed, impact, futures rolls), the
+        creation fees it received and the net: over the run (``run``), with
+        each in basis points of its mean NAV a year, or each year
+        (``year``), with the net in basis points of the year's mean NAV.
+
+        Raises:
+            ValueError: If *by* is neither.
+        """
+        table = self.run.tables[COSTS]
+
+        if by == "run":
+            return costs.cost_summary(table, self.run.nav, self.run.periods_per_year)
+        if by == "year":
+            return costs.yearly_costs(table, self.run.nav)
+
+        raise ValueError(f"Unknown costs by {by!r}. Known: run, year.")
+
+    def cost_per_traded(self) -> dict[str, float | None]:
+        """The trading costs in basis points of the value traded."""
+        return costs.per_traded(self.run.tables[TRADES])
+
+    def costs_by_reason(self) -> pd.DataFrame:
+        """The trading costs by why the trade was made."""
+        return costs.by_reason(self.run.tables[TRADES])
 
     def _memberships(self,
                      field: str) -> dict[pd.Timestamp, pd.Series]:
