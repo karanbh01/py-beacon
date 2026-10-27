@@ -27,7 +27,7 @@ from typing import Any
 
 import pandas as pd
 
-from ..backtest.breakdown import daily_cash, daily_costs
+from ..backtest.breakdown import daily_cash, daily_costs, trades
 from ..backtest.result import BacktestResult
 from ..data.prices import PRICE_COLUMN, converted
 from ..data.returns import name_returns
@@ -77,6 +77,9 @@ BENCHMARK_WEIGHTS = "benchmark_weights"
 REFERENCE = "reference"
 CHARACTERISTICS = "characteristics"
 TRADED_VALUES = "traded_values"
+# The run's trades, each with why it was made (BN-406).
+TRADES = "trades"
+
 # The market inputs the name returns are worked out from (BN-403).
 CLOSES = "closes"
 CURRENCIES = "currencies"
@@ -107,6 +110,8 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
           `beacon.data.returns.name_returns` measures it. Left out, with a
           warning, when the run kept no data to read them from or they cannot
           be measured (a currency with no rate into the book's).
+        - ``trades``: every trade, why it was made and its tags, as
+          `beacon.backtest.breakdown.trades` gives them.
         - ``costs``: what the run cost each day, by kind, as
           `beacon.backtest.breakdown.daily_costs` gives it.
         - ``cash``: its cash, income, fees and flows each day, as
@@ -131,7 +136,8 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
           (`beacon.analysis.snapshots.traded_value_snapshots`).
     """
     weights = result.portfolio.weights
-    panels = {FUND_WEIGHTS: weights, COSTS: daily_costs(result), CASH: daily_cash(result)}
+    panels = {FUND_WEIGHTS: weights, COSTS: daily_costs(result), CASH: daily_cash(result),
+              TRADES: trades(result)}
     comparators = {INDEX_WEIGHTS: result.index.target, OPTIMISED_WEIGHTS: result.index.optimised,
                    BENCHMARK_WEIGHTS: result.benchmark}
 

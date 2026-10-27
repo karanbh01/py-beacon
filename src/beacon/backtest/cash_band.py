@@ -16,6 +16,7 @@ the cash waits for the next rebalance, as it always has.
 # rebalance while the index reinvested it at once.
 import pandas as pd
 
+from ..portfolio import reasons
 from ..portfolio.base import Portfolio
 from .implementation import Implementation
 
@@ -76,9 +77,10 @@ class CashBandMixin:
 
         if share > upper:
             # Invests what is above the target, as money arriving is.
-            self._invest_inflow(portfolio, date)
+            with portfolio.trading(reasons.CASH_SPEND_DOWN):
+                self._invest_inflow(portfolio, date)
         else:
-            with portfolio.batch():
+            with portfolio.batch(), portfolio.trading(reasons.CASH_RAISE):
                 self._sell_pro_rata(portfolio, self.implementation.cash_buffer * net - cash,
                                     date)
 

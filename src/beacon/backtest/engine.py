@@ -13,6 +13,7 @@ from ..data.fetcher import DataFetcher
 from ..index.requirements import require_price_column
 from ..index.result import IndexResult, PriceGap
 from ..index.schedule import SESSION_UNIT, sessions
+from ..portfolio import reasons
 from ..portfolio.base import CASH_TOLERANCE as PORTFOLIO_CASH_TOLERANCE
 
 # TradeInstruction lives with the ledger that accepts it (BN-151). Imported
@@ -41,7 +42,7 @@ from .execution import ExecutionMixin
 from .flows import FlowRecord, Flows
 from .futures import FuturesMixin
 from .hedging import HedgingMixin
-from .implementation import Implementation, RebalanceStep, plan
+from .implementation import TOO_SMALL, Implementation, RebalanceStep, plan
 from .listings import ListingsMixin
 from .pricing import PricingMixin
 from .result import BacktestResult, RebalancePricing, UnfilledOrder
@@ -67,6 +68,10 @@ CASH_TOLERANCE = PORTFOLIO_CASH_TOLERANCE
 MIN_TRADE_VALUE = 0.01
 
 logger = logging.getLogger(__name__)
+
+# The tag a rebalance trade carries for the screen that took its name out
+# (BN-406); any other screen excludes by rule.
+SCREEN_REASONS = {"LiquidityScreen": reasons.LIQUIDITY, TOO_SMALL: reasons.POSITION_LIMIT}
 
 
 # The IndexResult has been the sole schedule source since BN-165, when the raw
@@ -170,6 +175,9 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             Friday, and a missing bar is judged against the data's own
             sessions (a day the store has bars for is treated as open), which
             is all a caller assembling an engine by hand can offer.
+        rebalance_tags: Tags every rebalance trade carries beyond its
+            reason, as `beacon.portfolio.reasons` names them: an active
+            strategy's are model-driven.
     """
 
     def __init__(self,
@@ -194,7 +202,8 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
                  swap: SwapTerms | None = None,
                  futures: IndexFutures | None = None,
                  share_classes: Sequence[ShareClass] | None = None,
-                 reinvest_into: str = PAYER):
+                 reinvest_into: str = PAYER,
+                 rebalance_tags: tuple[str, ...] = ()):
         self.start_date: pd.Timestamp = pd.Timestamp(start_date)
         self.end_date: pd.Timestamp = pd.Timestamp(end_date)
 
@@ -267,6 +276,8 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
                              f"Supported: {', '.join(REINVESTMENT_TARGETS)}.")
 
         self.reinvest_into: str = reinvest_into
+        # BN-406.
+        self.rebalance_tags: tuple[str, ...] = tuple(rebalance_tags)
         refuse_screens_as_modifiers(self.modifiers)
 
         # BN-267: flows are their own part of the run; the vehicle carries
@@ -542,7 +553,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             # received on the pay date (BN-263).
             self._record_entitlements(portfolio, previous, date)
             # Each run of same-day changes records the books once (BN-344).
-            with portfolio.batch():
+            with portfolio.batch(), portfolio.trading(reasons.DIVIDEND_REINVESTMENT):
                 self._pay_dividends(portfolio, date)
 
             last, previous = previous, date
@@ -564,7 +575,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             # happen before the rebalance, because a delisted holding cannot
             # be sold by the ordinary path -- that path needs a price, and
             # there is not one.
-            with portfolio.batch():
+            with portfolio.batch(), portfolio.trading(reasons.CORPORATE_ACTION):
                 self._dispose_delisted(portfolio, date, delistings)
 
             # 1c. Flows, dealt at today's NAV per unit before anything is
@@ -605,7 +616,9 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
                 self._warm_holdings(sorted(set(portfolio.holdings) | set(target_w)),
                                     date)
 
-                with portfolio.batch():
+                with portfolio.batch(), portfolio.trading(reasons.REBALANCE,
+                                                          self._rebalance_reasons(date),
+                                                          self.rebalance_tags):
                     unfilled.extend(self._rebalance(portfolio, target_w, date))
                 # Re-price after rebalance
                 self._update_portfolio_prices(portfolio, date)
@@ -614,9 +627,12 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
                 # rebalances, and orders an execution limit left working
                 # (BN-266, BN-267, BN-270).
                 if inflow > 0.0 or settled > 0.0:
-                    self._invest_inflow(portfolio, date)
+                    with portfolio.trading(reasons.SUBSCRIPTION if inflow > 0.0
+                                           else reasons.SETTLEMENT):
+                        self._invest_inflow(portfolio, date)
 
-                self._work_orders(portfolio, date)
+                with portfolio.trading(reasons.COMPLETION):
+                    self._work_orders(portfolio, date)
                 self._update_portfolio_prices(portfolio, date)
 
             if reset is not None:
@@ -669,6 +685,27 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
         portfolio.freeze()
 
         return self._build_result(portfolio, unfilled)
+
+    def _rebalance_reasons(self,
+                           date: pd.Timestamp) -> dict[str, tuple[str, ...]]:
+        """The tags each name's rebalance trade carries for the stages that
+        changed its target: the index's cap (diversification), a screen
+        (liquidity or exclusion), the smallest position allowed (position
+        limit), or a cut to its capacity (liquidity)."""
+        tags: dict[str, list[str]] = {}
+        steps = [step for step in self._rebalance_steps if step.date == date]
+
+        for name in self.index_result.capped_assets_on_date(date):
+            tags.setdefault(name, []).append(reasons.DIVERSIFICATION)
+
+        for step in steps[-1:]:
+            for name, screen in step.removed.items():
+                tags.setdefault(name, []).append(SCREEN_REASONS.get(screen, reasons.EXCLUSION))
+
+            for name in step.capped:
+                tags.setdefault(name, []).append(reasons.LIQUIDITY)
+
+        return {name: tuple(found) for name, found in tags.items()}
 
     def _build_result(self,
                       portfolio: Portfolio,

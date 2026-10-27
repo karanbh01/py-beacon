@@ -174,3 +174,15 @@ class TestWhatStaysInTheJson:
         again = through_json(slim_record(document, run, tmp_path / "S.panels"))
 
         assert whole_record(again, tmp_path / "S.panels")[HOLDINGS_KEY] == document[HOLDINGS_KEY]
+
+
+class TestTransactionsFromTheRunsTrades:
+
+    def test_the_record_s_transactions_are_served_from_the_trades(self,
+                                                                  stored):
+        """BN-406: kept once, in the run's trades table."""
+        _, slim, _ = stored
+        parts = {tuple(part["path"]): part for part in slim[TABLES_KEY]["parts"]}
+
+        assert parts[("portfolio", "transactions")] == {"path": ["portfolio", "transactions"],
+                                                        "trades": "trades"}

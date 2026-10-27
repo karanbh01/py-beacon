@@ -44,6 +44,7 @@ from typing import Any
 import pandas as pd
 
 from ..assumptions import ModellingAssumptions
+from ..portfolio import reasons
 from ..portfolio.base import Portfolio
 from ..portfolio.cash_flows import HEDGE
 
@@ -175,7 +176,8 @@ class HedgingMixin:
                 received += self._open(ledger, portfolio, date, BAND, forward.expiry)
 
         if received > 0.0:
-            self._invest_inflow(portfolio, date)
+            with portfolio.trading(reasons.SETTLEMENT):
+                self._invest_inflow(portfolio, date)
 
     def _record_hedges(self,
                        date: pd.Timestamp) -> None:
@@ -229,7 +231,8 @@ class HedgingMixin:
             short = -value - (portfolio.cash_balance - self._fees_payable)
 
             if short > 0.0:
-                self._sell_pro_rata(portfolio, short, date)
+                with portfolio.trading(reasons.SETTLEMENT):
+                    self._sell_pro_rata(portfolio, short, date)
 
             paid = min(-value, portfolio.cash_balance)
             portfolio.receive_cash(-paid, date, HEDGE)

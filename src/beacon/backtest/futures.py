@@ -34,6 +34,7 @@ from ..assumptions import ModellingAssumptions
 from ..data.fetcher import DataFetcher
 from ..derivatives.pricing import cost_of_carry_fair_value
 from ..index.result import IndexResult
+from ..portfolio import reasons
 from ..portfolio.base import Portfolio
 from ..portfolio.cash_flows import FUTURES
 from ..strategy.futures import IndexFutures, expiries
@@ -224,7 +225,8 @@ class FuturesMixin:
         short = -amount - (portfolio.cash_balance - self._fees_payable)
 
         if short > 0.0:
-            self._sell_pro_rata(portfolio, short, date)
+            with portfolio.trading(reasons.SETTLEMENT):
+                self._sell_pro_rata(portfolio, short, date)
 
         paid = min(-amount, portfolio.cash_balance)
 

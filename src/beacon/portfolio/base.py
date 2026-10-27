@@ -4,7 +4,7 @@ Portfolio accounting: `Portfolio`, the `Holding`s it keeps, the
 `Transaction`s it records, and the `TradeInstruction`s it accepts.
 """
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -16,6 +16,7 @@ from ..sources import resolve
 from .asset_view import PortfolioAssetView
 from .cash_flows import CashFlow
 from .history import PortfolioHistory
+from .reasons import tags_for
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,10 @@ class Transaction:
     transaction_cost: float = 0.0
     # Of the cost, what was market impact; the rest is the fixed cost (BN-363).
     impact_cost: float = 0.0
+    # Why it was made, and every tag it carries (BN-406); see
+    # `beacon.portfolio.reasons`. Empty for a trade made outside the engine.
+    reason: str = ""
+    tags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.asset_id:
@@ -75,6 +80,9 @@ class TradeInstruction:
         cost: Transaction cost in currency terms.
         impact: Of *cost*, the part that was market impact; the rest is the
             fixed cost.
+        reason: Why it was made; the portfolio's current reason when None
+            (see `Portfolio.trading`).
+        tags: Tags it carries beyond its reason's.
     """
     asset_id: str
     side: str      # "SELL" or "BUY"
@@ -82,6 +90,8 @@ class TradeInstruction:
     price: float
     cost: float
     impact: float = 0.0
+    reason: str | None = None
+    tags: tuple[str, ...] = ()
 
 
 @dataclass
@@ -182,6 +192,9 @@ class Portfolio:
         # The date a batch has changed the books on, while one is open
         # (BN-344); None outside a batch, or before its first change.
         self._batch: list[pd.Timestamp] | None = None
+        # Why trades are being made, innermost last, each with any tags by
+        # name (BN-406).
+        self._reasons: list[tuple[str, Mapping[str, tuple[str, ...]]]] = []
 
         if self.inception is not None:
             self._history.record(self.inception, self.holdings, self.cash_balance)
@@ -339,6 +352,34 @@ class Portfolio:
             if changed:
                 self._history.record(changed[0], self.holdings, self.cash_balance)
 
+    @contextmanager
+    def trading(self,
+                reason: str,
+                by_name: Mapping[str, tuple[str, ...]] | None = None,
+                tags: tuple[str, ...] = ()) -> Iterator[None]:
+        """Record every trade made in the block as made for *reason*, with
+        *tags*, and each name's with its tags in *by_name* as well. The
+        innermost block's reason wins; a trade's own reason wins over any
+        block's."""
+        self._reasons.append((reason, {"": tags, **(by_name or {})}))
+
+        try:
+            yield
+        finally:
+            self._reasons.pop()
+
+    def _why(self,
+             asset_id: str,
+             side: str,
+             reason: str | None,
+             tags: tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
+        """A trade's reason and tags: its own, else the innermost block's."""
+        current, by_name = self._reasons[-1] if self._reasons else ("", {})
+        chosen = reason if reason is not None else current
+
+        return chosen, tags_for(chosen, side, (*by_name.get(asset_id, ()), *by_name.get("", ()),
+                                               *tags))
+
     def receive_cash(self,
                      amount: float,
                      date: pd.Timestamp,
@@ -373,7 +414,9 @@ class Portfolio:
                     price: float,
                     cost: float = 0.0,
                     date: pd.Timestamp | None = None,
-                    impact: float = 0.0) -> None:
+                    impact: float = 0.0,
+                    reason: str | None = None,
+                    tags: tuple[str, ...] = ()) -> None:
         """Buy an asset: deduct cash, create/update holding, record transaction.
 
         The holding's average cost is updated as a quantity-weighted average
@@ -436,7 +479,8 @@ class Portfolio:
         logger.debug(f"BUY: {quantity} of {asset_id} @ {price:.2f}. Cash: {self.cash_balance:.2f}")
 
         self.transactions.append(
-            Transaction(asset_id, quantity, price, 'BUY', tx_date, cost, impact)
+            Transaction(asset_id, quantity, price, 'BUY', tx_date, cost, impact,
+                        *self._why(asset_id, "BUY", reason, tags))
         )
 
         # Update market data using execution price
@@ -450,7 +494,9 @@ class Portfolio:
                      price: float,
                      cost: float = 0.0,
                      date: pd.Timestamp | None = None,
-                     impact: float = 0.0) -> None:
+                     impact: float = 0.0,
+                     reason: str | None = None,
+                     tags: tuple[str, ...] = ()) -> None:
         """Sell an asset: add cash proceeds, reduce/remove holding, record transaction.
 
         Cash rises by ``quantity * price - cost``. A holding reduced to
@@ -504,7 +550,8 @@ class Portfolio:
             self.holdings[asset_id].update_market_data(price, tx_date)
 
         self.transactions.append(
-            Transaction(asset_id, quantity, price, 'SELL', tx_date, cost, impact)
+            Transaction(asset_id, quantity, price, 'SELL', tx_date, cost, impact,
+                        *self._why(asset_id, "SELL", reason, tags))
         )
 
         self._record(tx_date)
@@ -542,10 +589,12 @@ class Portfolio:
 
         if side == "BUY":
             self.execute_buy(trade.asset_id, trade.quantity, trade.price,
-                             cost=trade.cost, date=date, impact=trade.impact)
+                             cost=trade.cost, date=date, impact=trade.impact,
+                             reason=trade.reason, tags=trade.tags)
         elif side == "SELL":
             self.execute_sell(trade.asset_id, trade.quantity, trade.price,
-                              cost=trade.cost, date=date, impact=trade.impact)
+                              cost=trade.cost, date=date, impact=trade.impact,
+                              reason=trade.reason, tags=trade.tags)
         else:
             raise ValueError(
                 f"Unknown trade side '{trade.side}'. Expected BUY or SELL.")

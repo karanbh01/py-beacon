@@ -22,6 +22,7 @@ whole record gave.
 """
 # BN-404. At 6,000 names the record was 241.6 MB of JSON, of which 0.2 MB
 # is not these parts.
+import json
 import shutil
 import tempfile
 from collections.abc import Collection, Iterator
@@ -29,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
@@ -40,6 +42,7 @@ from ..analysis.panels import (
     HOLDINGS,
     INDEX_WEIGHTS,
     OPTIMISED_WEIGHTS,
+    TRADES,
 )
 from ..exceptions import ConfigurationError
 from .holdings import HOLDINGS_KEY
@@ -67,8 +70,11 @@ WEIGHT_PARTS: dict[Where, str] = {("portfolio", "weights"): FUND_WEIGHTS,
 # The fund's units on the days they changed, served from its holdings.
 UNITS_PART: Where = (HOLDINGS_KEY, "units")
 
+# The fund's transactions, served from the run's trades (BN-406).
+TRANSACTIONS_PART: Where = ("portfolio", "transactions")
+
 # Parts kept as a table with a column each.
-FRAME_PARTS: tuple[Where, ...] = (("portfolio", "positions"), ("portfolio", "transactions"))
+FRAME_PARTS: tuple[Where, ...] = (("portfolio", "positions"), TRANSACTIONS_PART)
 
 # Parts kept as a table of every value in them.
 TREE_PARTS: tuple[Where, ...] = (("index", "target", "rebalances"),
@@ -108,6 +114,7 @@ def slim_record(document: dict[str, Any],
             parts.extend(_weights_part(slim, path, table, run))
 
         parts.extend(_units_part(slim, run))
+        parts.extend(_transactions_part(slim, run))
 
         for number, path in enumerate([*FRAME_PARTS, *TREE_PARTS]):
             parts.extend(_table_part(slim, path, staging / f"part_{number}.parquet"))
@@ -153,7 +160,7 @@ def whole_record(document: dict[str, Any],
             if not isinstance(_get(whole, tuple(part["path"][:-1])), dict):
                 continue
 
-            if run is None and ("weights" in part or "units" in part):
+            if run is None and ("weights" in part or "units" in part or "trades" in part):
                 run = RunData.from_record(folder)
 
             _set(whole, part["path"], _restored(part, run, folder / RECORD_FOLDER))
@@ -192,6 +199,36 @@ def _units_part(slim: dict[str, Any],
     _set(slim, UNITS_PART, {})
 
     return [{"path": list(UNITS_PART), "units": table}]
+
+
+def _transactions_part(slim: dict[str, Any],
+                       run: RunData) -> list[dict[str, Any]]:
+    """The fund's transactions, served from the run's trades when they are
+    the same."""
+    value = _get(slim, TRANSACTIONS_PART)
+
+    if not value or TRADES not in run.tables or transactions_from(run.tables[TRADES]) != value:
+        return []
+
+    _set(slim, TRANSACTIONS_PART, _empty_like(value))
+
+    return [{"path": list(TRANSACTIONS_PART), "trades": TRADES}]
+
+
+def transactions_from(trades: Any) -> dict[str, Any]:
+    """The run's trades as the record's transactions give them."""
+    frame = pd.DataFrame({"date": pd.DatetimeIndex(trades.index),
+                          "asset_id": trades["IDENTIFIER"].astype(str).to_numpy(),
+                          "type": trades["SIDE"].astype(str).to_numpy(),
+                          "quantity": trades["QUANTITY"].to_numpy(dtype=float),
+                          "price": trades["PRICE"].to_numpy(dtype=float),
+                          "cost": trades["COST"].to_numpy(dtype=float)},
+                         columns=["date", "asset_id", "type", "quantity", "price", "cost"])
+
+    # As the stored record reads back: through JSON.
+    found: dict[str, Any] = json.loads(json.dumps(dataframe_to_payload(frame)))
+
+    return found
 
 
 def units_from(changes: Any) -> dict[str, list[list[Any]]]:
@@ -260,6 +297,9 @@ def _restored(part: dict[str, Any],
 
     if "units" in part and run is not None:
         return units_from(run.tables[part["units"]])
+
+    if "trades" in part and run is not None:
+        return transactions_from(run.tables[part["trades"]])
 
     if "frame" in part:
         return frame_from(pq.read_table(folder / part["frame"]))

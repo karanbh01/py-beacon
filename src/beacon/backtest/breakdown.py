@@ -88,6 +88,43 @@ def daily_costs(result: BacktestResult) -> pd.DataFrame:
 
 # BN-364. Gross dividends and withholding are recorded by the engine on each
 # ex-date, when the NAV first counts them; the rest is on the run's record.
+# The trades table's columns (BN-406).
+TRADE_COLUMNS = ("IDENTIFIER", "SIDE", "QUANTITY", "PRICE", "VALUE", "COST", "IMPACT",
+                 "REASON", "TAGS")
+
+# What joins a trade's tags in the table.
+TAG_SEPARATOR = "; "
+
+
+def trades(result: BacktestResult) -> pd.DataFrame:
+    """Every trade the run made, in the order it made them.
+
+    Returns:
+        pd.DataFrame: Indexed by the trade's date (``DATE``), with the name,
+        ``BUY`` or ``SELL``, the quantity, the price, the value traded
+        (quantity times price), the cost and the part of it that was market
+        impact, all in the book's currency; why the trade was made
+        (``REASON``) and every tag it carries, joined by ``"; "`` (``TAGS``),
+        as `beacon.portfolio.reasons` names them.
+    """
+    made = result.portfolio.transactions
+
+    frame = pd.DataFrame({
+        "IDENTIFIER": [trade.asset_id for trade in made],
+        "SIDE": [trade.transaction_type for trade in made],
+        "QUANTITY": pd.Series([trade.quantity for trade in made], dtype=float),
+        "PRICE": pd.Series([trade.price for trade in made], dtype=float),
+        "VALUE": pd.Series([trade.quantity * trade.price for trade in made], dtype=float),
+        "COST": pd.Series([trade.transaction_cost for trade in made], dtype=float),
+        "IMPACT": pd.Series([trade.impact_cost for trade in made], dtype=float),
+        "REASON": [trade.reason for trade in made],
+        "TAGS": [TAG_SEPARATOR.join(trade.tags) for trade in made],
+    }, columns=list(TRADE_COLUMNS))
+    frame.index = pd.DatetimeIndex([trade.transaction_date for trade in made], name="DATE")
+
+    return frame
+
+
 def daily_cash(result: BacktestResult) -> pd.DataFrame:
     """Where the run's cash went, and what it was owed and charged, by day.
 

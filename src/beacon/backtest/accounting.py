@@ -57,6 +57,7 @@ from typing import Any
 import pandas as pd
 
 from ..assumptions import ModellingAssumptions
+from ..portfolio import reasons
 from ..portfolio.base import Portfolio, TradeInstruction
 from ..portfolio.cash_flows import FEE, INTEREST, REDEMPTION, SUBSCRIPTION
 from .costs import WorkingOrder
@@ -308,10 +309,13 @@ class AccountingMixin:
             portfolio.receive_cash(deal.cash, date, SUBSCRIPTION)
 
             if in_kind:
-                self._transfer_in(portfolio, deal.cash, date)
+                with portfolio.trading(reasons.SUBSCRIPTION):
+                    self._transfer_in(portfolio, deal.cash, date)
         elif deal.cash < 0.0:
-            deal = _scaled(deal, self._redeem(portfolio, -deal.cash, date,
-                                              free=in_kind) / -deal.cash)
+            with portfolio.trading(reasons.REDEMPTION):
+                redeemed = self._redeem(portfolio, -deal.cash, date, free=in_kind)
+
+            deal = _scaled(deal, redeemed / -deal.cash)
 
         if self._ledgers:
             self._deal_classes(deal.cash, deal.price, per_unit, date)

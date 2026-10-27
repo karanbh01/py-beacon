@@ -39,6 +39,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from ..index.result import IndexResult
+from ..portfolio import reasons
 from ..portfolio.base import Portfolio
 from ..portfolio.cash_flows import DIVIDEND, SWAP
 from ..strategy.synthetic import SwapTerms
@@ -185,7 +186,8 @@ class SwapMixin:
             short = -value - (portfolio.cash_balance - self._fees_payable)
 
             if short > 0.0:
-                self._sell_pro_rata(portfolio, short, date)
+                with portfolio.trading(reasons.SETTLEMENT):
+                    self._sell_pro_rata(portfolio, short, date)
 
             paid = min(-value, portfolio.cash_balance)
             portfolio.receive_cash(-paid, date, SWAP)

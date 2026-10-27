@@ -52,6 +52,7 @@ from ..index.derived import (
 )
 from ..index.result import IndexResult
 from ..optimise import OptimisationConfig
+from ..portfolio import reasons
 from ..strategy.active import ActiveStep, ActiveStrategy
 from ..strategy.base import StrategyContext
 from ..strategy.futures import FuturesReplication, IndexFutures
@@ -380,7 +381,10 @@ class Backtest:
             futures=(self._priced(strategy.replication.futures, index_definition)
                      if isinstance(strategy, IndexTracking)
                      and isinstance(strategy.replication, FuturesReplication)
-                     else None))
+                     else None),
+            # BN-406: an active strategy's rebalance trades are its model's.
+            rebalance_tags=((reasons.MODEL_DRIVEN,) if isinstance(strategy, ActiveStrategy)
+                            else ()))
 
         result = engine.run(lambda day, days, date: report(
             SIMULATION_START + (1.0 - SIMULATION_START) * day / days,
