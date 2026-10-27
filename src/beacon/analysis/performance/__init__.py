@@ -5,7 +5,7 @@ A run's performance: its returns, risk and figures against its comparators.
 `PerformanceAnalytics` measures a run's figures from its `RunData`, with the
 `AnalysisSettings` they are measured with; `RelativeAnalytics` its figures
 against one comparator; `CrisisAnalytics` how it held up in crises and
-`RegimeAnalytics` in each kind of market.
+`RegimeAnalytics` in each kind of market; `PortfolioAnalytics` what it held.
 `beacon.analysis.performance.formulas` holds the formulas, one definition
 each, that every figure is computed with.
 """
@@ -13,8 +13,8 @@ from typing import Any
 
 from .settings import AnalysisSettings
 
-__all__ = ["AnalysisSettings", "CrisisAnalytics", "PerformanceAnalytics", "RegimeAnalytics",
-           "RelativeAnalytics"]
+__all__ = ["AnalysisSettings", "CrisisAnalytics", "PerformanceAnalytics", "PortfolioAnalytics",
+           "RegimeAnalytics", "RelativeAnalytics"]
 
 
 def __getattr__(name: str) -> Any:
@@ -30,6 +30,11 @@ def __getattr__(name: str) -> Any:
         from .crises import CrisisAnalytics  # noqa: PLC0415
 
         return CrisisAnalytics
+
+    if name == "PortfolioAnalytics":
+        from .portfolio import PortfolioAnalytics  # noqa: PLC0415
+
+        return PortfolioAnalytics
 
     if name == "RegimeAnalytics":
         from .regimes import RegimeAnalytics  # noqa: PLC0415
