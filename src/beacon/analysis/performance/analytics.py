@@ -14,9 +14,9 @@ these.
 import pandas as pd
 
 from ..data import BENCHMARK, INDEX, OPTIMISED, RunData
-from . import formulas, return_figures
+from . import formulas, ratios, return_figures
 from .comparisons import Comparison, Period, comparison_of, periods_of
-from .drawdowns import WORST, DrawdownFigures, drawdown_figures
+from .drawdowns import WORST, DrawdownFigures, drawdown_figures, episodes
 from .settings import AnalysisSettings
 
 
@@ -239,6 +239,46 @@ class PerformanceAnalytics:
     def drawdown_series(self) -> pd.Series:
         """How far below its peak the level stood each day."""
         return formulas.drawdown(self.levels())
+
+    def ratios(self,
+               sharpe_benchmark: float = 0.0,
+               trials: int | None = None,
+               trial_variance: float | None = None) -> dict[str, float | None]:
+        """The risk-adjusted ratios beyond the Sharpe ratio, by name.
+
+        ``sortino``, ``kappa_3`` (daily), ``upside_potential`` and ``omega``
+        measure return against the shortfall below the risk-free rate;
+        ``calmar``, ``martin``, ``sterling`` and ``burke`` against drawdowns;
+        ``gain_to_pain`` against losing months. ``probabilistic_sharpe`` is the
+        probability the true Sharpe ratio is above *sharpe_benchmark* (a
+        year); ``deflated_sharpe`` the same against the best of *trials*
+        strategies whose annual Sharpe ratios vary by *trial_variance*, None
+        unless both are given; ``lo_sharpe`` the Sharpe ratio corrected for
+        serial correlation.
+        """
+        returns = self.returns
+        excess = ratios.excess_returns(returns, self.periods_per_year, self.risk_free_rate)
+        annualised = self.headline()["annualised_return"]
+        depths = [drawdown.depth for drawdown in episodes(self.levels())]
+        ulcer = drawdown_figures(self.levels(), 0.0).ulcer_index
+
+        return {
+            "sortino": ratios.sortino(excess, self.periods_per_year),
+            "kappa_3": ratios.kappa_3(excess),
+            "upside_potential": ratios.upside_potential(excess),
+            "omega": ratios.omega(excess),
+            "calmar": ratios.calmar(annualised, min(depths, default=0.0)),
+            "martin": ratios.martin(excess, ulcer, self.periods_per_year),
+            "sterling": ratios.sterling(annualised, depths),
+            "burke": ratios.burke(annualised, depths),
+            "gain_to_pain": ratios.gain_to_pain(formulas.period_returns(returns,
+                                                                        formulas.MONTHLY)),
+            "probabilistic_sharpe": ratios.probabilistic_sharpe(excess, self.periods_per_year,
+                                                                sharpe_benchmark),
+            "deflated_sharpe": ratios.deflated_sharpe(excess, self.periods_per_year, trials,
+                                                      trial_variance),
+            "lo_sharpe": ratios.lo_sharpe(excess, self.periods_per_year),
+        }
 
     def summary(self) -> dict[str, float | None]:
         """The headline figures, the monthly hit rate, and, when the run has
