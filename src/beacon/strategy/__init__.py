@@ -30,6 +30,7 @@ from .constraints import (
     TurnoverLimit,
 )
 from .constructions import Construction, FactorTilts, MaxAlpha, MeanVariance, TopN
+from .factors import Factor, default_factors
 from .futures import FuturesReplication, IndexFutures
 from .signals import FieldSignal, FunctionSignal, Momentum, Signal
 from .synthetic import UCITS_EXPOSURE_LIMIT, SwapTerms, SyntheticReplication
@@ -51,6 +52,7 @@ __all__ = [
     "ActiveStrategy",
     "BlackLitterman",
     "Construction",
+    "Factor",
     "FactorTilts",
     "FieldSignal",
     "FullReplication",
@@ -79,4 +81,5 @@ __all__ = [
     "TopN",
     "TrackingErrorBudget",
     "TurnoverLimit",
+    "default_factors",
 ]

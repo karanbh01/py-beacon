@@ -64,9 +64,20 @@ class FactorTargets(RootModel[dict[str, float]]):
     construction's `factors`. A factor with no target is aimed at zero."""
 
 
+# BN-387.
+class SignalWeights(RootModel[list[float]]):
+    """A weight for each of the factor's `signals`, in their order: zero or
+    more, not all zero. Leave out for equal weights."""
+
+
+class GroupingFields(RootModel[list[str]]):
+    """Reference fields to group names by, such as ["region", "sector"]: each
+    name is centred within the group its values put it in."""
+
+
 PARAMETER_SCHEMAS: tuple[type[BaseModel], ...] = (
     IdentifierList, ReferenceValueList, IdentifierValues, DatedAmounts, ConstraintRows,
-    TypedSpecs, CountryRates, FactorSignals, FactorTargets)
+    TypedSpecs, CountryRates, FactorSignals, FactorTargets, SignalWeights, GroupingFields)
 
 
 def parameter_schemas() -> dict[str, Any]:

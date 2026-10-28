@@ -75,6 +75,9 @@ STRUCTURED: dict[tuple[str, str], Callable[[Any], Any]] = {
     # BN-281: a factor tilt's factors are signals, each a {type, params}.
     ("FactorTilts", "factors"): lambda factors: {name: _built(catalogue.SIGNAL, payload)
                                                  for name, payload in factors.items()},
+    # BN-387: a factor's parts are signals too, one or a list of them.
+    ("Factor", "signals"): lambda parts: (_built(catalogue.SIGNAL, parts) if isinstance(parts, dict)
+                                          else [_built(catalogue.SIGNAL, part) for part in parts]),
 }
 
 
