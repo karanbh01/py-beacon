@@ -12,7 +12,6 @@ stored one.
 from typing import Any
 
 from .attribution import (
-    Attribution,
     AttributionResult,
     Contribution,
     attribute,
@@ -55,6 +54,12 @@ def __getattr__(name: str) -> Any:
         from .data import RunData  # noqa: PLC0415
 
         return RunData
+
+    # BN-393: the run's attribution reads a RunData, for the same reason.
+    if name == "Attribution":
+        from .attribution.analytics import Attribution  # noqa: PLC0415
+
+        return Attribution
 
     raise AttributeError(f"module 'beacon.analysis' has no attribute '{name}'")
 

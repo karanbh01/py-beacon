@@ -1,4 +1,4 @@
-# src/beacon/analysis/attribution.py
+# src/beacon/analysis/attribution/contribution.py
 """
 Performance attribution: which constituents produced an index's return.
 
@@ -43,8 +43,8 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from ..exceptions import CalculationError
-from ..plot.base import PlotAccessor
+from ...exceptions import CalculationError
+from ...plot.base import PlotAccessor
 
 logger = logging.getLogger(__name__)
 
@@ -407,56 +407,41 @@ def _path_return(snapshots: dict[pd.Timestamp, dict[str, float]],
     return float((1.0 + periods).prod() - 1.0)
 
 
-class Attribution:
-    """Holder of the portfolio-versus-benchmark total return comparison.
-
-    For per-constituent attribution use :func:`attribute`.
-    """
-
-    def simple_performance_attribution(self,
-                                       portfolio_returns: pd.Series,
-                                       benchmark_returns: pd.Series) -> dict[str, float]:
-        """Total return difference between a portfolio and a benchmark.
-
-        Args:
-            portfolio_returns: Portfolio periodic returns.
-            benchmark_returns: Benchmark periodic returns, same length.
-
-        Each total return compounds its own periodic returns,
-        ``prod(1 + r) - 1``; the two series are not aligned by date.
-
-        Returns:
-            dict: total_portfolio_return, total_benchmark_return and
-            active_return (portfolio minus benchmark).
-
-        Raises:
-            TypeError: If either input is not a Series.
-            ValueError: If the lengths differ or the inputs are empty.
-        """
-        if (not isinstance(portfolio_returns, pd.Series)
-                or not isinstance(benchmark_returns, pd.Series)):
-            raise TypeError("portfolio_returns and benchmark_returns must be pandas Series.")
-        if len(portfolio_returns) != len(benchmark_returns):
-            raise ValueError(
-                "Portfolio returns and benchmark returns Series must be of the same length.")
-        if portfolio_returns.empty:
-            raise ValueError("Input Series cannot be empty.")
-
-        total_portfolio_return = (1 + portfolio_returns).prod() - 1
-        total_benchmark_return = (1 + benchmark_returns).prod() - 1
-
-        return {
-            "total_portfolio_return": float(total_portfolio_return),
-            "total_benchmark_return": float(total_benchmark_return),
-            "active_return": float(total_portfolio_return - total_benchmark_return),
-        }
-
-
 def simple_performance_attribution(portfolio_returns: pd.Series,
                                    benchmark_returns: pd.Series) -> dict[str, float]:
     """Total return difference between a portfolio and a benchmark.
 
-    Same as :meth:`Attribution.simple_performance_attribution`.
+    Args:
+        portfolio_returns: Portfolio periodic returns.
+        benchmark_returns: Benchmark periodic returns, same length.
+
+    Each total return compounds its own periodic returns,
+    ``prod(1 + r) - 1``; the two series are not aligned by date.
+
+    Returns:
+        dict: total_portfolio_return, total_benchmark_return and
+        active_return (portfolio minus benchmark).
+
+    Raises:
+        TypeError: If either input is not a Series.
+        ValueError: If the lengths differ or the inputs are empty.
     """
-    return Attribution().simple_performance_attribution(portfolio_returns,
-                                                        benchmark_returns)
+    # BN-393: the Attribution class that held this is now the run's
+    # attribution (beacon.analysis.attribution.analytics).
+    if (not isinstance(portfolio_returns, pd.Series)
+            or not isinstance(benchmark_returns, pd.Series)):
+        raise TypeError("portfolio_returns and benchmark_returns must be pandas Series.")
+    if len(portfolio_returns) != len(benchmark_returns):
+        raise ValueError(
+            "Portfolio returns and benchmark returns Series must be of the same length.")
+    if portfolio_returns.empty:
+        raise ValueError("Input Series cannot be empty.")
+
+    total_portfolio_return = (1 + portfolio_returns).prod() - 1
+    total_benchmark_return = (1 + benchmark_returns).prod() - 1
+
+    return {
+        "total_portfolio_return": float(total_portfolio_return),
+        "total_benchmark_return": float(total_benchmark_return),
+        "active_return": float(total_portfolio_return - total_benchmark_return),
+    }
