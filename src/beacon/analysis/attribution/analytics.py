@@ -18,15 +18,15 @@ the residual, reported with every result and never folded into a name.
 # BN-393.
 import pandas as pd
 
-from ...data.base import as_of_position
 from ..data import INDEX, RunData
-from ..panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS, REFERENCE
+from ..panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS
 from ..performance.comparisons import aligned
+from .brinson import BrinsonResult, brinson, by_period
 from .contribution import AttributionResult, attribute
+from .groups import by_group, memberships
 
 FUND = "fund"
 BOOKS = {FUND: FUND_WEIGHTS, "index": INDEX_WEIGHTS, "benchmark": BENCHMARK_WEIGHTS}
-UNKNOWN = "Unknown"
 
 
 class Attribution:
@@ -70,6 +70,55 @@ class Attribution:
 
         return self._attributed(ours - theirs, active, field, start, end)
 
+    def brinson(self,
+                field: str,
+                against: str = INDEX,
+                start: str | pd.Timestamp | None = None,
+                end: str | pd.Timestamp | None = None) -> BrinsonResult:
+        """The fund's Brinson-Fachler attribution against *against* by the
+        grouping field *field*, over the window, the whole run by default:
+        each group's allocation, selection and interaction, cash a group of
+        its own, linked over the days."""
+        return brinson(self.run, self.weights(FUND), self.weights(against),
+                       self._levels(against), self._name_returns(),
+                       field, self._days(start, end))
+
+    def brinson_by_period(self,
+                          field: str,
+                          against: str = INDEX,
+                          frequency: str = "Y") -> pd.DataFrame:
+        """The Brinson-Fachler effects over each year (``Y``) or month
+        (``M``)."""
+        fund, theirs = self.weights(FUND), self.weights(against)
+        levels, returns = self._levels(against), self._name_returns()
+
+        return by_period(self._days(None, None),
+                         lambda days: brinson(self.run, fund, theirs, levels, returns, field,
+                                              days),
+                         frequency)
+
+    def _days(self,
+              start: str | pd.Timestamp | None,
+              end: str | pd.Timestamp | None) -> pd.DatetimeIndex:
+        """The days the fund holds names and the names have returns, in the
+        window."""
+        weights = self.weights(FUND)
+        held = weights.index[weights.sum(axis=1) > 0.0]
+        days = held.intersection(self._name_returns().index)
+
+        if not len(days):
+            return days
+
+        days = pd.DatetimeIndex(_window(pd.Series(0.0, index=days), start, end).index)
+
+        return days
+
+    def _name_returns(self) -> pd.DataFrame:
+        returns = self.run.tables[NAME_RETURNS].sort_index()
+        returns.columns = returns.columns.astype(str)
+
+        return returns
+
     def weights(self,
                 book: str = FUND) -> pd.DataFrame:
         """A book's daily weights, by name."""
@@ -104,36 +153,14 @@ class Attribution:
         lagged = weights.reindex(returns.index, method="ffill").shift(1)
         names = [name for name in lagged.columns if name in name_returns.columns]
         contributions = lagged[names] * name_returns.reindex(returns.index)[names]
-        groups = self._groups_by_day(field, lagged.index)
-        held = _by_group(lagged[names], groups)
-        earned = _by_group(contributions.fillna(0.0), groups)
+        groups = memberships(self.run, field)
+        held = by_group(lagged[names].fillna(0.0), groups)
+        earned = by_group(contributions.fillna(0.0), groups)
         group_returns = (earned / held.where(held != 0.0)).fillna(0.0)
 
         # attribute() takes the weights held at the end of each day and lags
         # them itself, so the lagged group weights go in one day earlier.
         return attribute(returns, held.shift(-1), group_returns)
-
-    def _groups_by_day(self,
-                       field: str,
-                       days: pd.DatetimeIndex) -> dict[pd.Timestamp, pd.Series]:
-        """Each day's group of every name, from the rebalance before the day
-        the weights were held at (the close before)."""
-        reference = self.run.tables[REFERENCE]
-
-        if field not in reference.columns:
-            raise KeyError(f"The run kept no {field} for its names.")
-
-        rebalances = pd.DatetimeIndex(sorted(reference.index.get_level_values(0).unique()))
-        memberships = {day: reference.loc[day].set_index("IDENTIFIER")[field].astype(str)
-                       for day in rebalances}
-        found = {}
-
-        for position, day in enumerate(days):
-            held_on = days[position - 1] if position else day
-            at = as_of_position(rebalances, held_on)
-            found[day] = memberships[rebalances[at]] if at is not None else pd.Series(dtype=str)
-
-        return found
 
     def _returns(self,
                  book: str) -> pd.Series:
@@ -153,18 +180,6 @@ class Attribution:
                            f"{', '.join(self.run.comparators) or 'no comparators'}.")
 
         return self.run.comparators[book]
-
-
-def _by_group(table: pd.DataFrame,
-              groups: dict[pd.Timestamp, pd.Series]) -> pd.DataFrame:
-    """*table*'s columns added up by each day's group of each name."""
-    rows = {}
-
-    for day, row in table.iterrows():
-        membership = groups.get(day, pd.Series(dtype=str)).reindex(row.index).fillna(UNKNOWN)
-        rows[day] = row.groupby(membership).sum()
-
-    return pd.DataFrame.from_dict(rows, orient="index").fillna(0.0)
 
 
 def _window(series: pd.Series,
