@@ -85,6 +85,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 - Futures on a total return or net total return index with no dividend yield given kept only their roll days and roll cost: any other term (the multiplier, whole contracts, the band) was reset to its default. Every term is now kept.
 - A cash band check that had nothing to buy or sell, as before a fund's first rebalance, was recorded as a band event that traded nothing, every day; it is now no event, and does not resize the futures equitising the cash.
+- A run's name returns lost a day's move wherever the data printed a close on a day the market was shut (a holiday's print): the table was measured on every printed day and then kept only the sessions, so the session after a holiday returned from the holiday, not from the session before. Such a day is now compounded into the next session, so the names explain the fund's return on it; every other day's returns are unchanged to the last bit. Stored runs work their name returns out again when opened, so they correct themselves.
 
 ### Removed
 

@@ -231,9 +231,30 @@ def name_returns_from(tables: Mapping[str, pd.DataFrame],
     closes = tables[CLOSES]
     # No rows before the closes start, which would all be blank (BN-403).
     kept = days[days >= closes.index[0]] if len(closes.index) else days
+    every = name_returns(stored, list(closes.columns), currency=currency, closes=closes)
 
-    return (name_returns(stored, list(closes.columns), currency=currency, closes=closes)
-            .reindex(kept).rename(columns=str))
+    return on_sessions(every, kept).rename(columns=str)
+
+
+def on_sessions(returns: pd.DataFrame,
+                days: pd.DatetimeIndex) -> pd.DataFrame:
+    """*returns*, measured on every day a name has a close, as returns from
+    one of *days* to the next: a day with a close but no session (a
+    holiday's print) is compounded into the session after it, rather than
+    dropped with its move. Days that follow no such day are as they were."""
+    # BN-396: a holiday print in the data lost that day's move for every name,
+    # so the names stopped explaining the fund's return on the next session.
+    sessions = pd.Series(days, index=days)
+    label = sessions.reindex(returns.index.union(days)).bfill().reindex(returns.index)
+    found = returns.reindex(days)
+    between = label[~label.index.isin(days)].dropna()
+
+    for session in pd.DatetimeIndex(between.unique()):
+        inside = returns.loc[label[label == session].index]
+        growth = (1.0 + inside).prod(min_count=1)
+        found.loc[session] = (growth - 1.0).where(inside.notna().any())
+
+    return found
 
 
 def weights_inputs(result: BacktestResult,

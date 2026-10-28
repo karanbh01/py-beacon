@@ -180,6 +180,27 @@ class TestARunsTables:
         assert len(quiet) > 100
         np.testing.assert_allclose(explained[quiet], actual[quiet], rtol=0, atol=1e-12)
 
+    def test_a_holiday_s_print_is_compounded_into_the_next_session(self):
+        """test_backtest_dividends' data prints a close on every weekday, its
+        market's holidays among them (15 January and 19 February 2024): the
+        session after one returns from the session before, as the fund does."""
+        from beacon.analysis.panels import on_sessions
+        from test_backtest_dividends import run
+
+        result = run()
+        returns = run_panels(result)[NAME_RETURNS]["AAA"]
+        nav = result.portfolio.nav
+        actual = nav / nav.shift(1) - 1.0
+
+        assert returns.loc["2024-01-16"] == pytest.approx(actual.loc["2024-01-16"], abs=1e-12)
+        assert returns.loc["2024-01-16"] == pytest.approx(1.001 ** 2 - 1.0, abs=1e-9)
+        assert pd.Timestamp("2024-01-15") not in returns.index
+
+        every = pd.DataFrame({"X": [0.01, 0.02, 0.03]},
+                             index=pd.to_datetime(["2024-01-12", "2024-01-15", "2024-01-16"]))
+        sessions = on_sessions(every, pd.to_datetime(["2024-01-12", "2024-01-16"]))
+        assert sessions["X"].tolist() == [0.01, pytest.approx(1.02 * 1.03 - 1.0)]
+
     def test_its_name_returns_cover_every_name_held(self):
         from test_strategy_futures import index, run
 
