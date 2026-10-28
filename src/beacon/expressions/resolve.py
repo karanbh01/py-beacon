@@ -32,6 +32,7 @@ billion" quietly admit every company the dataset has never heard of.
 """
 # Point-in-time feature reads through `fetch_feature` are BN-135.
 import logging
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -193,6 +194,102 @@ def value_of(field: Field,
         return _market_value(field, identifier, date, fetcher, currency)
 
     return None
+
+
+def numbers_of(field: Field,
+               identifiers: list[str],
+               date: pd.Timestamp,
+               fetcher: DataFetcher,
+               max_age_days: int | None = MAX_AGE_DAYS,
+               currency: str = BASE_CURRENCY) -> dict[str, float | None]:
+    """`value_of` for many instruments on one date, as numbers: the same
+    answers, None where there is no finite number.
+
+    Read in one pass where the field allows (a feature, a market column, a
+    market cap), so a rebalance across thousands of names reads the data
+    once rather than once a name; name by name otherwise.
+    """
+    # BN-387: a factor scored over 4,500 names spent 27 s here, name by name.
+    if field.namespace == FEATURES:
+        table = fetcher.features.table_as_of(identifiers, field.name, [date],
+                                             field.dataset, max_age_days)
+        row = table.iloc[0] if len(table) else pd.Series(dtype=float)
+
+        return {name: _finite(row.get(name)) for name in identifiers}
+
+    if field.namespace == MARKET and field.name not in (ADV_3M, FREE_FLOAT_MARKET_CAP,
+                                                        FREE_FLOAT_FIELD):
+        return _market_numbers(field, identifiers, date, fetcher, currency)
+
+    return {name: _finite(value_of(field, name, date, fetcher, max_age_days, currency))
+            for name in identifiers}
+
+
+def _market_numbers(field: Field,
+                    identifiers: list[str],
+                    date: pd.Timestamp,
+                    fetcher: DataFetcher,
+                    currency: str) -> dict[str, float | None]:
+    """A market column's last value on or before the date, or a market cap
+    in *currency*, for each name, from one read of the window."""
+    start = date - pd.Timedelta(days=10)
+    frame = fetcher.fetch_market_data(list(identifiers), start.strftime("%Y-%m-%d"),
+                                      date.strftime("%Y-%m-%d"))
+
+    def last(column: str) -> pd.Series:
+        if frame.empty or column not in frame.columns:
+            return pd.Series(dtype=float)
+
+        return frame[column].groupby(level=0).last()
+
+    if field.name != MARKET_CAP:
+        found = last(column_for(field))
+
+        return {name: _finite(found.get(name)) for name in identifiers}
+
+    prices, shares = last(CLOSE), last(SHARES)
+    rates = _rates(identifiers, date, fetcher, currency)
+
+    caps: dict[str, float | None] = {}
+
+    for name in identifiers:
+        price, held, rate = _finite(prices.get(name)), _finite(shares.get(name)), rates.get(name)
+        caps[name] = (None if price is None or held is None or rate is None
+                      else _finite(price * held * rate))
+
+    return caps
+
+
+def _rates(identifiers: list[str],
+           date: pd.Timestamp,
+           fetcher: DataFetcher,
+           currency: str) -> dict[str, float | None]:
+    """Each name's FX from its quote currency into *currency*, as `_rate`
+    finds it, each currency's rate read once."""
+    reference = fetcher.fetch_reference_data(list(identifiers), date.strftime("%Y-%m-%d"))
+    quoted: dict[str, str | None] = dict.fromkeys(identifiers)
+
+    if not reference.empty and "CURRENCY" in reference.columns:
+        for name, value in reference["CURRENCY"].groupby(level=0).first().items():
+            quoted[str(name)] = None if pd.isna(value) else str(value).upper()
+
+    by_currency = {code: fetcher.fx_rate_on(code, currency.upper(), date)
+                   for code in {code for code in quoted.values() if code is not None}}
+
+    return {name: None if code is None else by_currency[code] for name, code in quoted.items()}
+
+
+def _finite(value: Any) -> float | None:
+    """A finite number, or None."""
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    return number if math.isfinite(number) else None
 
 
 def _reference_value(field: Field,

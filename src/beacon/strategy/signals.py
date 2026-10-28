@@ -24,7 +24,7 @@ import pandas as pd
 from ..catalogue import SIGNAL, register
 from ..data.fetcher import DataFetcher
 from ..expressions.core import Field
-from ..expressions.resolve import value_of
+from ..expressions.resolve import numbers_of
 from .base import StrategyContext, trailing_returns
 
 # How far either side of the mean a score may go, in standard deviations.
@@ -88,9 +88,9 @@ class FieldSignal(Signal):
                names: list[str],
                date: pd.Timestamp,
                context: StrategyContext) -> dict[str, float | None]:
-        return {name: _number(value_of(self.field, name, date, context.fetcher,
-                                       currency=context.currency))
-                for name in names}
+        # BN-387: read for every name at once, the same answers as one by one.
+        return numbers_of(self.field, list(names), date, context.fetcher,
+                          currency=context.currency)
 
     @property
     def name(self) -> str:
