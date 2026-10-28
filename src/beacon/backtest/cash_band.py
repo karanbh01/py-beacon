@@ -134,6 +134,11 @@ class CashBandMixin:
                 self._sell_pro_rata(portfolio, self.implementation.cash_buffer * net - cash,
                                     date)
 
+        # Nothing to buy or sell (before the fund's first rebalance, say)
+        # brings nothing back, so it is no event and trades nothing to resize.
+        if len(portfolio.transactions) == made:
+            return False
+
         self._update_portfolio_prices(portfolio, date)
         self._record_band_event(portfolio, date, share, made)
 

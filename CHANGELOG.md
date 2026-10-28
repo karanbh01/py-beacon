@@ -80,6 +80,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 ### Fixed
 
 - Futures on a total return or net total return index with no dividend yield given kept only their roll days and roll cost: any other term (the multiplier, whole contracts, the band) was reset to its default. Every term is now kept.
+- A cash band check that had nothing to buy or sell, as before a fund's first rebalance, was recorded as a band event that traded nothing, every day; it is now no event, and does not resize the futures equitising the cash.
 
 ### Removed
 

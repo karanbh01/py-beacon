@@ -52,6 +52,25 @@ class TestTheEngineRecordsEachEvent:
         assert events["cash_after"].to_numpy() == pytest.approx(0.05, abs=1e-4)
         assert (events["target"] == 0.05).all()
 
+    def test_cash_with_nothing_to_buy_is_no_event(self):
+        """An index that starts after the run leaves the fund all cash until
+        it does, above its band, with nothing to spend it on."""
+        from beacon.index.constructor import IndexDefinition
+        from beacon.index.methodology import MarketCapWeighted
+        from test_strategy_futures import NAMES
+        from test_strategy_futures import run as futures_run
+
+        later = IndexDefinition(index_id="LATER", index_name="Later", base_date="2024-07-01",
+                                base_value=1000.0, currency="USD", eligibility_rules=[],
+                                weighting_scheme=MarketCapWeighted(),
+                                rebalancing_frequency="QUARTERLY", calendar="XNYS",
+                                universe_identifiers=NAMES)
+        result = futures_run(later, implementation=BAND, transaction_cost_bps=10.0)
+        events = result.cash_band_events
+
+        assert (events["trades"] > 0).all()
+        assert (events.index >= pd.Timestamp("2024-07-01")).all()
+
     def test_a_run_without_a_band_records_none(self):
         result = run(data=fetcher(-0.03))
 
