@@ -90,14 +90,22 @@ class FactorInputs:
     names: list[str]
     fallbacks: dict[str, dict[Cell, Cell]] = field(default_factory=dict)
     _caps: dict[str, float] | None = None
+    _raw_caps: dict[str, float | None] | None = None
     _groups: dict[str, dict[str, str | None]] = field(default_factory=dict)
+
+    def raw_caps(self) -> dict[str, float | None]:
+        """Each name's market cap in the book's currency, None when unknown,
+        read once for every factor that weights or scores by it."""
+        if self._raw_caps is None:
+            self._raw_caps = FieldSignal(MARKET_CAP).values(self.names, self.date, self.context)
+
+        return self._raw_caps
 
     def caps(self) -> dict[str, float]:
         """Each name's market cap in the book's currency, 0 when unknown."""
         if self._caps is None:
-            found = FieldSignal(MARKET_CAP).values(self.names, self.date, self.context)
             self._caps = {name: value if value is not None and value > 0 else 0.0
-                          for name, value in found.items()}
+                          for name, value in self.raw_caps().items()}
 
         return self._caps
 
@@ -267,7 +275,8 @@ class Factor(Signal):
         if isinstance(part, Factor):
             return part.scored(names, universe, inputs)
 
-        raw = part.values(names, inputs.date, inputs.context)
+        raw = (_subset(inputs.raw_caps(), names) if _reads_market_cap(part)
+               else part.values(names, inputs.date, inputs.context))
         sign = 1.0 if part.higher_is_better else -1.0
         values = {name: _transformed(None if value is None else sign * value, self.transform)
                   for name, value in raw.items()}
@@ -381,6 +390,21 @@ def default_factors() -> list[Factor]:
             Factor("value", FieldSignal(data.features.fundamentals.pb_ratio),
                    transform=INVERSE),
             Factor("momentum", Momentum(lookback_days=252, skip_days=21))]
+
+
+def _reads_market_cap(part: Signal) -> bool:
+    """Whether *part* is a field signal on the market cap, which the day's
+    inputs have read already."""
+    field = getattr(part, "field", None)
+
+    return (isinstance(part, FieldSignal) and field is not None
+            and (field.namespace, field.name) == (MARKET_CAP.namespace, MARKET_CAP.name))
+
+
+def _subset(values: dict[str, float | None],
+            names: list[str]) -> dict[str, float | None]:
+    """*values* for *names*, reading any they lack as missing."""
+    return {name: values.get(name) for name in names}
 
 
 def _weights(weights: Sequence[float] | None,

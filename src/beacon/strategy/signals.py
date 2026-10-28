@@ -149,15 +149,15 @@ class Momentum(Signal):
                context: StrategyContext) -> dict[str, float | None]:
         returns = trailing_returns(names, date, context, self.lookback_days)
         window = returns.iloc[:len(returns) - self.skip_days] if self.skip_days else returns
-        values: dict[str, float | None] = {}
+        # Every name at once (BN-397), the same products as name by name: NaN
+        # is skipped, which multiplies by one.
+        counts = window.notna().sum() if not window.empty else pd.Series(dtype=int)
+        growth = (1.0 + window).prod() if not window.empty else pd.Series(dtype=float)
+        # Most of the window must be there for the return to mean anything.
+        needed = (self.lookback_days - self.skip_days) // 2
 
-        for name in names:
-            series = window[name].dropna() if name in window else pd.Series(dtype=float)
-            # Most of the window must be there for the return to mean anything.
-            enough = len(series) >= (self.lookback_days - self.skip_days) // 2
-            values[name] = float((1.0 + series).prod() - 1.0) if enough else None
-
-        return values
+        return {name: float(growth[name] - 1.0) if name in counts.index
+                and counts[name] >= needed else None for name in names}
 
 
 def standardised(values: dict[str, float | None]) -> dict[str, float]:

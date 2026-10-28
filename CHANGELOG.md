@@ -81,6 +81,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - The factor model is in `beacon.risk.model` beside the sample model: `FactorRiskModel`, `fit_factor_model`, `z_scores`, `ActiveRiskDecomposition` and `MARKET_FACTOR` are imported from `beacon.risk.model` (or `beacon.risk`, as before), and `beacon.risk.factors` is gone. `beacon.analysis.risk` is a package; its single-series metrics are in `beacon.analysis.risk.single_series` and importable from `beacon.analysis.risk` as before.
 - A field signal reads its field for every name at once (`beacon.expressions.resolve.numbers_of`), with the same answers as name by name: at 4,500 names a rebalance's market caps, closes and features are read once rather than once a name, and the three default factors' exposures take 2.4 s a rebalance rather than 19.
 - Attribution is a package (`beacon.analysis.attribution`), its decomposition and linking in `beacon.analysis.attribution.contribution`, all importable from `beacon.analysis` as before; their results are unchanged. The old `Attribution` class, whose one method compared two total returns, is gone: `simple_performance_attribution` does the same, and `Attribution` is now the run's attribution.
+- Momentum is worked out for every name at once, and a day's factors read the names' market caps once, for the size factor and the centring alike, with the same answers: at 6,000 names the three default factors' exposures at 20 rebalances take 19 s rather than 35.
 
 ### Fixed
 
