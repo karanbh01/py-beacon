@@ -192,7 +192,7 @@ class FactorAnalytics:
         whole run."""
         target, factors = self._paired(book)
 
-        return _regressed(target, factors, self.run.periods_per_year)
+        return regressed(target, factors, self.run.periods_per_year)
 
     def rolling_betas(self,
                       book: str = FUND,
@@ -202,7 +202,7 @@ class FactorAnalytics:
         rows = {}
 
         for end in range(window, len(target) + 1):
-            fit = _regressed(target.iloc[end - window:end], factors.iloc[end - window:end],
+            fit = regressed(target.iloc[end - window:end], factors.iloc[end - window:end],
                              self.run.periods_per_year)
             rows[target.index[end - 1]] = fit.betas
 
@@ -382,7 +382,7 @@ def _cross_section(returns: pd.Series,
     return [float(value) for value in solved]
 
 
-def _regressed(target: pd.Series,
+def regressed(target: pd.Series,
                factors: pd.DataFrame,
                periods_per_year: int) -> FactorRegression:
     """*target* regressed on *factors* with an intercept, by ordinary least

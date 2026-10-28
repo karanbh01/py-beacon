@@ -19,10 +19,13 @@ the residual, reported with every result and never folded into a name.
 import pandas as pd
 
 from ..data import INDEX, RunData
-from ..panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS
+from ..panels import BENCHMARK_WEIGHTS, CURRENCIES, FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS
 from ..performance.comparisons import aligned
+from ..risk.factors import FactorAnalytics
+from . import currency, model
 from .brinson import BrinsonResult, brinson, by_period
 from .contribution import AttributionResult, attribute
+from .effects import EffectsResult, linked_effects
 from .groups import by_group, memberships
 
 FUND = "fund"
@@ -118,6 +121,82 @@ class Attribution:
         returns.columns = returns.columns.astype(str)
 
         return returns
+
+    def currency(self,
+                 against: str | None = None,
+                 by_currency: bool = False,
+                 start: str | pd.Timestamp | None = None,
+                 end: str | pd.Timestamp | None = None) -> EffectsResult:
+        """The fund's return (or, *against* a comparator, its active return)
+        split into its names' local returns, their currencies' moves and the
+        cross term; with *by_currency*, each by the names' currencies too."""
+        days = self._days(start, end)
+        weights = self._book_weights(against)
+        lagged = weights.reindex(days, method="ffill").shift(1).fillna(0.0)
+        parts = currency.currency_parts(lagged, self._name_returns(),
+                                        currency.local_returns(self.run))
+        daily = pd.DataFrame({name: frame.sum(axis=1) for name, frame in parts.items()})
+        table = (currency.by_currency(parts, self.run.tables[CURRENCIES]["CURRENCY"])
+                 if by_currency else None)
+        ours, theirs = self._paired(against)
+
+        return linked_effects(daily.iloc[1:], ours, theirs, table)
+
+    def factors(self,
+                analytics: FactorAnalytics,
+                against: str | None = None,
+                method: str = model.HOLDINGS,
+                start: str | pd.Timestamp | None = None,
+                end: str | pd.Timestamp | None = None) -> EffectsResult:
+        """The fund's return (or its active return *against* a comparator)
+        explained by the run's factors: from its holdings' exposures
+        (``holdings``: market, each factor, specific) or from its returns'
+        betas (``returns``: risk-free, alpha, each factor, residual).
+
+        Raises:
+            ValueError: If the method is neither.
+        """
+        days = self._days(start, end)
+        ours, theirs = self._paired(against)
+
+        if method == model.HOLDINGS:
+            lagged = (self._book_weights(against).reindex(days, method="ffill").shift(1)
+                      .fillna(0.0))
+            daily = model.holdings_parts(analytics, lagged, self._name_returns())
+        elif method == model.RETURNS:
+            target = ours - theirs if theirs is not None else ours
+            rate = (0.0 if theirs is not None
+                    else model.daily_rate(self.run.risk_free_rate, self.run.periods_per_year))
+            daily = model.returns_parts(target.reindex(days[1:]).dropna(),
+                                        analytics.factor_returns(), rate,
+                                        self.run.periods_per_year)
+        else:
+            raise ValueError(f"Unknown method {method!r}. Known: {', '.join(model.METHODS)}.")
+
+        return linked_effects(daily, ours, theirs)
+
+    def _book_weights(self,
+                      against: str | None) -> pd.DataFrame:
+        """The fund's weights, less *against*'s when one is named."""
+        fund = self.weights(FUND)
+
+        if against is None:
+            return fund
+
+        theirs = self.weights(against)
+        names = sorted(set(fund.columns) | set(theirs.columns))
+
+        return (fund.reindex(columns=names, fill_value=0.0)
+                - theirs.reindex(index=fund.index, method="ffill").reindex(columns=names)
+                .fillna(0.0))
+
+    def _paired(self,
+                against: str | None) -> tuple[pd.Series, pd.Series | None]:
+        """The fund's daily returns, and the comparator's on the same days."""
+        if against is None:
+            return self.run.returns, None
+
+        return aligned(self.run.returns, self._levels(against))
 
     def weights(self,
                 book: str = FUND) -> pd.DataFrame:
