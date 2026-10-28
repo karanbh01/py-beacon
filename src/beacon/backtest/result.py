@@ -50,7 +50,7 @@ the units never change and the metrics are computed exactly as before.
 # from `trading_nav` keeps every number computed before the redesign
 # identical after it.
 from dataclasses import dataclass, field
-from typing import Union
+from typing import Any, Union
 
 import pandas as pd
 
@@ -62,6 +62,7 @@ from ..plot.base import PlotAccessor
 from ..portfolio.base import Portfolio
 from ..strategy.active import ActiveStep
 from ..strategy.tracking import ReplicationStep
+from .analytics_access import AnalyticsMixin
 from .asset_view import BacktestAssetView
 from .books import Book, IndexBooks
 from .flows import FlowRecord
@@ -135,7 +136,7 @@ Comparable = Union["BacktestResult", Book, IndexResult, pd.Series]
 
 
 @dataclass
-class BacktestResult(MetricsMixin):
+class BacktestResult(MetricsMixin, AnalyticsMixin):
     """The record of one backtest run.
 
     Args:
@@ -256,6 +257,9 @@ class BacktestResult(MetricsMixin):
     dividends_entitled: pd.DataFrame = field(
         default_factory=lambda: pd.DataFrame(columns=["GROSS", "WITHHELD"], dtype=float))
     share_classes: dict[str, ShareClassBook] = field(default_factory=dict)
+    # BN-397: what the run was asked to analyse, and how long each part took.
+    analysis_request: Any = None
+    analysis_timings: dict[str, float] = field(default_factory=dict)
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 

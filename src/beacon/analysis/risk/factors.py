@@ -34,6 +34,7 @@ exposure less its index's, or another comparator's.
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -53,6 +54,9 @@ from ..performance.portfolio import PortfolioAnalytics
 from .model import RebalanceRiskModels
 
 logger = logging.getLogger(__name__)
+
+# The longest trailing window a factor reads at a rebalance: momentum's year.
+LONGEST_LOOKBACK = 252
 
 FUND = "fund"
 ACTIVE = "active"
@@ -90,6 +94,65 @@ class FactorRegression:
         return float(self.coefficients.loc[ALPHA, "coefficient"] * self.periods_per_year)
 
 
+class PricesReadOnce:
+    """A data source whose closes for a set of names, in one currency, over
+    one window, are read once; a read of fewer names or a shorter window is
+    cut from it as a read of its own would find them (only the days and
+    names with a price in it), and every other read goes to the source.
+
+    Args:
+        source: The data.
+        names: The names read once.
+        start: The window's first day.
+        end: Its last.
+        currency: The currency the closes are in.
+    """
+
+    def __init__(self,
+                 source: DataFetcher,
+                 names: Sequence[str],
+                 start: pd.Timestamp,
+                 end: pd.Timestamp,
+                 currency: str):
+        self._source = source
+        self._names = set(names)
+        self._start, self._end = pd.Timestamp(start), pd.Timestamp(end)
+        self._currency = currency
+        self._closes: pd.DataFrame | None = None
+
+    def fetch_prices(self,
+                     identifiers: list[str],
+                     start_date: str | None = None,
+                     end_date: str | None = None,
+                     currency: str | None = None,
+                     column: str = "CLOSE") -> pd.DataFrame:
+        """The closes, cut from the one read when it covers them."""
+        covered = (column == "CLOSE" and currency == self._currency
+                   and start_date is not None and end_date is not None
+                   and pd.Timestamp(start_date) >= self._start
+                   and pd.Timestamp(end_date) <= self._end
+                   and set(identifiers) <= self._names)
+
+        if not covered:
+            return self._source.fetch_prices(identifiers, start_date, end_date,
+                                             currency=currency, column=column)
+
+        if self._closes is None:
+            self._closes = self._source.fetch_prices(sorted(self._names),
+                                                     str(self._start.date()),
+                                                     str(self._end.date()),
+                                                     currency=self._currency)
+
+        names = [name for name in identifiers if name in self._closes.columns]
+        window = self._closes.loc[start_date:end_date, names]
+
+        return window.dropna(how="all", axis=0).dropna(how="all", axis=1)
+
+    def __getattr__(self,
+                    name: str) -> Any:
+        return getattr(self._source, name)
+
+
 class FactorAnalytics:
     """A run's factor exposures, factor returns and betas.
 
@@ -119,12 +182,30 @@ class FactorAnalytics:
                              f"got {names}.")
 
         self.universe = list(universe) if universe is not None else None
-        self.context = StrategyContext(source, run.currency)
+        self.context = StrategyContext(self._prices_once(source), run.currency)
         self._models = RebalanceRiskModels(run)
         self._exposures: dict[pd.Timestamp, pd.DataFrame] = {}
         self._caps: dict[pd.Timestamp, pd.Series] = {}
         self._fallbacks: dict[pd.Timestamp, dict[str, dict[tuple[str, ...], tuple[str, ...]]]] = {}
         self._returns: pd.DataFrame | None = None
+
+    def _prices_once(self,
+                     source: DataFetcher) -> DataFetcher:
+        """*source*, with every name's closes over the run (and the year and
+        a half before it a trailing return reads) read once, rather than at
+        each rebalance (BN-397: 11 s of 19 at 6,000 names)."""
+        dates = self.dates
+
+        if not dates:
+            return source
+
+        names = sorted({str(name) for book in (FUND_WEIGHTS, INDEX_WEIGHTS)
+                        if (table := self.run.tables.get(book)) is not None
+                        for name in table.columns})
+        start = dates[0] - pd.Timedelta(days=int(LONGEST_LOOKBACK * 1.6) + 10)
+
+        return cast(DataFetcher, PricesReadOnce(source, names, start, dates[-1],
+                                                self.run.currency))
 
     @property
     def names(self) -> list[str]:

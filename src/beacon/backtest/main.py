@@ -39,6 +39,7 @@ from typing import Any, Literal
 import pandas as pd
 
 from .. import sources
+from ..analysis.request import AnalysisRequest, analyse
 from ..assumptions import ModellingAssumptions, apply
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
@@ -238,7 +239,8 @@ class Backtest:
             end: str | None = None,
             optimised: bool = False,
             optimisation_config: OptimisationConfig | None = None,
-            progress: Progress | None = None) -> BacktestResult:
+            progress: Progress | None = None,
+            analysis: AnalysisRequest | None = None) -> BacktestResult:
         """Calculate (or reuse) the index, then simulate tracking it.
 
         Args:
@@ -265,6 +267,11 @@ class Backtest:
             progress: Called with the share of the run done, from 0 to 1,
                 and what is happening: the index's calculation, the
                 strategy's weights, then each trading day simulated, by date.
+            analysis: What to analyse with the run: its standard portfolio,
+                risk and attribution figures are worked out before it
+                returns, as well as its performance, and the result keeps
+                the request and how long each part took. Without it every
+                part is still built on first read, with default settings.
 
         Returns:
             BacktestResult: The engine's result: portfolio kept whole, books
@@ -392,6 +399,13 @@ class Backtest:
             f"Simulating {date:%Y-%m-%d}, day {day:,} of {days:,}"))
         result.replication = replication
         result.active = active
+
+        # BN-397: the analysis asked for, its standard figures worked out now.
+        result.analysis_request = analysis
+
+        if analysis is not None:
+            report(1.0, "Analysing the run")
+            result.analysis_timings = analyse(result, analysis)
 
         return result
 
