@@ -183,6 +183,55 @@ class TestBetas:
         assert rolling["market"].to_numpy() == pytest.approx(1.0)
 
 
+class TestHoldingsExposures:
+    """BN-390: a book's exposure is the weighted sum of its holdings'."""
+
+    def test_at_each_rebalance(self,
+                               analytics):
+        found = analytics.holdings_exposures()
+
+        assert list(found.index) == REBALANCES
+        assert found.loc[REBALANCES[2]].to_numpy() == pytest.approx((Z.T @ FUND).to_numpy())
+
+    def test_each_day(self,
+                      analytics):
+        found = analytics.holdings_exposures("index", daily=True)
+
+        assert len(found) == len(DAYS)
+        assert found.iloc[-1].to_numpy() == pytest.approx((Z.T @ EQUAL).to_numpy())
+
+    def test_active_is_the_fund_s_less_the_index_s(self,
+                                                   analytics):
+        found = analytics.active_exposures()
+
+        assert found.loc[REBALANCES[1]].to_numpy() == pytest.approx(
+            (Z.T @ (FUND - EQUAL)).to_numpy())
+
+    def test_cash_adds_nothing(self):
+        data = run_data()
+        tables = dict(data.tables)
+        tables[FUND_WEIGHTS] = tables[FUND_WEIGHTS] * 0.9
+        held = RunData(currency="USD", returns=data.returns, nav=data.nav, units=data.units,
+                       initial_capital=1e6, periods_per_year=252, risk_free_rate=0.0,
+                       tables=tables)
+
+        found = FactorAnalytics(held, SOURCE, factors=factors()).holdings_exposures()
+
+        assert found.iloc[0].to_numpy() == pytest.approx((0.9 * Z.T @ FUND).to_numpy())
+
+    def test_the_returns_based_betas_agree(self,
+                                           analytics):
+        """With no noise, what the holdings say and what the returns say are
+        the same exposures."""
+        assert analytics.regression().betas[["first", "second"]].to_numpy() == pytest.approx(
+            analytics.holdings_exposures().iloc[-1].to_numpy())
+
+    def test_a_book_without_weights_is_refused(self,
+                                               analytics):
+        with pytest.raises(KeyError, match="benchmark"):
+            analytics.holdings_exposures("benchmark")
+
+
 class TestRefused:
 
     def test_an_unknown_book(self,

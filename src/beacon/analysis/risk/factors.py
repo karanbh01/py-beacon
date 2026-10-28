@@ -22,7 +22,14 @@ series' daily change instead.
 **Betas** regress a book's daily return over the risk-free rate on the
 factor returns, with an intercept, by ordinary least squares; the active
 return (the fund's less its index's) is regressed on the same factors.
+
+**Holdings-based exposures** are a book's weights times its names'
+exposures: at each rebalance, from its weights at the close that day, or
+each day, from that day's weights and the last rebalance's exposures. Cash
+and names without exposures add nothing. A book's active exposure is its
+exposure less its index's, or another comparator's.
 """
+# BN-390 added the holdings-based exposures.
 # BN-387. Agreed with Karan on 2026-10-27.
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -41,6 +48,7 @@ from ..data import INDEX, RunData
 from ..panels import INDEX_WEIGHTS, NAME_RETURNS, REFERENCE
 from ..performance import formulas
 from ..performance.comparisons import aligned
+from ..performance.portfolio import PortfolioAnalytics
 from .model import RebalanceRiskModels
 
 FUND = "fund"
@@ -196,6 +204,49 @@ class FactorAnalytics:
             rows[target.index[end - 1]] = fit.betas
 
         return pd.DataFrame.from_dict(rows, orient="index", columns=list(factors.columns))
+
+    def holdings_exposures(self,
+                           book: str = FUND,
+                           daily: bool = False) -> pd.DataFrame:
+        """A book's exposure to each factor (``fund``, ``index`` or
+        ``benchmark``): at each rebalance, or each day when *daily*.
+
+        Raises:
+            KeyError: If the run kept no weights for the book.
+        """
+        weights = PortfolioAnalytics(self.run).weights(book)
+
+        if weights is None or weights.empty:
+            raise KeyError(f"The run kept no weights for its {book}.")
+
+        weights = weights.sort_index().fillna(0.0)
+        rebalances = pd.DatetimeIndex(self.dates)
+        days = weights.index if daily else rebalances
+        rows = {}
+
+        for day in days:
+            on = as_of_position(weights.index, day)
+            at = as_of_position(rebalances, day)
+
+            if on is None or at is None:
+                continue
+
+            exposures = self.exposures(rebalances[at])
+            held = weights.iloc[on]
+            held.index = held.index.astype(str)
+            rows[pd.Timestamp(day)] = exposures.T @ held.reindex(exposures.index).fillna(0.0)
+
+        return pd.DataFrame.from_dict(rows, orient="index", columns=self.names)
+
+    def active_exposures(self,
+                         against: str = INDEX,
+                         daily: bool = False) -> pd.DataFrame:
+        """The fund's exposures less a comparator's, on the days both have."""
+        ours = self.holdings_exposures(FUND, daily)
+        theirs = self.holdings_exposures(against, daily)
+        days = ours.index.intersection(theirs.index)
+
+        return ours.loc[days] - theirs.loc[days]
 
     def _scored(self,
                 day: pd.Timestamp) -> pd.DataFrame:
