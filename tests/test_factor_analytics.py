@@ -41,8 +41,8 @@ EQUAL = pd.Series(1.0 / len(NAMES), index=NAMES)
 
 
 def factors() -> list[Factor]:
-    return [Factor("first", FunctionSignal(lambda name, date, fetched: FIRST[name])),
-            Factor("second", FunctionSignal(lambda name, date, fetched: SECOND[name]))]
+    return [Factor("first", FunctionSignal(lambda name, date, fetched: FIRST.get(name))),
+            Factor("second", FunctionSignal(lambda name, date, fetched: SECOND.get(name)))]
 
 
 def source() -> DataFetcher:
@@ -127,7 +127,7 @@ class TestFactorReturns:
         assert found.to_numpy() == pytest.approx(TRUE.loc[found.index].to_numpy(), abs=1e-12)
 
     def test_a_factor_may_take_its_own_series(self):
-        named = [Factor("first", FunctionSignal(lambda name, date, fetched: FIRST[name]),
+        named = [Factor("first", FunctionSignal(lambda name, date, fetched: FIRST.get(name)),
                         returns="FIRST_INDEX"), factors()[1]]
         found = FactorAnalytics(run_data(), SOURCE, factors=named).factor_returns()
 
@@ -225,6 +225,21 @@ class TestHoldingsExposures:
         the same exposures."""
         assert analytics.regression().betas[["first", "second"]].to_numpy() == pytest.approx(
             analytics.holdings_exposures().iloc[-1].to_numpy())
+
+    def test_names_the_data_does_not_price_are_said(self,
+                                                    caplog):
+        """A run read from other data than its own holds names that data has
+        no market cap for."""
+        data = run_data()
+        tables = dict(data.tables)
+        tables[FUND_WEIGHTS] = tables[FUND_WEIGHTS].assign(GHOST=0.05)
+        held = RunData(currency="USD", returns=data.returns, nav=data.nav, units=data.units,
+                       initial_capital=1e6, periods_per_year=252, risk_free_rate=0.0,
+                       tables=tables)
+
+        FactorAnalytics(held, SOURCE, factors=factors()).exposures(REBALANCES[0])
+
+        assert "1 names the fund held (5.0% of it) have no market cap" in caplog.text
 
     def test_a_book_without_weights_is_refused(self,
                                                analytics):

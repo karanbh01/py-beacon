@@ -31,6 +31,7 @@ exposure less its index's, or another comparator's.
 """
 # BN-390 added the holdings-based exposures.
 # BN-387. Agreed with Karan on 2026-10-27.
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -45,11 +46,13 @@ from ...risk.model import MARKET_FACTOR
 from ...strategy.base import StrategyContext
 from ...strategy.factors import Factor, FactorInputs, default_factors
 from ..data import INDEX, RunData
-from ..panels import INDEX_WEIGHTS, NAME_RETURNS, REFERENCE
+from ..panels import FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS, REFERENCE
 from ..performance import formulas
 from ..performance.comparisons import aligned
 from ..performance.portfolio import PortfolioAnalytics
 from .model import RebalanceRiskModels
+
+logger = logging.getLogger(__name__)
 
 FUND = "fund"
 ACTIVE = "active"
@@ -259,8 +262,29 @@ class FactorAnalytics:
                               for factor in self.factors}, index=held)
         self._caps[day] = pd.Series(inputs.caps()).reindex(held).fillna(0.0)
         self._fallbacks[day] = inputs.fallbacks
+        self._warn_if_unpriced(day)
 
         return table[self.names]
+
+    def _warn_if_unpriced(self,
+                          day: pd.Timestamp) -> None:
+        """Say when names the fund held on *day* have no market cap in the
+        data given: a run read from other data than its own, most likely."""
+        weights = self.run.tables.get(FUND_WEIGHTS)
+        at = None if weights is None else as_of_position(weights.index, day)
+
+        if weights is None or at is None:
+            return
+
+        row = weights.iloc[at].fillna(0.0)
+        row.index = row.index.astype(str)
+        held = row[row > 0.0]
+        unpriced = held[self._caps[day].reindex(held.index).fillna(0.0) <= 0.0]
+
+        if len(unpriced):
+            logger.warning("[%s] %d names the fund held (%.1f%% of it) have no market cap in "
+                           "the data given; is it the data the run read?", day.date(),
+                           len(unpriced), 100.0 * float(unpriced.sum()))
 
     def _estimated(self) -> pd.DataFrame:
         """The factor returns from the daily cross-sectional regressions."""
