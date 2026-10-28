@@ -22,7 +22,9 @@ from ..data import INDEX, RunData
 from ..panels import BENCHMARK_WEIGHTS, CURRENCIES, FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS
 from ..performance.comparisons import aligned
 from ..risk.factors import FactorAnalytics
-from . import currency, model
+from . import currency as currencies
+from . import implementation as breakdown
+from . import model as factor_model
 from .brinson import BrinsonResult, brinson, by_period
 from .contribution import AttributionResult, attribute
 from .effects import EffectsResult, linked_effects
@@ -102,11 +104,13 @@ class Attribution:
 
     def _days(self,
               start: str | pd.Timestamp | None,
-              end: str | pd.Timestamp | None) -> pd.DatetimeIndex:
+              end: str | pd.Timestamp | None,
+              from_start: bool = False) -> pd.DatetimeIndex:
         """The days the fund holds names and the names have returns, in the
-        window."""
+        window; with *from_start*, every day from the run's first."""
         weights = self.weights(FUND)
-        held = weights.index[weights.sum(axis=1) > 0.0]
+        held = (weights.index[weights.index >= self.run.nav.index[0]] if from_start
+                else weights.index[weights.sum(axis=1) > 0.0])
         days = held.intersection(self._name_returns().index)
 
         if not len(days):
@@ -133,10 +137,10 @@ class Attribution:
         days = self._days(start, end)
         weights = self._book_weights(against)
         lagged = weights.reindex(days, method="ffill").shift(1).fillna(0.0)
-        parts = currency.currency_parts(lagged, self._name_returns(),
-                                        currency.local_returns(self.run))
+        parts = currencies.currency_parts(lagged, self._name_returns(),
+                                        currencies.local_returns(self.run))
         daily = pd.DataFrame({name: frame.sum(axis=1) for name, frame in parts.items()})
-        table = (currency.by_currency(parts, self.run.tables[CURRENCIES]["CURRENCY"])
+        table = (currencies.by_currency(parts, self.run.tables[CURRENCIES]["CURRENCY"])
                  if by_currency else None)
         ours, theirs = self._paired(against)
 
@@ -145,7 +149,7 @@ class Attribution:
     def factors(self,
                 analytics: FactorAnalytics,
                 against: str | None = None,
-                method: str = model.HOLDINGS,
+                method: str = factor_model.HOLDINGS,
                 start: str | pd.Timestamp | None = None,
                 end: str | pd.Timestamp | None = None) -> EffectsResult:
         """The fund's return (or its active return *against* a comparator)
@@ -159,19 +163,35 @@ class Attribution:
         days = self._days(start, end)
         ours, theirs = self._paired(against)
 
-        if method == model.HOLDINGS:
+        if method == factor_model.HOLDINGS:
             lagged = (self._book_weights(against).reindex(days, method="ffill").shift(1)
                       .fillna(0.0))
-            daily = model.holdings_parts(analytics, lagged, self._name_returns())
-        elif method == model.RETURNS:
+            daily = factor_model.holdings_parts(analytics, lagged, self._name_returns())
+        elif method == factor_model.RETURNS:
             target = ours - theirs if theirs is not None else ours
+            year = self.run.periods_per_year
             rate = (0.0 if theirs is not None
-                    else model.daily_rate(self.run.risk_free_rate, self.run.periods_per_year))
-            daily = model.returns_parts(target.reindex(days[1:]).dropna(),
-                                        analytics.factor_returns(), rate,
-                                        self.run.periods_per_year)
+                    else factor_model.daily_rate(self.run.risk_free_rate, year))
+            daily = factor_model.returns_parts(target.reindex(days[1:]).dropna(),
+                                               analytics.factor_returns(), rate, year)
         else:
-            raise ValueError(f"Unknown method {method!r}. Known: {', '.join(model.METHODS)}.")
+            known = ", ".join(factor_model.METHODS)
+            raise ValueError(f"Unknown method {method!r}. Known: {known}.")
+
+        return linked_effects(daily, ours, theirs)
+
+    def implementation(self,
+                       against: str = INDEX,
+                       start: str | pd.Timestamp | None = None,
+                       end: str | pd.Timestamp | None = None) -> EffectsResult:
+        """The fund's tracking difference against *against* split into the
+        cap and screens, drift, cash drag, equitisation, each cost, fees,
+        withholding tax, creation fees and dividend treatment, from the run's
+        own records, linked over the window; the rest is the residual."""
+        days = self._days(start, end, from_start=start is None)
+        ours, theirs = self._paired(against)
+        daily = breakdown.daily_parts(self.run, self.weights(FUND), self.weights(against),
+                                           self._name_returns(), theirs, days)
 
         return linked_effects(daily, ours, theirs)
 
