@@ -107,56 +107,56 @@ WEIGHT_TABLES = (FUND_WEIGHTS, INDEX_WEIGHTS, OPTIMISED_WEIGHTS, BENCHMARK_WEIGH
 
 
 def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
-    """The tables a finished run keeps beside its record.
+    """The tables a finished run keeps beside its record, by name:
+
+    - ``fund_weights``: the fund's weight in each name held on each day
+      it was recorded, unabridged.
+    - ``name_returns``: each day's total return, in the book's currency,
+      of every name the fund held or its index or benchmark held, as
+      `beacon.data.returns.name_returns` measures it. Left out, with a
+      warning, when the run kept no data to read them from or they cannot
+      be measured (a currency with no rate into the book's).
+    - ``market``: for an ETF, its quote on the exchange each day: NAV per
+      share, premium, spread, market price, bid, ask, and what creating
+      and redeeming cost.
+    - ``cash_band_events``: for a fund with a cash band, each time its
+      cash left the band and was brought back, as the run recorded it.
+    - ``class_days``, ``class_flows`` and ``class_hedges``: for a run
+      with share classes, each class's days, flows and hedge trades, as
+      `beacon.analysis.class_panels.class_tables` gives them.
+    - ``futures_trades`` and ``futures_days``: for a fund holding index
+      futures, each trade of them with its cost, and each day's position,
+      price, fair value and index level.
+    - ``trades``: every trade, why it was made and its tags, as
+      `beacon.backtest.breakdown.trades` gives them.
+    - ``costs``: what the run cost each day, by kind, as
+      `beacon.backtest.breakdown.daily_costs` gives it.
+    - ``cash``: its cash, income, fees and flows each day, as
+      `beacon.backtest.breakdown.daily_cash` gives them.
+    - ``index_weights``, ``optimised_weights`` and ``benchmark_weights``:
+      each comparator's daily weights in its names, for those the run has
+      and that hold names (a benchmark given as a bare level series has
+      none).
+    - ``reference``: the grouping fields (sector, industry, region,
+      country, currency, exchange) of every name held, as they stood at
+      each rebalance; see `beacon.analysis.snapshots`.
+    - ``characteristics``: their market cap, P/E, P/B, dividend yield and
+      momentum at each rebalance, as
+      `beacon.analysis.snapshots.characteristics_snapshots` gives them;
+      left out, with a warning, when they cannot be measured.
+    - ``closes``, ``currencies``, ``rates`` and ``actions``: the closes
+      the name returns are worked out from, in each name's own currency,
+      and what converts them and accounts for splits and cash; see
+      `beacon.analysis.packing`.
+    - ``traded_values``: their average daily traded value at each
+      rebalance and month end, as the liquidity screens measure it
+      (`beacon.analysis.snapshots.traded_value_snapshots`).
 
     Args:
         result: The finished run.
 
     Returns:
-        dict: Each table by name:
-
-        - ``fund_weights``: the fund's weight in each name held on each day
-          it was recorded, unabridged.
-        - ``name_returns``: each day's total return, in the book's currency,
-          of every name the fund held or its index or benchmark held, as
-          `beacon.data.returns.name_returns` measures it. Left out, with a
-          warning, when the run kept no data to read them from or they cannot
-          be measured (a currency with no rate into the book's).
-        - ``market``: for an ETF, its quote on the exchange each day: NAV per
-          share, premium, spread, market price, bid, ask, and what creating
-          and redeeming cost.
-        - ``cash_band_events``: for a fund with a cash band, each time its
-          cash left the band and was brought back, as the run recorded it.
-        - ``class_days``, ``class_flows`` and ``class_hedges``: for a run
-          with share classes, each class's days, flows and hedge trades, as
-          `beacon.analysis.class_panels.class_tables` gives them.
-        - ``futures_trades`` and ``futures_days``: for a fund holding index
-          futures, each trade of them with its cost, and each day's position,
-          price, fair value and index level.
-        - ``trades``: every trade, why it was made and its tags, as
-          `beacon.backtest.breakdown.trades` gives them.
-        - ``costs``: what the run cost each day, by kind, as
-          `beacon.backtest.breakdown.daily_costs` gives it.
-        - ``cash``: its cash, income, fees and flows each day, as
-          `beacon.backtest.breakdown.daily_cash` gives them.
-        - ``index_weights``, ``optimised_weights`` and ``benchmark_weights``:
-          each comparator's daily weights in its names, for those the run has
-          and that hold names (a benchmark given as a bare level series has
-          none).
-        - ``reference``: the grouping fields (sector, industry, region,
-          country, currency, exchange) of every name held, as they stood at
-          each rebalance; see `beacon.analysis.snapshots`.
-        - ``characteristics``: their market cap, P/E, P/B, dividend yield and
-          momentum at each rebalance, as
-          `beacon.analysis.snapshots.characteristics_snapshots` gives them;
-          left out, with a warning, when they cannot be measured.
-        - ``closes``, ``currencies``, ``rates`` and ``actions``: the closes
-          the name returns are worked out from, in each name's own currency,
-          and what converts them and accounts for splits and cash; see
-          `beacon.analysis.packing`.
-        - ``traded_values``: their average daily traded value at each
-          rebalance and month end, as the liquidity screens measure it
-          (`beacon.analysis.snapshots.traded_value_snapshots`).
+        dict: Each table by name, as above.
     """
     weights = result.portfolio.weights
     panels = {FUND_WEIGHTS: weights, COSTS: daily_costs(result), CASH: daily_cash(result),
