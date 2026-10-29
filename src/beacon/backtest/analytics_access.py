@@ -21,7 +21,8 @@ class AnalyticsMixin:
               name: str,
               build: Any) -> Any:
         """The analytics kept under *name*, built by *build* the first time."""
-        kept: dict[str, Any] = self.__dict__.setdefault("_analytics", {})
+        # Not "_analytics", which would hide MetricsMixin._analytics (BN-398).
+        kept: dict[str, Any] = self.__dict__.setdefault("_analytics_kept", {})
 
         if name not in kept:
             kept[name] = build()

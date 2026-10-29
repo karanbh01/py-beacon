@@ -7,6 +7,7 @@ factory mounts them. Routers never construct their own data source: they read
 it from application state, so a request cannot outlive or contradict the
 process configuration.
 """
+from .analysis import build_analysis_router
 from .backtest import build_backtest_router
 from .coverage import build_coverage_router
 from .data import build_data_router
@@ -27,6 +28,7 @@ from .universes import build_universes_router
 from .watchlists import build_watchlists_router
 
 __all__ = [
+    "build_analysis_router",
     "build_backtest_router",
     "build_coverage_router",
     "build_data_router",

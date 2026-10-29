@@ -41,6 +41,7 @@ from ..index.schedule import CalendarCoverage
 from ..optimise.config import MIN_TRACKING_ERROR
 from ..report.blocks import BLOCK_TYPES
 from ..universe import FROZEN, LIVE
+from .analysis_schemas import AnalysisRequestSpec, AnalyticsBlock
 from .documents import SkipCounts
 from .serialisation import dataframe_to_payload, series_to_payload
 
@@ -3663,6 +3664,12 @@ class StrategyBacktestRequest(BaseModel):
         default_factory=list,
         description="The fund's share classes, sharing one book. Empty runs one class "
                     "with the request's capital and flows, as without classes.")
+    # BN-398.
+    analysis: AnalysisRequestSpec | None = Field(
+        default=None,
+        description="What the run's analysis should give: reports, statistics and every "
+                    "choice they make. Null for none; the run's analytics can be worked out "
+                    "later.")
 
 
 class BacktestRequest(StrategyBacktestRequest):
@@ -4480,6 +4487,12 @@ class BacktestRunResult(BaseModel):
     futures_rolls: list[FuturesRollPayload] = Field(
         default_factory=list, description="Each roll of the futures to the next contract.")
     # BN-323.
+    # BN-398.
+    analytics: AnalyticsBlock | None = Field(
+        default=None,
+        description="The run's analysis, when one was asked for: each statistic once, each "
+                    "report as a list of statistic ids, and the run's large tables to read "
+                    "on their own.")
     comparisons: ComparisonsPayload = Field(
         default_factory=ComparisonsPayload,
         description="The run against its index and its benchmark, each with the "

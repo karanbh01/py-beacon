@@ -26,12 +26,14 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from . import parameter_schemas  # noqa: E402
 from .active_data import ActiveData, active_data  # noqa: E402
+from .compression import RemoteGZip  # noqa: E402
 from .data_stores import StoreRegistry  # noqa: E402
 from .errors import register_exception_handlers  # noqa: E402
 from .jobs import JobRegistry  # noqa: E402
 from .methods import LiteralPathMethods  # noqa: E402
 from .query_guard import single_valued_query  # noqa: E402
 from .routers import (  # noqa: E402
+    build_analysis_router,
     build_backtest_router,
     build_coverage_router,
     build_data_router,
@@ -291,6 +293,8 @@ def create_app(config: ServerConfig) -> FastAPI:
     # Added before CORS so CORS wraps it: a 405 without CORS headers reaches
     # a browser as an opaque network failure rather than as a 405.
     app.add_middleware(LiteralPathMethods, api=app)
+    # BN-398: large responses gzipped for a client on another machine.
+    app.add_middleware(RemoteGZip)
     app.add_middleware(CORSMiddleware,
                        allow_origins=list(config.cors_origins),
                        allow_origin_regex=LOCALHOST_ORIGIN_PATTERN,
@@ -314,6 +318,7 @@ def create_app(config: ServerConfig) -> FastAPI:
                    build_indices_router(),
                    # Before the strategies router: /strategies/compare and
                    # /strategies/runs are not strategy ids.
+                   build_analysis_router(),
                    build_strategy_runs_router(),
                    build_strategies_router(),
                    build_jobs_router(),

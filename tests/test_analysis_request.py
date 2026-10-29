@@ -75,6 +75,14 @@ class TestAskedForUpFront:
         assert analysed.analysis_block["timings"] == analysed.analysis_timings
         assert all(seconds >= 0.0 for seconds in analysed.analysis_timings.values())
 
+    def test_its_metrics_still_read_after_its_analytics(self,
+                                                         plain,
+                                                         analysed):
+        """The analytics kept on the result once hid the metrics' own
+        analytics, so `summary` failed after any analysis."""
+        assert analysed.analytics is not None
+        assert analysed.summary() == plain.summary()
+
     def test_the_run_is_unchanged(self,
                                   plain,
                                   analysed):

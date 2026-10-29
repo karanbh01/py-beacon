@@ -113,16 +113,20 @@ class TestTheOptions:
         assert fields["benchmark.kind"]["choices"] == ["index", "identifier"]
 
     def test_every_field_of_a_backtest_request_is_described(self,
+                                                            client,
                                                             options):
-        """A form built from the options can set everything the request takes."""
+        """A form built from the options can set everything the request takes;
+        the analysis is described by its own catalogue (BN-400)."""
         from beacon.server.schemas import StrategyBacktestRequest
 
+        analysis = client.get("/analysis/options", headers=auth()).json()
         run = {field["name"].split(".")[0] for field in options["run_settings"]}
         described = {*run,
                      "flows" if options["flows"] else None,
                      "vehicle" if options["presets"] and options["vehicle_settings"] else None,
                      "share_classes" if options["share_class_settings"] else None,
-                     "modelling_assumptions" if options["modelling_assumptions"] else None}
+                     "modelling_assumptions" if options["modelling_assumptions"] else None,
+                     "analysis" if analysis["settings"] and analysis["reports"] else None}
 
         assert set(StrategyBacktestRequest.model_fields) <= described
 

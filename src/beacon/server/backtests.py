@@ -27,6 +27,8 @@ from ..index.constructor import IndexDefinition
 from ..index.derived import AnyIndexDefinition, OptimisedIndexDefinition
 from ..index.result import IndexResult
 from ..portfolio.cash_flows import FEE
+from .analysis import build_request, keep_analytics, with_tables
+from .analysis_schemas import AnalyticsBlock
 from .backtest_settings import ACTIVE, INDEX_TRACKING, BuiltSettings
 from .backtest_settings import build as build_settings
 from .benchmarks import resolve_benchmark_book
@@ -307,6 +309,8 @@ def build_backtest_job(strategy: StrategyDocument,
                                 findings)
 
     settings = built
+    # BN-398: refused here, before the run, when the analysis cannot be given.
+    analysis = build_request(request.analysis) if request.analysis is not None else None
 
     def work(report: Report) -> dict[str, object]:
         # Either face (BN-168): a rule pipeline, or a derivation whose source
@@ -351,6 +355,7 @@ def build_backtest_job(strategy: StrategyDocument,
             settings.strategy(definition),
             start=start,
             end=end,
+            analysis=analysis,
             # BN-342: the run's progress, by stage and then by trading day,
             # inside the job's own span from here to the benchmark at 0.8.
             progress=lambda fraction, message: report(RUN_START + RUN_SPAN * fraction, message))
@@ -429,6 +434,15 @@ def build_backtest_job(strategy: StrategyDocument,
             whole = {**record.model_dump(mode="json"),
                      HOLDINGS_KEY: holdings_document(backtest, index_result)}
             record_store.write(strategy.id, slim_record(whole, run, folder))
+
+        # BN-398: the analysis in the payload, and beside the run's tables,
+        # read by strategy.
+        if backtest.analysis_block is not None:
+            block = with_tables(backtest.analysis_block, strategy.id, backtest.run_data.tables)
+            payload.analytics = AnalyticsBlock.model_validate(block)
+
+            if record_store is not None:
+                keep_analytics(record_store.panels_directory(strategy.id), block)
 
         report(1.0, "Complete.")
 
