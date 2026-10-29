@@ -163,8 +163,9 @@ def analyse(result: Any,
         dict: ``request``, ``reports`` (each report's level and statistics,
         by id, with their views), ``statistics`` (each one's kind, its
         ``point`` value and, where wanted, its ``rolling`` table, and a
-        table's ``summary``), ``unavailable``, ``active_against`` and
-        ``timings`` (seconds, the run's tables first).
+        table's ``summary``), ``unavailable``, ``active_against``,
+        ``groupings`` (the reference fields the run kept, which attribution
+        can group by) and ``timings`` (seconds, the run's tables first).
     """
     from .reports.context import Context  # noqa: PLC0415
 
@@ -217,7 +218,8 @@ def analyse_run(context: Any,
                for report_id, entries in request.selection().items()}
 
     return {"request": request.as_data(), "reports": reports, "statistics": statistics,
-            "unavailable": unavailable, "active_against": context.tracked, "timings": timings}
+            "unavailable": unavailable, "active_against": context.tracked,
+            "groupings": _groupings(context.run), "timings": timings}
 
 
 def _work_out(statistic: Any,
@@ -273,6 +275,20 @@ def _roll(chosen: list[Any],
             statistics[statistic.id]["rolling"] = {
                 "window": context.options.rolling.window, "step": step_of(statistic, context),
                 "table": table_payload(tables[statistic.id])}
+
+
+def _groupings(run: Any) -> list[str]:
+    """The reference fields the run kept for its names, which attribution and
+    group figures can group by."""
+    from .panels import REFERENCE  # noqa: PLC0415
+    from .snapshots import GROUPING_FIELDS  # noqa: PLC0415
+
+    if REFERENCE not in run.tables:
+        return []
+
+    kept = run.tables[REFERENCE].columns
+
+    return [field for field in GROUPING_FIELDS if field in kept]
 
 
 def _known(names: list[str],

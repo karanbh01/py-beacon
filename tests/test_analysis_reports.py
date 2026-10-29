@@ -221,6 +221,28 @@ class TestTheBlock:
         assert set(episodes["point"]) == {"index", "columns", "data"}
         assert "ulcer_index" in episodes["summary"]
 
+    def test_signed_names_are_names_the_statistic_gives(self,
+                                                        block):
+        """Every name a statistic marks signed is the last part of one of its
+        figures, columns or summary figures, where the run gives it."""
+        for statistic_id, entry in block["statistics"].items():
+            signed = set(CATALOGUE[statistic_id].signed) - {"*"}
+            point = entry["point"]
+            names = point.get("columns", point) if isinstance(point, dict) else []
+            given = {str(name).split("/")[-1] for name in [*names, *(entry.get("summary") or {})]}
+
+            # A comparator the run lacks gives no names of its own.
+            if signed and given:
+                assert signed - given <= {"optimised_return"}, statistic_id
+
+    def test_a_volatility_or_a_weight_is_never_signed(self):
+        for statistic_id in ("volatility", "tracking_error", "herfindahl", "holdings_count"):
+            assert CATALOGUE[statistic_id].signed == ()
+
+    def test_it_names_the_groupings_the_run_kept(self,
+                                                 block):
+        assert block["groupings"] == ["CURRENCY", "EXCHANGE"]
+
     def test_each_part_says_so_as_it_starts(self,
                                             result):
         said = []

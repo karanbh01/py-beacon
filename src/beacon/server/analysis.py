@@ -151,7 +151,8 @@ def catalogue() -> dict[str, Any]:
                         "settings": list(statistic.settings),
                         "figure_names": list(statistic.figure_names),
                         "columns": [{"name": column.name, "label": column.label,
-                                     "unit": column.unit} for column in statistic.columns]}
+                                     "unit": column.unit} for column in statistic.columns],
+                        "signed": list(statistic.signed)}
                        for statistic in CATALOGUE],
         "reports": [{"id": report.id, "label": report.label, "order": report.order,
                      "levels": {name: {"sections": [

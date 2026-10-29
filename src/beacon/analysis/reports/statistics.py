@@ -119,6 +119,9 @@ class Statistic:
         figure_names: What its figure names are made of, part by part.
         roll: Works out its rolling figures itself, for a statistic that
             cannot be worked out window by window; dates by figure name.
+        signed: The names of its figures that are returns or differences,
+            whose sign says better or worse: the last part of a figure's,
+            a column's or a summary figure's name; ``*`` for every number.
     """
     id: str
     label: str
@@ -134,6 +137,7 @@ class Statistic:
     columns: tuple[Column, ...] = ()
     figure_names: tuple[str, ...] = ("book",)
     roll: Callable[[Any], pd.DataFrame] | None = None
+    signed: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

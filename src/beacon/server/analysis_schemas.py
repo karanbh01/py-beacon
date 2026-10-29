@@ -105,6 +105,10 @@ class AnalyticsBlock(BaseModel):
         description="Each statistic asked for that the run cannot give, by id.")
     active_against: str | None = Field(
         description="The comparator relative and active figures are measured against.")
+    groupings: list[str] = Field(
+        default_factory=list,
+        description="The reference fields the run kept for its names, which "
+                    "`options.attribution.grouping` can name.")
     timings: dict[str, float] = Field(
         description="Seconds each part took: 'tables', then 'performance', 'portfolio', "
                     "'risk' and 'attribution' as asked for.")
@@ -162,6 +166,10 @@ class StatisticSpec(BaseModel):
                     "catalogue's `names`.")
     columns: list[dict[str, Any]] = Field(
         description="For a table, its columns in order: name, label and unit.")
+    signed: list[str] = Field(
+        description="Which of its figures are returns or differences, whose sign says better "
+                    "or worse, by the last part of a figure's, a column's or a summary "
+                    "figure's name; '*' for every number; empty for none.")
 
 
 class ReportEntrySpec(BaseModel):
