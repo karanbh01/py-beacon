@@ -26,7 +26,7 @@ import pandas as pd
 
 from ..performance.rolling import rolling_figures, rolling_relative
 from .context import FUND, Context
-from .options import DAILY, MONTH_END
+from .options import DAILY, MONTH_END, AnalysisOptions
 from .statistics import HEAVY, Statistic, Unavailable, figures_of
 
 ACTIVE = "active"
@@ -35,7 +35,14 @@ ACTIVE = "active"
 def step_of(statistic: Statistic,
             context: Context) -> str:
     """How often *statistic*'s windows end: as asked, else by its cost."""
-    asked = context.options.rolling.step
+    return step_for(statistic, context.options)
+
+
+def step_for(statistic: Statistic,
+             options: AnalysisOptions) -> str:
+    """How often *statistic*'s windows end under *options*: as they ask,
+    else by its cost."""
+    asked = options.rolling.step
 
     if asked is not None:
         return asked
