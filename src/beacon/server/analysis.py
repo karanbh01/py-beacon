@@ -26,6 +26,7 @@ from ..analysis.reports.rolling import step_for
 from ..analysis.reports.statistics import REASONS, decimals_of
 from ..analysis.request import AnalysisRequest
 from ..exceptions import DataNotFoundError, InvalidArgumentError
+from ..portfolio.reasons import REASONS as TRADE_REASONS
 
 ANALYTICS_FILE = "analytics.json"
 
@@ -50,9 +51,11 @@ TABLE_COLUMNS: dict[str, list[tuple[str, str, str, str | None, int | None]]] = {
 }
 TABLE_LABELS = {TRADES: "Trades"}
 
-# The coded text columns, each value's label.
+# The coded text columns, each value's label: a trade's reason as written,
+# with a capital.
 CODED_LABELS = {
     "side": {"BUY": "Buy", "SELL": "Sell"},
+    "reason": {reason: reason[:1].upper() + reason[1:] for reason in TRADE_REASONS},
 }
 
 # Labels for figure names that are not statistic ids, by dimension.

@@ -112,7 +112,9 @@ class TestTheCatalogue:
         assert {reason["code"] for reason in listed["unavailable"]} >= {"no_index",
                                                                          "no_futures"}
         trades = next(table for table in listed["tables"] if table["name"] == "trades")
+        columns = {column["name"]: column for column in trades["columns"]}
         assert [column["name"] for column in trades["columns"]][:3] == ["date", "name", "side"]
+        assert columns["reason"]["labels"]["dividend reinvestment"] == "Dividend reinvestment"
 
 
 class TestTheBlock:
