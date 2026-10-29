@@ -8,6 +8,7 @@ effective number of 3.33 names, a normalised Herfindahl of (0.30 - 0.25) /
 run is test_risk_contributions_over_time's thirty names in three sectors.
 """
 import math
+from itertools import pairwise
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,7 @@ from beacon.analysis.panels import FUND_WEIGHTS
 from beacon.analysis.performance.crises import Episode
 from beacon.analysis.risk.concentration import (
     ConcentrationAnalytics,
+    concentration_curve,
     lorenz,
     outcome_figures,
     risk_figures,
@@ -63,6 +65,37 @@ class TestByWeight:
 
         assert curve["share_of_book"].tolist() == pytest.approx([0.0, 0.1, 0.3, 0.6, 1.0])
         assert curve["share_of_names"].tolist() == pytest.approx([0.0, 0.25, 0.5, 0.75, 1.0])
+
+
+class TestTheCurve:
+
+    def test_largest_first_with_cumulative_weight(self):
+        curve = concentration_curve(KNOWN.iloc[0])
+
+        assert curve["name"].tolist() == ["A", "B", "C", "D"]
+        assert curve["cumulative"].tolist() == pytest.approx([0.4, 0.7, 0.9, 1.0])
+        assert list(curve.index) == [1, 2, 3, 4]
+
+    def test_the_top_k_s_concentration_and_what_each_adds(self):
+        curve = concentration_curve(KNOWN.iloc[0])
+        effective = [1.0, 0.49 / 0.25, 0.81 / 0.29, 1 / 0.30]
+
+        assert curve["top_k_effective_number"].tolist() == pytest.approx(effective)
+        assert curve["marginal_effective_number"].tolist() == pytest.approx(
+            [effective[0], *(b - a for a, b in pairwise(effective))])
+        assert curve["top_k_herfindahl"].iloc[-1] == pytest.approx(0.30)
+
+    def test_cash_is_left_out_and_names_held_only(self):
+        weights = pd.Series({"A": 0.36, "B": 0.27, "C": 0.18, "D": 0.09, "E": 0.0})
+
+        curve = concentration_curve(weights)
+
+        assert len(curve) == 4
+        assert curve["cumulative"].iloc[-1] == pytest.approx(1.0)
+        assert curve["weight"].tolist() == pytest.approx([0.4, 0.3, 0.2, 0.1])
+
+    def test_top_25_is_a_weight_figure(self):
+        assert "top_25" in weight_figures(KNOWN).columns
 
 
 class TestByRiskAndOutcome:
@@ -124,6 +157,15 @@ class TestOverARun:
 
         assert list(years.index) == ["2023", "2024"]
         assert list(crises.index) == ["spring", "calm"]
+
+    def test_a_book_s_curve_on_a_day(self,
+                                    analytics):
+        curve = analytics.curve(REBALANCES[1])
+        sectors = analytics.curve(REBALANCES[1], field="SECTOR")
+
+        assert len(curve) == 30
+        assert curve["cumulative"].iloc[-1] == pytest.approx(1.0)
+        assert sorted(sectors["name"]) == ["Energy", "Health", "Tech"]
 
     def test_by_risk(self,
                      analytics):

@@ -32,7 +32,14 @@ that added to it.
 
 **Drift** is how far the weights have moved since the last rebalance: half
 the sum of the gaps, the share of the book that would trade to put it back.
+
+**The concentration curve** takes the names largest first, position by
+position: the k-th name's weight, the cumulative weight of the top k (as a
+share of the book), and the concentration of the top k on their own, their
+Herfindahl and effective number once their weights are scaled to add to 1,
+with how much adding the k-th changed each.
 """
+# The concentration curve and top 25 followed on 29 October (Karan).
 # BN-391. Agreed with Karan on 2026-10-27.
 import math
 from collections.abc import Sequence
@@ -47,7 +54,7 @@ from ..performance.crises import THRESHOLD, CrisisAnalytics, Episode
 from .contributions import RiskOverTime
 
 BOOKS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "benchmark": BENCHMARK_WEIGHTS}
-TOPS = (5, 10, 20)
+TOPS = (5, 10, 20, 25)
 COVERAGE = (0.5, 0.8, 0.9)
 
 # The share of the eigenvalues the absorption ratio counts.
@@ -102,6 +109,34 @@ def lorenz(weights: pd.Series) -> pd.DataFrame:
     book = np.concatenate([[0.0], np.cumsum(held) / total]) if total > 0 else names * 0.0
 
     return pd.DataFrame({"share_of_names": names, "share_of_book": book})
+
+
+def concentration_curve(weights: pd.Series) -> pd.DataFrame:
+    """The names held, largest first, a row a position from 1: each name,
+    its weight (a share of the names held), the cumulative weight to it, and
+    the top k's Herfindahl and effective number on their own, with the
+    change the k-th made to each."""
+    held = weights.fillna(0.0)
+    held = held[held > 0.0].sort_values(ascending=False, kind="stable")
+    total = float(held.sum())
+    columns = ["name", "weight", "cumulative", "top_k_herfindahl", "top_k_effective_number",
+               "marginal_herfindahl", "marginal_effective_number"]
+
+    if total <= 0.0:
+        return pd.DataFrame(columns=columns, index=pd.RangeIndex(1, 1, name="position"))
+
+    shares = held.to_numpy(dtype=float) / total
+    cumulative = np.cumsum(shares)
+    herfindahl = np.cumsum(shares ** 2) / cumulative ** 2
+    effective = 1.0 / herfindahl
+    table = pd.DataFrame({"name": held.index.astype(str), "weight": shares,
+                          "cumulative": cumulative, "top_k_herfindahl": herfindahl,
+                          "top_k_effective_number": effective,
+                          "marginal_herfindahl": np.diff(herfindahl, prepend=0.0),
+                          "marginal_effective_number": np.diff(effective, prepend=0.0)},
+                         index=pd.RangeIndex(1, len(shares) + 1, name="position"))
+
+    return table[columns]
 
 
 def risk_figures(shares: pd.Series,
@@ -191,6 +226,21 @@ class ConcentrationAnalytics:
         days = ours.index.intersection(theirs.index)
 
         return ours.loc[days] - theirs.loc[days]
+
+    def curve(self,
+              date: str | pd.Timestamp,
+              book: str = "fund",
+              field: str | None = None) -> pd.DataFrame:
+        """The concentration curve of a book's weights (or, with *field*,
+        its group weights) at the close of *date*: names largest first, with
+        cumulative weight and the top k's concentration."""
+        weights = self.weights(book, field)
+        at = as_of_position(weights.index, pd.Timestamp(date))
+
+        if at is None:
+            raise KeyError(f"The run kept no {book} weights on or before {date}.")
+
+        return concentration_curve(weights.iloc[at])
 
     def by_period(self,
                   frequency: str = "Y",
