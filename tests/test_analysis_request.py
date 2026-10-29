@@ -1,5 +1,6 @@
 # tests/test_analysis_request.py
-"""BN-397: a backtest's analysis, asked for up front or built on first read.
+"""BN-397/BN-398: a backtest's analysis, asked for up front or built on first
+read.
 
 Runs reuse test_strategy_futures' eight-name market-cap index held
 physically through 2024.
@@ -11,6 +12,7 @@ from beacon.analysis.attribution import Attribution
 from beacon.analysis.data import RunData
 from beacon.analysis.performance.analytics import PerformanceAnalytics
 from beacon.analysis.performance.settings import AnalysisSettings
+from beacon.analysis.reports.options import AnalysisOptions
 from beacon.analysis.request import (
     ATTRIBUTION,
     PERFORMANCE,
@@ -25,7 +27,8 @@ from beacon.strategy import Factor
 from beacon.strategy.signals import FunctionSignal
 from test_strategy_futures import DATA, END, START, index
 
-EVERYTHING = AnalysisRequest(portfolio=True, risk=True, attribution=True)
+EVERYTHING = AnalysisRequest(reports={"factsheet": "core", "risk": "core",
+                                     "attribution": "core"})
 
 
 def run(strategy,
@@ -69,6 +72,7 @@ class TestAskedForUpFront:
         assert analysed.analysis_request is EVERYTHING
         assert list(analysed.analysis_timings) == [TABLES, PERFORMANCE, PORTFOLIO, RISK,
                                                    ATTRIBUTION]
+        assert analysed.analysis_block["timings"] == analysed.analysis_timings
         assert all(seconds >= 0.0 for seconds in analysed.analysis_timings.values())
 
     def test_the_run_is_unchanged(self,
@@ -77,12 +81,18 @@ class TestAskedForUpFront:
         pd.testing.assert_series_equal(analysed.portfolio.nav, plain.portfolio.nav)
         assert analysed.analytics.summary() == plain.analytics.summary()
 
-    def test_performance_alone_by_default(self):
-        assert AnalysisRequest().parts() == [PERFORMANCE]
+    def test_a_factsheet_core_by_default(self):
+        assert dict(AnalysisRequest().reports) == {"factsheet": "core"}
+
+    def test_only_the_parts_the_statistics_need(self):
+        just_returns = AnalysisRequest(reports={}, statistics=["sharpe_ratio"])
+
+        assert just_returns.parts() == [PERFORMANCE]
+        assert RISK in AnalysisRequest(reports={"risk": "core"}).parts()
 
     def test_its_settings_reach_the_analytics(self):
         settings = AnalysisSettings(start=pd.Timestamp("2024-07-01"))
-        result = run(index(), analysis=AnalysisRequest(settings=settings))
+        result = run(index(), analysis=AnalysisRequest(options=AnalysisOptions(window=settings)))
 
         assert result.analytics.returns.index[0] >= pd.Timestamp("2024-07-01")
 
@@ -94,7 +104,10 @@ class TestAskedForUpFront:
 
 
 @pytest.mark.parametrize("module", ["beacon.analysis.request", "beacon.analysis.risk.analytics",
-                                    "beacon.backtest.analytics_access"])
+                                    "beacon.backtest.analytics_access",
+                                    "beacon.analysis.reports.catalogue",
+                                    "beacon.analysis.reports.definitions",
+                                    "beacon.analysis.reports.rolling"])
 def test_each_imports_first_in_a_fresh_process(module):
     """The request is imported by the backtest, whose result its analysis
     reads: imported first, neither may find the other half-built."""

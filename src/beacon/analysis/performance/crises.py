@@ -190,7 +190,7 @@ class CrisisAnalytics:
         performance = PerformanceAnalytics(run, settings)
         self.periods_per_year = performance.periods_per_year
         levels = run.comparators[comparator] if isinstance(comparator, str) else comparator
-        self.ours, self.theirs = aligned(performance.returns, levels)
+        self.ours, self.theirs = aligned(performance.returns, levels, performance.before)
         chosen = market if market is not None else (BENCHMARK if BENCHMARK in run.comparators
                                                    else INDEX)
         self.market = run.comparators[chosen] if isinstance(chosen, str) else chosen

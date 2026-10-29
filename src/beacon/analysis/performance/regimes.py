@@ -151,11 +151,11 @@ class RegimeAnalytics:
         self.periods_per_year = performance.periods_per_year
         self.daily_rate = formulas.daily_rate(performance.risk_free_rate, self.periods_per_year)
         levels = run.comparators[comparator] if isinstance(comparator, str) else comparator
-        self.ours, self.theirs = aligned(performance.returns, levels)
+        self.ours, self.theirs = aligned(performance.returns, levels, performance.before)
         chosen = market if market is not None else (BENCHMARK if BENCHMARK in run.comparators
                                                    else INDEX)
         market_levels = run.comparators[chosen] if isinstance(chosen, str) else chosen
-        _, self.market = aligned(performance.returns, market_levels)
+        _, self.market = aligned(performance.returns, market_levels, performance.before)
         self.market_levels = (1.0 + self.market).cumprod()
 
     def days(self) -> dict[str, pd.Series]:

@@ -257,9 +257,11 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
     dividends_entitled: pd.DataFrame = field(
         default_factory=lambda: pd.DataFrame(columns=["GROSS", "WITHHELD"], dtype=float))
     share_classes: dict[str, ShareClassBook] = field(default_factory=dict)
-    # BN-397: what the run was asked to analyse, and how long each part took.
+    # BN-397/BN-398: what the run was asked to analyse, its analytics block,
+    # and how long each part took.
     analysis_request: Any = None
     analysis_timings: dict[str, float] = field(default_factory=dict)
+    analysis_block: dict[str, Any] | None = None
     _data_fetcher: DataFetcher | None = field(default=None, repr=False,
                                               compare=False)
 

@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from ...data.base import as_of_position
 from . import formulas
 
 
@@ -99,11 +100,16 @@ def comparison_of(returns: pd.Series,
 
 
 def aligned(returns: pd.Series,
-            comparator_levels: pd.Series) -> tuple[pd.Series, pd.Series]:
+            comparator_levels: pd.Series,
+            before: pd.Timestamp | None = None) -> tuple[pd.Series, pd.Series]:
     """A run's and a comparator's daily returns on the days both have, empty
     when they share fewer than two: the comparator's first day returns
     nothing from its level that day, and so, when the comparator starts after
-    the run, does the run's."""
+    the run, does the run's.
+
+    For returns over a window that starts after the run, *before* is the
+    run's close before the window's first day: the comparator's first return
+    is then from its own close on or before it, as the run's is."""
     levels = comparator_levels.dropna()
     window = returns.index.intersection(levels.index)
 
@@ -113,6 +119,13 @@ def aligned(returns: pd.Series,
 
     ours = returns.loc[window].astype(float)
     theirs = formulas.returns_from_start(levels.loc[window].astype(float))
+    # BN-398: a window that starts after the run measured the comparator's
+    # first day as nothing, leaving a day of its move out of every windowed
+    # relative figure.
+    prior = as_of_position(levels.index, before) if before is not None else None
+
+    if prior is not None and window[0] == returns.index[0] and levels.index[prior] < window[0]:
+        theirs.iloc[0] = float(levels.loc[window[0]]) / float(levels.iloc[prior]) - 1.0
 
     # From a later start, the run starts there too, as the comparator does.
     if window[0] != returns.index[0]:

@@ -90,7 +90,8 @@ class RelativeAnalytics:
         self.performance = PerformanceAnalytics(run, settings)
         self.levels = (run.comparators[comparator] if isinstance(comparator, str)
                        else comparator)
-        self.ours, self.theirs = aligned(self.performance.returns, self.levels)
+        self.ours, self.theirs = aligned(self.performance.returns, self.levels,
+                                         self.performance.before)
 
     @property
     def periods_per_year(self) -> int:

@@ -145,7 +145,9 @@ class RiskOfLoss:
                  settings: AnalysisSettings | None = None):
         self.run = run
         self.settings = settings
-        self.returns = PerformanceAnalytics(run, settings).returns
+        performance = PerformanceAnalytics(run, settings)
+        self.returns = performance.returns
+        self._before = performance.before
 
     def books(self) -> list[str]:
         """The books the run can be measured on: the fund, each comparator,
@@ -170,7 +172,7 @@ class RiskOfLoss:
         if name not in self.run.comparators:
             raise KeyError(f"The run has no {book}. Known: {', '.join(self.books())}.")
 
-        ours, theirs = aligned(self.returns, self.run.comparators[name])
+        ours, theirs = aligned(self.returns, self.run.comparators[name], self._before)
 
         return ours - theirs if book == ACTIVE else theirs
 

@@ -400,12 +400,15 @@ class Backtest:
         result.replication = replication
         result.active = active
 
-        # BN-397: the analysis asked for, its standard figures worked out now.
+        # BN-397/BN-398: the analysis asked for, its analytics block worked
+        # out now, a progress message as each part starts.
         result.analysis_request = analysis
 
         if analysis is not None:
             report(1.0, "Analysing the run")
-            result.analysis_timings = analyse(result, analysis)
+            result.analysis_block = analyse(result, analysis,
+                                            lambda message: report(1.0, message))
+            result.analysis_timings = dict(result.analysis_block["timings"])
 
         return result
 

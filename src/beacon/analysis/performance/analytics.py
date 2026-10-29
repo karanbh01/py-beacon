@@ -57,6 +57,20 @@ class PerformanceAnalytics:
         return self._window(self.run.returns)
 
     @property
+    def before(self) -> pd.Timestamp | None:
+        """The run's close before the days measured, when they start after
+        the run's first day; None when they start with it."""
+        days = self.run.returns.index
+        measured = self.returns
+
+        if measured.empty or not len(days) or measured.index[0] == days[0]:
+            return None
+
+        position = days.get_loc(measured.index[0])
+
+        return days[position - 1] if isinstance(position, int) and position > 0 else None
+
+    @property
     def tracked(self) -> pd.Series | None:
         """The levels of the comparator tracking is measured against, or None
         when the run has none."""
@@ -446,7 +460,7 @@ class PerformanceAnalytics:
         levels = (self.run.comparators.get(comparator) if isinstance(comparator, str)
                   else comparator)
 
-        return None if levels is None else aligned(self.returns, levels)
+        return None if levels is None else aligned(self.returns, levels, self.before)
 
     def _theirs(self) -> pd.Series | None:
         """The tracked comparator's daily returns over the days measured,
