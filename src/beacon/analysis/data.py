@@ -27,14 +27,17 @@ from ..backtest.result import BacktestResult
 from ..exceptions import ConfigurationError
 from .packing import CLOSES_FLOAT, CLOSES_PACKED, CLOSES_SCALE, pack_closes, unpack_closes
 from .panels import (
+    ACTIONS,
     CASH,
     CHARACTERISTICS,
     CLOSES,
     COSTS,
+    CURRENCIES,
     FUND_WEIGHTS,
     HOLDINGS,
     INDEX_WEIGHTS,
     NAME_RETURNS,
+    RATES,
     REFERENCE,
     TRADED_VALUES,
     TRADES,
@@ -46,6 +49,7 @@ from .panels import (
     weights_from,
     write_panels,
 )
+from .trade_packing import PACKED_TRADES, TRADES_KEPT, pack_trades, unpack_trades
 
 # What a run records, beside its tables.
 RUN_FILE = "run.json"
@@ -202,6 +206,14 @@ class RunData:
         if closes is not None:
             kept.update(pack_closes(closes))
 
+        # The trades are kept as what was traded, the rest worked out again
+        # on reading (BN-412), when that gives them back exactly.
+        trades = _packed_trades(self.tables, self.currency)
+
+        if trades is not None:
+            del kept[TRADES]
+            kept.update(trades[0])
+
         write_panels(folder, {**kept,
                               **{name: values.to_frame(_VALUE) for name, values in series.items()}})
         run = {"version": RUN_VERSION, "currency": self.currency,
@@ -214,6 +226,10 @@ class RunData:
                "dtypes": {name: str(self.tables[name].dtypes.iloc[0]) for name in derived
                           if name != NAME_RETURNS and len(self.tables[name].columns)},
                "closes": [] if closes is None else [str(name) for name in closes.columns]}
+
+        if trades is not None:
+            run["trades"] = {"rate": trades[1], "columns": list(self.tables[TRADES].columns)}
+
         (folder / RUN_FILE).write_text(json.dumps(run, sort_keys=True), encoding="utf-8")
 
     @classmethod
@@ -252,12 +268,16 @@ class RunData:
                                                        INVESTOR_FLOWS)
                      or name.startswith(_LEVELS)]).items()}
         packed = [name for name in (CLOSES_PACKED, CLOSES_SCALE, CLOSES_FLOAT) if name in held]
-        kept = [name for name in held if name not in series and name not in packed]
+        kept = [name for name in held if name not in series and name not in packed
+                and name not in PACKED_TRADES]
         tables = _Tables({}, {name: partial(_read_one, folder, name) for name in kept})
 
         if packed:
             tables.add(CLOSES, lambda: unpack_closes(read_panels(folder, packed),
                                                      run.get("closes") or None))
+
+        if TRADES_KEPT in held:
+            tables.add(TRADES, partial(_trades_from, folder, tables, run))
 
         for name, rebuild in _rebuilds(tables, run).items():
             tables.add(name, rebuild, _window(name, tables, run))
@@ -371,6 +391,26 @@ class _Tables(Mapping[str, pd.DataFrame]):
             return self[name].tail(rows)
 
         return self._windows[name](rows)
+
+
+def _packed_trades(tables: Mapping[str, pd.DataFrame],
+                   currency: str) -> tuple[dict[str, pd.DataFrame], float] | None:
+    """A run's trades packed, and the fixed rate; None when the run has no
+    trades or lacks what they are worked out from, or they would not come
+    back exactly."""
+    if TRADES not in tables or not all(name in tables for name in (CLOSES, CURRENCIES, RATES,
+                                                                 ACTIONS)):
+        return None
+
+    return pack_trades(tables[TRADES], tables, currency)
+
+
+def _trades_from(folder: Path,
+                 tables: Mapping[str, pd.DataFrame],
+                 run: Mapping[str, Any]) -> pd.DataFrame:
+    """A stored run's trades, worked out again from what it kept."""
+    return unpack_trades(read_panels(folder, list(PACKED_TRADES)), tables, run["currency"],
+                         float(run["trades"]["rate"]), list(run["trades"]["columns"]))
 
 
 def _read_one(folder: Path,
