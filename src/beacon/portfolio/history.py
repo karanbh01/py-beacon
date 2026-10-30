@@ -171,9 +171,12 @@ class PortfolioHistory:
         if not any(snapshot.asset_ids for _, snapshot in snapshots):
             return _empty_positions()
 
+        # Each date converted once and repeated for its rows (BN-411):
+        # converted a row at a time it was 1.8 s at 6,000 names.
+        days = pd.to_datetime([date for date, _ in snapshots])
+        counts = [len(snapshot.asset_ids) for _, snapshot in snapshots]
         frame = pd.DataFrame({
-            "DATE": pd.to_datetime([date for date, snapshot in snapshots
-                                    for _ in snapshot.asset_ids]),
+            "DATE": pd.DatetimeIndex(np.repeat(days.to_numpy(), counts)),
             "ASSET_ID": [name for _, snapshot in snapshots for name in snapshot.asset_ids],
             "QUANTITY": np.concatenate([snapshot.quantity for _, snapshot in snapshots]),
             "PRICE": np.concatenate([snapshot.price for _, snapshot in snapshots]),

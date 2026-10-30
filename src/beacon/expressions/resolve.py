@@ -36,6 +36,7 @@ import math
 from collections.abc import Callable
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from ..analysis.liquidity import TRAILING_MONTHS, average_daily_volume
@@ -233,14 +234,27 @@ def _market_numbers(field: Field,
     """A market column's last value on or before the date, or a market cap
     in *currency*, for each name, from one read of the window."""
     start = date - pd.Timedelta(days=10)
-    frame = fetcher.fetch_market_data(list(identifiers), start.strftime("%Y-%m-%d"),
-                                      date.strftime("%Y-%m-%d"))
+    names = list(identifiers)
+    read: pd.DataFrame | None = None
 
     def last(column: str) -> pd.Series:
-        if frame.empty or column not in frame.columns:
+        nonlocal read
+        # Each name's last value straight from the store's session index
+        # when it can give it (BN-411), else from a read of the window.
+        quick = getattr(fetcher, "last_market_values", None)
+        values = quick(names, start, date, column) if callable(quick) else None
+
+        if isinstance(values, np.ndarray):
+            return pd.Series(values, index=names).dropna()
+
+        if read is None:
+            read = fetcher.fetch_market_data(names, start.strftime("%Y-%m-%d"),
+                                             date.strftime("%Y-%m-%d"))
+
+        if read.empty or column not in read.columns:
             return pd.Series(dtype=float)
 
-        return frame[column].groupby(level=0).last()
+        return read[column].groupby(level=0).last()
 
     if field.name != MARKET_CAP:
         found = last(column_for(field))

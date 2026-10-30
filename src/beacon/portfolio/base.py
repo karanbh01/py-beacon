@@ -8,6 +8,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from ..data.fetcher import DataFetcher
@@ -238,8 +239,7 @@ class Portfolio:
         kept = getattr(self, "_weights", None)
 
         if kept is None or kept[0] is not positions:
-            kept = (positions, positions.pivot_table(index="DATE", columns="ASSET_ID",
-                                                     values="WEIGHT", observed=True))
+            kept = (positions, _pivoted(positions))
             self._weights = kept
 
         return kept[1].copy()
@@ -761,3 +761,29 @@ class Portfolio:
     def __repr__(self) -> str:
         return (f"Portfolio(portfolio_id='{self.portfolio_id}', "
                 f"num_holdings={len(self.holdings)}, cash_balance={self.cash_balance:.2f})")
+
+
+def _pivoted(positions: pd.DataFrame) -> pd.DataFrame:
+    """The positions' weights, dates by asset, as `pivot_table` gives them:
+    each weight put straight into its cell when every date and asset is
+    one row with a weight, the pivot otherwise."""
+    # BN-411: the pivot groups and means every cell first, 1 s at 6,000
+    # names over seven years, for a table with one row per cell.
+    weights = positions["WEIGHT"].to_numpy(dtype=float)
+    dates, days = pd.factorize(positions["DATE"], sort=True)
+    assets, names = pd.factorize(positions["ASSET_ID"], sort=True)
+    missing = np.isnan(weights).any() or (dates < 0).any() or (assets < 0).any()
+    cells = dates.astype(np.int64) * len(names) + assets
+    repeated = not missing and len(cells) > 0 and np.bincount(cells).max() > 1
+
+    if missing or repeated:
+        return positions.pivot_table(index="DATE", columns="ASSET_ID", values="WEIGHT",
+                                     observed=True)
+
+    grid = np.full((len(days), len(names)), np.nan)
+    grid[dates, assets] = weights
+
+    # Not copied, so its values are laid out row by row as the pivot's are, and
+    # a sum along a day adds in the same order, to the last bit.
+    return pd.DataFrame(grid, index=pd.DatetimeIndex(days, name="DATE"),
+                        columns=pd.Index(names, name="ASSET_ID"), copy=False)

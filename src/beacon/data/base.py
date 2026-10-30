@@ -413,6 +413,41 @@ class MarketData:
 
         return values
 
+    def last_values(self,
+                    codes: "np.ndarray",
+                    start: pd.Timestamp,
+                    end: pd.Timestamp,
+                    column: str) -> "np.ndarray | None":
+        """*column*'s last value from *start* to *end* for the names with
+        *codes*, NaN where a name has none in the window; None when the
+        column is missing or not a float column.
+
+        What a read of the window gives as each name's last value, its last
+        row with one, found session by session from the end instead of by
+        slicing every name's history.
+        """
+        # BN-411: at 6,000 names a market cap at each of 20 rebalances read
+        # each name's whole history to keep ten days of it, 6.3 s of 12.
+        sessions = self.sessions
+        window = sessions[(sessions >= pd.Timestamp(start)) & (sessions <= pd.Timestamp(end))]
+        values = np.full(len(codes), np.nan)
+
+        for day in window[::-1]:
+            missing = np.isnan(values)
+
+            if not missing.any():
+                break
+
+            found = self.session_values(pd.Timestamp(day), codes, column)
+
+            if found is None:
+                return None
+
+            filled = missing & ~np.isnan(found)
+            values[filled] = found[filled]
+
+        return values
+
     def _identifier_codes(self) -> tuple["np.ndarray", dict[str, int]]:
         """A code per row for its identifier, and identifier -> code, built
         once per frame like `_date_index`."""

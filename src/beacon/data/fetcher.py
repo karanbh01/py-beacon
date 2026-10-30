@@ -1092,6 +1092,20 @@ class DataFetcher:
         return self._market.session_values(pd.Timestamp(date),
                                            self._market.codes_for(identifiers), column)
 
+    def last_market_values(self,
+                           identifiers: list[str],
+                           start: str | pd.Timestamp,
+                           end: str | pd.Timestamp,
+                           column: str) -> np.ndarray | None:
+        """Each name's last *column* value from *start* to *end*, as a
+        :meth:`fetch_market_data` read of the window would give it, in the
+        order of *identifiers*, NaN where a name has none; None when the
+        column cannot be read this way, and the caller reads the window
+        instead."""
+        # BN-411.
+        return self._market.last_values(self._market.codes_for(identifiers), pd.Timestamp(start),
+                                        pd.Timestamp(end), column)
+
     def fetch_price(self,
                     identifier: str,
                     date: str,

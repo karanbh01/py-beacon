@@ -117,6 +117,7 @@ class RebalanceRiskModels:
         self.exposures = exposures
         self._models: dict[pd.Timestamp, RiskModel | FactorRiskModel] = {}
         self._uncovered: dict[pd.Timestamp, list[str]] = {}
+        self._sorted: pd.DataFrame | None = None
 
     @property
     def dates(self) -> list[pd.Timestamp]:
@@ -180,7 +181,10 @@ class RebalanceRiskModels:
         window = self._window(day)
         names = self.held(day)
         panel = window.reindex(columns=names)
-        covered = [name for name in names if panel[name].notna().all()]
+        # In one pass over the panel (BN-411): name by name it was 4 s of the
+        # 20 fits at 6,000 names.
+        complete = panel.notna().all(axis=0).to_numpy()
+        covered = [name for name, whole in zip(names, complete, strict=True) if whole]
         self._uncovered[day] = [name for name in names if name not in covered]
 
         if not covered:
@@ -203,7 +207,10 @@ class RebalanceRiskModels:
     def _window(self,
                 day: pd.Timestamp) -> pd.DataFrame:
         """The window's daily name returns: the sessions before *day*."""
-        returns = self.run.tables[NAME_RETURNS].sort_index()
+        if self._sorted is None:
+            self._sorted = self.run.tables[NAME_RETURNS].sort_index()
+
+        returns = self._sorted
         last = as_of_position(returns.index, day - pd.Timedelta(days=1))
         sessions = 0 if last is None else last + 1
 

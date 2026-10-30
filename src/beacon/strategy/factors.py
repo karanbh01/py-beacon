@@ -308,9 +308,11 @@ class Factor(Signal):
 
         for name, value in centred.items():
             spread = spreads[chosen[cells[name]]] if self.scale_within_groups else spreads[()]
+            # min and max on one float, as np.clip gives it (BN-411: np.clip a
+            # name at a time was 0.8 s of 3.5 at 6,000 names).
             scored[name] = (None if value is None
                             else 0.0 if spread <= 0.0
-                            else float(np.clip(value / spread, -SCORE_LIMIT, SCORE_LIMIT)))
+                            else float(min(max(value / spread, -SCORE_LIMIT), SCORE_LIMIT)))
 
         return scored
 

@@ -34,7 +34,7 @@ exposure less its index's, or another comparator's.
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -52,6 +52,7 @@ from ..performance import formulas
 from ..performance.comparisons import aligned
 from ..performance.portfolio import PortfolioAnalytics
 from .model import RebalanceRiskModels
+from .read_once import PricesReadOnce
 
 logger = logging.getLogger(__name__)
 
@@ -92,65 +93,6 @@ class FactorRegression:
         """The intercept over a year: what the book earned beyond its
         exposures, a day times the days in a year."""
         return float(self.coefficients.loc[ALPHA, "coefficient"] * self.periods_per_year)
-
-
-class PricesReadOnce:
-    """A data source whose closes for a set of names, in one currency, over
-    one window, are read once; a read of fewer names or a shorter window is
-    cut from it as a read of its own would find them (only the days and
-    names with a price in it), and every other read goes to the source.
-
-    Args:
-        source: The data.
-        names: The names read once.
-        start: The window's first day.
-        end: Its last.
-        currency: The currency the closes are in.
-    """
-
-    def __init__(self,
-                 source: DataFetcher,
-                 names: Sequence[str],
-                 start: pd.Timestamp,
-                 end: pd.Timestamp,
-                 currency: str):
-        self._source = source
-        self._names = set(names)
-        self._start, self._end = pd.Timestamp(start), pd.Timestamp(end)
-        self._currency = currency
-        self._closes: pd.DataFrame | None = None
-
-    def fetch_prices(self,
-                     identifiers: list[str],
-                     start_date: str | None = None,
-                     end_date: str | None = None,
-                     currency: str | None = None,
-                     column: str = "CLOSE") -> pd.DataFrame:
-        """The closes, cut from the one read when it covers them."""
-        covered = (column == "CLOSE" and currency == self._currency
-                   and start_date is not None and end_date is not None
-                   and pd.Timestamp(start_date) >= self._start
-                   and pd.Timestamp(end_date) <= self._end
-                   and set(identifiers) <= self._names)
-
-        if not covered:
-            return self._source.fetch_prices(identifiers, start_date, end_date,
-                                             currency=currency, column=column)
-
-        if self._closes is None:
-            self._closes = self._source.fetch_prices(sorted(self._names),
-                                                     str(self._start.date()),
-                                                     str(self._end.date()),
-                                                     currency=self._currency)
-
-        names = [name for name in identifiers if name in self._closes.columns]
-        window = self._closes.loc[start_date:end_date, names]
-
-        return window.dropna(how="all", axis=0).dropna(how="all", axis=1)
-
-    def __getattr__(self,
-                    name: str) -> Any:
-        return getattr(self._source, name)
 
 
 class FactorAnalytics:
@@ -205,7 +147,7 @@ class FactorAnalytics:
         start = dates[0] - pd.Timedelta(days=int(LONGEST_LOOKBACK * 1.6) + 10)
 
         return cast(DataFetcher, PricesReadOnce(source, names, start, dates[-1],
-                                                self.run.currency))
+                                                self.run.currency, dates))
 
     @property
     def names(self) -> list[str]:
@@ -368,27 +310,37 @@ class FactorAnalytics:
                            len(unpriced), 100.0 * float(unpriced.sum()))
 
     def _estimated(self) -> pd.DataFrame:
-        """The factor returns from the daily cross-sectional regressions."""
+        """The factor returns from the daily cross-sectional regressions,
+        worked out a stretch between rebalances at a time: on each stretch
+        the names, exposures and caps are the same, so every day with the
+        same names priced is one fit."""
+        # BN-411: a fit and several reindexes a day took 6.1 s at 6,000 names.
         returns = self.run.tables[NAME_RETURNS].sort_index()
         dates = pd.DatetimeIndex(self.dates)
-        rows = {}
+        stretches: dict[int, list[int]] = {}
 
-        for day in returns.index:
+        for row, day in enumerate(returns.index):
             at = as_of_position(dates, day - pd.Timedelta(days=1))
 
-            if at is None:
-                continue
+            if at is not None:
+                stretches.setdefault(at, []).append(row)
 
+        rows: dict[pd.Timestamp, list[float]] = {}
+
+        for at, positions in stretches.items():
             rebalance = dates[at]
             exposures = self.exposures(rebalance)
             names = [name for name in self.universe_on(rebalance) if name in exposures.index]
-            fitted = _cross_section(returns.loc[day].reindex(names), exposures.loc[names],
-                                    self._caps[rebalance].reindex(names))
+            block = returns.iloc[positions].reindex(columns=names).to_numpy(dtype=float)
+            caps = self._caps[rebalance].reindex(names).to_numpy(dtype=float)
+            fitted = _cross_sections(block, exposures.loc[names].to_numpy(dtype=float), caps)
 
-            if fitted is not None:
-                rows[day] = fitted
+            rows.update({returns.index[positions[day]]: found for day, found in fitted.items()})
 
-        return pd.DataFrame.from_dict(rows, orient="index", columns=[MARKET_FACTOR, *self.names])
+        found = pd.DataFrame.from_dict(dict(sorted(rows.items())), orient="index",
+                                       columns=[MARKET_FACTOR, *self.names])
+
+        return found
 
     def _imported(self,
                   estimated: pd.DataFrame) -> pd.DataFrame:
@@ -443,24 +395,33 @@ class FactorAnalytics:
         return self.run.comparators[book]
 
 
-def _cross_section(returns: pd.Series,
-                   exposures: pd.DataFrame,
-                   caps: pd.Series) -> list[float] | None:
-    """One day's factor returns: the cap-weighted least-squares fit of the
-    names' returns on a market intercept and their exposures; None with
-    fewer names than unknowns."""
-    known = returns.notna() & (caps > 0.0)
-    returns, exposures, caps = returns[known], exposures[known], caps[known]
+def _cross_sections(returns: np.ndarray,
+                    exposures: np.ndarray,
+                    caps: np.ndarray) -> dict[int, list[float]]:
+    """Each day's factor returns over one stretch: the cap-weighted
+    least-squares fit of the names' returns (days by names) on a market
+    intercept and their exposures, by day; a day with fewer names than
+    unknowns is left out. Days with the same names priced share one fit."""
+    known = ~np.isnan(returns) & (caps > 0.0)[None, :]
+    patterns, groups = np.unique(known, axis=0, return_inverse=True)
+    design = np.column_stack([np.ones(len(caps)), exposures])
+    fitted: dict[int, list[float]] = {}
 
-    if len(returns) <= exposures.shape[1] + 1:
-        return None
+    for group, pattern in enumerate(patterns):
+        days = np.flatnonzero(groups.ravel() == group)
 
-    design = np.column_stack([np.ones(len(returns)), exposures.to_numpy(dtype=float)])
-    root = np.sqrt(caps.to_numpy(dtype=float) / caps.sum())
-    solved, *_ = np.linalg.lstsq(design * root[:, None], returns.to_numpy(dtype=float) * root,
-                                 rcond=None)
+        if pattern.sum() <= exposures.shape[1] + 1:
+            continue
 
-    return [float(value) for value in solved]
+        weights = caps[pattern]
+        root = np.sqrt(weights / weights.sum())
+        solved, *_ = np.linalg.lstsq(design[pattern] * root[:, None],
+                                     returns[np.ix_(days, np.flatnonzero(pattern))].T
+                                     * root[:, None], rcond=None)
+        fitted.update({int(day): [float(value) for value in solved[:, column]]
+                       for column, day in enumerate(days)})
+
+    return fitted
 
 
 def regressed(target: pd.Series,
