@@ -18,8 +18,9 @@ builds the risk model.
 import dataclasses
 import logging
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -172,20 +173,36 @@ def analyse(result: Any,
     run = result.run_data
     context = Context(run, request.options, getattr(result, "_data_fetcher", None),
                       request.factors)
+    # Kept with the result, so whoever stores the run can keep its factor
+    # work beside it (`keep_analysis_work`, BN-399).
+    result.__dict__["_analysis_context"] = context
 
     return analyse_run(context, request, progress)
 
 
+def keep_analysis_work(result: Any,
+                       folder: Path) -> bool:
+    """Keep the factor work a finished run's analysis did in *folder*, where
+    the run is stored, so a later analysis of it does not do it again; False
+    when there was none."""
+    context = result.__dict__.get("_analysis_context")
+
+    return context is not None and bool(context.keep_work(folder))
+
+
 def analyse_run(context: Any,
                 request: AnalysisRequest,
-                progress: Callable[[str], None] | None = None) -> dict[str, Any]:
-    """`analyse` on a run's `Context`, for a stored run as for a finished one."""
+                progress: Callable[[str], None] | None = None,
+                skip: Collection[str] = ()) -> dict[str, Any]:
+    """`analyse` on a run's `Context`, for a stored run as for a finished
+    one; the statistics in *skip* are left out, as already worked out."""
     # The panels import the backtest package, which imports this module.
     from .data import EXPECTED  # noqa: PLC0415
     from .reports.catalogue import CATALOGUE  # noqa: PLC0415
 
     say = progress or (lambda message: None)
-    wanted = request.wanted()
+    wanted = {statistic_id: views for statistic_id, views in request.wanted().items()
+              if statistic_id not in skip}
     start = time.perf_counter()
 
     for name in EXPECTED:
@@ -197,6 +214,9 @@ def analyse_run(context: Any,
     unavailable: dict[str, Any] = {}
 
     for part in request.parts():
+        if not any(CATALOGUE[statistic_id].part == part for statistic_id in wanted):
+            continue
+
         say(MESSAGES[part])
         start = time.perf_counter()
 
@@ -236,12 +256,27 @@ def _work_out(statistic: Any,
         unavailable[statistic.id] = {"code": reason.code, "reason": reason.reason}
         return
     except Exception as error:  # A failure shows in place, and does not stop the rest.
-        logger.warning(f"{statistic.label} could not be worked out: {error}")
-        unavailable[statistic.id] = {"code": FAILED,
-                                     "reason": f"It could not be worked out: {error}"}
+        unavailable[statistic.id] = _failed(statistic, error, context)
         return
 
     statistics[statistic.id] = entry
+
+
+def _failed(statistic: Any,
+            error: Exception,
+            context: Any) -> dict[str, str]:
+    """Why *statistic* has no value: a table a run stored before it was kept
+    lacks, or a failure, named."""
+    from .reports.statistics import REASONS, RUN_PREDATES  # noqa: PLC0415
+
+    lacking = context.run.missing
+
+    if isinstance(error, KeyError) and error.args and error.args[0] in lacking:
+        return {"code": RUN_PREDATES, "reason": REASONS[RUN_PREDATES][1]}
+
+    logger.warning(f"{statistic.label} could not be worked out: {error}")
+
+    return {"code": FAILED, "reason": f"It could not be worked out: {error}"}
 
 
 def _roll(chosen: list[Any],

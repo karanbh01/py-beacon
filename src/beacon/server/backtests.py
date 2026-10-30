@@ -19,6 +19,7 @@ import pandas as pd
 from ..analysis.data import RunData
 from ..analysis.performance import formulas
 from ..analysis.relative import align_on_common_window, relative_metrics
+from ..analysis.request import keep_analysis_work
 from ..backtest.main import Backtest
 from ..backtest.result import BacktestResult
 from ..backtest.share_classes import ShareClass
@@ -442,7 +443,10 @@ def build_backtest_job(strategy: StrategyDocument,
             payload.analytics = AnalyticsBlock.model_validate(block)
 
             if record_store is not None:
-                keep_analytics(record_store.panels_directory(strategy.id), block)
+                kept_in = record_store.panels_directory(strategy.id)
+                keep_analytics(kept_in, block)
+                # BN-399: the factor work too, so a rerun does not do it again.
+                keep_analysis_work(backtest, kept_in)
 
         report(1.0, "Complete.")
 

@@ -126,6 +126,39 @@ class AnalyticsView(BaseModel):
     reason: str | None = Field(default=None, description="Why it was not computed.")
 
 
+class AnalyticsRerun(BaseModel):
+    """Body of `POST /strategies/{strategy_id}/analytics`: the analysis to
+    give of the strategy's latest run, and a name to keep it under."""
+    model_config = ConfigDict(extra="forbid")
+    analysis: AnalysisRequestSpec = Field(
+        default_factory=AnalysisRequestSpec,
+        description="What to give: reports, statistics and every choice they make.")
+    save: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+        description="A name to keep this analysis under, read back from "
+                    "`/strategies/{strategy_id}/analyses/{name}`; null keeps none apart from "
+                    "the run's own.")
+
+
+class SavedAnalysis(BaseModel):
+    """One analysis kept by name with a strategy's latest run."""
+    name: str = Field(description="What it was saved as.")
+    saved_at: str = Field(description="When, ISO 8601, UTC.")
+    reports: dict[str, str] = Field(description="Its reports, by id, with their levels.")
+    options: dict[str, Any] = Field(description="The choices it was made with, by section.")
+
+
+class SavedAnalyses(BaseModel):
+    """Response of `GET /strategies/{strategy_id}/analyses`."""
+    analyses: list[SavedAnalysis] = Field(description="Every analysis kept with the latest run, "
+                                                       "newest first.")
+
+
+class SavedAnalysisView(SavedAnalysis):
+    """Response of `GET /strategies/{strategy_id}/analyses/{name}`."""
+    analytics: AnalyticsBlock = Field(description="The analysis.")
+
+
 class CodedColumn(BaseModel):
     """A column of text sent once per distinct value."""
     values: list[Any] = Field(description="Each distinct value.")

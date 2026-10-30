@@ -7,27 +7,38 @@ JSON or as Arrow.
 # BN-398/BN-400.
 from pathlib import Path
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Request, Response, status
 
 from ...analysis.data import RunData
 from ...exceptions import DataNotFoundError
+from ..active_data import current_data
 from ..analysis import (
     ARROW,
     TABLE_COLUMNS,
     arrow,
+    build_request,
+    build_rerun_job,
     catalogue,
     columnar,
+    delete_saved,
     read_analytics,
+    read_saved,
+    saved_analyses,
 )
 from ..analysis_schemas import (
     COMPUTED,
     NOT_COMPUTED,
     AnalysisCatalogue,
     AnalyticsBlock,
+    AnalyticsRerun,
     AnalyticsView,
     ColumnarTable,
+    SavedAnalyses,
+    SavedAnalysis,
+    SavedAnalysisView,
 )
-from ..schemas import Identifier
+from ..jobs import JobRegistry
+from ..schemas import AnalyticsJobStatus, Identifier
 from ..store import DocumentStore
 from .strategy_runs import RECORD_SOURCE, _strategy
 
@@ -96,6 +107,65 @@ def build_analysis_router() -> APIRouter:
             return Response(content=arrow(name, found), media_type=ARROW)
 
         return ColumnarTable.model_validate(columnar(name, found))
+
+    # async, as the backtest's is: the registry schedules the job on the
+    # running event loop.
+    @router.post("/strategies/{strategy_id}/analytics", response_model=AnalyticsJobStatus,
+                 status_code=status.HTTP_202_ACCEPTED)
+    async def rerun_analytics(request: Request,
+                              strategy_id: Identifier,
+                              body: AnalyticsRerun | None = None) -> AnalyticsJobStatus:
+        """Give an analysis of the strategy's latest run, as a job: with the
+        choices its own analysis was made with, the run's analysis gains
+        what is asked for and is kept, and only that is worked out; with
+        other choices, everything asked for is, kept only under `save`. The
+        job's result is the whole analysis.
+
+        Raises:
+            DataNotFoundError: Until the strategy has been backtested.
+        """
+        asked = body or AnalyticsRerun()
+        folder = _run_folder(request, strategy_id)
+        built = build_request(asked.analysis)
+        records: DocumentStore = request.app.state.backtest_record_store
+        registry: JobRegistry = request.app.state.jobs
+        job = registry.submit(f"analytics:{strategy_id}",
+                              build_rerun_job(strategy_id, folder, records.read(strategy_id), built,
+                                              current_data(request), asked.save))
+
+        return AnalyticsJobStatus(**job.snapshot())
+
+    @router.get("/strategies/{strategy_id}/analyses", response_model=SavedAnalyses)
+    def analyses(request: Request,
+                 strategy_id: Identifier) -> SavedAnalyses:
+        """Every analysis kept by name with the strategy's latest run, newest
+        first; a new backtest of the strategy leaves none."""
+        return SavedAnalyses(analyses=[SavedAnalysis(**entry) for entry in
+                                       saved_analyses(_run_folder(request, strategy_id))])
+
+    @router.get("/strategies/{strategy_id}/analyses/{name}", response_model=SavedAnalysisView)
+    def saved(request: Request,
+              strategy_id: Identifier,
+              name: Identifier) -> SavedAnalysisView:
+        """An analysis kept by name with the strategy's latest run.
+
+        Raises:
+            DataNotFoundError: If none is kept under the name.
+        """
+        return SavedAnalysisView.model_validate(read_saved(_run_folder(request, strategy_id),
+                                                           name))
+
+    @router.delete("/strategies/{strategy_id}/analyses/{name}",
+                   status_code=status.HTTP_204_NO_CONTENT)
+    def delete(request: Request,
+               strategy_id: Identifier,
+               name: Identifier) -> None:
+        """Remove an analysis kept by name.
+
+        Raises:
+            DataNotFoundError: If none is kept under the name.
+        """
+        delete_saved(_run_folder(request, strategy_id), name)
 
     return router
 

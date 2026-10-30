@@ -774,7 +774,7 @@ class TestJobResultPayloadsArePublished:
 
         assert [arm["$ref"].rsplit("/", 1)[-1] for arm in schema["anyOf"]] == [
             "BacktestJobStatus", "OptimisationJobStatus", "RenderJobStatus",
-            "RiskModelJobStatus", "LoadJobStatus", "GenerateJobStatus",
+            "RiskModelJobStatus", "AnalyticsJobStatus", "LoadJobStatus", "GenerateJobStatus",
             "RefreshJobStatus", "JobStatus"]
 
     def test_the_served_payload_is_the_declared_one(self,

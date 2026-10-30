@@ -15,6 +15,7 @@ such as a comparator it does not have, raises `Unavailable` saying why.
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from functools import cached_property
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -30,6 +31,7 @@ from ..performance.crises import CrisisAnalytics
 from ..performance.portfolio import PortfolioAnalytics
 from ..performance.regimes import RegimeAnalytics
 from ..performance.relative_analytics import RelativeAnalytics
+from ..risk import factor_store
 from ..risk.concentration import ConcentrationAnalytics
 from ..risk.contributions import RiskOverTime
 from ..risk.factors import FactorAnalytics
@@ -61,17 +63,21 @@ class Context:
             liquidity and risk figures read; None when it is not loaded.
         factors: The factors risk and attribution use; the defaults when
             None.
+        folder: Where a stored run is kept: its factor work is read from
+            there when it was kept for these factors.
     """
 
     def __init__(self,
                  run: RunData,
                  options: AnalysisOptions | None = None,
                  source: DataFetcher | None = None,
-                 factors: Sequence[Factor] | None = None):
+                 factors: Sequence[Factor] | None = None,
+                 folder: Path | None = None):
         self.run = run
         self.options = options or AnalysisOptions()
         self.source = source
         self.factors = list(factors) if factors is not None else None
+        self.folder = folder
         self._kept: dict[tuple[Any, ...], Any] = {}
 
     def kept(self,
@@ -230,8 +236,24 @@ class Context:
 
     @cached_property
     def factor_analytics(self) -> FactorAnalytics:
-        """The run's factor exposures, returns and betas."""
-        return FactorAnalytics(self.run, self.require_source(), self.factors)
+        """The run's factor exposures, returns and betas: as kept with a
+        stored run for these factors, else worked out when first read."""
+        found = FactorAnalytics(self.run, self.require_source(), self.factors)
+
+        if self.folder is not None:
+            factor_store.restore(found, self.folder)
+
+        return found
+
+    def keep_work(self,
+                  folder: Path) -> bool:
+        """Keep the factor work this context did with the run in *folder*,
+        so a later analysis of it does not do it again; False when it did
+        none, or its factors cannot be kept."""
+        if "factor_analytics" not in self.__dict__:
+            return False
+
+        return factor_store.keep(self.factor_analytics, folder)
 
     @cached_property
     def loss(self) -> RiskOfLoss:

@@ -4567,6 +4567,12 @@ class RiskModelJobStatus(JobStatusOf[RiskModelView]):
     """A `risk:{model_id}` job. `result` is the estimated model."""
 
 
+# BN-399.
+class AnalyticsJobStatus(JobStatusOf[AnalyticsBlock]):
+    """An `analytics:{strategy_id}` job. `result` is the latest run's analysis,
+    whole: what was kept with it and what was worked out now."""
+
+
 # BN-236.
 class LoadResult(BaseModel):
     """Result payload of a completed `load:{store_id}` job."""
@@ -4647,6 +4653,7 @@ AnyJobStatus = (BacktestJobStatus
                 | OptimisationJobStatus
                 | RenderJobStatus
                 | RiskModelJobStatus
+                | AnalyticsJobStatus
                 | LoadJobStatus
                 | GenerateJobStatus
                 | RefreshJobStatus

@@ -238,3 +238,79 @@ class TestCompression:
 
 def test_gzip_is_what_a_client_reads_back():
     assert gzip.decompress(gzip.compress(b"ok")) == b"ok"
+
+
+class TestReruns:
+    """Kept last: they change what the strategies keep."""
+
+    def test_the_backtest_kept_its_factor_work(self,
+                                               client):
+        from beacon.analysis.risk import factor_store
+
+        folder = client.app.state.backtest_record_store.panels_directory("analysed")
+
+        assert (folder / factor_store.FOLDER / factor_store.KEY_FILE).exists()
+
+    def test_a_statistic_added_joins_the_run_s_analysis(self,
+                                                        client):
+        before = client.get("/strategies/analysed/analytics", headers=auth()).json()["analytics"]
+        added = {**ANALYSIS, "add": {"factsheet": ["sortino_ratio", "calmar_ratio"]}}
+
+        job = finished(client, client.post("/strategies/analysed/analytics",
+                                           json={"analysis": added}, headers=auth()))
+        after = client.get("/strategies/analysed/analytics", headers=auth()).json()["analytics"]
+
+        assert job["status"] == SUCCEEDED, job
+        assert job["result"]["statistics"].keys() == after["statistics"].keys()
+        assert "calmar_ratio" in after["statistics"]
+        assert set(before["statistics"]) < set(after["statistics"])
+        assert after["statistics"]["volatility"] == before["statistics"]["volatility"]
+
+    def test_other_choices_are_kept_only_under_a_name(self,
+                                                      client):
+        own = client.get("/strategies/analysed/analytics", headers=auth()).json()["analytics"]
+        later = {"reports": {"performance": "core"}, "options": {"window": {"start": "2023-07-03"}}}
+
+        job = finished(client, client.post("/strategies/analysed/analytics",
+                                           json={"analysis": later, "save": "second-half"},
+                                           headers=auth()))
+
+        assert job["status"] == SUCCEEDED, job
+        assert set(job["result"]["reports"]) == {"performance"}
+        assert client.get("/strategies/analysed/analytics",
+                          headers=auth()).json()["analytics"] == own
+
+        listed = client.get("/strategies/analysed/analyses", headers=auth()).json()["analyses"]
+        saved = client.get("/strategies/analysed/analyses/second-half", headers=auth())
+
+        assert [entry["name"] for entry in listed] == ["second-half"]
+        assert listed[0]["options"]["window"]["start"] == "2023-07-03"
+        assert saved.status_code == 200 and saved.json()["analytics"] == job["result"]
+
+        assert client.delete("/strategies/analysed/analyses/second-half",
+                             headers=auth()).status_code == 204
+        assert client.get("/strategies/analysed/analyses/second-half",
+                          headers=auth()).status_code == 404
+
+    def test_a_run_made_without_one_gains_it(self,
+                                             client):
+        job = finished(client, client.post("/strategies/plain/analytics", json={},
+                                           headers=auth()))
+        served = client.get("/strategies/plain/analytics", headers=auth()).json()
+
+        assert job["status"] == SUCCEEDED, job
+        assert served["status"] == "computed"
+        assert set(served["analytics"]["reports"]) == {"factsheet"}
+
+    def test_one_that_cannot_be_given_is_refused_before_the_job(self,
+                                                                client):
+        response = client.post("/strategies/analysed/analytics",
+                               json={"analysis": {"reports": {"nope": "core"}}}, headers=auth())
+
+        assert response.status_code == 422
+
+    def test_a_strategy_never_backtested_has_none_to_rerun(self,
+                                                           client):
+        assert client.post("/strategies/unrun/analytics", json={},
+                           headers=auth()).status_code == 404
+        assert client.get("/strategies/unrun/analyses", headers=auth()).status_code == 404

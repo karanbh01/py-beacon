@@ -65,7 +65,10 @@ def weight_figures(weights: pd.DataFrame,
                    optional: bool = False) -> pd.DataFrame:
     """The concentration figures of each row of *weights* (a book's weights
     by date and name), a row each."""
-    held = weights.fillna(0.0).clip(lower=0.0).to_numpy(dtype=float)
+    # Laid out row by row whatever the weights' own layout (BN-399): a
+    # stored run's weights, worked out again, came laid out the other way
+    # from a finished run's, and a sum along a row added in another order.
+    held = np.ascontiguousarray(weights.fillna(0.0).clip(lower=0.0).to_numpy(dtype=float))
     totals = held.sum(axis=1, keepdims=True)
     shares = np.divide(held, totals, out=np.zeros_like(held), where=totals > 0.0)
     counts = (shares > 0.0).sum(axis=1)

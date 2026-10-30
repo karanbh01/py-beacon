@@ -11,7 +11,7 @@ answers into JSON or Arrow.
 # BN-398/BN-400.
 import io
 import json
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
@@ -19,16 +19,25 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..analysis.data import RunData
 from ..analysis.reports.catalogue import CATALOGUE, CATEGORIES
 from ..analysis.reports.definitions import REPORTS
 from ..analysis.reports.options import AnalysisOptions, describe
+from ..analysis.reports.rerun import rerun, same_choices
 from ..analysis.reports.rolling import step_for
 from ..analysis.reports.statistics import REASONS, decimals_of
 from ..analysis.request import AnalysisRequest
+from ..data.fetcher import DataFetcher
 from ..exceptions import DataNotFoundError, InvalidArgumentError
 from ..portfolio.reasons import REASONS as TRADE_REASONS
+from .analysis_schemas import AnalyticsBlock
+from .job_threads import Report, run_in_thread
+from .jobs import ProgressReporter
 
 ANALYTICS_FILE = "analytics.json"
+
+# Analyses kept by name with a run, one file each (BN-399).
+SAVED_FOLDER = "analyses"
 
 ARROW = "application/vnd.apache.arrow.stream"
 
@@ -124,6 +133,106 @@ def read_analytics(folder: Path) -> dict[str, Any] | None:
     path = folder / ANALYTICS_FILE
 
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+def build_rerun_job(strategy_id: str,
+                    folder: Path,
+                    record: dict[str, Any] | None,
+                    request: AnalysisRequest,
+                    source: DataFetcher | None,
+                    save: str | None = None) -> Callable[[ProgressReporter],
+                                                         Awaitable[dict[str, Any]]]:
+    """The job that gives *request*'s analysis of a strategy's latest run.
+
+    With the choices the run's own analysis was made with, the run's block
+    gains what was asked for and is kept; with other choices the answer is
+    kept only under *save*. The run's factor work is read from its folder
+    and kept there.
+    """
+    def work(report: Report) -> dict[str, Any]:
+        report(0.05, "Reading the run")
+        run = RunData.from_record(folder, record)
+        previous = read_analytics(folder)
+        block = rerun(run, request, source, folder, previous,
+                      lambda message: report(0.5, message))
+        block = with_tables(block, strategy_id, run.tables)
+
+        if previous is None or same_choices(previous, request):
+            keep_analytics(folder, block)
+
+        if save is not None:
+            keep_saved(folder, save, block)
+
+        report(1.0, "Complete.")
+
+        # In the shape every read of it gives.
+        return AnalyticsBlock.model_validate(block).model_dump()
+
+    # In a worker thread, so the event loop stays free (BN-333).
+    async def job(report: ProgressReporter) -> dict[str, Any]:
+        return await run_in_thread(report, work)
+
+    return job
+
+
+def keep_saved(folder: Path,
+               name: str,
+               block: dict[str, Any]) -> None:
+    """Keep *block* with the run under *name*, replacing one kept so."""
+    saved = folder / SAVED_FOLDER
+    saved.mkdir(parents=True, exist_ok=True)
+    entry = {"name": name, "saved_at": pd.Timestamp.now(tz="UTC").isoformat(),
+             "analytics": block}
+    (saved / f"{name}.json").write_text(json.dumps(entry, allow_nan=False), encoding="utf-8")
+
+
+def saved_analyses(folder: Path) -> list[dict[str, Any]]:
+    """Every analysis kept by name with the run, newest first, without
+    their blocks."""
+    saved = folder / SAVED_FOLDER
+
+    if not saved.exists():
+        return []
+
+    found = []
+
+    for path in saved.glob("*.json"):
+        entry = json.loads(path.read_text(encoding="utf-8"))
+        request = entry["analytics"].get("request", {})
+        found.append({"name": entry["name"], "saved_at": entry["saved_at"],
+                      "reports": request.get("reports", {}), "options": request.get("options", {})})
+
+    return sorted(found, key=lambda entry: entry["saved_at"], reverse=True)
+
+
+def read_saved(folder: Path,
+               name: str) -> dict[str, Any]:
+    """An analysis kept by name with the run.
+
+    Raises:
+        DataNotFoundError: If none is kept under *name*.
+    """
+    path = folder / SAVED_FOLDER / f"{name}.json"
+
+    if not path.exists():
+        raise DataNotFoundError(f"a saved analysis '{name}'",
+                                source="GET /strategies/{strategy_id}/analyses lists them")
+
+    entry: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    request = entry["analytics"].get("request", {})
+
+    return {**entry, "reports": request.get("reports", {}), "options": request.get("options", {})}
+
+
+def delete_saved(folder: Path,
+                 name: str) -> None:
+    """Remove the analysis kept under *name*.
+
+    Raises:
+        DataNotFoundError: If none is kept under it.
+    """
+    read_saved(folder, name)
+    (folder / SAVED_FOLDER / f"{name}.json").unlink()
 
 
 def with_tables(block: dict[str, Any],
