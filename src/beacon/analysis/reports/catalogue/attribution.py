@@ -65,7 +65,12 @@ def _brinson(context: Context) -> Summarised:
     except KeyError as error:
         raise Unavailable(NO_GROUPING) from error
 
-    return Summarised(found.groups, {"start": found.start, "end": found.end,
+    # Each group's row, then its names' (BN-415), told apart by level.
+    groups = found.groups.assign(level=GROUP, group=found.groups.index)
+    names = found.names.reset_index(GROUP).assign(level=NAME)
+    table = pd.concat([groups, names])
+
+    return Summarised(table, {"start": found.start, "end": found.end,
                                      "fund_return": found.fund_return,
                                      "comparator_return": found.comparator_return,
                                      "active_return": found.active_return,
@@ -119,7 +124,8 @@ def statistics() -> list[Statistic]:
                  context.require_tracked(), field, *context.window())),
              settings=(*GROUPING, "window.tracked")),
         stat("brinson", "Brinson-Fachler effects", "Allocation, selection and interaction "
-             "by group, cash its own group, linked over the run.", _brinson,
+             "by group, cash its own group, and each group's selection and interaction by "
+             "name, linked over the run.", _brinson,
              settings=(*GROUPING, "window.tracked")),
         stat("currency_attribution", "Currency attribution", "Local return, currency effect "
              "and cross term, by currency.", _currency, settings=("window.tracked",)),

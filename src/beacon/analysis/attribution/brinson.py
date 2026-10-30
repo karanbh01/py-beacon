@@ -29,12 +29,14 @@ not yet paid, a price index's missing dividends) is the residual.
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
+from dataclasses import field as default
 
 import pandas as pd
 
 from ..data import RunData
 from ..panels import CASH as CASH_TABLE
 from ..performance.comparisons import aligned
+from .brinson_names import name_effects
 from .groups import by_group, memberships
 
 CASH = "Cash"
@@ -59,6 +61,9 @@ class BrinsonResult:
         residual: The active return less what the effects explain.
         groups: By group: the mean weights and compounded returns of the
             fund's and the comparator's holdings, and each effect, linked.
+        names: By group and name: each name's mean weights in the two
+            books and its share of its group's selection and interaction,
+            linked; a group's names add up to its own.
     """
     start: str
     end: str
@@ -69,6 +74,7 @@ class BrinsonResult:
     explained: float
     residual: float
     groups: pd.DataFrame
+    names: pd.DataFrame = default(default_factory=pd.DataFrame)
 
     @property
     def totals(self) -> pd.Series:
@@ -112,16 +118,24 @@ def active_carino(fund: float,
     return (math.log1p(fund) - math.log1p(comparator)) / (fund - comparator)
 
 
+def carino_factors(fund: pd.Series,
+                   comparator: pd.Series) -> pd.Series:
+    """Each day's Carino factor over the window's, which link the days'
+    effects so they add up to the compounded active return."""
+    whole = active_carino(float((1.0 + fund).prod() - 1.0),
+                          float((1.0 + comparator).prod() - 1.0))
+
+    return pd.Series([active_carino(float(ours), float(theirs))
+                      for ours, theirs in zip(fund, comparator, strict=True)],
+                     index=fund.index) / whole
+
+
 def linked(effects: dict[str, pd.DataFrame],
            fund: pd.Series,
            comparator: pd.Series) -> dict[str, pd.Series]:
     """Each effect by group over the days, scaled by Carino's factors so they
     add up to the compounded active return of *fund* over *comparator*."""
-    whole = active_carino(float((1.0 + fund).prod() - 1.0),
-                          float((1.0 + comparator).prod() - 1.0))
-    factors = pd.Series([active_carino(float(ours), float(theirs))
-                         for ours, theirs in zip(fund, comparator, strict=True)],
-                        index=fund.index) / whole
+    factors = carino_factors(fund, comparator)
 
     return {name: table.mul(factors, axis=0).sum() for name, table in effects.items()}
 
@@ -179,12 +193,17 @@ def brinson(run: RunData,
     held = (table["fund_weight"] != 0.0) | (table["comparator_weight"] != 0.0)
     table = table[held | (table.index == CASH)]
 
+    names = name_effects(fund_lagged, comparator_lagged, returns, groups, fund_held,
+                         comparator_held, comparator_earned,
+                         carino_factors(held_fund, held_comparator))
+
     return BrinsonResult(start=held_fund.index[0].isoformat(),
                          end=held_fund.index[-1].isoformat(), periods=len(held_fund),
                          fund_return=fund_return, comparator_return=comparator_return,
                          active_return=fund_return - comparator_return, explained=explained,
                          residual=fund_return - comparator_return - explained,
-                         groups=table.sort_values("total", ascending=False))
+                         groups=table.sort_values("total", ascending=False),
+                         names=names.sort_values("total", ascending=False))
 
 
 def _cash_return(run: RunData,
