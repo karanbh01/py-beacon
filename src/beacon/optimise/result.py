@@ -117,6 +117,12 @@ class OptimisationResult:
         return (self.weights - self.target_weights).rename("active_weight")
 
     @property
+    def active_sum(self) -> float:
+        """The active weights' sum: 0 when the book is as invested as its
+        target."""
+        return float(self.active_weights.sum())
+
+    @property
     def holdings(self) -> int:
         """How many names carry meaningful weight."""
         return count_holdings(self.weights.to_numpy(dtype=float))

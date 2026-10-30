@@ -653,7 +653,7 @@ class TestDerivationEdges:
         """A momentum factor needs more than a month of prices to skip one."""
         import pandas as pd
 
-        from beacon.server.optimisation import _momentum
+        from beacon.optimise.inputs import _momentum
 
         short = pd.DataFrame({"AAA": [1.0, 1.1, 1.2]},
                              index=pd.bdate_range("2024-01-01", periods=3))

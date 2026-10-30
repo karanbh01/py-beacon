@@ -42,14 +42,15 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from ..data.fetcher import DataFetcher
 from ..exceptions import DataNotFoundError
 from ..optimise import minimise_tracking_error
 from ..optimise.frontier import efficient_frontier
-from ..risk.model import estimate_risk_model, fit_factor_model, z_scores
+from ..optimise.inputs import expected_returns_from, factor_exposures
+from ..risk.model import fit_factor_model
+from ..risk.prices import model_of_prices, returns_of_prices
 from .job_threads import Report, run_in_thread
 from .jobs import ProgressReporter
 from .schemas import (
@@ -65,15 +66,6 @@ from .schemas import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Trading days per year, for annualising the estimates.
-PERIODS_PER_YEAR = 252
-
-# Momentum skips the most recent month, the conventional construction: the last
-# few weeks of a price series carry short-term reversal, which is a different
-# effect pointing the other way.
-MOMENTUM_LOOKBACK = 252
-MOMENTUM_SKIP = 21
 
 # Shrinkage toward constant correlation. A covariance estimated on a few
 # hundred observations across a similar number of names is badly conditioned,
@@ -107,79 +99,6 @@ def constituent_prices(fetcher: DataFetcher,
                                 source="MarketData")
 
     return prices
-
-
-def expected_returns_from(prices: pd.DataFrame) -> dict[str, float]:
-    """Annualised historical mean returns.
-
-    A poor forecast, and deliberately the honest one: it is what the data
-    supports. Anything more sophisticated invented here would look like a view
-    the server does not have.
-    """
-    daily = prices.pct_change().dropna(how="all").mean()
-
-    return {str(name): float(value) * PERIODS_PER_YEAR
-            for name, value in daily.items()}
-
-
-def factor_exposures(prices: pd.DataFrame,
-                     fetcher: DataFetcher,
-                     as_of: pd.Timestamp) -> pd.DataFrame:
-    """Size, momentum and volatility loadings, standardised.
-
-    Args:
-        prices: Constituent prices.
-        fetcher: For share counts.
-        as_of: Date the loadings are measured at.
-
-    Returns:
-        pd.DataFrame: z-scored exposures, names on the index.
-    """
-    returns = prices.pct_change()
-
-    raw = pd.DataFrame({
-        "size": _size(prices, fetcher, as_of),
-        "momentum": _momentum(prices),
-        "volatility": returns.std() * np.sqrt(PERIODS_PER_YEAR),
-    })
-
-    return z_scores(raw.dropna(how="all").fillna(0.0))
-
-
-def _size(prices: pd.DataFrame,
-          fetcher: DataFetcher,
-          as_of: pd.Timestamp) -> pd.Series:
-    """Log market capitalisation, falling back to log price.
-
-    The log matters: market caps span orders of magnitude, and a raw one would
-    make the largest name dominate a z-score by construction rather than by
-    being unusual.
-    """
-    values = {}
-
-    for name in prices.columns:
-        shares = fetcher.fetch_shares_outstanding(str(name), as_of)
-        last = float(prices[name].dropna().iloc[-1])
-        values[name] = np.log(last * shares) if shares else np.log(last)
-
-    return pd.Series(values)
-
-
-def _momentum(prices: pd.DataFrame) -> pd.Series:
-    """Trailing return, skipping the most recent month.
-
-    The skip is the conventional construction: the last few weeks carry
-    short-term reversal, which is a different effect pointing the other way,
-    and folding it in muddies both.
-    """
-    if len(prices) <= MOMENTUM_SKIP + 1:
-        return pd.Series(0.0, index=prices.columns)
-
-    recent = prices.iloc[-(MOMENTUM_SKIP + 1)]
-    lookback = min(MOMENTUM_LOOKBACK, len(prices) - 1)
-    earlier = prices.iloc[-lookback]
-
-    return (recent / earlier - 1.0).astype(float)
 
 
 @dataclass(frozen=True)
@@ -222,8 +141,7 @@ def build_optimisation_job(run_id: str,
                                     request.end, currency)
 
         report(0.35, "Estimating the risk model.")
-        returns = prices.pct_change().dropna(how="all")
-        risk_model = estimate_risk_model(returns, intensity=SHRINKAGE)
+        risk_model = model_of_prices(prices, intensity=SHRINKAGE)
 
         report(0.6, "Solving.")
         result = minimise_tracking_error(target.weights, constraints, risk_model)
@@ -281,7 +199,7 @@ def assemble_optimisation(run_id: str,
         start=str(prices.index[0].date()),
         end=str(prices.index[-1].date()),
         weights=rows,
-        active_sum=float(active.sum()),
+        active_sum=result.active_sum,
         tracking_error=result.tracking_error(),
         turnover=result.turnover(),
         holdings=result.holdings,
@@ -308,8 +226,7 @@ def build_frontier(run: dict[str, Any],
     prices = constituent_prices(fetcher, identifiers, run["start"], run["end"],
                                 run.get("currency"))
 
-    returns = prices.pct_change().dropna(how="all")
-    risk_model = estimate_risk_model(returns, intensity=SHRINKAGE)
+    risk_model = model_of_prices(prices, intensity=SHRINKAGE)
     expected = expected_returns_from(prices)
 
     frontier = efficient_frontier(risk_model, expected, points=FRONTIER_POINTS,
@@ -347,8 +264,7 @@ def build_exposures(run: dict[str, Any],
     as_of = pd.Timestamp(run["end"])
     exposures = factor_exposures(prices, fetcher, as_of)
 
-    returns = prices.pct_change().dropna(how="all")
-    model = fit_factor_model(returns, exposures)
+    model = fit_factor_model(returns_of_prices(prices), exposures)
 
     optimal = {row["asset_id"]: row["optimal_weight"] for row in run["weights"]}
     # A run saved before BN-313 called the target's weight `index_weight`.

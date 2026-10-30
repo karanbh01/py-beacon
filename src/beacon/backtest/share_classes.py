@@ -178,6 +178,16 @@ class ShareClassBook:
 
         return ((per_unit + paid) / per_unit.shift(1) - 1.0).iloc[1:]
 
+    @property
+    def fees_paid(self) -> float:
+        """The fees it accrued over the run."""
+        return float(self.fees.sum())
+
+    @property
+    def distributions_paid(self) -> float:
+        """What it paid out over the run."""
+        return float(self.distributions.sum())
+
     def total_return(self) -> float:
         """The class's total return over the run, distributions reinvested."""
         returns = self.get_returns()

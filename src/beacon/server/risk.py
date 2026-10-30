@@ -36,6 +36,7 @@ import pandas as pd
 from ..data.fetcher import DataFetcher
 from ..exceptions import DataNotFoundError
 from ..risk.model import estimate_risk_model
+from ..risk.prices import returns_of_prices
 from .job_threads import Report, run_in_thread
 from .jobs import ProgressReporter
 from .schemas import (
@@ -77,7 +78,7 @@ def constituent_returns(fetcher: DataFetcher,
             f"prices for at least two of {identifiers}",
             source=f"only {len(prices.columns)} could be priced")
 
-    return prices.pct_change().dropna(how="all")
+    return returns_of_prices(prices)
 
 
 def build_estimation_job(model_id: str,

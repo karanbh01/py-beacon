@@ -38,14 +38,15 @@ from typing import Any
 import pandas as pd
 
 from ..analysis.attribution import drifted_weights
-from ..analysis.concentration import concentration, drift_from_target, top_n_weight
-from ..data.fetcher import DataFetcher
-from ..risk.contribution import (
-    RiskContributions,
-    active_risk_contributions,
-    risk_contributions,
+from ..analysis.concentration import (
+    DriftMetrics,
+    concentration,
+    drift_from_target,
+    top_n_weight,
 )
-from ..risk.model import estimate_risk_model
+from ..data.fetcher import DataFetcher
+from ..risk.contribution import RiskContributions, active_weights
+from ..risk.prices import active_risk_of_prices, risk_of_prices
 from .runs import snapshot_at, snapshots_from
 from .schemas import (
     ActiveRiskPayload,
@@ -62,12 +63,6 @@ logger = logging.getLogger(__name__)
 # Sizes reported by the weights pane. Both are conventional concentration
 # cutoffs and cheap to compute, so reporting both saves a round trip.
 TOP_N = (5, 10)
-
-# Below this many observations a covariance over hundreds of names is
-# noise wearing a matrix's clothes. Reporting nothing beats reporting a
-# decomposition of an estimate that means nothing.
-MINIMUM_OBSERVATIONS = 60
-
 
 def concentration_of(weights: dict[str, float]) -> ConcentrationPayload:
     """Concentration measures for one weight vector."""
@@ -112,6 +107,7 @@ def build_weights(strategy_id: str,
     """
     snapshot = snapshot_at(snapshots_from(run), as_of)
     held = _held_weights(snapshot, as_of, fetcher, currency)
+    drift = drift_from_target(held, snapshot.weights) if held is not None else None
 
     contributions, window = (_risk_of(snapshot, run, fetcher, currency)
                              if with_risk else (None, (None, None)))
@@ -126,10 +122,10 @@ def build_weights(strategy_id: str,
         rebalance_date=snapshot.date,
         announced_date=snapshot.announced,
         weights=snapshot.weights,
-        rows=build_rows(snapshot, held, as_of, fetcher, contributions,
-                        active_by_name, benchmark),
+        rows=build_rows(snapshot, drift.per_asset if drift is not None else None, as_of,
+                        fetcher, contributions, active_by_name, benchmark),
         concentration=concentration_of(snapshot.weights),
-        drift=_drift_payload(snapshot, held),
+        drift=_drift_payload(snapshot, drift),
         capped=snapshot.capped,
         cap=snapshot.cap,
         cap_redistributed=snapshot.redistributed,
@@ -165,12 +161,10 @@ def _held_weights(snapshot: RebalanceSnapshot,
 
 
 def _drift_payload(snapshot: RebalanceSnapshot,
-                   held: dict[str, float] | None) -> DriftPayload | None:
-    """The aggregate drift figures, from the held weights."""
-    if held is None:
+                   metrics: DriftMetrics | None) -> DriftPayload | None:
+    """The aggregate drift figures, from the held weights' drift."""
+    if metrics is None:
         return None
-
-    metrics = drift_from_target(held, snapshot.weights)
 
     return DriftPayload(total_absolute=metrics.total_absolute,
                         maximum=metrics.max_absolute,
@@ -211,18 +205,8 @@ def _risk_of(snapshot: RebalanceSnapshot,
 
         return None, window
 
-    returns = prices.pct_change().dropna(how="all")
-    if len(returns) < MINIMUM_OBSERVATIONS:
-        logger.warning(
-            "Only %d return observation(s) over the run's window, fewer than "
-            "the %d a covariance needs; no risk decomposition.",
-            len(returns), MINIMUM_OBSERVATIONS)
-
-        return None, window
-
-    model = estimate_risk_model(returns)
-
-    return risk_contributions(snapshot.weights, model.covariance), window
+    # BN-401: estimated by the library; None with too few days.
+    return risk_of_prices(snapshot.weights, prices), window
 
 
 def _risk_payload(contributions: RiskContributions | None,
@@ -264,16 +248,10 @@ def _active_risk_of(snapshot: RebalanceSnapshot,
 
         return None, {}
 
-    returns = prices.pct_change().dropna(how="all")
-    if len(returns) < MINIMUM_OBSERVATIONS:
-        logger.warning("Too few observations (%d) for an active decomposition.",
-                       len(returns))
+    result = active_risk_of_prices(snapshot.weights, benchmark, prices)
 
+    if result is None:
         return None, {}
-
-    model = estimate_risk_model(returns)
-    result = active_risk_contributions(snapshot.weights, benchmark,
-                                       model.covariance)
 
     # Benchmark names the index does not hold have no row in the table, and
     # they are routinely the largest active positions in the book.
@@ -293,7 +271,7 @@ def _active_risk_of(snapshot: RebalanceSnapshot,
 
 
 def build_rows(snapshot: RebalanceSnapshot,
-               held: dict[str, float] | None,
+               drift: dict[str, float] | None,
                as_of: str | None,
                fetcher: DataFetcher,
                contributions: RiskContributions | None = None,
@@ -304,7 +282,8 @@ def build_rows(snapshot: RebalanceSnapshot,
 
     Args:
         snapshot: The rebalance in force.
-        held: Drifted weights, or None when nothing has drifted yet.
+        drift: Each name's held weight less its target, or None when nothing
+            has drifted yet.
         as_of: The date shares outstanding are read at.
         fetcher: Data source.
 
@@ -314,6 +293,7 @@ def build_rows(snapshot: RebalanceSnapshot,
         cares about rather than the order the store happened to hold.
     """
     capped = set(snapshot.capped)
+    active = active_weights(snapshot.weights, benchmark) if benchmark is not None else {}
     shares = _shares_for(fetcher, sorted(snapshot.weights),
                          as_of or snapshot.date)
 
@@ -327,15 +307,13 @@ def build_rows(snapshot: RebalanceSnapshot,
             raw_weight=snapshot.uncapped_weights.get(identifier, weight),
             capped=identifier in capped,
             shares_outstanding=shares.get(identifier),
-            delta_since_rebalance=(None if held is None
-                                   else held.get(identifier, 0.0) - weight),
+            delta_since_rebalance=None if drift is None else drift[identifier],
             # Null rather than zero for an uncovered name: zero would read as
             # "contributes no risk", which is a claim, where null says the
             # model could not answer.
             risk_contribution=(contributions.contribution.get(identifier)
                                if contributions else None),
-            active_weight=(None if benchmark is None
-                           else weight - benchmark.get(identifier, 0.0)),
+            active_weight=None if benchmark is None else active[identifier],
             active_risk_contribution=(active_by_name.get(identifier)
                                       if active_by_name else None))
         for identifier, weight in snapshot.weights.items()]

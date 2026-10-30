@@ -350,10 +350,12 @@ def _quantities(positions: pd.DataFrame) -> dict[str, pd.Series]:
 
     panel = positions.pivot_table(index="DATE", columns="ASSET_ID", values="QUANTITY",
                                   aggfunc="last").fillna(0.0).sort_index()
-    changes = panel.diff()
-    changes.iloc[0] = panel.iloc[0]
+    # The days a name's units differ from the day before's, and its first
+    # if it held any.
+    changed = panel.ne(panel.shift())
+    changed.iloc[0] = panel.iloc[0].ne(0.0)
 
-    return {str(name): panel[name][changes[name] != 0] for name in panel.columns}
+    return {str(name): panel[name][changed[name]] for name in panel.columns}
 
 
 def _strategy_label(settings: dict[str, Any]) -> str:

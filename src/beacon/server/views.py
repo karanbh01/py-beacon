@@ -38,7 +38,8 @@ from typing import Any
 
 import pandas as pd
 
-from ..analysis.attribution import attribute, cap_drag, cost_drag, drifted_weights
+from ..analysis.attribution.schedule import attribute_schedule
+from ..analysis.performance.levels import compared
 from ..analysis.relative import relative_metrics
 from ..data.fetcher import DataFetcher
 from ..data.prices import currencies_of
@@ -101,8 +102,6 @@ def build_attribution(strategy_id: str,
     the index's return.
     """
     snapshots = snapshots_from(run)
-    capped = weight_map(snapshots)
-    uncapped = weight_map(snapshots, uncapped=True)
 
     # Prices are fetched over the whole history, not over the requested window.
     # Weights drift forward from each rebalance, so a rebalance that predates
@@ -111,26 +110,20 @@ def build_attribution(strategy_id: str,
     # The window is applied afterwards, by selecting periods.
     prices = _constituent_prices(fetcher, snapshots, None, None, currency)
 
-    weights = drifted_weights(capped, prices)
-    asset_returns = prices.pct_change().reindex(weights.index)
-    period_returns = (weights.shift(1) * asset_returns).sum(axis=1)
-
     # Defaults to the run's own span, not the whole price history. The index
     # was only calculated over the window it was run for; drifting the last
     # rebalance forward past that would attribute returns for a period the
     # index does not cover, which reads as performance rather than as
     # extrapolation.
     span = _run_span(run)
-    window = _window_of(weights.index, start or span[0], end or span[1])
-    weights = weights.loc[window]
-    asset_returns = asset_returns.loc[window]
-    period_returns = period_returns.loc[window]
-
-    result = attribute(period_returns,
-                       weights,
-                       asset_returns,
-                       cap_drag=_cap_drag(capped, uncapped, prices, window),
-                       cost_drag=_cost_drag(run))
+    # BN-401: worked out by the library.
+    result = attribute_schedule(weight_map(snapshots),
+                                weight_map(snapshots, uncapped=True),
+                                prices,
+                                start or span[0],
+                                end or span[1],
+                                total_costs=float(run.get("total_costs") or 0.0),
+                                initial_capital=float(run.get("initial_capital") or 0.0))
 
     # `start` is resolved — the shift drops the window's first date, so it is
     # a trading day later than what was asked for — and the request itself was
@@ -163,59 +156,6 @@ def _run_span(run: dict[str, Any]) -> tuple[str | None, str | None]:
         return None, None
 
     return str(level.index[0])[:10], str(level.index[-1])[:10]
-
-
-def _window_of(index: pd.Index,
-               start: str | None,
-               end: str | None) -> pd.Index:
-    """The requested slice of a date index.
-
-    Raises:
-        DataNotFoundError: If the window contains no dates. Attributing over an
-            empty period would report a total return of zero, which reads as a
-            flat index rather than as a question that could not be answered.
-    """
-    selected = pd.DatetimeIndex(index)
-
-    if start is not None:
-        selected = selected[selected >= pd.Timestamp(start)]
-    if end is not None:
-        selected = selected[selected <= pd.Timestamp(end)]
-
-    if selected.empty:
-        raise DataNotFoundError(
-            f"any index dates between {start or 'the start'} and "
-            f"{end or 'the end'}",
-            source="the run covers a different period")
-
-    return selected
-
-
-def _cap_drag(capped: dict[pd.Timestamp, dict[str, float]],
-              uncapped: dict[pd.Timestamp, dict[str, float]],
-              prices: pd.DataFrame,
-              window: pd.Index) -> float | None:
-    """What the cap cost over *window*, or None when nothing was capped.
-
-    Reporting 0.0 for an uncapped index would be a different claim — that
-    capping happened and made no difference — so an index with no cap says
-    nothing rather than zero.
-    """
-    if capped == uncapped:
-        return None
-
-    return cap_drag(capped, uncapped, prices, window)
-
-
-def _cost_drag(run: dict[str, Any]) -> float | None:
-    """The direct effect of transaction costs, or None at zero cost."""
-    costs = float(run.get("total_costs") or 0.0)
-    capital = float(run.get("initial_capital") or 0.0)
-
-    if costs <= 0.0 or capital <= 0.0:
-        return None
-
-    return cost_drag(costs, capital)
 
 
 def _constituent_prices(fetcher: DataFetcher,
@@ -311,24 +251,18 @@ def build_compare(runs: dict[str, dict[str, Any]]) -> CompareView:
     Every level is rebased to 100 on the first shared date, so the lines start
     together and the comparison is of shape rather than of scale.
     """
-    levels = {strategy_id: _level_series(run) for strategy_id, run in runs.items()}
-    window = _common_window(levels)
-
-    entries = []
-    for strategy_id, series in levels.items():
-        clipped = series.loc[window]
-        rebased = clipped / clipped.iloc[0] * 100.0
-
-        entries.append(CompareEntry(
-            strategy_id=strategy_id,
-            total_return=float(rebased.iloc[-1] / rebased.iloc[0] - 1.0),
-            level=SeriesPayload.from_series(rebased)))
+    # BN-401: aligned and rebased by the library.
+    found = compared({strategy_id: _level_series(run) for strategy_id, run in runs.items()})
+    window = found.window
 
     return CompareView(strategy_ids=list(runs),
                        start=str(window[0].date()),
                        end=str(window[-1].date()),
                        observations=len(window),
-                       entries=entries)
+                       entries=[CompareEntry(strategy_id=strategy_id,
+                                             total_return=found.total_returns[strategy_id],
+                                             level=SeriesPayload.from_series(level))
+                                for strategy_id, level in found.levels.items()])
 
 
 def _level_series(run: dict[str, Any]) -> pd.Series:
@@ -337,25 +271,3 @@ def _level_series(run: dict[str, Any]) -> pd.Series:
 
     return pd.Series(payload.data,
                      index=pd.to_datetime(payload.index)).astype(float)
-
-
-def _common_window(levels: dict[str, pd.Series]) -> pd.DatetimeIndex:
-    """Dates every series covers.
-
-    Built by intersecting rather than by taking the widest start and narrowest
-    end, so a gap in the middle of one series drops that date for everyone
-    instead of leaving a hole only one line has.
-    """
-    shared: pd.DatetimeIndex | None = None
-
-    for series in levels.values():
-        index = pd.DatetimeIndex(series.index)
-        shared = index if shared is None else shared.intersection(index)
-
-    if shared is None or shared.empty:
-        raise DataNotFoundError(
-            "a window these indices share",
-            source="their level series do not overlap on any date")
-
-    return shared.sort_values()
-

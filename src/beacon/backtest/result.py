@@ -309,6 +309,12 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
                 / nav).rename("futures_exposure")
 
     @property
+    def total_costs(self) -> float:
+        """The transaction costs paid over the run, in its currency."""
+        return float(sum(transaction.transaction_cost
+                         for transaction in self.portfolio.transactions))
+
+    @property
     def total_unfilled_value(self) -> float:
         """Total notional that went unfilled across the run."""
         return float(sum(order.shortfall_value for order in self.unfilled))

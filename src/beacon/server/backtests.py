@@ -18,6 +18,7 @@ import pandas as pd
 
 from ..analysis.data import RunData
 from ..analysis.performance import formulas
+from ..analysis.performance.levels import annual_returns, daily_returns, rebased
 from ..analysis.relative import align_on_common_window, relative_metrics
 from ..analysis.request import keep_analysis_work
 from ..backtest.main import Backtest
@@ -64,10 +65,6 @@ from .share_class_results import flow_payloads, share_class_payloads
 from .store import DocumentStore
 from .strategy_schemas import StrategyDocument
 
-# Every series is rebased to this so the portfolio and its benchmark start
-# together and can be read off the same axis.
-BASE_LEVEL = 100.0
-
 
 @dataclass(frozen=True)
 class ClassContext:
@@ -77,18 +74,6 @@ class ClassContext:
     share_classes: Sequence[ShareClass]
     index_currency: str
     fetcher: DataFetcher
-
-
-def _rebase(series: pd.Series) -> pd.Series:
-    """Rebase a series to BASE_LEVEL at its first observation."""
-    if series.empty:
-        return series
-
-    first = series.iloc[0]
-    if first == 0:
-        return series
-
-    return series / first * BASE_LEVEL
 
 
 def _drawdown(level: pd.Series) -> pd.Series:
@@ -120,38 +105,6 @@ def _nav_from_capital(result: BacktestResult) -> pd.Series:
     return nav if len(nav) > len(result.trading_nav) else result.trading_nav
 
 
-def annual_returns(level: pd.Series) -> dict[str, float]:
-    """Calendar-year returns that compound exactly to the total.
-
-    Each year runs from the previous year's closing level to its own, so the
-    product of (1 + r) telescopes to ``last / first - 1``. Defining them any
-    other way (from the first observation *within* each year, say) leaves a
-    gap over each year boundary and the compounded total no longer matches.
-    The first observation is the starting point, not a year of its own: a
-    run that starts on 2 January begins from the capital held on the eve,
-    which may fall in the year before.
-
-    Args:
-        level: The level series, indexed by date.
-
-    Returns:
-        dict: Year (as a string) -> return for that year.
-    """
-    if level.empty:
-        return {}
-
-    later = level.iloc[1:]
-    closes = later.groupby(later.index.year).last()
-    returns: dict[str, float] = {}
-    previous = level.iloc[0]
-
-    for year, close in closes.items():
-        returns[str(year)] = float(close / previous - 1.0)
-        previous = close
-
-    return returns
-
-
 def assemble_result(result: BacktestResult,
                     index_result: IndexResult,
                     benchmark: RelativeMetricsPayload | None = None,
@@ -180,10 +133,10 @@ def assemble_result(result: BacktestResult,
     # carries the cost of the opening trades.
     # With flows the performance is a unit's, so a flow is not drawn as a gain
     # (BN-267); without, it is the NAV, as it always was.
-    level = _rebase(result.performance_levels())
-    from_capital = _rebase(_performance_from_start(result))
+    level = rebased(result.performance_levels())
+    from_capital = rebased(_performance_from_start(result))
     opening = len(from_capital) - len(level)
-    returns = from_capital.pct_change().dropna()
+    returns = daily_returns(from_capital)
 
     return BacktestRunResult(
         level=SeriesPayload.from_series(level),
@@ -191,11 +144,11 @@ def assemble_result(result: BacktestResult,
         returns=SeriesPayload.from_series(returns),
         drawdown=SeriesPayload.from_series(_drawdown(from_capital).iloc[opening:]),
         annual_returns=annual_returns(from_capital),
-        index_level=SeriesPayload.from_series(_rebase(index_result.index_levels)),
+        index_level=SeriesPayload.from_series(rebased(index_result.index_levels)),
         metrics=metrics_from(result.summary()),
         benchmark=benchmark,
         rebalances=rebalance_snapshots(index_result, cap),
-        total_costs=_total_costs(result),
+        total_costs=result.total_costs,
         initial_capital=result.portfolio.initial_capital,
         price_gaps=price_gap_payloads(result),
         rebalance_pricing=rebalance_pricing_payloads(result),
@@ -228,12 +181,6 @@ def target_cap(definition: AnyIndexDefinition) -> float | None:
 
     return (source.max_constituent_weight
             if isinstance(source, IndexDefinition) else None)
-
-
-def _total_costs(result: BacktestResult) -> float:
-    """Transaction costs paid across the run."""
-    return float(sum(transaction.transaction_cost
-                     for transaction in result.portfolio.transactions))
 
 
 def compare_against_benchmark(nav: pd.Series,
@@ -269,7 +216,7 @@ def compare_against_benchmark(nav: pd.Series,
         tracking_error=metrics.tracking_error,
         correlation=metrics.correlation,
         beta=metrics.beta,
-        level=SeriesPayload.from_series(_rebase(aligned_benchmark)))
+        level=SeriesPayload.from_series(rebased(aligned_benchmark)))
 
 
 # Where the backtest's own progress sits in the job's (BN-342).

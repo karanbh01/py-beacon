@@ -10,9 +10,9 @@ calculation, and the other way round.
 # BN-316. Every other view of an index's figures read a saved backtest run.
 from pydantic import BaseModel, Field
 
+from ..analysis.performance.levels import headline
 from ..assumptions import DEFAULT_PERIODS_PER_YEAR, ModellingAssumptions
 from ..backtest.main import Backtest
-from ..backtest.metrics import headline_metrics
 from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult
 from .definitions import build_definition
@@ -73,13 +73,10 @@ def build_index_level(document: IndexDocument,
     """The view of a calculated index."""
     levels = result.index_levels
     assumptions = ModellingAssumptions().effective()
-    total_return = (float(levels.iloc[-1] / levels.iloc[0] - 1)
-                    if len(levels) and levels.iloc[0] else 0.0)
-    headline = headline_metrics(levels.pct_change().dropna(),
-                                total_return,
-                                levels,
-                                assumptions.periods_per_year or DEFAULT_PERIODS_PER_YEAR,
-                                assumptions.risk_free_rate or 0.0)
+    # BN-401: measured by the library.
+    figures = headline(levels,
+                       assumptions.periods_per_year or DEFAULT_PERIODS_PER_YEAR,
+                       assumptions.risk_free_rate or 0.0)
     # The cap as a backtest reads it: an optimised index has none of its own.
     cap = (document.pipeline.weighting.max_weight
            if document.pipeline is not None else None)
@@ -90,5 +87,5 @@ def build_index_level(document: IndexDocument,
                           start=str(levels.index[0])[:10] if len(levels) else "",
                           end=str(levels.index[-1])[:10] if len(levels) else "",
                           level=SeriesPayload.from_series(levels),
-                          metrics=metrics_from(dict(headline)),
+                          metrics=metrics_from(dict(figures)),
                           rebalances=rebalance_snapshots(result, cap))

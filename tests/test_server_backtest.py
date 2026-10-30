@@ -7,13 +7,13 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from beacon.analysis.performance.levels import annual_returns
 from beacon.backtest.result import BacktestResult, Book, IndexBooks
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Portfolio
 from beacon.server import ServerConfig, create_app
-from beacon.server.backtests import annual_returns
 from beacon.server.jobs import SUCCEEDED
 from beacon.server.schemas import MAX_REBALANCES, BacktestResultSummary
 from conftest import submit_backtest

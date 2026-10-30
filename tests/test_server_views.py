@@ -532,7 +532,7 @@ class TestErrorPaths:
     def test_a_window_the_run_does_not_cover_is_refused(self):
         """Attributing over no periods would report a flat index rather than a
         question that could not be answered."""
-        from beacon.server.views import _window_of
+        from beacon.analysis.attribution.schedule import _window_of
 
         index = pd.to_datetime(["2024-01-01", "2024-01-02"])
 
@@ -540,13 +540,13 @@ class TestErrorPaths:
             _window_of(index, "2030-01-01", None)
 
     def test_indices_that_never_overlap_are_refused(self):
-        from beacon.server.views import _common_window
+        from beacon.analysis.performance.levels import compared
 
         first = pd.Series([1.0], index=pd.to_datetime(["2020-01-01"]))
         second = pd.Series([1.0], index=pd.to_datetime(["2024-01-01"]))
 
         with pytest.raises(DataNotFoundError, match="window these indices share"):
-            _common_window({"a": first, "b": second})
+            compared({"a": first, "b": second})
 
     def test_no_prices_for_any_constituent_is_refused(self,
                                                       client):
@@ -605,10 +605,16 @@ class TestErrorPaths:
         """Null rather than 0.0: costs of zero and costs not recorded are the
         same number and different statements, and the run that paid nothing has
         no drag to report."""
-        from beacon.server.views import _cost_drag
+        from beacon.analysis.attribution.schedule import attribute_schedule
 
-        assert _cost_drag({"total_costs": 0.0, "initial_capital": 1_000_000.0}) is None
-        assert _cost_drag({"initial_capital": 1_000_000.0}) is None
+        days = pd.bdate_range("2024-01-01", periods=5)
+        prices = pd.DataFrame({"AAA": [1.0, 1.1, 1.2, 1.1, 1.3]}, index=days)
+        weights = {days[0]: {"AAA": 1.0}}
+
+        assert attribute_schedule(weights, weights, prices, None, None, total_costs=0.0,
+                                  initial_capital=1_000_000.0).cost_drag is None
+        assert attribute_schedule(weights, weights, prices, None, None,
+                                  initial_capital=1_000_000.0).cost_drag is None
 
 
 class TestALateAttributionWindow:
