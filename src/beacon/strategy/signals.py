@@ -156,8 +156,12 @@ class Momentum(Signal):
         # Most of the window must be there for the return to mean anything.
         needed = (self.lookback_days - self.skip_days) // 2
 
-        return {name: float(growth[name] - 1.0) if name in counts.index
-                and counts[name] >= needed else None for name in names}
+        # Looked up in dicts (BN-416): in the Series it was most of momentum's
+        # time at 6,000 names.
+        counted, grown = counts.to_dict(), growth.to_dict()
+
+        return {name: float(grown[name] - 1.0) if name in counted
+                and counted[name] >= needed else None for name in names}
 
 
 def standardised(values: dict[str, float | None]) -> dict[str, float]:

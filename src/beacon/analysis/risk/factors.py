@@ -38,6 +38,7 @@ from typing import cast
 
 import numpy as np
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 
 from ...backtest.histories import history
 from ...data.base import as_of_position
@@ -60,6 +61,10 @@ logger = logging.getLogger(__name__)
 LONGEST_LOOKBACK = 252
 
 FUND = "fund"
+
+# Above this condition number a window's normal equations are fitted by least
+# squares instead (BN-416).
+CONDITION_LIMIT = 1e10
 ACTIVE = "active"
 ALPHA = "alpha"
 
@@ -222,14 +227,8 @@ class FactorAnalytics:
                       window: int = 252) -> pd.DataFrame:
         """Each factor's beta over the *window* days to each day."""
         target, factors = self._paired(book)
-        rows = {}
 
-        for end in range(window, len(target) + 1):
-            fit = regressed(target.iloc[end - window:end], factors.iloc[end - window:end],
-                             self.run.periods_per_year)
-            rows[target.index[end - 1]] = fit.betas
-
-        return pd.DataFrame.from_dict(rows, orient="index", columns=list(factors.columns))
+        return rolling_fits(target, factors, window)
 
     def holdings_exposures(self,
                            book: str = FUND,
@@ -422,6 +421,41 @@ def _cross_sections(returns: np.ndarray,
                        for column, day in enumerate(days)})
 
     return fitted
+
+
+def rolling_fits(target: pd.Series,
+                 factors: pd.DataFrame,
+                 window: int) -> pd.DataFrame:
+    """*target* regressed with an intercept on *factors* over each trailing
+    *window* of days: each factor's beta, a row a window's last day.
+
+    Every window's cross-products are summed at once and its normal equations
+    solved, rather than each window fitted by least squares; a window whose
+    equations are too near singular to solve that way is fitted on its own.
+    """
+    # BN-416: 1,500 fits took 1.2 s at 6,000 names; solved from the normal
+    # equations the betas differ from least squares in the last places.
+    columns = list(factors.columns)
+
+    if len(target) < window:
+        return pd.DataFrame(columns=columns, dtype=float)
+
+    design = np.column_stack([np.ones(len(target)), factors.to_numpy(dtype=float)])
+    values = target.to_numpy(dtype=float)
+    blocks = sliding_window_view(design, window, axis=0).transpose(0, 2, 1)
+    targets = sliding_window_view(values, window)
+    products = np.einsum("mwi,mwj->mij", blocks, blocks)
+    moments = np.einsum("mwi,mw->mi", blocks, targets)
+    solved = np.full(moments.shape, np.nan)
+    sound = np.linalg.cond(products) < CONDITION_LIMIT
+
+    if sound.any():
+        solved[sound] = np.linalg.solve(products[sound], moments[sound][..., None])[..., 0]
+
+    for position in np.flatnonzero(~sound):
+        solved[position], *_ = np.linalg.lstsq(blocks[position], targets[position], rcond=None)
+
+    return pd.DataFrame(solved[:, 1:], index=target.index[window - 1:], columns=columns)
 
 
 def regressed(target: pd.Series,

@@ -297,13 +297,15 @@ def attribute(period_returns: pd.Series,
     linked = link_contributions(contributions, returns.loc[contributions.index])
     total = float((1.0 + returns.loc[contributions.index]).prod() - 1.0)
 
+    # Every name's average weight and total return at once (BN-416): the same
+    # figures as name by name, which was most of the time at 6,000 names.
+    averages = lagged.mean()
+    totals = (1.0 + asset_returns[assets].reindex(contributions.index).fillna(0.0)).prod() - 1.0
     rows = [
         Contribution(asset_id=asset_id,
                      contribution=float(linked.get(asset_id, 0.0)),
-                     average_weight=float(lagged[asset_id].mean()),
-                     total_return=float(
-                         (1.0 + asset_returns[asset_id].reindex(
-                             contributions.index).fillna(0.0)).prod() - 1.0))
+                     average_weight=float(averages[asset_id]),
+                     total_return=float(totals[asset_id]))
         for asset_id in assets
     ]
     rows.sort(key=lambda item: item.contribution, reverse=True)

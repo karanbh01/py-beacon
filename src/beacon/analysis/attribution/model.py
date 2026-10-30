@@ -42,33 +42,46 @@ def holdings_parts(factors: FactorAnalytics,
                    lagged: pd.DataFrame,
                    name_returns: pd.DataFrame) -> pd.DataFrame:
     """Each day's market, factor and specific contributions of a book held
-    at *lagged* (its weights at the close before), by day and part."""
+    at *lagged* (its weights at the close before), by day and part.
+
+    Worked out a stretch between rebalances at a time, over which the
+    exposures are fixed, as matrix products over its days.
+    """
+    # BN-416: day by day with pandas this took 5 s at 6,000 names; the sums
+    # now run in another order, so the parts differ in the last places.
     found = factors.factor_returns()
     days = lagged.index.intersection(found.index)
     rebalances = pd.DatetimeIndex(factors.dates)
-    rows = {}
+    stretches: dict[int, list[pd.Timestamp]] = {}
 
     for day in days:
         at = as_of_position(rebalances, day - pd.Timedelta(days=1))
 
-        if at is None:
-            continue
+        if at is not None:
+            stretches.setdefault(at, []).append(day)
 
-        exposures = factors.exposures(rebalances[at])
-        held = lagged.loc[day]
-        held = held[held != 0.0]
-        names = held.index
-        z = exposures.reindex(names).fillna(0.0)
-        returns = name_returns.loc[day].reindex(names).fillna(0.0)
-        factor_returns = found.loc[day]
-        explained = factor_returns[MARKET_FACTOR] + z @ factor_returns[factors.names]
-        own = returns - explained
-        X = z.T @ held
-        rows[day] = {MARKET_FACTOR: float(held.sum() * factor_returns[MARKET_FACTOR]),
-                     **{name: float(X[name] * factor_returns[name]) for name in factors.names},
-                     SPECIFIC: float((held * own).sum())}
+    names = list(lagged.columns)
+    tables = []
 
-    return pd.DataFrame.from_dict(rows, orient="index")
+    for at, stretch in sorted(stretches.items()):
+        exposures = factors.exposures(rebalances[at]).reindex(names).fillna(0.0)
+        loadings = exposures[factors.names].to_numpy(dtype=float)
+        held = lagged.loc[stretch, names].to_numpy(dtype=float)
+        earned = name_returns.reindex(index=stretch, columns=names).fillna(0.0).to_numpy(
+            dtype=float)
+        market = found.loc[stretch, MARKET_FACTOR].to_numpy(dtype=float)
+        paid = found.loc[stretch, factors.names].to_numpy(dtype=float)
+        own = earned - (market[:, None] + paid @ loadings.T)
+        table = pd.DataFrame(held @ loadings * paid, index=pd.DatetimeIndex(stretch),
+                             columns=factors.names)
+        table.insert(0, MARKET_FACTOR, held.sum(axis=1) * market)
+        table[SPECIFIC] = (held * own).sum(axis=1)
+        tables.append(table)
+
+    if not tables:
+        return pd.DataFrame()
+
+    return pd.concat(tables)
 
 
 def returns_parts(target: pd.Series,

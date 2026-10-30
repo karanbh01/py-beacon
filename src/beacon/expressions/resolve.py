@@ -214,7 +214,8 @@ def numbers_of(field: Field,
     if field.namespace == FEATURES:
         table = fetcher.features.table_as_of(identifiers, field.name, [date],
                                              field.dataset, max_age_days)
-        row = table.iloc[0] if len(table) else pd.Series(dtype=float)
+        # As a dict, so each name is a lookup in it (BN-416).
+        row = table.iloc[0].to_dict() if len(table) else {}
 
         return {name: _finite(row.get(name)) for name in identifiers}
 
@@ -259,9 +260,13 @@ def _market_numbers(field: Field,
     if field.name != MARKET_CAP:
         found = last(column_for(field))
 
-        return {name: _finite(found.get(name)) for name in identifiers}
+        values = found.to_dict()
 
-    prices, shares = last(CLOSE), last(SHARES)
+        return {name: _finite(values.get(name)) for name in identifiers}
+
+    # As dicts, so each name is a lookup in them (BN-416): looked up in the
+    # Series it was 1.6 s over 20 rebalances at 6,000 names.
+    prices, shares = last(CLOSE).to_dict(), last(SHARES).to_dict()
     rates = _rates(identifiers, date, fetcher, currency)
 
     caps: dict[str, float | None] = {}

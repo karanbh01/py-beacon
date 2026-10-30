@@ -215,3 +215,114 @@ def test_the_positions_dates_are_each_snapshot_s():
 
     pd.testing.assert_series_equal(history._build_positions()["DATE"],
                                    pd.Series(old, name="DATE"), check_exact=True)
+
+
+class TestBN416:
+    """BN-416: attribution, rolling betas and momentum against the code they
+    replaced."""
+
+    @pytest.fixture(scope="class")
+    def factors(self):
+        from beacon.analysis.data import RunData
+        from beacon.analysis.risk.factors import FactorAnalytics
+        from beacon.backtest import Backtest
+        from test_strategy_futures import DATA, END, START, index
+
+        result = Backtest(initial_capital=1e7, data_provider=DATA, cache=False,
+                          transaction_cost_bps=5.0).run(index(), start=START, end=END)
+
+        return FactorAnalytics(RunData.from_result(result), DATA)
+
+    @staticmethod
+    def parts_day_by_day(factors, lagged, name_returns):
+        """BN-395's holdings-based parts, a day at a time."""
+        from beacon.analysis.attribution.model import SPECIFIC
+        from beacon.data.base import as_of_position
+        from beacon.risk.model import MARKET_FACTOR
+
+        found = factors.factor_returns()
+        rebalances = pd.DatetimeIndex(factors.dates)
+        rows = {}
+
+        for day in lagged.index.intersection(found.index):
+            at = as_of_position(rebalances, day - pd.Timedelta(days=1))
+
+            if at is None:
+                continue
+
+            held = lagged.loc[day]
+            held = held[held != 0.0]
+            z = factors.exposures(rebalances[at]).reindex(held.index).fillna(0.0)
+            earned = name_returns.loc[day].reindex(held.index).fillna(0.0)
+            paid = found.loc[day]
+            own = earned - (paid[MARKET_FACTOR] + z @ paid[factors.names])
+            exposure = z.T @ held
+            rows[day] = {MARKET_FACTOR: float(held.sum() * paid[MARKET_FACTOR]),
+                         **{name: float(exposure[name] * paid[name]) for name in factors.names},
+                         SPECIFIC: float((held * own).sum())}
+
+        return pd.DataFrame.from_dict(rows, orient="index")
+
+    def test_the_holdings_parts_by_stretch_are_the_day_by_day_ones(self,
+                                                                   factors):
+        from beacon.analysis.attribution.model import holdings_parts
+        from beacon.analysis.panels import FUND_WEIGHTS, NAME_RETURNS
+
+        lagged = factors.run.tables[FUND_WEIGHTS].fillna(0.0).shift(1).fillna(0.0)
+        lagged.columns = lagged.columns.astype(str)
+        name_returns = factors.run.tables[NAME_RETURNS]
+
+        ours = holdings_parts(factors, lagged, name_returns)
+        theirs = self.parts_day_by_day(factors, lagged, name_returns)
+
+        assert list(ours.columns) == list(theirs.columns) and ours.index.equals(theirs.index)
+        np.testing.assert_allclose(ours.to_numpy(), theirs.to_numpy(), rtol=1e-12, atol=1e-16)
+
+    def test_the_rolling_betas_are_each_window_s_own_fit(self,
+                                                         factors):
+        from beacon.analysis.risk.factors import regressed
+
+        target, paid = factors._paired("fund")
+        rolled = factors.rolling_betas(window=63)
+
+        for end in range(63, len(target) + 1, 37):
+            fit = regressed(target.iloc[end - 63:end], paid.iloc[end - 63:end], 252)
+            np.testing.assert_allclose(rolled.loc[target.index[end - 1]].to_numpy(),
+                                       fit.betas.to_numpy(), rtol=1e-12, atol=1e-14)
+
+    def test_a_near_singular_window_is_fitted_by_least_squares(self):
+        from beacon.analysis.risk.factors import regressed, rolling_fits
+
+        random = np.random.default_rng(5)
+        days = pd.bdate_range("2024-01-02", periods=80)
+        paid = pd.DataFrame(random.normal(0.0, 0.01, (80, 2)), index=days, columns=["a", "b"])
+        paid["c"] = paid["a"] * 2.0
+        target = pd.Series(random.normal(0.0, 0.01, 80), index=days)
+
+        rolled = rolling_fits(target, paid, 40)
+
+        np.testing.assert_allclose(rolled.iloc[-1].to_numpy(),
+                                   regressed(target.iloc[-40:], paid.iloc[-40:], 252)
+                                   .betas.to_numpy(), rtol=1e-9, atol=1e-12)
+
+    def test_contributions_are_each_name_s_own(self):
+        from beacon.analysis.attribution.contribution import attribute
+
+        random = np.random.default_rng(9)
+        days = pd.bdate_range("2024-01-02", periods=60)
+        names = [f"N{number}" for number in range(40)]
+        weights = pd.DataFrame(random.random((60, 40)), index=days, columns=names)
+        weights = weights.div(weights.sum(axis=1), axis=0)
+        weights.iloc[10:20, :5] = 0.0
+        returns = pd.DataFrame(random.normal(0.0, 0.01, (60, 40)), index=days, columns=names)
+        returns.iloc[::9, 3] = np.nan
+        total = (weights.shift(1) * returns).sum(axis=1)
+
+        result = attribute(total, weights, returns)
+        lagged = weights.shift(1)
+        kept = (lagged * returns).dropna(how="all").index
+
+        for item in result.contributions:
+            assert item.average_weight == float(lagged[item.asset_id].mean())
+            assert item.total_return == float(
+                (1.0 + returns[item.asset_id].reindex(kept).fillna(0.0)).prod() - 1.0)
