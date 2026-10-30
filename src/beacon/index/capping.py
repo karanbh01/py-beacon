@@ -57,6 +57,20 @@ class CapReport:
         return bool(self.capped)
 
 
+def reachable_weight(cap: float,
+                     count: int) -> float:
+    """The most weight *count* names can hold under *cap*: below 1 the cap
+    cannot be met."""
+    return cap * count
+
+
+def is_tight(cap: float,
+             count: int) -> bool:
+    """Whether *cap* can be met only with all *count* names held, so that
+    leaving one out makes it impossible."""
+    return reachable_weight(cap, count) < 1.0 + cap
+
+
 def minimum_feasible_cap(count: int) -> float:
     """The smallest cap that can still distribute a full unit of weight.
 

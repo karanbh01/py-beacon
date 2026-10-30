@@ -16,28 +16,20 @@ price effect it contributes rather than as a rate: "financing adds 1.24" is a
 sentence about this contract, while "r is 5%" is a sentence about the world.
 """
 # Where the maths lives: in `beacon.derivatives.pricing`, which has no Beacon
-# imports at all and is checked against the textbook relationships directly.
-# This module arranges inputs and shapes outputs; it does not re-derive
-# anything. That is the same boundary BN-96 drew for curves: a curve is asked
-# for a rate, the rate goes into a pricing function, and nothing about either
-# crosses into the other.
+# imports at all and is checked against the textbook relationships directly,
+# and since BN-417 in `beacon.derivatives.valuation`, which puts a curve's
+# rates and a contract's dates into it. This module turns requests into those
+# calls and their results into responses; it computes nothing.
 import logging
-import math
 
 import pandas as pd
 
 from ..data.fetcher import DataFetcher
 from ..derivatives.curves import RateCurve
-from ..derivatives.pricing import (
-    cost_of_carry_fair_value,
-    discrete_dividend_fair_value,
-    futures_roll_return,
-    implied_repo_rate,
-    trs_breakeven_spread,
-)
 from ..derivatives.swaps import TotalReturnSwap
-from ..derivatives.term_structure import FuturesQuote, TermStructure, sensitivity_grid
-from ..exceptions import DataNotFoundError, InvalidArgumentError
+from ..derivatives.term_structure import FuturesQuote, TermStructure
+from ..derivatives.valuation import roll_between, tenor_of, value_future, value_swap
+from ..exceptions import DataNotFoundError
 from .schemas import (
     CarryDecomposition,
     FuturesPriceRequest,
@@ -53,16 +45,6 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
-# ACT/365, matching DerivativeBase.time_to_expiry.
-DAYS_PER_YEAR = 365.0
-
-# ACT/360, matching the financing leg in TotalReturnSwap.
-FINANCING_DAYS_PER_YEAR = 360.0
-
-# Rows and columns of the sensitivity grid when a caller does not supply axes.
-DEFAULT_TENORS = (0.25, 0.5, 0.75, 1.0)
-DEFAULT_RATE_SPREAD = (-0.02, -0.01, 0.0, 0.01, 0.02)
-
 
 def price_futures(request: FuturesPriceRequest) -> FuturesPriceResponse:
     """Value a futures contract and decompose its carry.
@@ -74,152 +56,54 @@ def price_futures(request: FuturesPriceRequest) -> FuturesPriceResponse:
         FuturesPriceResponse: Fair value, the carry split into parts, contract
         value, and a tenor x rate grid.
     """
-    tenor = _tenor(request.valuation_date, request.expiry, request.time_to_expiry)
-    curve = _curve(request)
-    rate = curve.zero_rate(tenor)
-
-    fair_value = _fair_value(request, rate, tenor)
-    basis = (request.market_price - fair_value
-             if request.market_price is not None else None)
+    found = value_future(spot=request.spot,
+                         tenor=tenor_of(request.valuation_date, request.expiry,
+                                        request.time_to_expiry),
+                         curve=_curve(request.curve, request.risk_free_rate),
+                         dividend_yield=request.dividend_yield,
+                         borrow_cost=request.borrow_cost,
+                         dividends=([(float(when), float(amount))
+                                     for when, amount in request.dividends]
+                                    if request.dividends else None),
+                         market_price=request.market_price,
+                         contract_multiplier=request.contract_multiplier,
+                         contracts=request.contracts,
+                         grid_tenors=request.grid_tenors,
+                         grid_rates=request.grid_rates)
+    carry = found.carry
+    grid = found.sensitivity
 
     return FuturesPriceResponse(
-        fair_value=fair_value,
-        time_to_expiry=tenor,
-        financing_rate=rate,
-        carry=_carry(request, rate, tenor, fair_value),
-        contract_value=fair_value * request.contract_multiplier * request.contracts,
+        fair_value=found.fair_value,
+        time_to_expiry=found.time_to_expiry,
+        financing_rate=found.financing_rate,
+        carry=CarryDecomposition(total=carry.total,
+                                 financing=carry.financing,
+                                 dividend=carry.dividend,
+                                 borrow=carry.borrow,
+                                 residual=carry.residual),
+        contract_value=found.contract_value,
         market_price=request.market_price,
-        basis=basis,
-        implied_repo=_implied_repo(request, tenor),
-        sensitivity=_grid(request, rate, tenor))
+        basis=found.basis,
+        implied_repo=found.implied_repo,
+        sensitivity=TableFrame(index=[str(label) for label in grid.index],
+                               columns=[str(label) for label in grid.columns],
+                               data=[[float(value) for value in row]
+                                     for row in grid.to_numpy()]))
 
 
-def _tenor(valuation_date: str | None,
-           expiry: str | None,
-           explicit: float | None) -> float:
-    """Year fraction to expiry, ACT/365.
-
-    A caller may state the tenor directly or give two dates. Dates win when
-    both are present, because they are the less ambiguous statement — a tenor
-    typed by hand can silently disagree with the expiry beside it.
-
-    Raises:
-        InvalidArgumentError: If the expiry is before the valuation date, no
-            tenor can be found, or the tenor is negative.
-    """
-    # BN-275: these answered 404 DATA_NOT_FOUND, as though data were missing.
-    if valuation_date is not None and expiry is not None:
-        days = (pd.Timestamp(expiry) - pd.Timestamp(valuation_date)).days
-        if days < 0:
-            raise InvalidArgumentError(
-                f"The expiry {expiry} is before the valuation date "
-                f"{valuation_date}.")
-
-        return float(days) / DAYS_PER_YEAR
-
-    if explicit is None:
-        raise InvalidArgumentError(
-            "A time to expiry is needed: supply `time_to_expiry`, or both "
-            "`valuation_date` and `expiry`.")
-
-    if explicit < 0:
-        raise InvalidArgumentError(
-            f"The time to expiry must not be negative, got {explicit}.")
-
-    return explicit
-
-
-def _curve(request: FuturesPriceRequest) -> RateCurve:
+def _curve(pillars: dict[str, float] | None,
+           flat: float) -> RateCurve:
     """The financing curve: pillars if given, otherwise a flat rate.
 
     A flat curve reproduces scalar-rate pricing exactly, so a caller who sends
     one rate gets the same number they would have got before curves existed.
     """
-    if request.curve:
-        return RateCurve.from_pillars(
-            {float(tenor): float(rate) for tenor, rate in request.curve.items()})
+    if pillars:
+        return RateCurve.from_pillars({float(tenor): float(rate)
+                                       for tenor, rate in pillars.items()})
 
-    return RateCurve.flat(request.risk_free_rate)
-
-
-def _fair_value(request: FuturesPriceRequest,
-                rate: float,
-                tenor: float) -> float:
-    """Theoretical price, by whichever dividend treatment was asked for."""
-    if request.dividends:
-        return discrete_dividend_fair_value(
-            spot=request.spot,
-            risk_free_rate=rate,
-            time_to_expiry_years=tenor,
-            dividends=[(float(when), float(amount))
-                       for when, amount in request.dividends])
-
-    return cost_of_carry_fair_value(spot=request.spot,
-                                    risk_free_rate=rate,
-                                    dividend_yield=request.dividend_yield,
-                                    time_to_expiry_years=tenor,
-                                    borrow_cost=request.borrow_cost)
-
-
-def _carry(request: FuturesPriceRequest,
-           rate: float,
-           tenor: float,
-           fair_value: float) -> CarryDecomposition:
-    """Split the carry into the pieces a person can reason about.
-
-    Each component is the *price effect* of one rate, computed by pricing with
-    that rate alone. They do not sum to the total exactly, because carry
-    compounds rather than adds — the residual is reported rather than spread
-    across the parts, which would make each of them slightly wrong to hide the
-    fact that the decomposition is approximate.
-    """
-    spot = request.spot
-
-    financing = spot * math.expm1(rate * tenor)
-    dividend = -spot * math.expm1(request.dividend_yield * tenor)
-    borrow = spot * math.expm1(request.borrow_cost * tenor)
-
-    total = fair_value - spot
-
-    return CarryDecomposition(
-        total=total,
-        financing=financing,
-        dividend=dividend,
-        borrow=borrow,
-        residual=total - (financing + dividend + borrow))
-
-
-def _implied_repo(request: FuturesPriceRequest,
-                  tenor: float) -> float | None:
-    """The financing rate a quoted price implies, when there is a quote."""
-    if request.market_price is None or tenor <= 0.0:
-        return None
-
-    return implied_repo_rate(futures_price=request.market_price,
-                             spot=request.spot,
-                             dividend_yield=request.dividend_yield,
-                             time_to_expiry_years=tenor)
-
-
-def _grid(request: FuturesPriceRequest,
-          rate: float,
-          tenor: float) -> TableFrame:
-    """Fair value across a tenor x rate grid, centred on this contract."""
-    tenors = request.grid_tenors or [tenor * multiple
-                                     for multiple in (0.5, 1.0, 1.5, 2.0)]
-    rates = request.grid_rates or [rate + spread
-                                   for spread in DEFAULT_RATE_SPREAD]
-
-    frame = sensitivity_grid(spot=request.spot,
-                             tenors=list(tenors),
-                             rates=list(rates),
-                             dividend_yield=request.dividend_yield,
-                             borrow_cost=request.borrow_cost)
-
-    return TableFrame(index=[str(label) for label in frame.index],
-                      columns=[str(label) for label in frame.columns],
-                      data=[[float(value) for value in row]
-                            for row in frame.to_numpy()])
+    return RateCurve.flat(flat)
 
 
 def price_trs(request: TrsPriceRequest) -> TrsPriceResponse:
@@ -242,145 +126,37 @@ def price_trs(request: TrsPriceRequest) -> TrsPriceResponse:
                            reference_rate=request.reference_rate,
                            payment_frequency=request.payment_frequency,
                            reset_type=request.reset_type)
-
     valuation = pd.Timestamp(request.valuation_date)
-    last_reset = pd.Timestamp(request.last_reset_date or request.start_date)
-
-    curve = (RateCurve.from_pillars({float(t): float(r)
-                                     for t, r in request.curve.items()})
-             if request.curve else RateCurve.flat(request.reference_rate_value))
-
-    schedule = _financing_schedule(swap, request, curve)
-    accrued = swap.financing_cost(valuation, last_reset,
-                                  request.reference_rate_value)
-
-    total_return_leg = swap.total_return_leg(request.spot, request.initial_price,
-                                             request.dividends)
+    found = value_swap(swap,
+                       valuation,
+                       pd.Timestamp(request.last_reset_date or request.start_date),
+                       _curve(request.curve, request.reference_rate_value),
+                       request.reference_rate_value,
+                       request.spot,
+                       request.initial_price,
+                       dividends=request.dividends,
+                       futures_prices=request.futures_prices,
+                       time_to_expiry=request.time_to_expiry,
+                       dividend_yield=request.dividend_yield)
 
     return TrsPriceResponse(
         trade_id=request.trade_id,
         valuation_date=str(valuation.date()),
-        accrual_days=int((valuation - last_reset).days),
-        accrual_fraction=swap.financing_duration(valuation, last_reset),
-        total_return_leg=total_return_leg,
-        financing_leg=accrued,
-        present_value=total_return_leg - accrued,
-        dv01=swap.dv01(valuation, last_reset, request.reference_rate_value),
-        fair_spread_bps=_fair_spread_bps(request, total_return_leg, valuation,
-                                         last_reset, swap),
-        schedule=schedule,
-        breakeven=_breakeven(request))
-
-
-def _financing_schedule(swap: TotalReturnSwap,
-                        request: TrsPriceRequest,
-                        curve: RateCurve) -> list[TrsAccrual]:
-    """Accruals for each period from the last reset to maturity.
-
-    Each future period is projected at the curve's forward rate over that
-    period, which is what the curve is for: a flat curve reproduces the scalar
-    rate exactly, and a shaped one prices the later periods off the later part
-    of the curve rather than off today's fixing.
-    """
-    start = pd.Timestamp(request.last_reset_date or request.start_date)
-    end = pd.Timestamp(request.end_date)
-    step = _period_offset(request.payment_frequency)
-
-    rows: list[TrsAccrual] = []
-    period_start = start
-    valuation = pd.Timestamp(request.valuation_date)
-
-    while period_start < end:
-        period_end = min(period_start + step, end)
-        days = int((period_end - period_start).days)
-        if days <= 0:
-            break
-
-        rate = _period_rate(curve, valuation, period_start, period_end,
-                            request.reference_rate_value)
-        fraction = days / FINANCING_DAYS_PER_YEAR
-        accrual = swap.notional * (rate + swap.spread) * fraction
-
-        rows.append(TrsAccrual(start=str(period_start.date()),
-                               end=str(period_end.date()),
-                               days=days,
-                               rate=rate,
-                               accrual_fraction=fraction,
-                               amount=accrual))
-        period_start = period_end
-
-    return rows
-
-
-def _period_rate(curve: RateCurve,
-                 valuation: pd.Timestamp,
-                 period_start: pd.Timestamp,
-                 period_end: pd.Timestamp,
-                 fixed: float) -> float:
-    """The rate a period accrues at.
-
-    The current period uses the rate already fixed at its reset — that is what
-    "fixed" means, and projecting it off a curve would overwrite an observed
-    number with a modelled one. Later periods are projected forward.
-    """
-    if period_start <= valuation:
-        return fixed
-
-    start_years = (period_start - valuation).days / DAYS_PER_YEAR
-    end_years = (period_end - valuation).days / DAYS_PER_YEAR
-
-    if end_years - start_years <= 0.0:
-        return fixed
-
-    return curve.forward_rate(start_years, end_years)
-
-
-def _period_offset(frequency: str) -> pd.DateOffset:
-    """Months per payment period."""
-    months = {"MONTHLY": 1, "QUARTERLY": 3, "SEMI-ANNUAL": 6, "ANNUAL": 12}
-
-    return pd.DateOffset(months=months[frequency.upper()])
-
-
-def _fair_spread_bps(request: TrsPriceRequest,
-                     total_return_leg: float,
-                     valuation: pd.Timestamp,
-                     last_reset: pd.Timestamp,
-                     swap: TotalReturnSwap) -> float | None:
-    """The spread at which this swap would be worth nothing today.
-
-    None when no time has accrued: with a zero day-count fraction the financing
-    leg cannot be moved by any spread, so there is no level that would balance
-    the trade rather than an infinitely large one.
-    """
-    fraction = swap.financing_duration(valuation, last_reset)
-    if fraction <= 0.0:
-        return None
-
-    required_rate = total_return_leg / (request.notional * fraction)
-
-    return (required_rate - request.reference_rate_value) * 10_000.0
-
-
-def _breakeven(request: TrsPriceRequest) -> list[dict[str, float]]:
-    """Breakeven financing spread against a range of futures prices.
-
-    The comparison a desk actually makes: a TRS and a future are two ways to
-    hold the same exposure, so the question is what spread makes them agree.
-    """
-    if request.futures_prices is None or request.time_to_expiry is None:
-        return []
-
-    return [
-        {"futures_price": float(price),
-         "breakeven_spread_bps": trs_breakeven_spread(
-             futures_price=float(price),
-             spot=request.spot,
-             risk_free_rate=request.reference_rate_value,
-             time_to_expiry_years=request.time_to_expiry,
-             dividend_yield=request.dividend_yield) * 10_000.0}
-        for price in request.futures_prices
-    ]
+        accrual_days=found.accrual_days,
+        accrual_fraction=found.accrual_fraction,
+        total_return_leg=found.total_return_leg,
+        financing_leg=found.financing_leg,
+        present_value=found.present_value,
+        dv01=found.dv01,
+        fair_spread_bps=found.fair_spread_bps,
+        schedule=[TrsAccrual(start=str(period.start.date()),
+                             end=str(period.end.date()),
+                             days=period.days,
+                             rate=period.rate,
+                             accrual_fraction=period.accrual_fraction,
+                             amount=period.amount)
+                  for period in found.schedule],
+        breakeven=found.breakeven)
 
 
 def build_term_structure(index_id: str,
@@ -433,20 +209,12 @@ def build_roll(index_id: str,
     the sign convention a desk expects.
     """
     spot, valuation = _spot_of(index_id, fetcher, as_of)
-    curve = RateCurve.flat(risk_free_rate)
-
-    front_tenor = (pd.Timestamp(front_expiry) - valuation).days / DAYS_PER_YEAR
-    back_tenor = (pd.Timestamp(back_expiry) - valuation).days / DAYS_PER_YEAR
-
-    if back_tenor <= front_tenor:
-        raise InvalidArgumentError(
-            f"The back expiry {back_expiry} must be after the front expiry "
-            f"{front_expiry}.")
-
-    front = cost_of_carry_fair_value(spot, curve.zero_rate(front_tenor),
-                                     dividend_yield, front_tenor)
-    back = cost_of_carry_fair_value(spot, curve.zero_rate(back_tenor),
-                                    dividend_yield, back_tenor)
+    found = roll_between(spot,
+                         valuation,
+                         pd.Timestamp(front_expiry),
+                         pd.Timestamp(back_expiry),
+                         RateCurve.flat(risk_free_rate),
+                         dividend_yield)
 
     return RollResponse(
         index_id=index_id,
@@ -454,12 +222,10 @@ def build_roll(index_id: str,
         spot=spot,
         front_expiry=str(pd.Timestamp(front_expiry).date()),
         back_expiry=str(pd.Timestamp(back_expiry).date()),
-        front_price=front,
-        back_price=back,
-        roll_cost=back - front,
-        annualised_roll=futures_roll_return(front, back,
-                                            pd.Timestamp(front_expiry),
-                                            pd.Timestamp(back_expiry)))
+        front_price=found.front_price,
+        back_price=found.back_price,
+        roll_cost=found.roll_cost,
+        annualised_roll=found.annualised_roll)
 
 
 def _spot_of(index_id: str,

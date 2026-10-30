@@ -182,12 +182,12 @@ def assemble_optimisation(run_id: str,
     weights = result.weights
     active = result.active_weights
 
-    rows = [WeightRow(asset_id=str(name),
-                      target_weight=float(target.weights.get(str(name), 0.0)),
+    # Largest active position first, ordered by the library.
+    rows = [WeightRow(asset_id=name,
+                      target_weight=float(target.weights.get(name, 0.0)),
                       optimal_weight=float(weights[name]),
                       active_weight=float(active[name]))
-            for name in weights.index]
-    rows.sort(key=lambda row: abs(row.active_weight), reverse=True)
+            for name in result.by_active_size]
 
     return OptimisationRunResult(
         run_id=run_id,

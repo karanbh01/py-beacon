@@ -51,7 +51,7 @@ from typing import Any
 
 import pandas as pd
 
-from ..analysis.liquidity import TRAILING_MONTHS, average_daily_volume
+from ..analysis.liquidity import TRAILING_MONTHS, average_daily_volume, trailing_start
 from ..data.fetcher import DataFetcher
 from ..exceptions import InvalidRuleError
 from .market_caps import (
@@ -248,7 +248,7 @@ def _derived_fields(fetcher: DataFetcher,
     # One slice for the whole batch rather than one per identifier: the point
     # of this endpoint is that the client stops fanning out, and fanning out
     # inside the server instead would only move the cost.
-    start = end - pd.DateOffset(months=TRAILING_MONTHS)
+    start = trailing_start(end)
     market = fetcher.fetch_market_data(identifiers,
                                        start.strftime("%Y-%m-%d"),
                                        end.strftime("%Y-%m-%d"))

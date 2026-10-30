@@ -60,6 +60,7 @@ from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult, PriceGap
 from ..plot.base import PlotAccessor
 from ..portfolio.base import Portfolio
+from ..portfolio.cash_flows import FEE
 from ..strategy.active import ActiveStep
 from ..strategy.tracking import ReplicationStep
 from .analytics_access import AnalyticsMixin
@@ -307,6 +308,11 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
 
         return (self.futures_notional.reindex(nav.index).fillna(0.0)
                 / nav).rename("futures_exposure")
+
+    @property
+    def fees_paid(self) -> float:
+        """The management fees paid out of the book over the run."""
+        return -sum(flow.amount for flow in self.portfolio.cash_flows if flow.kind == FEE)
 
     @property
     def total_costs(self) -> float:

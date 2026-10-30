@@ -18,10 +18,11 @@ from ...exceptions import DataNotFoundError, DocumentInUseError, InvalidRuleErro
 from ...index.schedule import (
     DEFAULT_CALENDAR,
     DISPLAY_NAMES,
-    FREQUENCY_MONTHS,
     calendar_region,
+    days_until,
     known_calendars,
     next_rebalance,
+    projection_end,
     rebalance_dates,
 )
 from ..active_data import require_data
@@ -285,14 +286,13 @@ def build_schedule(document: IndexDocument,
                                    document.calendar,
                                    document.rebalance_day_rule)
 
-    months = FREQUENCY_MONTHS[document.rebalancing_frequency]
     # The lookahead is deliberately not a function of `limit`: a client asking
     # for more history should not silently get a longer projection, so
     # `upcoming_total` counts what this window found rather than what exists.
     window = rebalance_dates(document.rebalancing_frequency,
                              document.base_date,
-                             today + pd.DateOffset(
-                                 months=months * SCHEDULE_HORIZON_PERIODS),
+                             projection_end(document.rebalancing_frequency, today,
+                                            SCHEDULE_HORIZON_PERIODS),
                              document.calendar,
                              document.rebalance_day_rule)
 
@@ -308,7 +308,7 @@ def build_schedule(document: IndexDocument,
         next_rebalance=str(upcoming_date.date()) if upcoming_date else None,
         # Calendar days, not sessions: it renders as "in 57 days" and a reader
         # counts those on a wall calendar.
-        days_until=((upcoming_date - today).days if upcoming_date else None),
+        days_until=days_until(upcoming_date, today) if upcoming_date else None,
         recent=past[-limit:],
         recent_total=len(past),
         upcoming=future[:limit],

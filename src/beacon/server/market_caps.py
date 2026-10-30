@@ -15,6 +15,7 @@ from typing import Any
 import pandas as pd
 
 from ..data.fetcher import DataFetcher
+from ..data.market_caps import caps_of, is_stale, shares_of_total
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +192,7 @@ def _cap_fields(identifier: str,
     # the caller asked about (BN-210). A cap computed from a three-month-old
     # close is a true statement about a company that has not traded since; it
     # is only misleading if nothing says how old it is.
-    stale = (end - priced_from).days > LOOKBACK_DAYS
+    stale = is_stale(priced_from, end, LOOKBACK_DAYS)
 
     if rate is None:
         logger.warning(
@@ -207,34 +208,26 @@ def _cap_fields(identifier: str,
         PRICE_IS_STALE_FIELD: stale,
     }
 
-    # Each half is scaled from its own base rather than one from the other:
-    # multiplication is not associative in floating point, and converting the
-    # floated local figure would move the published `free_float_market_cap` by
-    # a last-place bit against what this endpoint returned before BN-189.
-    local_cap = float(price) * float(shares)
-    converted_cap = local_cap * rate if rate is not None else None
+    # Each half is scaled from its own base rather than one from the other
+    # (BN-189); worked out by the library since BN-417.
+    free_float: Any = latest.get("FREE_FLOAT")
+    # Unknown float is an unknown float-adjusted cap, not a float of one
+    # (BN-209). Assuming 100% returned the FULL cap under a free-float
+    # heading -- identical to `market_cap`, and indistinguishable from a
+    # name that genuinely has no restricted stock. `MarketCapWeighted`
+    # refuses the same gap in so many words: "using its full market cap
+    # instead would weight one name on a different basis from the rest."
+    # Two surfaces over one question must not answer it oppositely.
+    caps = caps_of(price, shares, rate,
+                   float(free_float) if pd.notna(free_float) else None)
 
     if MARKET_CAP in wanted:
-        fields[MARKET_CAP_LOCAL] = local_cap
-        fields[MARKET_CAP] = converted_cap
+        fields[MARKET_CAP_LOCAL] = caps.local
+        fields[MARKET_CAP] = caps.converted
 
     if FREE_FLOAT_MARKET_CAP in wanted:
-        free_float: Any = latest.get("FREE_FLOAT")
-
-        # Unknown float is an unknown float-adjusted cap, not a float of one
-        # (BN-209). Assuming 100% returned the FULL cap under a free-float
-        # heading -- identical to `market_cap`, and indistinguishable from a
-        # name that genuinely has no restricted stock. `MarketCapWeighted`
-        # refuses the same gap in so many words: "using its full market cap
-        # instead would weight one name on a different basis from the rest."
-        # Two surfaces over one question must not answer it oppositely.
-        share = float(free_float) if pd.notna(free_float) else None
-
-        fields[FREE_FLOAT_MARKET_CAP_LOCAL] = (
-            None if share is None else local_cap * share)
-        fields[FREE_FLOAT_MARKET_CAP] = (
-            None if share is None or converted_cap is None
-            else converted_cap * share)
+        fields[FREE_FLOAT_MARKET_CAP_LOCAL] = caps.free_float_local
+        fields[FREE_FLOAT_MARKET_CAP] = caps.free_float_converted
 
     return fields
 
@@ -302,8 +295,4 @@ def universe_weights(caps: dict[str, dict[str, Any]],
     them, full caps otherwise. None for a name with no cap that day.
     """
     field = FREE_FLOAT_MARKET_CAP if free_float else MARKET_CAP
-    values = {name: (caps.get(name) or {}).get(field) for name in names}
-    total = sum(value for value in values.values() if value is not None and value > 0)
-
-    return {name: (float(value) / total if value is not None and total > 0 else None)
-            for name, value in values.items()}
+    return shares_of_total({name: (caps.get(name) or {}).get(field) for name in names})

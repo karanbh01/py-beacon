@@ -34,6 +34,7 @@ from typing import Any
 
 import pandas as pd
 
+from ..analysis.concentration import total_weight
 from ..asset.base import Asset
 from ..data.fetcher import DataFetcher
 from ..exceptions import InvalidRuleError
@@ -50,6 +51,7 @@ from ..index.derived import (
 from ..index.result import IndexResult
 from ..optimise.constraints import HOLDING_THRESHOLD
 from ..optimise.result import OptimisationResult
+from ..risk.contribution import active_weights
 from . import stage_descriptions
 from .definitions import build_definition, build_index_definition
 from .market_caps import (
@@ -260,7 +262,7 @@ def _pipeline_preview(document: IndexDocument,
                                free_float=uses_free_float(document.pipeline.weighting.scheme,
                                                           document.pipeline.weighting.params)),
                            weights=by_id,
-                           total_weight=sum(by_id.values()),
+                           total_weight=total_weight(by_id),
                            cap=cap_report.cap,
                            cap_redistributed=cap_report.redistributed)
 
@@ -336,7 +338,7 @@ def _derived_preview(document: IndexDocument,
         assets=_with_market_caps(_derived_asset_rows(source_weights, solved),
                                  fetcher, date, resolved, definition.currency),
         weights=solved,
-        total_weight=sum(solved.values()))
+        total_weight=total_weight(solved))
 
 
 def _snapshot_date(parent: IndexResult,
@@ -400,6 +402,8 @@ def _derived_asset_rows(source_weights: dict[str, float],
     only should read as a real difference rather than vanish.
     """
     rows = []
+    # BN-417: each name's change worked out by the library.
+    changes = active_weights(solved, source_weights)
 
     for identifier in sorted(set(source_weights) | set(solved)):
         before = source_weights.get(identifier, 0.0)
@@ -414,6 +418,6 @@ def _derived_asset_rows(source_weights: dict[str, float],
             weight=after,
             source_weight=before,
             solved_weight=after,
-            weight_delta=after - before))
+            weight_delta=changes[identifier]))
 
     return rows

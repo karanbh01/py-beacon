@@ -71,6 +71,11 @@ class DriftMetrics:
     turnover: float
 
 
+def total_weight(weights: dict[str, float]) -> float:
+    """The weights' sum."""
+    return sum(weights.values())
+
+
 def herfindahl_index(weights: dict[str, float]) -> float:
     """Sum of squared weights.
 

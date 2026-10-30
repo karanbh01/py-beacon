@@ -1154,6 +1154,19 @@ class DataFetcher:
         val = df[column].iloc[0]
         return float(val) if pd.notna(val) else None
 
+    def last_prices(self,
+                    identifiers: list[str],
+                    as_of: str,
+                    lookback_days: int,
+                    currency: str | None = None) -> pd.Series:
+        """Each instrument's last price on or before *as_of*, looking back
+        *lookback_days* calendar days, converted into *currency*; an empty
+        Series when none is priced."""
+        start = str((pd.Timestamp(as_of) - pd.Timedelta(days=lookback_days)).date())
+        prices = self.fetch_prices(identifiers, start, as_of, currency=currency)
+
+        return prices.ffill().iloc[-1] if not prices.empty else pd.Series(dtype=float)
+
     def fetch_prices(self,
                      identifiers: list[str],
                      start_date: str | None = None,

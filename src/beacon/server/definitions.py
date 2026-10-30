@@ -21,7 +21,7 @@ from ..exceptions import DataNotFoundError, InvalidRuleError
 # names them any more.
 from ..index import methodology  # noqa: F401
 from ..index.calculation.total_return import NET_TOTAL_RETURN
-from ..index.capping import minimum_feasible_cap
+from ..index.capping import is_tight, minimum_feasible_cap, reachable_weight
 from ..index.constructor import IndexDefinition
 from ..index.derived import (
     OBJECTIVES,
@@ -244,7 +244,7 @@ def _validate_cap(pipeline: PipelineSpec,
     if not count:
         return []
 
-    reachable = cap * count
+    reachable = reachable_weight(cap, count)
 
     if reachable < 1.0:
         return [Finding(
@@ -260,7 +260,7 @@ def _validate_cap(pipeline: PipelineSpec,
     # Feasible only because every single member is included. Selection rules
     # can only shrink that set, so one exclusion makes the cap impossible —
     # worth warning about while editing rather than failing mid-run.
-    if reachable < 1.0 + cap:
+    if is_tight(cap, count):
         return [Finding(
             path="pipeline.weighting.max_weight",
             rule_id=weighting.id,

@@ -117,6 +117,14 @@ class OptimisationResult:
         return (self.weights - self.target_weights).rename("active_weight")
 
     @property
+    def by_active_size(self) -> list[str]:
+        """The names, largest active position (either way) first."""
+        active = self.active_weights
+
+        return sorted((str(name) for name in self.weights.index),
+                      key=lambda name: abs(float(active[name])), reverse=True)
+
+    @property
     def active_sum(self) -> float:
         """The active weights' sum: 0 when the book is as invested as its
         target."""

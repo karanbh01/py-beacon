@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .. import catalogue
-from ..catalogue import BPS, COUNT, DAYS, FRACTION, MONEY
+from ..catalogue import COUNT, FRACTION, MONEY, in_words
 from .types import specs_for
 
 # How a comparison reads in a sentence.
@@ -88,7 +88,7 @@ def formatted(value: Any,
         return "Yes" if value else "No"
 
     if isinstance(value, int | float):
-        return _number(float(value), unit, currency)
+        return in_words(float(value), unit, currency)
 
     if isinstance(value, list | tuple):
         return _listed([str(item) for item in value])
@@ -105,27 +105,6 @@ def _listed(items: list[str]) -> str:
         return items[0] if items else ""
 
     return f"{', '.join(items[:-1])} and {items[-1]}"
-
-
-def _number(value: float,
-            unit: str | None,
-            currency: str) -> str:
-    """A number with its unit."""
-    if unit == FRACTION:
-        return f"{value * 100:,.4g}%"
-
-    if unit == BPS:
-        return f"{value:,.4g} bps"
-
-    if unit == DAYS:
-        return f"{value:,.0f} day{'s' if value != 1 else ''}"
-
-    plain = f"{value:,.0f}" if value.is_integer() else f"{value:,.2f}"
-
-    if unit == MONEY:
-        return f"{plain} {currency}"
-
-    return plain if unit == COUNT or value.is_integer() else f"{value:,.4g}"
 
 
 def rule(type_name: str,

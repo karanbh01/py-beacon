@@ -38,6 +38,12 @@ VOLUME_COLUMN = "VOLUME"
 TRAILING_MONTHS = 3
 
 
+def trailing_start(end: pd.Timestamp,
+                   months: int = TRAILING_MONTHS) -> pd.Timestamp:
+    """The first day of the trailing *months* ending on *end*."""
+    return end - pd.DateOffset(months=months)
+
+
 def average_daily_volume(market: pd.DataFrame,
                          as_of: pd.Timestamp,
                          months: int = TRAILING_MONTHS,

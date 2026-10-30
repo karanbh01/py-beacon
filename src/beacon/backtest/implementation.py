@@ -185,6 +185,15 @@ class RebalanceStep:
     screened: dict[str, float] = field(default_factory=dict)
 
 
+def buffered(weights: dict[str, float],
+             cash_buffer: float) -> dict[str, float]:
+    """*weights* with *cash_buffer*, a share of the book, set aside in cash:
+    each scaled by the share left invested."""
+    invested = 1.0 - cash_buffer
+
+    return {name: weight * invested for name, weight in weights.items()}
+
+
 def plan(implementation: Implementation,
          target: dict[str, float],
          date: pd.Timestamp,
@@ -230,9 +239,8 @@ def plan(implementation: Implementation,
     # BN-267: the buffer is set aside before the caps, so a name dropped as
     # too small is redistributed within what is invested.
     if implementation.cash_buffer > 0.0:
-        invested = 1.0 - implementation.cash_buffer
-        weights = {name: weight * invested for name, weight in weights.items()}
-        total *= invested
+        weights = buffered(weights, implementation.cash_buffer)
+        total *= 1.0 - implementation.cash_buffer
 
     weights, capped, diversified = _within_capacity(implementation, weights, total, date,
                                                     book_value, context, removed,

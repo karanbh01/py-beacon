@@ -25,12 +25,14 @@ from typing import Any
 import pandas as pd
 
 from .. import catalogue
-from ..backtest.implementation import STALE, TOO_SMALL
+from ..analysis.concentration import drift_from_target
+from ..backtest.implementation import STALE, TOO_SMALL, buffered
 from ..backtest.result import BacktestResult
 from ..data.fetcher import DataFetcher
 from ..exceptions import DataNotFoundError
 from ..index.calculation.selection import STALENESS_POSITION, UNIVERSE_POSITION
 from ..index.result import IndexResult
+from ..portfolio.valuation import held_weights
 from . import stage_descriptions
 from .holding_reference import HoldingReference
 from .holdings_schemas import (
@@ -49,7 +51,6 @@ from .runs import snapshot_at, snapshots_from
 from .schemas import IndexDocument, SeriesPayload, StageParam
 from .strategy_runs import strategy_steps
 from .types import specs_for
-from .weights import prices_for
 
 # Where a strategy's record keeps what its run decided at each rebalance.
 HOLDINGS_KEY = "holdings"
@@ -121,6 +122,10 @@ def build_holdings(strategy_id: str,
                    .get("cash_buffer") or 0.0)
     held = _held(saved, fetcher, as_of, currency)
     target = plan["weights"] if plan is not None else step["weights"]
+    # BN-417: the drift and the buffered weights worked out by the library.
+    drift = drift_from_target({name: weight for name, (_, weight) in held.items()},
+                              target).per_asset
+    after_buffer = buffered(plan["screened"], buffer) if plan is not None else {}
     benchmark = benchmark_on(step["date"])
 
     names = list(dict.fromkeys([*(selection["universe"] if selection else snapshot.weights),
@@ -136,10 +141,9 @@ def build_holdings(strategy_id: str,
         index_weight=snapshot.weights.get(name),
         benchmark_weight=benchmark.get(name) if benchmark is not None else None,
         strategy_weight=step["weights"].get(name),
-        implementation=_implementation_weights(name, plan, stages, buffer),
+        implementation=_implementation_weights(name, plan, stages, after_buffer),
         portfolio_weight=target.get(name),
-        weight_drift=(held[name][1] - target.get(name, 0.0)
-                      if name in held and as_of != step["date"] else None),
+        weight_drift=drift[name] if name in held and as_of != step["date"] else None,
         current_weight=held[name][1] if name in held else None,
         shares_held=held[name][0] if name in held else None) for name in names]
 
@@ -271,9 +275,9 @@ def _implementation_stages(run: dict[str, Any],
 def _implementation_weights(name: str,
                             plan: dict[str, Any] | None,
                             stages: list[HoldingStage],
-                            buffer: float) -> dict[str, float | None]:
-    """A name's weight after each implementation stage; *buffer* is the cash
-    buffer's share, which scales every weight after the screens."""
+                            after_buffer: dict[str, float]) -> dict[str, float | None]:
+    """A name's weight after each implementation stage; *after_buffer* holds
+    the screened weights with the cash buffer set aside."""
     if plan is None:
         return {}
 
@@ -287,7 +291,7 @@ def _implementation_weights(name: str,
             weights[stage.key] = None if gone else plan["screened"].get(name)
         elif stage.kind == CASH_BUFFER:
             weights[stage.key] = (None if gone or name not in plan["screened"]
-                                  else plan["screened"][name] * (1.0 - buffer))
+                                  else after_buffer[name])
         elif stage.kind == IMPLEMENTATION_CAP:
             weights[stage.key] = plan["weights"].get(name)
 
@@ -308,12 +312,9 @@ def _held(document: dict[str, Any],
     if not units or not nav:
         return {}
 
-    start = str((pd.Timestamp(as_of) - pd.Timedelta(days=PRICE_LOOKBACK_DAYS)).date())
-    prices = prices_for(fetcher, sorted(units), start, as_of, currency)
-    last = prices.ffill().iloc[-1] if not prices.empty else pd.Series(dtype=float)
+    last = fetcher.last_prices(sorted(units), as_of, PRICE_LOOKBACK_DAYS, currency)
 
-    return {name: (count, float(count * last[name] / nav))
-            for name, count in units.items() if name in last and pd.notna(last[name])}
+    return held_weights(units, last, nav)
 
 
 def _units_on(changes: list[list[Any]],

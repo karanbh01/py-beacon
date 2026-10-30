@@ -764,6 +764,19 @@ def effective_date(announced: pd.Timestamp,
     return pd.Timestamp(later[lag_sessions])
 
 
+def projection_end(frequency: str,
+                   as_of: pd.Timestamp,
+                   periods: int) -> pd.Timestamp:
+    """The day *periods* rebalance periods of *frequency* after *as_of*."""
+    return as_of + pd.DateOffset(months=FREQUENCY_MONTHS[frequency] * periods)
+
+
+def days_until(day: pd.Timestamp,
+               as_of: pd.Timestamp) -> int:
+    """Calendar days from *as_of* to *day*."""
+    return int((day - as_of).days)
+
+
 def next_rebalance(frequency: str,
                    base_date: str | pd.Timestamp,
                    as_of: str | pd.Timestamp,

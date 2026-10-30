@@ -28,7 +28,6 @@ from ..data.fetcher import DataFetcher
 from ..index.constructor import IndexDefinition
 from ..index.derived import AnyIndexDefinition, OptimisedIndexDefinition
 from ..index.result import IndexResult
-from ..portfolio.cash_flows import FEE
 from .analysis import build_request, keep_analytics, with_tables
 from .analysis_schemas import AnalyticsBlock
 from .backtest_settings import ACTIVE, INDEX_TRACKING, BuiltSettings
@@ -412,8 +411,7 @@ def strategy_and_vehicle_payloads(result: BacktestResult) -> dict[str, Any]:
     to the run payload; each empty or null when unused."""
     payloads: dict[str, Any] = {
         "flows": flow_payloads(result.flows),
-        "fees_paid": -sum(flow.amount for flow in result.portfolio.cash_flows
-                          if flow.kind == FEE),
+        "fees_paid": result.fees_paid,
         "replication": [ReplicationPayload(date=str(step.date.date()),
                                            holdings=step.holdings,
                                            tracking_error=step.tracking_error,

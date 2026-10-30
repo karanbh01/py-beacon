@@ -351,3 +351,25 @@ def parameter_names(kind: str,
 def registered_names(kind: str) -> set[str]:
     """Every registered name of one kind."""
     return set(_REGISTRY.get(kind, {}))
+
+
+def in_words(value: float,
+             unit: str | None,
+             currency: str) -> str:
+    """A parameter's value as a stage description shows it, with its unit:
+    a fraction as a percentage, basis points, days, or money in *currency*."""
+    if unit == FRACTION:
+        return f"{value * 100:,.4g}%"
+
+    if unit == BPS:
+        return f"{value:,.4g} bps"
+
+    if unit == DAYS:
+        return f"{value:,.0f} day{'s' if value != 1 else ''}"
+
+    plain = f"{value:,.0f}" if value.is_integer() else f"{value:,.2f}"
+
+    if unit == MONEY:
+        return f"{plain} {currency}"
+
+    return plain if unit == COUNT or value.is_integer() else f"{value:,.4g}"
