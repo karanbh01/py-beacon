@@ -271,6 +271,15 @@
         "light": "measured",
         "dark": "measured"
       }
+    },
+    "seek": {
+      "description": "Finding things from the keyboard: the search bar's border in seek mode, the controls it picks out, and Ctrl+F's matches. Yellow, as a marker pen is, so it reads as a pointer rather than a state; not accent, which is the active thing, and not working, which is a job in flight.",
+      "light": "#c99a0e",
+      "dark": "#e8c547",
+      "source": {
+        "light": "new",
+        "dark": "new"
+      }
     }
   },
   "raw": {
