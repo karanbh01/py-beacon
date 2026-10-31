@@ -176,12 +176,17 @@ class TestOverARun:
         assert risk.loc[day, "effective_risk_sources"] == pytest.approx(1 / (shares ** 2).sum())
         assert risk.loc[day, "diversification_ratio"] > 1.0
 
-    def test_the_absorption_ratio(self,
-                                  analytics):
+    def test_the_absorption_ratio_counts_one_component_per_factor(self,
+                                                                  analytics):
         day = analytics.risk.dates()[-1]
-        values = np.sort(np.linalg.eigvalsh(analytics.risk.models.at(day).covariance()))[::-1]
+        model = analytics.risk.models.at(day)
+        values = np.sort(np.linalg.eigvalsh(model.covariance()))[::-1]
+        factors = len(model.factor_names)
 
-        assert analytics.absorption_ratio(day) == pytest.approx(values[:6].sum() / values.sum())
+        assert analytics.absorption_ratio(day) == pytest.approx(
+            values[:factors].sum() / values.sum(), rel=1e-12)
+        assert analytics.absorption_ratio(day, components=2) == pytest.approx(
+            values[:2].sum() / values.sum(), rel=1e-12)
 
     def test_by_outcome(self,
                         analytics):

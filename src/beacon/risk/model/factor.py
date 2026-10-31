@@ -176,6 +176,42 @@ class FactorRiskModel:
 
         return pd.DataFrame(implied, index=self.asset_ids, columns=self.asset_ids)
 
+    def largest_eigenvalues(self,
+                            count: int) -> np.ndarray:
+        """The covariance's *count* largest eigenvalues, largest first.
+
+        Found from products with the covariance, ``B(F(Bᵀv)) + Dv``, so the
+        names' full matrix is never built: milliseconds for thousands of
+        names, where decomposing the whole matrix takes seconds.
+        """
+        # BN-418. Lanczos from a fixed start vector, so the figures do not
+        # move from run to run.
+        loadings = self.exposures.to_numpy(dtype=float)
+        factor = self.factor_covariance.to_numpy(dtype=float)
+        specific = self.specific_variance.to_numpy(dtype=float)
+        size = len(specific)
+
+        if count >= size - 1:
+            return np.linalg.eigvalsh(self.covariance().to_numpy(dtype=float))[::-1][:count]
+
+        from scipy.sparse.linalg import LinearOperator, eigsh  # noqa: PLC0415
+
+        operator = LinearOperator((size, size), dtype=float,
+                                  matvec=lambda v: loadings @ (factor @ (loadings.T @ v))
+                                  + specific * v.ravel())
+        values = eigsh(operator, k=count, which="LA", return_eigenvectors=False,
+                       v0=np.full(size, 1.0 / np.sqrt(size)), tol=1e-12)
+
+        return np.sort(values)[::-1]
+
+    def total_variance(self) -> float:
+        """The covariance's trace: every name's variance added up."""
+        loadings = self.exposures.to_numpy(dtype=float)
+        factor = self.factor_covariance.to_numpy(dtype=float)
+
+        return float(np.einsum("ij,jk,ik->", loadings, factor, loadings)
+                     + self.specific_variance.to_numpy(dtype=float).sum())
+
     def portfolio_exposures(self,
                             weights: dict[str, float]) -> pd.Series:
         """Factor exposures of a portfolio: ``Bᵀw``.

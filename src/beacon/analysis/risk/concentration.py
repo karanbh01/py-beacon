@@ -22,8 +22,8 @@ measure how concentrated it is across the groups.
 rebalance (`beacon.analysis.risk.contributions`): the Herfindahl of the
 shares and the effective number of risk sources ``1 / sum p_i^2``, the top
 names' share of the risk, the diversification ratio and the average
-correlation; optionally the absorption ratio, the share of the variance in
-the largest fifth of the covariance's eigenvalues.
+correlation; optionally the absorption ratio, the share of the held names'
+total variance in the risk model's largest eigenvalues, one per factor.
 
 **By outcome**, over a window: each name's contribution to the return (its
 weight at the close before times its return, added up day by day), the top
@@ -48,6 +48,7 @@ import numpy as np
 import pandas as pd
 
 from ...data.base import as_of_position
+from ...risk.model import FactorRiskModel
 from ..data import RunData
 from ..panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS, REFERENCE
 from ..performance.crises import THRESHOLD, CrisisAnalytics, Episode
@@ -57,7 +58,8 @@ BOOKS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "benchmark": BENCHMARK_WE
 TOPS = (5, 10, 20, 25)
 COVERAGE = (0.5, 0.8, 0.9)
 
-# The share of the eigenvalues the absorption ratio counts.
+# The share of the eigenvalues the absorption ratio counts over a sample
+# covariance, which has no factors to count by.
 ABSORBED = 0.2
 
 
@@ -319,12 +321,29 @@ class ConcentrationAnalytics:
 
     def absorption_ratio(self,
                          date: str | pd.Timestamp,
-                         share: float = ABSORBED) -> float:
-        """The share of the variance of the names held at the rebalance on
-        *date* in the largest *share* of the covariance's eigenvalues."""
+                         components: int | None = None) -> float:
+        """The share of the total variance of the names held at the rebalance
+        on *date* in the risk model's *components* largest eigenvalues: by
+        default one per factor, so it reads how much of the risk the
+        portfolio's common drivers absorb.
+
+        Over a sample covariance, which has no factors, it counts the
+        largest fifth of the eigenvalues instead.
+        """
+        # BN-418, agreed with Karan on 2026-10-31: the top fifth of a factor
+        # model's thousands of eigenvalues mostly measured how specific risk is
+        # spread across the names (0.61 against 0.27 for the top 4 at the last
+        # rebalance of a 6,000-name run), and took 3 s to decompose.
         model = self._risk().models.at(pd.Timestamp(date))
-        values = np.linalg.eigvalsh(model.covariance().to_numpy(dtype=float))[::-1]
-        count = max(1, math.ceil(share * len(values)))
+
+        if isinstance(model, FactorRiskModel):
+            total = model.total_variance()
+            top = model.largest_eigenvalues(components or len(model.factor_names))
+
+            return float(top.sum() / total) if total > 0 else 0.0
+
+        values = np.linalg.eigvalsh(model.covariance.to_numpy(dtype=float))[::-1]
+        count = components or max(1, math.ceil(ABSORBED * len(values)))
 
         return float(values[:count].sum() / values.sum()) if values.sum() > 0 else 0.0
 

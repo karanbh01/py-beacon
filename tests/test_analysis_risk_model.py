@@ -109,6 +109,38 @@ class TestAFactorModel:
             RebalanceRiskModels(data, RiskModelSettings(kind=FACTOR))
 
 
+class TestLargestEigenvalues:
+    """BN-418: the covariance's largest eigenvalues found without building it."""
+
+    @pytest.fixture(scope="class")
+    def model(self):
+        rng = np.random.default_rng(7)
+        names = [f"N{number:03d}" for number in range(300)]
+        exposures = pd.DataFrame(rng.normal(size=(300, 3)), index=names,
+                                 columns=["size", "value", "momentum"])
+        returns = pd.DataFrame(rng.normal(scale=0.01, size=(250, 300)), columns=names,
+                               index=pd.bdate_range("2023-01-02", periods=250))
+
+        return fit_factor_model(returns, exposures)
+
+    def test_they_match_the_full_decomposition(self,
+                                               model):
+        full = np.sort(np.linalg.eigvalsh(model.covariance().to_numpy()))[::-1]
+
+        assert model.largest_eigenvalues(4) == pytest.approx(full[:4], rel=1e-10)
+        assert model.total_variance() == pytest.approx(full.sum(), rel=1e-12)
+
+    def test_they_are_the_same_every_time(self,
+                                          model):
+        assert np.array_equal(model.largest_eigenvalues(4), model.largest_eigenvalues(4))
+
+    def test_a_count_near_the_names_decomposes_in_full(self,
+                                                       model):
+        full = np.sort(np.linalg.eigvalsh(model.covariance().to_numpy()))[::-1]
+
+        assert model.largest_eigenvalues(299) == pytest.approx(full[:299])
+
+
 class TestRefused:
 
     def test_a_day_that_is_not_a_rebalance(self,
