@@ -36,6 +36,7 @@ from ..risk.concentration import ConcentrationAnalytics
 from ..risk.contributions import RiskOverTime
 from ..risk.factors import FactorAnalytics
 from ..risk.liquidity import LiquidityAnalytics
+from ..risk.model import RiskModelSettings
 from ..risk.var import RiskOfLoss
 from .options import BENCHMARK, INDEX, OPTIMISED, AnalysisOptions
 from .statistics import (
@@ -263,7 +264,14 @@ class Context:
     @cached_property
     def risk_over_time(self) -> RiskOverTime:
         """The run's expected and measured risk."""
-        return RiskOverTime(self.factor_analytics, window=self.options.risk_model.window)
+        chosen = self.options.risk_model
+        settings = RiskModelSettings(window=chosen.window, structure=chosen.structure,
+                                     country_field=chosen.country_field or None,
+                                     minimum_names=chosen.minimum_names,
+                                     sectors=chosen.sectors, currencies=chosen.currencies,
+                                     weekly=chosen.weekly, weeks=chosen.weeks)
+
+        return RiskOverTime(self.factor_analytics, settings=settings)
 
     @cached_property
     def concentration(self) -> ConcentrationAnalytics:

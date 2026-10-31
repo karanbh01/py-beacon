@@ -324,7 +324,7 @@ class ConcentrationAnalytics:
                          components: int | None = None) -> float:
         """The share of the total variance of the names held at the rebalance
         on *date* in the risk model's *components* largest eigenvalues: by
-        default one per factor, so it reads how much of the risk the
+        default one per independent factor, so it reads how much of the risk the
         portfolio's common drivers absorb.
 
         Over a sample covariance, which has no factors, it counts the
@@ -338,7 +338,7 @@ class ConcentrationAnalytics:
 
         if isinstance(model, FactorRiskModel):
             total = model.total_variance()
-            top = model.largest_eigenvalues(components or len(model.factor_names))
+            top = model.largest_eigenvalues(components or model.dimensions)
 
             return float(top.sum() / total) if total > 0 else 0.0
 

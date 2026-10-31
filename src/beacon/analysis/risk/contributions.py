@@ -26,6 +26,8 @@ measured variance is the covariance of its contributions with the fund's
 returns over their variance, and the shares add up to 1 exactly.
 """
 # BN-389. Agreed with Karan on 2026-10-27.
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 
@@ -52,26 +54,26 @@ class RiskOverTime:
         factors: The run's factors, which the risk model is fitted on.
         window: The sessions of daily returns before each rebalance the
             model is estimated on.
+        settings: How the factor model is estimated, its structure among
+            them (see `beacon.analysis.risk.model`); its kind is always a
+            factor model, and *window* is used when None.
     """
 
     def __init__(self,
                  factors: FactorAnalytics,
-                 window: int = 252):
+                 window: int = 252,
+                 settings: RiskModelSettings | None = None):
         self.factors = factors
         self.run = factors.run
+        chosen = replace(settings or RiskModelSettings(window=window), kind=FACTOR)
         self.models = RebalanceRiskModels(
-            self.run, RiskModelSettings(kind=FACTOR, window=window),
-            exposures=lambda day, names: factors.exposures(day).reindex(names))
+            self.run, chosen,
+            exposures=lambda day, names: factors.exposures(day).reindex(names),
+            caps=lambda day, names: factors.caps(day).reindex(names).fillna(0.0))
 
     def dates(self) -> list[pd.Timestamp]:
-        """The rebalances with a year of returns before them."""
-        returns = self.run.tables[NAME_RETURNS].sort_index()
-        if len(returns) <= self.models.settings.window:
-            return []
-
-        first = returns.index[self.models.settings.window]
-
-        return [day for day in self.models.dates if day >= first]
+        """The rebalances with enough returns before them for their model."""
+        return [day for day in self.models.dates if self.models.has_history(day)]
 
     def weights(self,
                 date: pd.Timestamp,

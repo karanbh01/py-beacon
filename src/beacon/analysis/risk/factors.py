@@ -180,6 +180,15 @@ class FactorAnalytics:
 
         return self._exposures[day]
 
+    def caps(self,
+             date: str | pd.Timestamp) -> pd.Series:
+        """Each held name's market cap at the rebalance on *date*, which its
+        exposures were centred with."""
+        day = pd.Timestamp(date)
+        self.exposures(day)
+
+        return self._caps[day]
+
     def fallbacks(self,
                   date: str | pd.Timestamp) -> dict[str, dict[tuple[str, ...], tuple[str, ...]]]:
         """For each factor centred within groups, the groups at the rebalance

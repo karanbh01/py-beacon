@@ -163,6 +163,13 @@ class FactorRiskModel:
         """Factors, in matrix order."""
         return list(self.exposures.columns)
 
+    @property
+    def dimensions(self) -> int:
+        """The independent common factors: the factor covariance's rank,
+        fewer than the factors when some are constrained to add up to zero,
+        as a global model's countries and sectors are."""
+        return int(np.linalg.matrix_rank(self.factor_covariance.to_numpy(dtype=float)))
+
     def covariance(self) -> pd.DataFrame:
         """The implied asset covariance, ``B F Bᵀ + D``.
 

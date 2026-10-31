@@ -98,9 +98,28 @@ class RiskModelOptions:
 
     Attributes:
         window: The days of returns before each rebalance the factor model
+            is fitted to, when it is fitted on daily returns.
+        structure: ``global`` (the styles, with country, sector and currency
+            factors), ``styles`` (the market and the styles alone), or
+            ``auto``: global when the names span more than one country.
+        country_field: The reference field each name's country is read
+            from; empty for no country factors.
+        minimum_names: The fewest names a country needs for a factor of its
+            own; one with fewer joins its region's.
+        sectors: Whether sectors are factors in the global model.
+        currencies: Whether currencies are factors in the global model.
+        weekly: Whether the global model is fitted on weekly returns.
+        weeks: The weeks of returns before each rebalance the weekly model
             is fitted to.
     """
     window: int = 252
+    structure: str = "auto"
+    country_field: str = "COUNTRY_DOMICILE"
+    minimum_names: int = 10
+    sectors: bool = True
+    currencies: bool = True
+    weekly: bool = True
+    weeks: int = 104
 
 
 @dataclass(frozen=True)
@@ -231,8 +250,29 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
     }),
     "risk_model": ("Risk model", {
         "window": Described("Lookback", "The days of returns before each rebalance the factor "
-                            "model is fitted to.", unit="days", suggestions=(126, 252, 504),
-                            minimum=20),
+                            "model is fitted to, when it is fitted on daily returns.",
+                            unit="days", suggestions=(126, 252, 504), minimum=20),
+        "structure": Described("Factors", "Which factors the model has. Global adds country, "
+                               "sector and currency factors to the styles; automatic picks it "
+                               "when the names span more than one country.",
+                               choices=("auto", "global", "styles"),
+                               choice_labels={"auto": "Automatic", "global": "Global",
+                                              "styles": "Styles only"}),
+        "country_field": Described("Country from", "The reference field each name's country "
+                                   "is read from; no country factors when empty.",
+                                   suggestions=("COUNTRY_DOMICILE", "COUNTRY_LISTING",
+                                                "REGION")),
+        "minimum_names": Described("Fewest names a country", "A country with fewer names "
+                                   "joins its region's factor.", minimum=1),
+        "sectors": Described("Sector factors", "Whether the global model has a factor for "
+                             "each sector."),
+        "currencies": Described("Currency factors", "Whether the global model has a factor "
+                                "for each currency, its return against the base."),
+        "weekly": Described("Weekly returns", "Whether the global model is fitted on weekly "
+                            "returns, which allow for markets closing at different times."),
+        "weeks": Described("Weeks", "The weeks of returns before each rebalance the weekly "
+                           "model is fitted to.", unit="weeks", suggestions=(52, 104, 156),
+                           minimum=8),
     }),
     "liquidity": ("Liquidity", {
         "participation": Described("Participation", "The share of a name's daily traded "

@@ -34,7 +34,9 @@ CONCENTRATION, LIQUIDITY = "concentration", "liquidity"
 
 VAR, ES = "var", "es"
 LOSS_SETTINGS = ("value_at_risk.levels", "value_at_risk.horizons")
-MODEL = ("risk_model.window",)
+MODEL = ("risk_model.window", "risk_model.structure", "risk_model.country_field",
+         "risk_model.minimum_names", "risk_model.sectors", "risk_model.currencies",
+         "risk_model.weekly", "risk_model.weeks")
 
 
 def long_enough(read: Callable[[Context], Any]) -> Callable[[Context], Any]:
@@ -226,7 +228,8 @@ def statistics() -> list[Statistic]:
              settings=MODEL),
         stat("absorption_ratio", "Absorption ratio", CONCENTRATION, FIGURES, "Share of the "
              "held names' total variance in the risk model's largest eigenvalues, one per "
-             "factor, at the last rebalance.", _absorption, unit="fraction", settings=MODEL,
+             "independent factor, at the last rebalance.", _absorption, unit="fraction",
+             settings=MODEL,
              figure_names=("field",)),
         stat("concentration_by_outcome", "Concentration by outcome", CONCENTRATION, FIGURES,
              "Top contributors' share of the return, and breadth.",

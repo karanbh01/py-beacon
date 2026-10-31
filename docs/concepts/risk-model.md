@@ -131,6 +131,69 @@ would misreport what the portfolio is doing.
 against roughly `k/n` (factors over assets) rather than against zero, since
 `k` free parameters always fit something.
 
+## A global factor model
+
+Names in many markets need more than styles: country and currency effects are
+a large share of a global stock's risk, and a styles model counts them as each
+name's own. `fit_global_model` adds them:
+
+- **Countries and sectors.** Each name has an exposure of 1 to its country's
+  factor and its sector's. A country with too few names for a factor of its
+  own joins its region's (`assign_groups`), named like `Europe (other)`.
+- **Measured against the market.** The countries' returns, weighted by their
+  market caps, add up to zero, and so do the sectors'. Without that, the
+  market, a country and a sector would each explain the same moves. So a
+  portfolio holding the market by cap has no country or sector risk; they
+  show in what it holds differently, its active risk.
+- **Currencies.** A name priced in another currency than the base has an
+  exposure of 1 to that currency's factor, whose return is the currency's own
+  return against the base. The other factors are fitted on the names' returns
+  in their own currencies, each name weighted by the square root of its cap.
+- **Weekly returns.** Markets close at different times, so the same day's
+  returns in Tokyo and New York see different news. Over a week that is a
+  small part of the period, so `weekly_returns` compounds days into weeks
+  ending on Fridays.
+
+```python
+import numpy as np
+
+from beacon.risk.model.global_fit import (
+    COUNTRY, SECTOR, assign_groups, fit_global_model, group_dummies, weekly_returns)
+
+rng = np.random.default_rng(7)
+names = [f"S{i}" for i in range(60)]
+domicile = pd.Series(["US"] * 30 + ["DE"] * 24 + ["NZ"] * 6, index=names)
+region = domicile.map({"US": "Americas", "DE": "Europe", "NZ": "Asia Pacific"})
+sector = pd.Series(["Energy", "Financials", "Utilities"] * 20, index=names)
+caps = pd.Series(rng.lognormal(10.0, 1.0, len(names)), index=names)
+currency_of = domicile.map({"DE": "EUR", "NZ": "NZD"})
+days = pd.bdate_range("2023-01-02", "2024-12-27")
+daily = pd.DataFrame(rng.normal(0.0004, 0.01, (len(days), len(names))),
+                     index=days, columns=names)
+fx_returns = pd.DataFrame(rng.normal(0.0, 0.005, (len(days), 2)),
+                          index=days, columns=["EUR", "NZD"])
+
+# NZ has 6 names, too few for its own factor: it joins Asia Pacific (other).
+countries = group_dummies(assign_groups(domicile, region, minimum_names=10), COUNTRY)
+sectors = group_dummies(sector, SECTOR)
+exposures = pd.concat([countries, sectors], axis=1)
+
+world = fit_global_model(weekly_returns(daily), exposures,
+                         [list(countries.columns), list(sectors.columns)],
+                         caps=caps, currencies=currency_of,
+                         currency_returns=weekly_returns(fx_returns))
+world.factor_names  # market, the countries, the sectors, then each currency
+world.dimensions    # independent factors: one fewer per constrained set
+```
+
+A run's analysis takes the global model at each rebalance whose names span
+more than one country, fitted on the 104 weeks before it. Each part is a
+modelling assumption in the report options' `risk_model` section: the
+factors (automatic, global or styles only), where a name's country is read
+from (its domicile by default, its listing, its region), the fewest names a
+country needs, whether sectors and currencies are factors, whether returns
+are weekly, and how many weeks.
+
 ## Risk contribution
 
 Which holdings actually drive the risk, a different question from which are
