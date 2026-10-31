@@ -22,20 +22,6 @@ from .books import IndexBooks
 from .flows import FlowRecord
 
 
-def headline_metrics(returns: pd.Series,
-                     total_return: float,
-                     path: pd.Series,
-                     periods_per_year: int = DEFAULT_PERIODS_PER_YEAR,
-                     risk_free_rate: float = 0.0) -> dict[str, float]:
-    """The five headline figures of a performance: total and annualised
-    return, volatility, Sharpe ratio and maximum drawdown; see
-    `beacon.analysis.performance.formulas.headline_figures`."""
-    # One definition for a backtest's summary and an index's figures (BN-316),
-    # since BN-371 the formula's.
-    return formulas.headline_figures(returns, total_return, path, periods_per_year,
-                                     risk_free_rate)
-
-
 class MetricsMixin:
     """Returns, risk and tracking for a backtest's result."""
 

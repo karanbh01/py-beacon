@@ -4,8 +4,9 @@ Risk analysis of a run, and the single-series risk metrics.
 
 `beacon.analysis.risk.model` chooses and sets up the risk model an analysis
 uses, and estimates it once at each rebalance. The single-series metrics
-(volatility, Sharpe ratio, maximum drawdown) are in
-`beacon.analysis.risk.single_series`, and importable from here as before.
+(volatility, Sharpe ratio, maximum drawdown) in
+`beacon.analysis.risk.single_series`, importable from here as before, are
+deprecated: use `beacon.analysis.performance.formulas`.
 """
 from .single_series import (
     RiskMetricsCalculator,

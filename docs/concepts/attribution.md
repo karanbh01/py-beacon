@@ -1,6 +1,6 @@
 ---
 title: Attribution
-description: "Splitting an index's return across its constituents, with the cap and cost drags."
+description: "Splitting an index's or a run's return across its names, groups and decisions, with the cap and cost drags."
 ---
 
 # Attribution
@@ -15,6 +15,8 @@ it, and both with the property that the parts must add to the whole.
 weights held, and the constituents' returns, all per period. Build them from
 an `IndexResult` and prices. This example uses a capped market-cap index over
 the five US-dollar names in the sample dataset, so local prices need no FX.
+For a backtest, `result.attribution` does all of this from the run's own
+records; see [A run's attribution](#a-runs-attribution).
 
 ```python
 from beacon.analysis import attribute, cap_drag, cost_drag, drifted_weights
@@ -127,7 +129,10 @@ capping = cap_drag(result.weight_snapshots, uncapped, prices)
 **`cost_drag(total_costs, initial_capital)`** is the transaction costs paid as
 a fraction of starting capital, negated so it reads as a drag. It is the
 direct effect only: it leaves out the compounding of the capital spent rather
-than invested. For the full effect, compare against a zero-cost backtest.
+than invested. For the full effect, compare against a zero-cost backtest. A
+run's `implementation()` measures each cost as a share of the NAV on the day
+it was paid instead, linked so it adds up with the rest of the tracking
+difference (see [Implementation](#implementation)).
 
 ```python
 backtest = Backtest(initial_capital=1_000_000.0,
@@ -139,6 +144,250 @@ attribution = attribute(period_returns, weights, asset_returns,
                         cap_drag=capping,
                         cost_drag=cost_drag(paid, 1_000_000.0))
 attribution.cap_drag, attribution.cost_drag
+```
+
+## A run's attribution
+
+A backtest result carries its own attribution: `result.attribution` is an
+`Attribution` (`beacon.analysis.attribution.Attribution`) over the records the
+run kept, so there are no weights or prices to rebuild. It reads each book's
+daily weights, each name's daily total return in the fund's currency, the
+reference data at each rebalance, and the run's cash and costs.
+
+A book is `"fund"`, `"index"` (the index the fund tracked) or `"benchmark"`
+(the benchmark of record). Every method takes `start` and `end`, both
+included, and covers the whole run by default. The days are linked as above:
+by Carino's `ln(1+R)/R` for one book's return, and for a return over a
+comparator by the active factor
+
+    k_t = (ln(1+R_t) - ln(1+R^b_t)) / (R_t - R^b_t)
+
+over the same for the window (`1/(1+R_t)` where the two returns are equal),
+so the parts add up to the fund's compounded return less the comparator's.
+
+The examples run the capped index above as a fund, with an equal-weighted
+index over the same names as its benchmark. A benchmark given as a level
+series has no weights, so every method that reads them raises a `KeyError`
+against it; only the returns-based factor attribution works there.
+
+```python
+from beacon.index.methodology import EqualWeighted
+
+equal = IndexCalculator(IndexDefinition(index_id="EQUAL",
+                                        index_name="Equal Index",
+                                        base_date="2024-01-02",
+                                        base_value=1000.0,
+                                        currency="USD",
+                                        eligibility_rules=[],
+                                        weighting_scheme=EqualWeighted(),
+                                        rebalancing_frequency="MONTHLY",
+                                        calendar="XNYS",
+                                        universe_identifiers=names),
+                        fetcher).run(end_date="2024-06-28")
+
+run = Backtest(initial_capital=1_000_000.0,
+               transaction_cost_bps=10.0,
+               benchmark=equal,
+               data_provider=fetcher).run(definition, end="2024-06-28")
+
+run.attribution.contribution().to_frame()                   # each name
+run.attribution.contribution("benchmark", field="SECTOR").to_frame()
+run.attribution.active("benchmark").to_frame()
+```
+
+### By name and by group
+
+`contribution(book="fund", field=None)` is each name's contribution to a
+book's return, as an `AttributionResult` like `attribute()`'s. With `field`, a
+column of the reference data the run kept (`SECTOR`, `CURRENCY` and
+`EXCHANGE` in the sample), it is each group's instead: a name counts in the
+group it was in at the close before, which is its group at the last rebalance
+before the day, and a group's return is what its names earned over what it
+held.
+
+`active(against="index", field=None)` does the same for the fund against a
+comparator: the fund's weights less the comparator's, both as they drift and
+over the union of their names, against the fund's daily return less the
+comparator's. Its `total_return` is those daily differences compounded, which
+is not the fund's compounded return less the comparator's; the Brinson,
+currency, factor and implementation results below explain the latter.
+
+Either way, what the names do not explain (cash, costs, fees, futures, the
+timing of dividends) is the residual, never folded into a name.
+
+### Brinson-Fachler
+
+`brinson(field, against="index")` splits the fund's return over a comparator,
+group by group, into how it weighted each group (allocation), what it held
+within each (selection) and the two together (interaction). It is worked out
+each day, with `w` and `b` the fund's and the comparator's weights at the
+close before and `R` and `R^b` their returns, by group `g` and in all:
+
+    allocation_g  = (w_g - b_g) (R^b_g - R^b)
+    selection_g   = b_g (R_g - R^b_g)
+    interaction_g = (w_g - b_g) (R_g - R^b_g)
+
+and the days are linked by the active factor. **Interaction has a line of its
+own** rather than being folded into selection, and **cash is a group of its
+own**: a book's weight in it is one less its names', and its return is the
+interest the fund earned over the cash it held at the close before.
+
+A group the fund does not hold takes the comparator's group return as its
+own, so it has no selection or interaction, only the allocation of staying
+out. A group the comparator does not hold takes the comparator's whole
+return, so the fund's bet on it is all interaction.
+
+The `BrinsonResult` carries `fund_return`, `comparator_return` and
+`active_return` (the fund's compounded return less the comparator's),
+`explained` (what the effects add up to: the holdings' active return) and
+`residual` (the active return less that: costs, fees, dividends not yet paid,
+a price index's missing dividends), with `start`, `end` and `periods`.
+`groups` has a row a group: each book's mean weight and compounded return in
+it, each effect and their `total`, largest first. A group neither book held is
+left out; cash is always shown. `totals` adds each effect over the groups, and
+`reconciles()` checks the residual against `1e-9`.
+
+```python
+sectors = run.attribution.brinson("SECTOR", against="benchmark")
+
+sectors.active_return, sectors.explained, sectors.residual
+sectors.groups[["allocation", "selection", "interaction", "total"]]
+sectors.names.loc["Technology"]   # AAA and BBB, adding up to the group's row
+```
+
+**`names` opens each group into its names**, indexed by group and name. With
+`W_g` and `B_g` the two books' weights in the group, `w_i` and `b_i` a name's
+and `r_i` its return:
+
+    d_i           = (w_i / W_g - b_i / B_g) (r_i - R^b_g)
+    selection_i   = B_g d_i
+    interaction_i = (W_g - B_g) d_i
+
+A group's `d_i` add up to `R_g - R^b_g`, and the days are linked by the group
+effects' factors, so **a group's names add up to its selection and
+interaction**. Allocation is a decision about the group and stays on its row.
+A name the comparator holds and the fund does not has a negative share, so it
+shows what not holding it cost. A name that changed group has a row in each.
+
+`brinson_by_period(field, against="index", frequency="Y")` repeats the
+attribution over each year, or each month with `"M"`, each period linked
+within itself from the close before its first day: a row a period, with the
+three effects, `explained`, `active_return` and `residual`. Periods compound,
+so the rows do not add up to the whole run's figures.
+
+### Currency
+
+A name's daily return in the fund's currency `r` is its return in its own
+currency `l` and the move of that currency `x`: `1 + r = (1 + l)(1 + x)`, so
+
+    r = l + x + l x
+
+`currency(against=None, by_currency=False)` gives each part the name's weight
+at the close before and links the days: `local`, `currency`, and the `cross`
+term on a line of its own. Local returns are worked out from the run's own
+closes and corporate actions in each name's currency, as the fund's returns
+are. With `against`, it explains the active return from the active weights;
+with `by_currency=True`, its `table` splits each part by the names'
+currencies. The sample's names are all in US dollars, so here it is all local.
+
+It returns an `EffectsResult`, as `factors()` and `implementation()` do:
+`total_return` (a book's compounded return, or the fund's less the
+comparator's), `effects` (each effect linked, largest first), `explained`,
+`residual`, `table` (empty unless a breakdown was asked for), `start`, `end`,
+`periods` and `reconciles()`.
+
+```python
+run.attribution.currency(against="benchmark", by_currency=True).table
+```
+
+### Factors
+
+`factors(analytics, against=None, method="holdings")` explains the return by
+the run's factors. `analytics` is the run's `FactorAnalytics`,
+`run.risk.factors`: each name's exposures at each rebalance, standardised over
+the universe, and each day's factor returns, from a cross-sectional
+regression on those exposures, weighted by market cap, with a market
+intercept. `run.risk` needs the data source the run read.
+
+**Holdings-based** (`"holdings"`) splits every name's return as
+
+    r_i = f_market + Σ_k z_ik f_k + e_i
+
+with `z_ik` its exposures at the last rebalance before the day and `e_i`
+defined as what is left, **so the split is exact**. Holding `w` at the close
+before, the fund earns `(Σ w) f_market` from the market, `X_k f_k` from each
+factor (`X_k = Σ w_i z_ik`) and `Σ w_i e_i` of its own: the lines `market`,
+one a factor, and `specific`.
+
+**Returns-based** (`"returns"`) regresses the fund's daily return over the
+risk-free rate on the factor returns (the market's among them) over the
+window, by ordinary least squares with an intercept. It splits the return into
+`risk_free`, `alpha`, each beta times its factor's return, and the
+regression's `residual`.
+
+With `against`, the holdings method takes the active weights, and the returns
+method regresses the active return, with no risk-free rate taken off. Any
+other method raises a `ValueError`.
+
+```python
+factors = run.risk.factors
+
+run.attribution.factors(factors).effects
+run.attribution.factors(factors, method="returns").effects
+```
+
+### Implementation
+
+`implementation(against="index")` splits the fund's tracking difference
+against the index it tracked into what caused it, day by day from the run's
+own accounting, linked by the active factor. Each day, `V` is the base the
+fund's return is measured on: the NAV at the close before, grown by any units
+dealt that day at yesterday's NAV per unit. `w` and `b` are the fund's and the
+index's weights at the close before (the fund's scaled onto `V`, so money
+dealt that day is held as cash), `c = 1 - Σ w` is the fund's cash, `r` the
+names' total returns, and `g = w - (1 - c) b` the gap between the fund's
+invested weights and the index's, `g^R` as it was at the last rebalance.
+
+| Effect | What it is |
+| --- | --- |
+| `cap_and_screens` | `Σ g^R r`: what the cap, the screens, the smallest position and rounding left the fund holding differently |
+| `drift` | `Σ (g - g^R) r`: how that gap has moved since, as flows, dividends and the cash band traded the fund and not the index |
+| `cash_drag` | `-c Σ b r` plus the interest earned over `V`: the return the cash gave up against the index, less what it earned |
+| `equitisation` | The futures' profit and loss before their costs, over `V`, which wins back the cash drag |
+| `fixed_costs`, `market_impact`, `futures_rolls`, `futures_trading` | Each day's cost, over `V` |
+| `fees` | The management fee charged, over `V` |
+| `withholding_tax` | The tax withheld from dividends, over `V` |
+| `creation_fees` | What dealing investors paid into the fund, over `V` |
+| `dividend_treatment` | `Σ b r` less the index's own return: the dividends a price index leaves out, or a total return index's own timing |
+
+They add up to the fund's return from its names, cash and futures, less its
+costs and fees, less the index's return. `explained` is that sum; the
+`residual` is whatever else moved the NAV, such as a currency hedge or trades
+dealt away from the close. By default the breakdown starts on the run's first
+day, whose close before is the starting capital all in cash, so the cost of
+buying in is counted; with a `start`, it starts from that day's close.
+
+```python
+costs = run.attribution.implementation()
+
+costs.total_return   # the tracking difference
+costs.effects        # here almost all fixed_costs: 10 bps on every trade
+costs.residual
+```
+
+Against `"benchmark"` the accounting is the same, but the gap at each
+rebalance is then the difference between two methodologies, so it reads as
+`cap_and_screens`, and its movement since as `drift`.
+
+### Weights
+
+`weights(book="fund")` is a book's daily weights, dates by names, as every
+method above reads them: names as strings, blanks as zero. It raises a
+`KeyError` if the run kept no weights for that book, as for a benchmark given
+as levels.
+
+```python
+run.attribution.weights("benchmark").tail()
 ```
 
 ## Risk contribution
@@ -186,9 +435,9 @@ useful number for an index product: it answers *which position is making me
 diverge*.
 
 **Contributions here can be negative, and that is the point.** An active
-weight is signed, so a position pointing against the book's overall active
+weight is signed, so a position pointing against the portfolio's overall active
 exposure genuinely reduces tracking error: it hedges. An absolute value would
-hide whichever position is doing the most useful thing in the book.
+hide whichever position is doing the most useful thing in the portfolio.
 
 Being underweight is not enough to contribute negatively: an underweight in a
 name the portfolio is *also* underweight overall contributes positively,
@@ -213,11 +462,12 @@ A number that describes 94% of an index and says so beats one that describes
 
 ## Where it sits
 
-Downstream of everything: it reads a completed `IndexResult` (and a
-`BacktestResult` for costs) plus prices, and computes rather than
-re-simulates.
+Downstream of everything. The functions read a completed `IndexResult` (and
+a `BacktestResult` for costs) plus prices; a run's attribution reads the
+records the run kept. Both compute rather than re-simulate.
 
-`AttributionResult` carries a `.plot` accessor: `contributions()` draws the
+`AttributionResult`, from `attribute()`, `contribution()` or `active()`,
+carries a `.plot` accessor: `contributions()` draws the
 per-constituent bars, with the total, the residual and any drags stated in
 the chart's note rather than drawn as bars. See [charts](charts.md).
 

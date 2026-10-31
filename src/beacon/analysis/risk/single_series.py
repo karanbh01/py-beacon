@@ -3,20 +3,37 @@
 Risk metrics for a price or return series: annualised volatility, Sharpe ratio
 and maximum drawdown.
 
-Each is available as a plain function and as a method of
-`RiskMetricsCalculator`.
+Deprecated, and to be removed in 0.11.0: each figure is in
+`beacon.analysis.performance.formulas` (`volatility`, `sharpe_ratio`,
+`max_drawdown`), and a run's are its analytics' `headline()`.
 """
+# BN-402: deprecated in 0.10.0. The functions keep working, with a warning
+# naming the formula that replaces each.
+import warnings
 
 import numpy as np
 import pandas as pd
 
 from ..performance import formulas
 
+# Where each deprecated name's replacement is.
+FORMULAS = "beacon.analysis.performance.formulas"
+
+
+def _deprecated(name: str,
+                replacement: str) -> None:
+    """Warn that *name* is deprecated in favour of *replacement*."""
+    warnings.warn(f"{name} is deprecated and will be removed in 0.11.0; use "
+                  f"{replacement}.", DeprecationWarning, stacklevel=3)
+
 
 def calculate_volatility(price_series: pd.Series,
                          window: int = 252) -> float:
     """
     Calculates annualized volatility from a price series.
+
+    Deprecated: use `beacon.analysis.performance.formulas.volatility` on the
+    returns, ``volatility(prices.pct_change().dropna(), periods_per_year)``.
 
     The sample standard deviation of the simple period returns, multiplied by
     ``sqrt(window)``. Despite its name, *window* is the annualisation factor,
@@ -34,6 +51,9 @@ def calculate_volatility(price_series: pd.Series,
         ValueError: If price_series is empty or contains non-numeric data, or
             window is not positive.
     """
+    _deprecated("calculate_volatility",
+                f"{FORMULAS}.volatility(prices.pct_change().dropna(), periods_per_year)")
+
     if not isinstance(price_series, pd.Series):
         raise TypeError("price_series must be a pandas Series.")
     if price_series.empty:
@@ -52,6 +72,9 @@ def calculate_sharpe_ratio(returns: pd.Series,
                            periods_per_year: int = 252) -> float:
     """
     Calculates the annualized Sharpe Ratio.
+
+    Deprecated: use `beacon.analysis.performance.formulas.sharpe_ratio`,
+    ``sharpe_ratio(returns, periods_per_year, risk_free_rate)``.
 
     The mean return in excess of the risk-free rate over its sample standard
     deviation, multiplied by ``sqrt(periods_per_year)``: the Sharpe ratio a
@@ -74,6 +97,9 @@ def calculate_sharpe_ratio(returns: pd.Series,
         ValueError: If returns is empty or non-numeric, or periods_per_year
             is not positive.
     """
+    _deprecated("calculate_sharpe_ratio",
+                f"{FORMULAS}.sharpe_ratio(returns, periods_per_year, risk_free_rate)")
+
     if not isinstance(returns, pd.Series):
         raise TypeError("returns must be a pandas Series.")
     if returns.empty:
@@ -93,6 +119,9 @@ def calculate_max_drawdown(price_series: pd.Series) -> float:
     """
     Calculates the maximum drawdown from a price series.
 
+    Deprecated: use `beacon.analysis.performance.formulas.max_drawdown`,
+    ``max_drawdown(prices)``.
+
     The largest fall from a running peak, as a fraction of that peak.
 
     Args:
@@ -106,6 +135,8 @@ def calculate_max_drawdown(price_series: pd.Series) -> float:
         TypeError: If price_series is not a pandas Series.
         ValueError: If price_series is empty or contains non-numeric data.
     """
+    _deprecated("calculate_max_drawdown", f"{FORMULAS}.max_drawdown(prices)")
+
     if not isinstance(price_series, pd.Series):
         raise TypeError("price_series must be a pandas Series.")
     if price_series.empty:
@@ -123,9 +154,12 @@ class RiskMetricsCalculator:
     """
     Risk metrics as methods. Each method calls the module-level function of
     the same name and returns its result unchanged.
+
+    Deprecated: use the functions of `beacon.analysis.performance.formulas`.
     """
     def __init__(self) -> None:
         """Initializes the RiskMetricsCalculator."""
+        _deprecated("RiskMetricsCalculator", f"the functions of {FORMULAS}")
 
     def calculate_volatility(self,
                              price_series: pd.Series,
@@ -142,7 +176,10 @@ class RiskMetricsCalculator:
         Returns:
             The annualized volatility as a float.
         """
-        return calculate_volatility(price_series, window)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+
+            return calculate_volatility(price_series, window)
 
     def calculate_sharpe_ratio(self,
                                returns: pd.Series,
@@ -162,7 +199,10 @@ class RiskMetricsCalculator:
         Returns:
             The annualized Sharpe Ratio as a float.
         """
-        return calculate_sharpe_ratio(returns, risk_free_rate, periods_per_year)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+
+            return calculate_sharpe_ratio(returns, risk_free_rate, periods_per_year)
 
     def calculate_max_drawdown(self,
                                price_series: pd.Series) -> float:
@@ -178,4 +218,7 @@ class RiskMetricsCalculator:
             The maximum drawdown as a non-positive float (e.g., -0.2 for a
             20% drawdown).
         """
-        return calculate_max_drawdown(price_series)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+
+            return calculate_max_drawdown(price_series)

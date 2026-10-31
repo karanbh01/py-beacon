@@ -1,7 +1,7 @@
 # src/beacon/analysis/performance/costs.py
 """
 What a run cost: its costs by kind (the fixed cost and the market impact of
-its trades, the cost of rolling futures) and the creation fees dealing
+its trades, the cost of rolling and of trading futures) and the creation fees dealing
 investors paid into it, in money, in basis points of its assets a year and
 per unit it traded, over the run, each year and by why it traded.
 

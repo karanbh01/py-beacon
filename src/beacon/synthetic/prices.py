@@ -387,33 +387,6 @@ def _long_form(frames: dict[str, pd.DataFrame],
     return market.sort_values(["IDENTIFIER", "DATE"], ignore_index=True)
 
 
-def _actions_while_listed(actions: pd.DataFrame,
-                          universe: pd.DataFrame) -> pd.DataFrame:
-    """Drop actions dated outside the paying company's listed life.
-
-    A delisted company does not split, and one that has not floated yet does
-    not pay a dividend. Leaving these in produced an action history that
-    referred to dates the market data deliberately has no rows for -- so
-    "the share count moves on a split" became unanswerable for exactly the
-    names that had left, which is how the coherence tests found it.
-    """
-    if "listed_from" not in universe or actions.empty:
-        return actions
-
-    listed_from = actions["IDENTIFIER"].map(universe["listed_from"])
-    listed_to = actions["IDENTIFIER"].map(universe["listed_to"])
-
-    inside = actions["EX_DATE"] >= listed_from
-    inside &= listed_to.isna() | (actions["EX_DATE"] <= listed_to)
-
-    dropped = int((~inside).sum())
-    if dropped:
-        logger.info("Removed %s action(s) dated outside a listed life.",
-                    f"{dropped:,}")
-
-    return actions.loc[inside].reset_index(drop=True)
-
-
 def _listed_only(market: pd.DataFrame,
                  universe: pd.DataFrame) -> pd.DataFrame:
     """Drop the rows outside each name's listed life.

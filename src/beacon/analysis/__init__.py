@@ -2,12 +2,17 @@
 """
 Analytics for indices, ETFs and portfolios.
 
-Covers performance attribution (`attribute`, `Attribution`, cost and cap
-drag), concentration and drift from target weights, liquidity, risk metrics
-(volatility, Sharpe ratio, maximum drawdown) and ETF tracking analytics
-(tracking difference, tracking error, premium or discount to NAV), and
-`RunData`, everything a run's analysis reads, from a finished run or a
-stored one.
+Covers a run's performance (`beacon.analysis.performance`), risk
+(`beacon.analysis.risk`) and attribution (`attribute`, `Attribution`, cost and
+cap drag), concentration and drift from target weights, liquidity and ETF
+tracking analytics (tracking difference, tracking error, premium or discount
+to NAV), and `RunData`, everything a run's analysis reads, from a finished run
+or a stored one.
+
+`RiskMetricsCalculator`, `calculate_volatility`, `calculate_sharpe_ratio`,
+`calculate_max_drawdown` and `simple_performance_attribution` are deprecated,
+to be removed in 0.11.0: their figures are in
+`beacon.analysis.performance.formulas`.
 """
 from typing import Any
 

@@ -494,9 +494,9 @@ print(len(result.portfolio.transactions), "transactions,",
 ```
 
 `summary()` returns total and annualised return, volatility, Sharpe ratio
-(zero risk-free rate), maximum drawdown and, when the run tracked an index,
-`tracking_error` and `tracking_difference`; with flows, every figure is a
-unit's and `money_weighted_return` is added. Returns are daily and annualised
+(over the run's `ModellingAssumptions.risk_free_rate`, 0 unless set),
+maximum drawdown and, when the run tracked an index, `tracking_error` and
+`tracking_difference`; with flows, every figure is a unit's and `money_weighted_return` is added. Returns are daily and annualised
 over 252 periods. `get_tracking_error()` is the annualised standard deviation
 of daily NAV returns minus `index.tracked` returns; `get_tracking_difference()`
 is the cumulative NAV return minus the cumulative index return.

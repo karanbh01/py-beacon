@@ -39,6 +39,7 @@ counterfactual it implies.
 # shortfall quoted above was measured over a 130-day window on a test fixture.
 import logging
 import math
+import warnings
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -413,6 +414,10 @@ def simple_performance_attribution(portfolio_returns: pd.Series,
                                    benchmark_returns: pd.Series) -> dict[str, float]:
     """Total return difference between a portfolio and a benchmark.
 
+    Deprecated, and to be removed in 0.11.0: use
+    `beacon.analysis.performance.formulas.compounded_return` on each series,
+    or a run's `Attribution.active`.
+
     Args:
         portfolio_returns: Portfolio periodic returns.
         benchmark_returns: Benchmark periodic returns, same length.
@@ -429,7 +434,13 @@ def simple_performance_attribution(portfolio_returns: pd.Series,
         ValueError: If the lengths differ or the inputs are empty.
     """
     # BN-393: the Attribution class that held this is now the run's
-    # attribution (beacon.analysis.attribution.analytics).
+    # attribution (beacon.analysis.attribution.analytics). BN-402: deprecated
+    # in 0.10.0.
+    warnings.warn("simple_performance_attribution is deprecated and will be removed in "
+                  "0.11.0; use beacon.analysis.performance.formulas.compounded_return on "
+                  "each series, or a run's Attribution.active.",
+                  DeprecationWarning, stacklevel=2)
+
     if (not isinstance(portfolio_returns, pd.Series)
             or not isinstance(benchmark_returns, pd.Series)):
         raise TypeError("portfolio_returns and benchmark_returns must be pandas Series.")

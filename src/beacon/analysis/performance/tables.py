@@ -4,8 +4,8 @@ A run's figures laid out as tables: the calendar grid of monthly returns with
 each year's, the figures for each quarter or year, and the trailing returns,
 each for the fund, its comparators and the differences.
 
-Differences are the fund's figure less the comparator's, in percentage
-points, as a period table shows them. A period's return compounds its days,
+Differences are the fund's figure less the comparator's, as fractions like
+the figures themselves (0.019 is 1.9 percentage points). A period's return compounds its days,
 so a year's months compound to the year, and the years to the whole run.
 """
 # BN-379.

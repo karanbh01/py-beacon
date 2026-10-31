@@ -158,7 +158,7 @@ class PortfolioAnalytics:
 
     def costs(self,
               by: str = "run") -> pd.DataFrame:
-        """The fund's costs by kind (fixed, impact, futures rolls), the
+        """The fund's costs by kind (fixed, impact, futures rolls and futures trading), the
         creation fees it received and the net: over the run (``run``), with
         each in basis points of its mean NAV a year, or each year
         (``year``), with the net in basis points of the year's mean NAV.

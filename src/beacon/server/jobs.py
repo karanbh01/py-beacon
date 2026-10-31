@@ -15,7 +15,7 @@ polling see the same thing.
 import asyncio
 import logging
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -611,7 +611,3 @@ class JobRegistry:
                 await task
 
 
-async def stream_events(queue: asyncio.Queue[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:
-    """Yield events from a subscriber queue until cancelled."""
-    while True:
-        yield await queue.get()

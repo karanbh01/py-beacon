@@ -65,6 +65,9 @@ nav:
       - Fund vehicles and pricing: concepts/fund-vehicles.md
       - Derivatives: concepts/derivatives.md
       - Optimiser: concepts/optimiser.md
+      - Performance: concepts/performance.md
+      - Portfolio: concepts/portfolio.md
+      - Risk analysis: concepts/risk-analysis.md
       - Risk model: concepts/risk-model.md
       - Attribution: concepts/attribution.md
       - Charts: concepts/charts.md

@@ -61,7 +61,8 @@ class YearDifference:
         year: The year.
         fund: The fund's return in it.
         comparator: The comparator's.
-        difference: The fund's less the comparator's, in percentage points.
+        difference: The fund's less the comparator's, as a fraction (0.019 is
+            1.9 percentage points).
     """
     year: str
     fund: float
