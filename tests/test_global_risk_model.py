@@ -16,6 +16,7 @@ import pytest
 from beacon.analysis.data import RunData
 from beacon.analysis.panels import FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS, REFERENCE
 from beacon.analysis.reports.options import describe
+from beacon.analysis.risk.global_model import GlobalModels
 from beacon.analysis.risk.model import FACTOR, RebalanceRiskModels, RiskModelSettings
 from beacon.exceptions import CalculationError
 from beacon.risk.model import MARKET_FACTOR
@@ -254,6 +255,21 @@ class TestTheAnalysis:
         assert len(weeks) == 52
         assert all(day.day_of_week == 4 for day in weeks)
         assert weeks[-1] < REBALANCES[0]
+
+    def test_a_week_ending_on_a_holiday_counts_before_the_next_rebalance(self):
+        # Good Friday 2022: the week's last session is Thursday, but the week
+        # is labelled by its Friday, and the rebalance is the Monday after.
+        run = synthetic_run()
+        returns = run.tables[NAME_RETURNS]
+        run.tables[NAME_RETURNS] = returns.drop(pd.Timestamp("2022-04-15"))
+        found = GlobalModels(run, "COUNTRY_DOMICILE", 10, sectors=True, currencies=True,
+                             weekly=True)
+
+        weeks = found.periods_before(pd.Timestamp("2022-04-18"))
+
+        assert weeks.index[-1] == pd.Timestamp("2022-04-15")
+        assert found.periods_before(pd.Timestamp("2022-04-14")).index[-1] == pd.Timestamp(
+            "2022-04-08")
 
     def test_names_in_one_country_keep_the_styles_model(self):
         run = synthetic_run(["US"] * len(RUN_NAMES))

@@ -17,7 +17,6 @@ from collections.abc import Callable
 
 import pandas as pd
 
-from ...data.base import as_of_position
 from ...exceptions import CalculationError
 from ...risk.model import FactorRiskModel
 from ...risk.model.global_fit import (
@@ -107,14 +106,12 @@ class GlobalModels:
                        day: pd.Timestamp) -> pd.DataFrame:
         """The returns of the periods that ended before *day*: whole weeks,
         or sessions."""
+        # A week is labelled by its Friday, holiday or not, so it is compared
+        # with the day itself: a week whose Friday was Good Friday still
+        # comes before the Monday after it.
         returns = self._periods()
-        sessions = self._sorted()
-        last = as_of_position(sessions.index, day - pd.Timedelta(days=1))
 
-        if last is None:
-            return returns.iloc[:0]
-
-        return returns[returns.index <= sessions.index[last]]
+        return returns[returns.index < day]
 
     def estimate(self,
                  day: pd.Timestamp,
