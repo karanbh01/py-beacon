@@ -21,6 +21,7 @@ from beacon.exceptions import CalculationError
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import EqualWeighted
 from beacon.index.schedule import sessions
+from beacon.portfolio.reasons import FX_HEDGE, SETTLEMENT
 
 DAYS = sessions(pd.Timestamp("2024-01-02"), pd.Timestamp("2024-12-31"), "XNYS")
 NAMES = ["A", "B", "C"]
@@ -126,11 +127,21 @@ class TestAHedgedClass:
         assert abs(unhedged / book - 1.0) > 0.05
         assert abs(hedged / book - 1.0) < 0.005
 
+    def test_its_trades_and_the_holdings_its_settlements_move_are_fx_hedge_trades(self,
+                                                                                  three):
+        # BN-421: the forward's own trades, and the holdings bought or sold
+        # for what it settles for, all say fx hedge.
+        moved = [trade for trade in three.portfolio.transactions if trade.reason == FX_HEDGE]
+
+        assert {trade.reason for trade in three.share_classes["EUR H"].hedges} == {FX_HEDGE}
+        assert moved and all(SETTLEMENT in trade.tags for trade in moved)
+        assert SETTLEMENT not in {trade.reason for trade in three.portfolio.transactions}
+
     def test_it_rolls_at_each_month_start(self, three):
         hedges = three.share_classes["EUR H"].hedges
-        rolls = [trade.date for trade in hedges if trade.reason == "roll"]
+        rolls = [trade.date for trade in hedges if trade.kind == "roll"]
 
-        assert hedges[0].reason == "open"
+        assert hedges[0].kind == "open"
         assert hedges[0].date == DAYS[0]
         assert [day.month for day in rolls] == list(range(2, 13))
         assert all(day == DAYS[DAYS.month == day.month][0] for day in rolls)
@@ -171,8 +182,8 @@ class TestAHedgedClass:
         loose = run(ShareClass("EUR H", currency="EUR", hedged=True, hedge_band=None),
                     data=NO_RATES)
 
-        assert any(trade.reason == "band" for trade in tight.share_classes["EUR H"].hedges)
-        assert not any(trade.reason == "band"
+        assert any(trade.kind == "band" for trade in tight.share_classes["EUR H"].hedges)
+        assert not any(trade.kind == "band"
                        for trade in loose.share_classes["EUR H"].hedges)
 
 
@@ -195,7 +206,7 @@ class TestTheCostOfHedging:
         hedged = ShareClass("EUR H", currency="EUR", hedged=True, hedge_cost_bps=2.0)
         result = run(ShareClass("USD"), hedged, data=NO_RATES)
         hedges = result.share_classes["EUR H"].hedges
-        dealt = [trade.notional if trade.reason != "band" else
+        dealt = [trade.notional if trade.kind != "band" else
                  abs(trade.notional - before.notional)
                  for before, trade in zip([hedges[0], *hedges[:-1]], hedges, strict=True)]
 

@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 from beacon.analysis.data import RunData
-from beacon.analysis.panels import FUND_WEIGHTS, NAME_RETURNS, REFERENCE
+from beacon.analysis.panels import FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS, REFERENCE
 from beacon.analysis.risk.contributions import OTHER, RiskOverTime
 from beacon.analysis.risk.factors import FactorAnalytics
 from test_factor_analytics import (
@@ -145,6 +145,29 @@ class TestContributions:
         assert table["contribution"].sum() == pytest.approx(
             risk.expected(day)["tracking_error"])
 
+    def test_active_shares_add_up_to_one(self,
+                                         risk,
+                                         day):
+        assert risk.contributions(day, against="index")["share"].sum() == pytest.approx(1.0)
+
+    def test_a_rounding_sized_tracking_error_has_no_shares(self,
+                                                           day):
+        # The fund holds the index, but for rounding in the last digits of
+        # its weights: the split of that tracking error is noise.
+        data = noisy()
+        index = data.tables[INDEX_WEIGHTS]
+        rounding = np.random.default_rng(5).normal(0.0, 1e-13, index.shape)
+        tables = {**data.tables, FUND_WEIGHTS: index * (1.0 + rounding)}
+        held = RunData(currency="USD", returns=data.returns, nav=data.nav, units=data.units,
+                       initial_capital=1e6, periods_per_year=252, risk_free_rate=0.0,
+                       tables=tables, comparators=data.comparators)
+        risk = RiskOverTime(FactorAnalytics(held, SOURCE, factors=factors()), window=100)
+
+        table = risk.contributions(day, against="index")
+
+        assert 0.0 < table["contribution"].sum() < 1e-9
+        assert (table["share"] == 0.0).all()
+
     def test_by_sector(self,
                        risk,
                        day):
@@ -152,6 +175,58 @@ class TestContributions:
 
         assert sorted(groups.index) == ["Energy", "Health", "Tech"]
         assert groups["contribution"].sum() == pytest.approx(risk.expected(day)["volatility"])
+
+
+class TestTheForecastCheck:
+    # BN-421: each rebalance's expected risk beside what followed it.
+
+    def test_a_row_a_rebalance_with_the_expected_figures(self,
+                                                         risk):
+        table = risk.forecast_check()
+
+        assert list(table.index) == risk.dates()
+        for day in risk.dates():
+            expected = risk.expected(day)
+            assert table.loc[day, "expected_volatility"] == expected["volatility"]
+            assert table.loc[day, "expected_tracking_error"] == expected["tracking_error"]
+
+    def test_the_realised_figures_by_hand(self,
+                                          risk):
+        table = risk.forecast_check()
+        first, second = risk.dates()[:2]
+        fund = risk.run.returns
+        held = fund[(fund.index > first) & (fund.index <= second)]
+        index = risk.run.comparators["index"].pct_change()
+        active = held - index.reindex(held.index)
+
+        row = table.loc[first]
+
+        assert row["days"] == len(held)
+        assert row["realised_volatility"] == pytest.approx(held.std() * np.sqrt(252))
+        assert row["volatility_ratio"] == pytest.approx(
+            row["realised_volatility"] / row["expected_volatility"])
+        assert row["realised_tracking_error"] == pytest.approx(active.std() * np.sqrt(252))
+
+    def test_without_a_comparator_there_is_no_tracking_error(self,
+                                                             risk):
+        table = risk.forecast_check(against=None)
+
+        assert list(table.columns) == ["days", "expected_volatility", "realised_volatility",
+                                       "volatility_ratio"]
+        assert set(risk.bias_statistics(against=None)) == {"volatility"}
+
+    def test_the_bias_statistic_by_hand(self,
+                                        risk):
+        dates = risk.dates()
+        fund = risk.run.returns
+        days = fund.index[fund.index > dates[0]]
+        standing = pd.Series([risk.expected(max(d for d in dates if d < day))["volatility"]
+                              for day in days], index=days) / np.sqrt(252)
+
+        found = risk.bias_statistics()
+
+        assert found["volatility"] == pytest.approx(float((fund.loc[days] / standing).std()))
+        assert found["tracking_error"] > 0.0
 
 
 class TestMeasured:

@@ -14,7 +14,8 @@ than once, as one trade can carry several.
 """
 # BN-406. The reasons as agreed with Karan on 2026-10-27. Index change, drift,
 # discretionary and risk-driven have no engine feature yet: their names are
-# kept for when they do.
+# kept for when they do. Distribution funding has none either: a distribution
+# is paid from the income it distributes, so nothing is sold for it (BN-421).
 
 # Index.
 REBALANCE = "rebalance"
@@ -48,7 +49,9 @@ SETTLEMENT = "settlement"
 CORPORATE_ACTION = "corporate action"
 COMPLETION = "completion"
 
-# Derivatives: their trades are recorded with the derivatives (BN-409).
+# Derivatives: their own trades are recorded with the derivatives (BN-409),
+# and a trade of the holdings to pay or invest a currency hedge's settlement
+# or cost is an fx hedge trade.
 FUTURES_ROLL = "futures roll"
 FUTURES_EXPOSURE = "futures exposure"
 FX_HEDGE = "fx hedge"
@@ -71,7 +74,8 @@ REASONS = tuple(CATEGORIES)
 # Reasons whose trades move cash into or out of the book: a sell raises cash,
 # a buy spends it down.
 MOVES_CASH = frozenset({SUBSCRIPTION, REDEMPTION, CASH_RAISE, CASH_SPEND_DOWN,
-                        DIVIDEND_REINVESTMENT, DISTRIBUTION_FUNDING, FEE_FUNDING, SETTLEMENT})
+                        DIVIDEND_REINVESTMENT, DISTRIBUTION_FUNDING, FEE_FUNDING, SETTLEMENT,
+                        FX_HEDGE})
 
 
 def tags_for(reason: str,

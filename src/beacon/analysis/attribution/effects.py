@@ -13,8 +13,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from .brinson import active_carino
-from .contribution import carino_factor
+from .contribution import active_carino, carino_factor
 
 
 @dataclass(frozen=True)

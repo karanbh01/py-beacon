@@ -11,15 +11,25 @@ contributions add up to the compounded return (see
 names did, each in the group it was in at that close.
 
 **Active** attribution takes the fund's weights less the comparator's, both
-as they drift, against the fund's daily return less the comparator's. What the
+as they drift, against the fund's daily return less the comparator's, linked
+by the active Carino factor so the contributions add up to the fund's
+compounded return less the comparator's, the same total Brinson-Fachler,
+currency, factor and implementation attribution explain. What the
 names do not explain (cash, costs, fees, futures, the timing of dividends) is
 the residual, reported with every result and never folded into a name.
 """
 # BN-393.
 import pandas as pd
 
-from ..data import INDEX, RunData
-from ..panels import BENCHMARK_WEIGHTS, CURRENCIES, FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS
+from ..data import BENCHMARK, INDEX, OPTIMISED, RunData
+from ..panels import (
+    BENCHMARK_WEIGHTS,
+    CURRENCIES,
+    FUND_WEIGHTS,
+    INDEX_WEIGHTS,
+    NAME_RETURNS,
+    OPTIMISED_WEIGHTS,
+)
 from ..performance.comparisons import aligned
 from ..risk.factors import FactorAnalytics
 from . import currency as currencies
@@ -31,7 +41,8 @@ from .effects import EffectsResult, linked_effects
 from .groups import by_group, memberships
 
 FUND = "fund"
-BOOKS = {FUND: FUND_WEIGHTS, "index": INDEX_WEIGHTS, "benchmark": BENCHMARK_WEIGHTS}
+BOOKS = {FUND: FUND_WEIGHTS, INDEX: INDEX_WEIGHTS, OPTIMISED: OPTIMISED_WEIGHTS,
+         BENCHMARK: BENCHMARK_WEIGHTS}
 
 
 class Attribution:
@@ -51,10 +62,11 @@ class Attribution:
                      start: str | pd.Timestamp | None = None,
                      end: str | pd.Timestamp | None = None) -> AttributionResult:
         """Each name's (or, with *field*, each group's) contribution to a
-        book's return (``fund``, ``index`` or ``benchmark``) over the window,
+        book's return (``fund``, ``index``, ``optimised`` or ``benchmark``)
+        over the window,
         the whole run by default."""
-        returns = self._returns(book)
         weights = self.weights(book)
+        returns = self._returns(book)
 
         return self._attributed(returns, weights, field, start, end)
 
@@ -63,8 +75,10 @@ class Attribution:
                field: str | None = None,
                start: str | pd.Timestamp | None = None,
                end: str | pd.Timestamp | None = None) -> AttributionResult:
-        """Each name's (or group's) contribution to the fund's daily return
-        less *against*'s, from its active weight, over the window."""
+        """Each name's (or group's) contribution to the fund's return over
+        *against*, from its active weight, over the window: the
+        contributions add up to the fund's compounded return less
+        *against*'s."""
         ours, theirs = aligned(self.run.returns, self._levels(against))
         fund, comparator = self.weights(FUND), self.weights(against)
         names = sorted(set(fund.columns) | set(comparator.columns))
@@ -73,7 +87,7 @@ class Attribution:
                   - comparator.reindex(index=days, method="ffill")
                   .reindex(columns=names).fillna(0.0))
 
-        return self._attributed(ours - theirs, active, field, start, end)
+        return self._attributed(ours, active, field, start, end, theirs)
 
     def brinson(self,
                 field: str,
@@ -220,7 +234,16 @@ class Attribution:
 
     def weights(self,
                 book: str = FUND) -> pd.DataFrame:
-        """A book's daily weights, by name."""
+        """A book's daily weights, by name: ``fund``, ``index``,
+        ``optimised`` or ``benchmark``.
+
+        Raises:
+            KeyError: If the book is none of those, or the run kept no
+                weights for it.
+        """
+        if book not in BOOKS:
+            raise KeyError(f"Unknown book {book!r}. Known: {', '.join(BOOKS)}.")
+
         table = self.run.tables.get(BOOKS[book])
 
         if table is None or table.empty:
@@ -236,8 +259,10 @@ class Attribution:
                     weights: pd.DataFrame,
                     field: str | None,
                     start: str | pd.Timestamp | None,
-                    end: str | pd.Timestamp | None) -> AttributionResult:
-        """*returns* attributed to *weights*' names, or to their groups."""
+                    end: str | pd.Timestamp | None,
+                    comparator: pd.Series | None = None) -> AttributionResult:
+        """*returns* attributed to *weights*' names, or to their groups; with
+        *comparator*, *returns* over it, *weights* being active weights."""
         name_returns = self.run.tables[NAME_RETURNS].sort_index()
         name_returns.columns = name_returns.columns.astype(str)
         # The days the names have returns and the book weights, so by name
@@ -247,7 +272,7 @@ class Attribution:
                               .intersection(weights.index)]
 
         if field is None:
-            return attribute(returns, weights, name_returns)
+            return attribute(returns, weights, name_returns, comparator=comparator)
 
         lagged = weights.reindex(returns.index, method="ffill").shift(1)
         names = [name for name in lagged.columns if name in name_returns.columns]
@@ -259,7 +284,7 @@ class Attribution:
 
         # attribute() takes the weights held at the end of each day and lags
         # them itself, so the lagged group weights go in one day earlier.
-        return attribute(returns, held.shift(-1), group_returns)
+        return attribute(returns, held.shift(-1), group_returns, comparator=comparator)
 
     def _returns(self,
                  book: str) -> pd.Series:

@@ -625,6 +625,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
                     unfilled.extend(self._rebalance(portfolio, target_w, date))
                 # Re-price after rebalance
                 self._update_portfolio_prices(portfolio, date)
+                self._fees_since_target = 0.0
             elif inflow > 0.0 or settled > 0.0 or self._working:
                 # 2b. An inflow (or a swap's value received) invested between
                 # rebalances, and orders an execution limit left working

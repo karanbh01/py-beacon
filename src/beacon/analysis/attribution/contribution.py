@@ -26,6 +26,12 @@ Then
 exactly. The residual is reported regardless, and should sit at machine
 epsilon; a residual that is not tiny means an assumption has broken.
 
+A return over a comparator links the same way with the active factor
+``k_t = (ln(1+R_t) - ln(1+B_t)) / (R_t - B_t)``, and ``K`` the same for the
+window, so the contributions add up to ``R - B``: the fund's compounded return
+less the comparator's, as Brinson-Fachler explains it
+(`beacon.analysis.attribution.brinson`).
+
 ## What the drags are, and what they are not
 
 Cap drag and cost drag are **comparisons**, not terms in the identity above.
@@ -81,7 +87,8 @@ class AttributionResult:
         start: First date of the window, ISO 8601.
         end: Last date, ISO 8601.
         periods: Return periods decomposed.
-        total_return: The return being explained.
+        total_return: The return being explained: a compounded return, or a
+            compounded return less a comparator's.
         contributions: Per constituent, largest first. Sums to *total_return*
             up to *residual*.
         residual: total_return minus the sum of contributions. Reported
@@ -157,18 +164,34 @@ def carino_factor(period_return: float) -> float:
     return math.log1p(period_return) / period_return
 
 
+def active_carino(fund: float,
+                  comparator: float) -> float:
+    """The linking factor for an active return: ``(ln(1 + R) - ln(1 + R^b))
+    / (R - R^b)``, ``1 / (1 + R)`` where the two are equal."""
+    if abs(fund - comparator) < NEGLIGIBLE_RETURN:
+        return 1.0 / (1.0 + fund)
+
+    return (math.log1p(fund) - math.log1p(comparator)) / (fund - comparator)
+
+
 def link_contributions(contributions: pd.DataFrame,
-                       period_returns: pd.Series) -> pd.Series:
+                       period_returns: pd.Series,
+                       comparator: pd.Series | None = None) -> pd.Series:
     """Scale per-period contributions so they sum to the compounded return.
 
     Args:
         contributions: Periods on the index, constituents on the columns. Each
-            row must sum to that period's return.
+            row must sum to that period's return (or, with *comparator*, to
+            that period's return less the comparator's).
         period_returns: The total return of each period.
+        comparator: A comparator's return each period. When given, the
+            contributions are linked by the active factor and sum to the
+            compounded return less the comparator's.
 
     Returns:
         pd.Series: One linked contribution per constituent. Their sum equals
-        the compounded total return exactly.
+        the compounded total return (or the compounded active return)
+        exactly.
 
     Raises:
         CalculationError: If any period return is -100% or worse.
@@ -178,8 +201,15 @@ def link_contributions(contributions: pd.DataFrame,
 
     total = float((1.0 + period_returns).prod() - 1.0)
 
-    factors = period_returns.map(carino_factor)
-    total_factor = carino_factor(total)
+    if comparator is None:
+        factors = period_returns.map(carino_factor)
+        total_factor = carino_factor(total)
+    else:
+        theirs = comparator.reindex(period_returns.index).astype(float)
+        factors = pd.Series([active_carino(float(ours), float(other))
+                             for ours, other in zip(period_returns, theirs, strict=True)],
+                            index=period_returns.index)
+        total_factor = active_carino(total, float((1.0 + theirs).prod() - 1.0))
 
     scaled = contributions.mul(factors / total_factor, axis=0)
 
@@ -257,7 +287,8 @@ def attribute(period_returns: pd.Series,
               weights: pd.DataFrame,
               asset_returns: pd.DataFrame,
               cap_drag: float | None = None,
-              cost_drag: float | None = None) -> AttributionResult:
+              cost_drag: float | None = None,
+              comparator: pd.Series | None = None) -> AttributionResult:
     """Decompose a return series into per-constituent contributions.
 
     Args:
@@ -268,10 +299,15 @@ def attribute(period_returns: pd.Series,
         asset_returns: Constituent returns per period.
         cap_drag: Optional capped-minus-uncapped return.
         cost_drag: Optional cost effect on the portfolio return.
+        comparator: A comparator's return per period. When given, *weights*
+            are active weights (the portfolio's less the comparator's), and
+            the return explained is the compounded *period_returns* less the
+            compounded comparator's.
 
     Returns:
         AttributionResult: The decomposition, with contributions summing to the
-        compounded total return and a residual reported separately.
+        compounded total return (or active return) and a residual reported
+        separately.
 
     Raises:
         CalculationError: If the inputs cannot be aligned, or a period wipes
@@ -295,8 +331,13 @@ def attribute(period_returns: pd.Series,
     contributions = lagged * asset_returns[assets].reindex(common)
     contributions = contributions.dropna(how="all")
 
-    linked = link_contributions(contributions, returns.loc[contributions.index])
-    total = float((1.0 + returns.loc[contributions.index]).prod() - 1.0)
+    days = contributions.index
+    theirs = None if comparator is None else comparator.reindex(days).astype(float)
+    linked = link_contributions(contributions, returns.loc[days], theirs)
+    total = float((1.0 + returns.loc[days]).prod() - 1.0)
+
+    if theirs is not None:
+        total -= float((1.0 + theirs).prod() - 1.0)
 
     # Every name's average weight and total return at once (BN-416): the same
     # figures as name by name, which was most of the time at 6,000 names.

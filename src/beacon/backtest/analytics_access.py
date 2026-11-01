@@ -55,7 +55,9 @@ class AnalyticsMixin:
 
     @property
     def risk(self) -> Any:
-        """The run's risk (`beacon.analysis.risk.analytics.RiskAnalytics`).
+        """The run's risk (`beacon.analysis.risk.analytics.RiskAnalytics`),
+        with the window, risk model and liquidity choices of the analysis the
+        run was asked for, or the defaults.
 
         Raises:
             ValueError: If the run kept no data source to measure from.
@@ -69,9 +71,18 @@ class AnalyticsMixin:
 
         request = self.analysis_request
 
+        if request is None:
+            return self._kept("risk", lambda: RiskAnalytics(self.run_data, source))
+
+        # The risk model and liquidity choices of the analysis asked for, as
+        # its reports use them (BN-421).
+        options = request.options
+
         return self._kept("risk", lambda: RiskAnalytics(
-            self.run_data, source, request.factors if request is not None else None,
-            self._settings()))
+            self.run_data, source, request.factors, request.settings,
+            risk_model=options.risk_model.settings(),
+            participation=options.liquidity.participation,
+            lookback_days=options.liquidity.lookback_days))
 
     @property
     def attribution(self) -> Any:

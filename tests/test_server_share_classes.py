@@ -226,8 +226,8 @@ class TestTheResult:
         record = classes_of(result)["EUR H"]
 
         assert record["hedge_value"]["index"] == result["level"]["index"]
-        assert record["hedges"][0]["reason"] == "open"
-        assert {"roll"} <= {trade["reason"] for trade in record["hedges"]}
+        assert record["hedges"][0]["kind"] == "open"
+        assert {"roll"} <= {trade["kind"] for trade in record["hedges"]}
         assert result["hedge_value"] is not None
         assert classes_of(result)["EUR"]["hedge_value"] is None
 

@@ -43,6 +43,22 @@ class TestByHand:
         assert table.loc["between_rolls", "contracts"] == 110.0
         assert table.loc["all", "turnover"] == pytest.approx(3.3)
 
+    def test_trading_by_kind(self):
+        # A run's trades now carry the defined reason and their kind; an
+        # older stored run's reason column held the kind (above).
+        trades = pd.DataFrame({"reason": ["futures exposure", "futures exposure",
+                                          "futures roll"],
+                               "kind": ["open", "resize", "roll"],
+                               "traded": [100.0, 10.0, 220.0],
+                               "notional": [1e6, 1e5, 2.2e6], "cost": [200.0, 20.0, 330.0]},
+                              index=DAYS[:3])
+        nav = pd.Series(1e6, index=DAYS)
+
+        table = figures.futures_trading(trades, nav, periods_per_year=4)
+
+        assert list(table.index) == ["open", "resize", "roll", "between_rolls", "all"]
+        assert table.loc["between_rolls", "contracts"] == 110.0
+
     def test_the_basis_splits_into_carry_and_mispricing(self):
         days = pd.DataFrame({"price": [1010.0], "fair_value": [1005.0], "level": [1000.0]},
                             index=DAYS[:1])

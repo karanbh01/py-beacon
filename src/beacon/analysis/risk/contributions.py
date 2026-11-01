@@ -33,12 +33,26 @@ import pandas as pd
 
 from ...data.base import as_of_position
 from ...risk.model import FactorRiskModel
-from ..panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS, REFERENCE
+from ..panels import (
+    BENCHMARK_WEIGHTS,
+    FUND_WEIGHTS,
+    INDEX_WEIGHTS,
+    NAME_RETURNS,
+    OPTIMISED_WEIGHTS,
+    REFERENCE,
+)
+from . import forecast
 from .factors import FactorAnalytics
 from .model import FACTOR, RebalanceRiskModels, RiskModelSettings
 
-BOOKS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "benchmark": BENCHMARK_WEIGHTS}
+BOOKS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "optimised": OPTIMISED_WEIGHTS,
+         "benchmark": BENCHMARK_WEIGHTS}
 OTHER = "other"
+
+# An expected tracking error below this share of the book's own volatility
+# is rounding in the weights (a fund that holds the index exactly, say), so
+# its split into names is noise and the shares are given as 0.
+NEGLIGIBLE_ACTIVE = 1e-6
 
 # What each rebalance's summary gives.
 SUMMARY = ("volatility", "factor_volatility", "specific_volatility", "factor_share",
@@ -96,17 +110,21 @@ class RiskOverTime:
                       against: str | None = None) -> pd.DataFrame:
         """Each name's weight, marginal contribution, contribution and share
         of the book's expected volatility (or, *against* a comparator, of its
-        expected tracking error) at the rebalance on *date*."""
+        expected tracking error) at the rebalance on *date*. A tracking error
+        below a millionth of the book's own volatility is rounding in the
+        weights, and its shares are given as 0."""
         day = pd.Timestamp(date)
         model = self._model(day)
         weights = self._vector(model, day, book, against)
         moved = _covariance_times(model, weights)
-        sigma = float(np.sqrt(max(float(weights @ moved), 0.0)))
+        sigma = _volatility(weights, moved)
         marginal = moved / sigma if sigma > 0.0 else moved * 0.0
         contribution = weights * marginal
+        shared = sigma > 0.0 and (against is None or sigma > NEGLIGIBLE_ACTIVE
+                                  * self._book_volatility(model, day, book))
         table = pd.DataFrame({"weight": weights, "marginal": marginal,
                               "contribution": contribution,
-                              "share": contribution / sigma if sigma > 0.0 else 0.0},
+                              "share": contribution / sigma if shared else 0.0},
                              index=model.asset_ids)
 
         return table[table["weight"] != 0.0].sort_values("contribution", ascending=False)
@@ -152,6 +170,58 @@ class RiskOverTime:
 
         return pd.DataFrame.from_dict(rows, orient="index", columns=list(SUMMARY))
 
+    def forecast_check(self,
+                       book: str = "fund",
+                       against: str | None = "index") -> pd.DataFrame:
+        """Each rebalance's expected volatility, and tracking error against
+        *against* (none when None), beside the ones measured over the days
+        until the next rebalance, and the measured over the expected: see
+        `beacon.analysis.risk.forecast`."""
+        expected = self._forecasts(book, against)
+        returns = forecast.book_returns(self.run, book)
+        active = forecast.active_returns(self.run, book, against) if against else None
+
+        return forecast.forecast_check(expected, returns, active, self.run.periods_per_year)
+
+    def bias_statistics(self,
+                        book: str = "fund",
+                        against: str | None = "index") -> dict[str, float | None]:
+        """The bias statistic of the expected volatility, and of the
+        expected tracking error against *against*: the standard deviation of
+        the daily returns over the forecast in force, 1 when the forecasts
+        were right on average. See `beacon.analysis.risk.forecast`."""
+        expected = self._forecasts(book, against)
+        year = self.run.periods_per_year
+        figures = pd.DataFrame.from_dict(expected, orient="index")
+        found = {"volatility": forecast.bias_statistic(
+            figures.get("volatility", pd.Series(dtype=float)),
+            forecast.book_returns(self.run, book), year)}
+
+        if against:
+            found["tracking_error"] = forecast.bias_statistic(
+                figures["tracking_error"], forecast.active_returns(self.run, book, against),
+                year)
+
+        return found
+
+    def _forecasts(self,
+                   book: str,
+                   against: str | None) -> dict[pd.Timestamp, dict[str, float]]:
+        """The expected volatility (and tracking error) at each rebalance."""
+        found = {}
+
+        for day in self.dates():
+            model = self._model(day)
+            figures = _split(model, self._vector(model, day, book, None), "")
+
+            if against:
+                figures.update(_split(model, self._vector(model, day, book, against),
+                                      "tracking_"))
+
+            found[day] = figures
+
+        return found
+
     def measured(self,
                  group: str | None = None) -> pd.DataFrame:
         """Each name's (or, with *group*, each group's) share of the fund's
@@ -169,6 +239,15 @@ class RiskOverTime:
         table = pd.DataFrame({"share": shares, "volatility": shares * volatility})
 
         return table.sort_values("share", ascending=False)
+
+    def _book_volatility(self,
+                         model: FactorRiskModel,
+                         day: pd.Timestamp,
+                         book: str) -> float:
+        """The book's own expected volatility on *day*."""
+        weights = self._vector(model, day, book, None)
+
+        return _volatility(weights, _covariance_times(model, weights))
 
     def _model(self,
                day: pd.Timestamp) -> FactorRiskModel:
@@ -244,6 +323,12 @@ class RiskOverTime:
         grouped[OTHER] = contributions[OTHER].reindex(grouped.index)
 
         return grouped
+
+
+def _volatility(weights: pd.Series,
+                moved: pd.Series) -> float:
+    """The volatility of *weights*, from the covariance times them."""
+    return float(np.sqrt(max(float(weights @ moved), 0.0)))
 
 
 def _covariance_times(model: FactorRiskModel,

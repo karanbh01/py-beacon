@@ -262,12 +262,31 @@ specific part:
 
 `summary()` is `expected` at every rebalance in `dates()`.
 
+`forecast_check(book="fund", against="index")` sets each rebalance's
+expected volatility and tracking error beside the ones measured over the days
+after it, up to and including the next rebalance (or the run's last day):
+`days`, `expected_volatility`, `realised_volatility`, `volatility_ratio`
+(realised over expected, above 1 where the model under-forecast) and the same
+three for the tracking error, left out when `against` is None.
+`bias_statistics(book="fund", against="index")` pools the days: each day's
+return (or active return) over the daily forecast in force at the close
+before, and the standard deviation of those. It is 1 when the forecasts were
+right on average; with `n` days its standard error is about `1/√(2n)`.
+
+```python
+over_time.forecast_check().round(4)
+over_time.bias_statistics()     # {"volatility": ..., "tracking_error": ...}
+```
+
 `contributions(date, book="fund", against=None)` splits the expected
 volatility by name (or, with `against`, the expected tracking error):
 `weight`, `marginal` (the change in volatility per unit of weight),
 `contribution` (weight times marginal, adding up to the volatility) and
 `share` (adding up to 1), largest contribution first. A contribution can be
-negative: a name that hedges the rest reduces risk. `group_contributions`
+negative: a name that hedges the rest reduces risk. A tracking error below a
+millionth of the portfolio's own volatility is rounding in the weights (a
+fund that holds its index exactly, say), so its shares are given as 0 rather
+than split as noise. `group_contributions`
 adds them up by a reference field as it stood on the day, `"Unknown"` for a
 name without one. See [risk contribution](attribution.md#risk-contribution)
 for the decomposition itself.
@@ -313,7 +332,8 @@ first with each one's weight, the cumulative weight, and the Herfindahl and
 effective number of the top k on their own, with the change the k-th name
 made to each. `by_period("Y")` (or `"M"`) and `in_crises()` average the
 daily figures over each year or month, and inside each crisis and on the
-calm days outside them. `drift()` is each day's half sum of the absolute
+calm days outside them, within the analysis window, as the stress windows
+are. `drift()` is each day's half sum of the absolute
 gaps between the weights and the last rebalance's: the share of the
 portfolio that would trade to put it back.
 

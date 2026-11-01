@@ -3,7 +3,7 @@
 How a fund holding index futures traded them, and the basis risk of holding
 them.
 
-**Trading**, by why each trade was made (opened, rolled, resized): how many
+**Trading**, by what each trade did (opened, rolled, resized): how many
 trades, the contracts and notional traded, the cost, the cost per contract
 and in basis points of the notional, and the notional traded a year over the
 fund's mean assets.
@@ -34,12 +34,14 @@ TOTAL = "total"
 def futures_trading(trades: pd.DataFrame,
                     nav: pd.Series,
                     periods_per_year: int) -> pd.DataFrame:
-    """The futures trading by reason, between rolls, and all of it: the
-    trades, the contracts and notional traded, the cost, per contract and in
-    basis points of the notional, and the notional a year over the mean NAV."""
-    groups = {reason: trades[trades["reason"] == reason]
-              for reason in sorted(set(trades["reason"]))}
-    groups["between_rolls"] = trades[trades["reason"] != "roll"]
+    """The futures trading by kind (opened, rolled, resized), between rolls,
+    and all of it: the trades, the contracts and notional traded, the cost,
+    per contract and in basis points of the notional, and the notional a year
+    over the mean NAV."""
+    # A run stored before trades had a kind kept it as the reason (BN-421).
+    kinds = trades["kind"] if "kind" in trades.columns else trades["reason"]
+    groups = {kind: trades[kinds == kind] for kind in sorted(set(kinds))}
+    groups["between_rolls"] = trades[kinds != "roll"]
     groups["all"] = trades
     years = len(nav) / float(periods_per_year)
     assets = float(nav.mean()) if len(nav) else 0.0

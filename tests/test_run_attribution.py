@@ -12,7 +12,7 @@ import pytest
 
 from beacon.analysis.attribution import Attribution, attribute
 from beacon.analysis.data import RunData
-from beacon.analysis.panels import FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS
+from beacon.analysis.panels import FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS, OPTIMISED_WEIGHTS
 from test_factor_analytics import DAYS, EQUAL, FUND
 from test_risk_contributions_over_time import noisy
 
@@ -115,6 +115,14 @@ class TestActive:
         assert {item.asset_id: item.average_weight for item in found.contributions} == (
             pytest.approx(active))
 
+    def test_explains_the_compounded_returns_difference(self,
+                                                         attribution):
+        found = attribution.active()
+        effects = attribution.brinson("SECTOR")
+
+        assert found.total_return == pytest.approx(effects.active_return, abs=1e-12)
+        assert found.reconciles(1e-9)
+
     def test_by_sector(self,
                        attribution):
         names = attribution.active()
@@ -134,6 +142,29 @@ class TestActive:
 
         assert not found.reconciles()
         assert found.residual == pytest.approx(found.total_return - found.explained)
+
+    def test_against_the_optimised_index(self):
+        # The index's weights and levels again, as an optimised index: each
+        # method reads it as it reads the index.
+        data = consistent()
+        tables = {**data.tables, OPTIMISED_WEIGHTS: data.tables[INDEX_WEIGHTS]}
+        both = Attribution(RunData(
+            currency="USD", returns=data.returns, nav=data.nav, units=data.units,
+            initial_capital=1e6, periods_per_year=252, risk_free_rate=0.0, tables=tables,
+            comparators={**data.comparators, "optimised": data.comparators["index"]}))
+
+        assert both.active("optimised").to_frame().equals(both.active().to_frame())
+        assert both.contribution("optimised").to_frame().equals(
+            both.contribution("index").to_frame())
+        assert both.brinson("SECTOR", "optimised").totals.equals(
+            both.brinson("SECTOR").totals)
+        assert both.implementation("optimised").effects.equals(
+            both.implementation().effects)
+
+    def test_an_unknown_book(self,
+                             attribution):
+        with pytest.raises(KeyError, match="Unknown book 'model'"):
+            attribution.contribution("model")
 
     def test_an_unknown_comparator(self,
                                    attribution):

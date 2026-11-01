@@ -154,8 +154,9 @@ run kept, so there are no weights or prices to rebuild. It reads each book's
 daily weights, each name's daily total return in the fund's currency, the
 reference data at each rebalance, and the run's cash and costs.
 
-A book is `"fund"`, `"index"` (the index the fund tracked) or `"benchmark"`
-(the benchmark of record). Every method takes `start` and `end`, both
+A book is `"fund"`, `"index"` (the index the fund tracked), `"optimised"`
+(the optimised index, for a strategy that tracks one) or `"benchmark"` (the
+benchmark of record). Every method takes `start` and `end`, both
 included, and covers the whole run by default. The days are linked as above:
 by Carino's `ln(1+R)/R` for one book's return, and for a return over a
 comparator by the active factor
@@ -208,9 +209,9 @@ held.
 `active(against="index", field=None)` does the same for the fund against a
 comparator: the fund's weights less the comparator's, both as they drift and
 over the union of their names, against the fund's daily return less the
-comparator's. Its `total_return` is those daily differences compounded, which
-is not the fund's compounded return less the comparator's; the Brinson,
-currency, factor and implementation results below explain the latter.
+comparator's. The days are linked by the active Carino factor, so its
+`total_return` is the fund's compounded return less the comparator's, the same
+total the Brinson, currency, factor and implementation results below explain.
 
 Either way, what the names do not explain (cash, costs, fees, futures, the
 timing of dividends) is the residual, never folded into a name.
@@ -384,7 +385,7 @@ rebalance is then the difference between two methodologies, so it reads as
 `weights(book="fund")` is a book's daily weights, dates by names, as every
 method above reads them: names as strings, blanks as zero. It raises a
 `KeyError` if the run kept no weights for that book, as for a benchmark given
-as levels.
+as levels, or if the book is none of the four.
 
 ```python
 run.attribution.weights("benchmark").tail()

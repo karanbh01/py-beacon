@@ -277,7 +277,7 @@ starts after the run, the run's first day does too.
 
 | Method | Gives |
 | --- | --- |
-| `regression()` | Jensen's regression of the daily excess returns on the comparator's: `alpha` (a year), `beta`, `r_squared`, `alpha_t`, its two-sided `alpha_p`, and `residual_risk` a year. None with fewer than three days or a comparator that does not vary |
+| `regression()` | Jensen's regression of the daily excess returns on the comparator's: `alpha` (a year), `beta`, `r_squared`, `alpha_t`, its two-sided `alpha_p`, and `residual_risk` a year. None with fewer than three days. Against a comparator that does not vary the `beta` is 0, as `formulas.beta` gives it, and `alpha` is the mean excess return |
 | `treynor()` | The annual mean excess return per unit of beta |
 | `capture()` | Up and down capture on months, as Morningstar measures them: the fund's geometric mean monthly return in the months the comparator rose (fell) over the comparator's, and their ratio |
 | `batting_average()` | The share of months the fund beat the comparator |

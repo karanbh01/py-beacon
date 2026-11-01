@@ -115,8 +115,10 @@ and `TAGS` (joined by `"; "`).
 | `rebalance` | At a rebalance, toward the new target |
 | `subscription`, `redemption` | To invest money arriving, or raise money leaving |
 | `cash raise`, `cash spend-down` | By the cash band, selling back up to the buffer or investing the excess |
+| `fee funding` | By the cash band, selling back up to the buffer when the fees paid and owed since the cash was last at its target are at least half of what it raises |
 | `dividend reinvestment` | To reinvest a dividend |
-| `settlement` | To invest cash a derivative paid, or raise cash one is owed: a swap's value, a currency hedge's settlement, futures margin |
+| `settlement` | To invest cash a derivative paid, or raise cash one is owed: a swap's value, futures margin |
+| `fx hedge` | To invest what a currency hedge settled for, or raise what its settlement or cost needs (also tagged `settlement` for a settlement) |
 | `corporate action` | To carry out a corporate action |
 | `completion` | To work an order an execution limit left unfilled |
 
@@ -126,8 +128,15 @@ target: `diversification` (the index's cap or the vehicle's limits),
 allowed); and `model-driven` for an active strategy. Any trade whose reason
 moves cash is tagged `cash raise` when it sells and `cash spend-down` when it
 buys, whatever moved the cash. `beacon.portfolio.reasons` names a few more
-(`index change`, `drift`, `discretionary`, `risk-driven` and others) that no
-part of the engine records yet.
+(`index change`, `drift`, `discretionary`, `risk-driven` and
+`distribution funding`) that no part of the engine records yet: a
+distribution is paid from the income it distributes, so nothing is sold for
+it.
+
+The derivatives' own trades are recorded with them, each with a reason and a
+`kind`: a futures trade is a `futures roll` (kind `roll`) or sets the
+futures' exposure, `futures exposure` (kind `open` or `resize`); a hedged
+class's forward trade is an `fx hedge` (kind `open`, `roll` or `band`).
 
 **Figures by reason add up to the run's; figures by tag may count a trade
 more than once.** `trading_by_reason()` gives each reason's trades, buys,
@@ -249,7 +258,7 @@ each method below raises a `KeyError` on a run that held none:
 
 | Method | Gives |
 | --- | --- |
-| `futures_trading()` | A row for each reason (`open`, `roll`, `resize`), one for `between_rolls` (all but rolls) and one for `all`: trades, contracts and notional traded, cost, cost per contract and in basis points of the notional, and turnover (the notional a year over the mean NAV) |
+| `futures_trading()` | A row for each kind of trade (`open`, `roll`, `resize`), one for `between_rolls` (all but rolls) and one for `all`: trades, contracts and notional traded, cost, cost per contract and in basis points of the notional, and turnover (the notional a year over the mean NAV) |
 | `futures_basis(daily)` | The basis (the futures' price over their index's level, less one), split into the carry (fair value over the level) and the mispricing (the price over fair value): each day, or their mean, standard deviation, lowest and highest in basis points |
 | `futures_basis_risk()` | The tracking error the futures bring, split into the pricing basis (the futures' daily return less their own index's) and the underlying mismatch (their index's less the fund's index's), each with its mean a year and the days measured |
 

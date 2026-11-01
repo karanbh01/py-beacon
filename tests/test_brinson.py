@@ -17,7 +17,8 @@ import pandas as pd
 import pytest
 
 from beacon.analysis.attribution import Attribution
-from beacon.analysis.attribution.brinson import CASH, active_carino, daily_effects
+from beacon.analysis.attribution.brinson import CASH, daily_effects
+from beacon.analysis.attribution.contribution import active_carino
 from beacon.analysis.data import RunData
 from beacon.analysis.panels import CASH as CASH_TABLE
 from beacon.analysis.panels import FUND_WEIGHTS

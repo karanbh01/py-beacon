@@ -26,7 +26,6 @@ not yet paid, a price index's missing dividends) is the residual.
 """
 # BN-394. Agreed with Karan on 2026-10-28: daily, Carino-linked; interaction
 # and cash on lines of their own.
-import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field as default
@@ -37,13 +36,11 @@ from ..data import RunData
 from ..panels import CASH as CASH_TABLE
 from ..performance.comparisons import aligned
 from .brinson_names import name_effects
+from .contribution import active_carino
 from .groups import by_group, memberships
 
 CASH = "Cash"
 EFFECTS = ("allocation", "selection", "interaction")
-
-# Below this, two returns are treated as equal for the linking factor.
-NEGLIGIBLE = 1e-12
 
 
 @dataclass(frozen=True)
@@ -106,16 +103,6 @@ def daily_effects(fund: pd.DataFrame,
     return {"allocation": gap.mul(benchmark.sub(total, axis=0)),
             "selection": b * (own - benchmark),
             "interaction": gap * (own - benchmark)}
-
-
-def active_carino(fund: float,
-                  comparator: float) -> float:
-    """The linking factor for an active return: ``(ln(1 + R) - ln(1 + R^b))
-    / (R - R^b)``, ``1 / (1 + R)`` where the two are equal."""
-    if abs(fund - comparator) < NEGLIGIBLE:
-        return 1.0 / (1.0 + fund)
-
-    return (math.log1p(fund) - math.log1p(comparator)) / (fund - comparator)
 
 
 def carino_factors(fund: pd.Series,

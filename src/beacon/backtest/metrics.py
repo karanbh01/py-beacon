@@ -351,7 +351,8 @@ class MetricsMixin:
     def active_attribution(self) -> AttributionResult:
         """Which names produced the active return: each name's active weight
         (the portfolio's less the index's, as both drift) times its return,
-        linked over the run. Costs, cash and fees are in the residual.
+        linked over the run so they add up to the portfolio's compounded
+        return less the index's. Costs, cash and fees are in the residual.
 
         Raises:
             CalculationError: If the run has no index to compare with, or
@@ -376,11 +377,15 @@ class MetricsMixin:
             raise CalculationError("Attribution", "no prices to measure the "
                                    "names' returns with.")
 
-        active_returns = (self.get_returns()
-                          - formulas.returns_from_start(tracked.levels).dropna()).dropna()
+        ours = self.get_returns().dropna()
+        theirs = formulas.returns_from_start(tracked.levels).dropna()
+        days = ours.index.intersection(theirs.index)
 
-        return attribute(active_returns, active_weights,
-                         prices.ffill().pct_change(fill_method=None))
+        # Linked by the active Carino factor, so the contributions add up to
+        # the portfolio's compounded return less the index's.
+        return attribute(ours.loc[days], active_weights,
+                         prices.ffill().pct_change(fill_method=None),
+                         comparator=theirs.loc[days])
 
     def market_return(self) -> float | None:
         """An exchange investor's return on an ETF: bought at the ask on the

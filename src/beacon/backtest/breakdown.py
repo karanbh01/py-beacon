@@ -75,7 +75,7 @@ def daily_costs(result: BacktestResult) -> pd.DataFrame:
         where nothing of a kind happened.
     """
     trades = result.portfolio.transactions
-    between = [trade for trade in result.futures_trades if trade.reason != ROLL]
+    between = [trade for trade in result.futures_trades if trade.kind != ROLL]
     costs = pd.Series([trade.transaction_cost for trade in trades], dtype=float)
     impact = pd.Series([trade.impact_cost for trade in trades], dtype=float)
     trade_days = [trade.transaction_date for trade in trades]

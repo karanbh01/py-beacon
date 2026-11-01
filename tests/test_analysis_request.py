@@ -12,7 +12,11 @@ from beacon.analysis.attribution import Attribution
 from beacon.analysis.data import RunData
 from beacon.analysis.performance.analytics import PerformanceAnalytics
 from beacon.analysis.performance.settings import AnalysisSettings
-from beacon.analysis.reports.options import AnalysisOptions
+from beacon.analysis.reports.options import (
+    AnalysisOptions,
+    LiquidityOptions,
+    RiskModelOptions,
+)
 from beacon.analysis.request import (
     ATTRIBUTION,
     PERFORMANCE,
@@ -109,6 +113,17 @@ class TestAskedForUpFront:
         result = run(index(), analysis=AnalysisRequest(factors=[factor]))
 
         assert result.risk.factors.names == ["constant"]
+
+    def test_its_risk_model_and_liquidity_choices_reach_the_risk(self):
+        options = AnalysisOptions(risk_model=RiskModelOptions(window=60, structure="styles"),
+                                  liquidity=LiquidityOptions(participation=0.1,
+                                                             lookback_days=40))
+        result = run(index(), analysis=AnalysisRequest(options=options))
+        settings = result.risk.over_time.models.settings
+
+        assert (settings.window, settings.structure) == (60, "styles")
+        assert (result.risk.liquidity.participation,
+                result.risk.liquidity.lookback_days) == (0.1, 40)
 
 
 @pytest.mark.parametrize("module", ["beacon.analysis.request", "beacon.analysis.risk.analytics",

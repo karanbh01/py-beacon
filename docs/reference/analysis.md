@@ -57,6 +57,8 @@ A run's factors, value at risk, risk over time, concentration and liquidity. See
 
 ::: beacon.analysis.risk.model
 
+::: beacon.analysis.risk.forecast
+
 ## Attribution
 
 A run's attribution: by name and group, Brinson-Fachler, currency, factors and implementation. See [Attribution](../concepts/attribution.md).

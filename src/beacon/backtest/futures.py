@@ -84,7 +84,7 @@ class FuturesRoll:
     multiplier: float = 1.0
 
 
-# BN-409: why a futures trade was made.
+# BN-409: what a futures trade did, its kind.
 OPEN = "open"
 ROLL = "roll"
 RESIZE = "resize"
@@ -96,8 +96,11 @@ class FuturesTrade:
 
     Attributes:
         date: The day.
-        reason: ``open``, ``roll`` (the old contract sold and the next
-            bought) or ``resize`` (the position brought back to its target).
+        reason: Why it was made, as `beacon.portfolio.reasons` names it:
+            ``futures roll`` for a roll, ``futures exposure`` otherwise.
+        kind: What it did: ``open``, ``roll`` (the old contract sold and the
+            next bought) or ``resize`` (the position brought back to its
+            target).
         before: The contracts held before.
         after: The contracts held after.
         traded: The contracts traded: for a roll both legs, the old contracts
@@ -110,6 +113,7 @@ class FuturesTrade:
     """
     date: pd.Timestamp
     reason: str
+    kind: str
     before: float
     after: float
     traded: float
@@ -256,7 +260,9 @@ class FuturesMixin:
 
             cost += trading
             self._futures_trades.append(FuturesTrade(
-                date=date, reason=ROLL if rolling else OPEN if opening else RESIZE,
+                date=date,
+                reason=reasons.FUTURES_ROLL if rolling else reasons.FUTURES_EXPOSURE,
+                kind=ROLL if rolling else OPEN if opening else RESIZE,
                 before=before, after=self._contracts, traded=traded,
                 price=self._futures_price,
                 notional=traded * self._futures_price * terms.multiplier, cost=cost))

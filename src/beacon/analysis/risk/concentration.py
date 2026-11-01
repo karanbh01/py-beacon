@@ -50,11 +50,20 @@ import pandas as pd
 from ...data.base import as_of_position
 from ...risk.model import FactorRiskModel
 from ..data import RunData
-from ..panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS, REFERENCE
+from ..panels import (
+    BENCHMARK_WEIGHTS,
+    FUND_WEIGHTS,
+    INDEX_WEIGHTS,
+    NAME_RETURNS,
+    OPTIMISED_WEIGHTS,
+    REFERENCE,
+)
 from ..performance.crises import THRESHOLD, CrisisAnalytics, Episode
+from ..performance.settings import AnalysisSettings
 from .contributions import RiskOverTime
 
-BOOKS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "benchmark": BENCHMARK_WEIGHTS}
+BOOKS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "optimised": OPTIMISED_WEIGHTS,
+         "benchmark": BENCHMARK_WEIGHTS}
 TOPS = (5, 10, 20, 25)
 COVERAGE = (0.5, 0.8, 0.9)
 
@@ -178,13 +187,17 @@ class ConcentrationAnalytics:
     Args:
         run: The run's data.
         risk: The run's risk over time, for the figures by risk.
+        settings: The window the figures in crises are measured over, and
+            the conventions the crises are found with.
     """
 
     def __init__(self,
                  run: RunData,
-                 risk: RiskOverTime | None = None):
+                 risk: RiskOverTime | None = None,
+                 settings: AnalysisSettings | None = None):
         self.run = run
         self.risk = risk
+        self.settings = settings
 
     def weights(self,
                 book: str = "fund",
@@ -264,10 +277,18 @@ class ConcentrationAnalytics:
                   threshold: float = THRESHOLD,
                   named: Sequence[Episode] | None = None) -> pd.DataFrame:
         """The mean daily figures by weight inside each crisis and on the
-        calm days outside all of them."""
+        calm days outside all of them, within the analysis window."""
         daily = self.by_weight(book, field, daily=True)
-        crises = CrisisAnalytics(self.run, market=market, threshold=threshold,
-                                 named=named).crises()
+        settings = self.settings
+
+        if settings is not None and settings.start is not None:
+            daily = daily[daily.index >= pd.Timestamp(settings.start)]
+
+        if settings is not None and settings.end is not None:
+            daily = daily[daily.index <= pd.Timestamp(settings.end)]
+
+        crises = CrisisAnalytics(self.run, market=market, threshold=threshold, named=named,
+                                 settings=settings).crises()
         calm = pd.Series(True, index=daily.index)
         rows = {}
 

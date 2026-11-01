@@ -179,6 +179,9 @@ class AccountingMixin:
         """Open the unit register on the eve of the run."""
         self._units = self.initial_capital / self.launch_price
         self._fees_payable = 0.0
+        # The fees paid since the cash was last brought back to its target,
+        # by a rebalance or the cash band: what tells a fee funding sale.
+        self._fees_since_target = 0.0
         self._flow_records: list[FlowRecord] = []
         self._units_history: dict[pd.Timestamp, float] = {eve: self._units}
         self._payable_history: dict[pd.Timestamp, float] = {eve: 0.0}
@@ -259,6 +262,7 @@ class AccountingMixin:
         if paid > 0.0:
             portfolio.receive_cash(-paid, date, FEE)
             self._fees_payable -= paid
+            self._fees_since_target += paid
 
     # -- flows ---------------------------------------------------------------
 

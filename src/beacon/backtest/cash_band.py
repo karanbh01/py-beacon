@@ -74,6 +74,7 @@ class CashBandMixin:
 
     implementation: Implementation
     _fees_payable: float
+    _fees_since_target: float
     _band_events: list[CashBandEvent]
 
     def _net_value(self,
@@ -130,9 +131,15 @@ class CashBandMixin:
             with portfolio.trading(reasons.CASH_SPEND_DOWN):
                 self._invest_inflow(portfolio, date)
         else:
-            with portfolio.batch(), portfolio.trading(reasons.CASH_RAISE):
-                self._sell_pro_rata(portfolio, self.implementation.cash_buffer * net - cash,
-                                    date)
+            # Fee funding when the fees paid and owed since the cash was last
+            # at its target are at least half of what is raised: the fees,
+            # more than anything else, took the cash out (BN-421).
+            raised = self.implementation.cash_buffer * net - cash
+            fees = self._fees_since_target + self._fees_payable
+            reason = reasons.FEE_FUNDING if fees >= 0.5 * raised else reasons.CASH_RAISE
+
+            with portfolio.batch(), portfolio.trading(reason):
+                self._sell_pro_rata(portfolio, raised, date)
 
         # Nothing to buy or sell (before the fund's first rebalance, say)
         # brings nothing back, so it is no event and trades nothing to resize.
@@ -141,6 +148,7 @@ class CashBandMixin:
 
         self._update_portfolio_prices(portfolio, date)
         self._record_band_event(portfolio, date, share, made)
+        self._fees_since_target = 0.0
 
         return True
 

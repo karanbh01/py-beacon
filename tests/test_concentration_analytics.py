@@ -17,6 +17,7 @@ import pytest
 from beacon.analysis.data import RunData
 from beacon.analysis.panels import FUND_WEIGHTS
 from beacon.analysis.performance.crises import Episode
+from beacon.analysis.performance.settings import AnalysisSettings
 from beacon.analysis.risk.concentration import (
     ConcentrationAnalytics,
     concentration_curve,
@@ -157,6 +158,20 @@ class TestOverARun:
 
         assert list(years.index) == ["2023", "2024"]
         assert list(crises.index) == ["spring", "calm"]
+
+    def test_in_crises_within_the_analysis_window(self,
+                                                  analytics):
+        # From June 2023 the spring episode is outside the window, and the
+        # calm days are the window's alone.
+        windowed = ConcentrationAnalytics(analytics.run, analytics.risk,
+                                          AnalysisSettings(start=pd.Timestamp("2023-06-01")))
+        spring = [Episode("spring", pd.Timestamp("2023-03-01"), pd.Timestamp("2023-05-31"))]
+        daily = analytics.by_weight(daily=True)
+
+        crises = windowed.in_crises(named=spring)
+
+        assert list(crises.index) == ["calm"]
+        assert crises.loc["calm"].equals(daily[daily.index >= "2023-06-01"].mean())
 
     def test_a_book_s_curve_on_a_day(self,
                                     analytics):

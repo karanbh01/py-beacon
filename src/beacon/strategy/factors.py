@@ -319,13 +319,29 @@ class Factor(Signal):
     def _cells(self,
                names: list[str],
                inputs: FactorInputs) -> dict[str, Cell]:
-        """Each name's group under *centre_by*: a value per field."""
+        """Each name's group under *centre_by*: a value per field, up to the
+        first field the name has no value for, so a name with no sector is
+        centred in the wider group it does have, as a thin group's names are."""
         if not self.centre_by:
             return dict.fromkeys(names, ())
 
         groups = [inputs.group(grouping) for grouping in self.centre_by]
+        cells: dict[str, Cell] = {}
 
-        return {name: tuple(str(found.get(name)) for found in groups) for name in names}
+        for name in names:
+            parts: list[str] = []
+
+            for found in groups:
+                value = found.get(name)
+
+                if value is None:
+                    break
+
+                parts.append(value)
+
+            cells[name] = tuple(parts)
+
+        return cells
 
     @staticmethod
     def _members(known: list[str],

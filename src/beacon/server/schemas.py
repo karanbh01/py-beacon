@@ -4143,8 +4143,9 @@ class FlowPayload(BaseModel):
 class HedgePayload(BaseModel):
     """One trade of a hedged class's forward."""
     date: str = Field(description="YYYY-MM-DD.")
-    reason: str = Field(description="'open', 'roll' (a new month) or 'band' (the hedge "
-                                    "ratio left its band).")
+    reason: str = Field(description="Why it was made: 'fx hedge'.")
+    kind: str = Field(description="What it did: 'open', 'roll' (a new month) or 'band' "
+                                  "(the hedge ratio left its band).")
     notional: float = Field(description="The new forward's notional, in the book's "
                                         "currency.")
     rate: float = Field(description="Its contracted rate, class currency per unit of "

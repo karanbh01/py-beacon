@@ -106,30 +106,38 @@ class RelativeAnalytics:
 
     def regression(self) -> Regression | None:
         """Jensen's regression of the fund's daily excess returns on the
-        comparator's; None with fewer than three days or a comparator that
-        does not vary."""
+        comparator's; None with fewer than three days. Against a comparator
+        that does not vary there is nothing to be sensitive to, so the beta
+        is 0, as `beacon.analysis.performance.formulas.beta` gives it, and
+        the alpha is the fund's mean excess return."""
         rate = formulas.daily_rate(self.performance.risk_free_rate, self.periods_per_year)
         y = (self.ours - rate).to_numpy(dtype=float)
         x = (self.theirs - rate).to_numpy(dtype=float)
         count = len(y)
 
-        if count < 3 or not float(np.std(x, ddof=1)) > formulas.NEGLIGIBLE_SPREAD:
+        if count < 3:
             return None
 
-        beta = float(np.cov(y, x, ddof=1)[0, 1] / np.var(x, ddof=1))
+        varies = float(np.std(x, ddof=1)) > formulas.NEGLIGIBLE_SPREAD
+        beta = float(np.cov(y, x, ddof=1)[0, 1] / np.var(x, ddof=1)) if varies else 0.0
         alpha = float(y.mean() - beta * x.mean())
         residuals = y - alpha - beta * x
         squares = float(np.sum((y - y.mean()) ** 2))
         unexplained = float(np.sum(residuals ** 2))
-        noise = unexplained / (count - 2)
-        error = np.sqrt(noise * (1.0 / count + x.mean() ** 2 / float(np.sum((x - x.mean()) ** 2))))
+
+        # Without a varying comparator the regression is on the intercept
+        # alone, with one degree of freedom more.
+        freedom = count - 2 if varies else count - 1
+        noise = unexplained / freedom
+        spread = (x.mean() ** 2 / float(np.sum((x - x.mean()) ** 2))) if varies else 0.0
+        error = np.sqrt(noise * (1.0 / count + spread))
         t = float(alpha / error) if error > 0 else None
 
         return Regression(alpha=alpha * self.periods_per_year,
                           beta=beta,
-                          r_squared=1.0 - unexplained / squares if squares else 0.0,
+                          r_squared=1.0 - unexplained / squares if squares and varies else 0.0,
                           alpha_t=t,
-                          alpha_p=_two_sided_p(t, count - 2),
+                          alpha_p=_two_sided_p(t, freedom),
                           residual_risk=float(np.sqrt(noise * self.periods_per_year)))
 
     def treynor(self) -> float | None:

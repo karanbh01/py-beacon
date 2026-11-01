@@ -119,7 +119,7 @@ def _payload(book: ShareClassBook,
         distributions_paid=book.distributions_paid,
         flows=flow_payloads(book.flows),
         hedge_value=_series(book.hedge_value, days) if book.hedged else None,
-        hedges=[HedgePayload(date=str(trade.date.date()), reason=trade.reason,
+        hedges=[HedgePayload(date=str(trade.date.date()), reason=trade.reason, kind=trade.kind,
                              notional=trade.notional, rate=trade.rate, settled=trade.settled)
                 for trade in book.hedges],
         metrics=ShareClassMetrics.model_validate(metrics))

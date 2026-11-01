@@ -12,6 +12,7 @@ import pytest
 from scipy import stats
 
 from beacon.analysis.data import RunData
+from beacon.analysis.performance import formulas as f
 from beacon.analysis.performance.relative_analytics import RelativeAnalytics
 
 PPY = 252
@@ -79,10 +80,18 @@ class TestTheRegression:
         assert analytics.treynor() == pytest.approx(
             OURS.mean() * PPY / analytics.regression().beta)
 
-    def test_a_comparator_that_does_not_vary_has_no_regression(self):
+    def test_a_comparator_that_does_not_vary_has_a_beta_of_zero(self):
+        # As formulas.beta gives it: the alpha is then the mean, its
+        # t-statistic the mean's.
         flat = pd.Series(0.0, index=DAYS)
+        found = relative(OURS, flat).regression()
+        error = OURS.std() / np.sqrt(len(OURS))
 
-        assert relative(OURS, flat).regression() is None
+        assert (found.beta, found.r_squared) == (0.0, 0.0)
+        assert found.beta == f.beta(OURS, flat)
+        assert found.alpha == pytest.approx(OURS.mean() * PPY)
+        assert found.alpha_t == pytest.approx(OURS.mean() / error)
+        assert found.residual_risk == pytest.approx(OURS.std() * np.sqrt(PPY))
         assert relative(OURS, flat).treynor() is None
 
 

@@ -27,7 +27,7 @@ CAPS = dict(zip(NAMES, [10.0, 20, 5, 40, 8, 15, 30, 2, 12, 6, 25, 4], strict=Tru
 VALUES = dict(zip(NAMES, [1.0, 3, -2, 0.5, 4, -1, 2, 6, -3, 1.5, 0, 2.5], strict=True))
 
 
-def fetcher() -> DataFetcher:
+def fetcher(sectors: list[str | None] = SECTORS) -> DataFetcher:
     days = pd.bdate_range("2024-05-27", DAY)
     market = pd.DataFrame([{"IDENTIFIER": name, "DATE": day, "CLOSE": 10.0,
                             "SHARES_OUTSTANDING": CAPS[name] / 10.0 * 1e6}
@@ -35,7 +35,7 @@ def fetcher() -> DataFetcher:
     reference = pd.DataFrame([{"IDENTIFIER": name, "NAME": name, "DATE_FROM": "2020-01-01",
                                "CURRENCY": "USD", "EXCHANGE": "XNYS", "SECTOR": sector,
                                "REGION": region}
-                              for name, sector, region in zip(NAMES, SECTORS, REGIONS,
+                              for name, sector, region in zip(NAMES, sectors, REGIONS,
                                                               strict=True)])
 
     return DataFetcher(MarketData.from_dataframe(market), ReferenceData.from_dataframe(reference))
@@ -164,6 +164,19 @@ class TestGroups:
         assert inputs.fallbacks["f"] == {("Europe", "Energy"): ("Europe",),
                                          ("Asia", "Energy"): (),
                                          ("Asia", "Health"): ()}
+
+    def test_a_name_with_no_sector_is_centred_on_the_universe(self):
+        # The five Energy names have no sector: they are centred on the whole
+        # universe, as a thin group's names are, not in a group of their own.
+        unsectored = StrategyContext(fetcher(SECTORS[:5] + [None] * 5 + SECTORS[10:]), "USD")
+        inputs = FactorInputs(unsectored, DAY, NAMES)
+        found = pd.Series(Factor("f", given(), centre_by="sector").exposures(
+            NAMES, DAY, unsectored, inputs=inputs))
+        spread = (VALUES["N05"] - VALUES["N06"]) / (found["N05"] - found["N06"])
+        mean = VALUES["N05"] - found["N05"] * spread
+
+        assert mean == pytest.approx(float((pd.Series(VALUES) * caps()).sum()))
+        assert inputs.fallbacks == {"f": {("Health",): ()}}
 
     def test_scaled_within_groups(self):
         found = scores(Factor("f", given(), centre_by="sector", scale_within_groups=True))

@@ -27,10 +27,17 @@ import pandas as pd
 from ...data.base import as_of_position
 from ...data.fetcher import DataFetcher
 from ..data import RunData
-from ..panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, INDEX_WEIGHTS, TRADED_VALUES
+from ..panels import (
+    BENCHMARK_WEIGHTS,
+    FUND_WEIGHTS,
+    INDEX_WEIGHTS,
+    OPTIMISED_WEIGHTS,
+    TRADED_VALUES,
+)
 from ..snapshots import IDENTIFIER, TRADED_VALUE, traded_value_snapshots
 
-BOOKS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "benchmark": BENCHMARK_WEIGHTS}
+BOOKS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "optimised": OPTIMISED_WEIGHTS,
+         "benchmark": BENCHMARK_WEIGHTS}
 PARTICIPATION = 0.2
 LOOKBACK_DAYS = 20
 HORIZONS = (1, 5, 20)

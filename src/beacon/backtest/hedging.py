@@ -56,7 +56,7 @@ from ..portfolio.cash_flows import HEDGE
 
 logger = logging.getLogger(__name__)
 
-# Why a hedge was traded.
+# What a hedge trade did, its kind.
 OPEN = "open"
 ROLL = "roll"
 BAND = "band"
@@ -92,8 +92,10 @@ class HedgeTrade:
 
     Attributes:
         date: The day.
-        reason: ``"open"``, ``"roll"`` (a new month) or ``"band"`` (the
-            hedge ratio left its band).
+        reason: Why it was made, as `beacon.portfolio.reasons` names it:
+            ``fx hedge``.
+        kind: What it did: ``"open"``, ``"roll"`` (a new month) or
+            ``"band"`` (the hedge ratio left its band).
         notional: The new forward's notional, in the book's currency.
         rate: The new forward's contracted rate, class currency per unit of
             the book's.
@@ -109,6 +111,7 @@ class HedgeTrade:
     """
     date: pd.Timestamp
     reason: str
+    kind: str
     notional: float
     rate: float
     settled: float
@@ -193,7 +196,7 @@ class HedgingMixin:
                 received += self._open(ledger, portfolio, date, BAND, forward.expiry)
 
         if received > 0.0:
-            with portfolio.trading(reasons.SETTLEMENT):
+            with portfolio.trading(reasons.FX_HEDGE, tags=(reasons.SETTLEMENT,)):
                 self._invest_inflow(portfolio, date)
 
     def _record_hedges(self,
@@ -212,7 +215,7 @@ class HedgingMixin:
               ledger: Any,
               portfolio: Portfolio,
               date: pd.Timestamp,
-              reason: str,
+              kind: str,
               expiry: pd.Timestamp) -> float:
         """Settle the class's forward, if it has one, and open another to
         *expiry* sized to its net assets. Returns what the settlement
@@ -222,17 +225,18 @@ class HedgingMixin:
         notional = ledger.share_class.hedge_ratio * max(ledger.net, 0.0)
         rate = self._forward_rate(ledger, date, expiry)
         ledger.hedge = Forward(notional=notional, rate=rate, expiry=expiry)
-        dealt = abs(notional - old) if reason == BAND else notional
+        dealt = abs(notional - old) if kind == BAND else notional
         cost = self._pay_hedge_cost(ledger, portfolio, date,
                                     dealt * ledger.share_class.hedge_cost_bps / 10_000.0)
         carry = notional * (rate - ledger.fx) / ledger.fx if ledger.fx > 0.0 else 0.0
-        ledger.hedge_trades.append(HedgeTrade(date=date, reason=reason, notional=notional,
+        ledger.hedge_trades.append(HedgeTrade(date=date, reason=reasons.FX_HEDGE, kind=kind,
+                                              notional=notional,
                                               rate=rate, settled=settled * ledger.fx,
                                               spot=float(ledger.fx), expiry=expiry,
                                               carry=float(carry), cost=cost))
 
         logger.debug("[%s] %s hedge %s: %.2f sold forward to %s at %.6f.", date.date(),
-                     ledger.share_class.name, reason, notional, expiry.date(), rate)
+                     ledger.share_class.name, kind, notional, expiry.date(), rate)
 
         return max(settled, 0.0)
 
@@ -255,7 +259,7 @@ class HedgingMixin:
             short = -value - (portfolio.cash_balance - self._fees_payable)
 
             if short > 0.0:
-                with portfolio.trading(reasons.SETTLEMENT):
+                with portfolio.trading(reasons.FX_HEDGE, tags=(reasons.SETTLEMENT,)):
                     self._sell_pro_rata(portfolio, short, date)
 
             paid = min(-value, portfolio.cash_balance)
@@ -284,7 +288,7 @@ class HedgingMixin:
         short = cost - (portfolio.cash_balance - self._fees_payable)
 
         if short > 0.0:
-            with portfolio.trading(reasons.SETTLEMENT):
+            with portfolio.trading(reasons.FX_HEDGE):
                 self._sell_pro_rata(portfolio, short, date)
 
         paid = min(cost, max(portfolio.cash_balance, 0.0))

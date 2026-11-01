@@ -121,6 +121,19 @@ class RiskModelOptions:
     weekly: bool = True
     weeks: int = 104
 
+    def settings(self) -> Any:
+        """These choices as the risk model's settings
+        (`beacon.analysis.risk.model.RiskModelSettings`)."""
+        # The risk model reads a RunData, whose module imports the backtest,
+        # which imports these options: so it is imported here.
+        from ..risk.model import RiskModelSettings  # noqa: PLC0415
+
+        return RiskModelSettings(window=self.window, structure=self.structure,
+                                 country_field=self.country_field or None,
+                                 minimum_names=self.minimum_names, sectors=self.sectors,
+                                 currencies=self.currencies, weekly=self.weekly,
+                                 weeks=self.weeks)
+
 
 @dataclass(frozen=True)
 class LiquidityOptions:

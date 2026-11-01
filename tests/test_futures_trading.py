@@ -17,6 +17,7 @@ from beacon.analysis.panels import FUTURES_DAYS, FUTURES_TRADES
 from beacon.backtest import Backtest, DatedFlows
 from beacon.backtest.breakdown import daily_costs
 from beacon.backtest.futures import OPEN, RESIZE, ROLL
+from beacon.portfolio.reasons import FUTURES_EXPOSURE, FUTURES_ROLL
 from beacon.strategy.futures import IndexFutures
 from test_strategy_futures import FLOW_DAY, NO_YIELD, futures, index, run
 
@@ -34,11 +35,20 @@ class TestTheTrades:
     def test_the_position_opens_rolls_and_is_resized(self,
                                                      costly):
         trades = costly.futures_trades
-        reasons = [trade.reason for trade in trades]
+        kinds = [trade.kind for trade in trades]
 
-        assert reasons[0] == OPEN
-        assert reasons.count(ROLL) == len(costly.futures_rolls)
-        assert RESIZE in reasons
+        assert kinds[0] == OPEN
+        assert kinds.count(ROLL) == len(costly.futures_rolls)
+        assert RESIZE in kinds
+
+    def test_each_trade_has_the_derivatives_reason(self,
+                                                   costly):
+        # BN-421: a roll is a futures roll; opening and resizing set the
+        # futures' exposure.
+        found = {(trade.kind, trade.reason) for trade in costly.futures_trades}
+
+        assert found == {(OPEN, FUTURES_EXPOSURE), (ROLL, FUTURES_ROLL),
+                         (RESIZE, FUTURES_EXPOSURE)}
 
     def test_each_trade_carries_on_from_the_last(self,
                                                  costly):
@@ -47,7 +57,7 @@ class TestTheTrades:
         for before, after in pairwise(trades):
             assert after.before == before.after
         for trade in trades:
-            legs = trade.before + trade.after if trade.reason == ROLL else abs(
+            legs = trade.before + trade.after if trade.kind == ROLL else abs(
                 trade.after - trade.before)
             assert trade.traded == legs
             assert trade.notional == pytest.approx(trade.traded * trade.price * 50.0)
@@ -57,13 +67,13 @@ class TestTheTrades:
     def test_each_trade_is_costed_per_contract_and_in_basis_points(self,
                                                                    costly):
         for trade in costly.futures_trades:
-            if trade.reason == ROLL:
+            if trade.kind == ROLL:
                 continue
             assert trade.cost == pytest.approx(trade.traded * 2.0 + trade.notional * 1e-4)
 
     def test_a_roll_pays_its_roll_cost_and_both_legs(self,
                                                      costly):
-        rolls = [trade for trade in costly.futures_trades if trade.reason == ROLL]
+        rolls = [trade for trade in costly.futures_trades if trade.kind == ROLL]
 
         # The roll cost is on the net assets the position is sized to, which
         # the close's NAV is after paying it.
@@ -75,7 +85,7 @@ class TestTheTrades:
     def test_the_costs_are_the_run_s(self,
                                      costly):
         costs = daily_costs(costly)
-        between = sum(trade.cost for trade in costly.futures_trades if trade.reason != ROLL)
+        between = sum(trade.cost for trade in costly.futures_trades if trade.kind != ROLL)
 
         assert costs["futures_trading"].sum() == pytest.approx(between)
         assert costs["futures_rolls"].sum() == pytest.approx(
