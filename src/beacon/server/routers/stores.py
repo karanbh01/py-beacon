@@ -24,6 +24,7 @@ from ..active_data import ActiveData, active_data
 from ..data_stores import StoreRegistry, available, describe, load
 from ..errors import FindingsError
 from ..jobs import JobRegistry, ProgressReporter
+from ..market_inputs import forget_store as forget_runs
 from ..schemas import (
     ErrorEnvelope,
     Finding,
@@ -32,11 +33,13 @@ from ..schemas import (
     LoadResult,
     TolerantCollection,
 )
+from ..store import DocumentStore
 from ..store_schemas import (
     DataStore,
     DataStoreCollection,
     DataStoreCreate,
     DataStoreUpdate,
+    StoreForgotten,
 )
 from .universes import seed_global_universe
 
@@ -48,8 +51,8 @@ from fastapi import (  # noqa: E402
     APIRouter,
     FastAPI,
     HTTPException,
+    Query,
     Request,
-    Response,
     status,
 )
 
@@ -254,15 +257,20 @@ def build_stores_router() -> APIRouter:
         return _view(request, record_or_404(request, store_id))
 
     @router.delete("/{store_id}",
-                   status_code=status.HTTP_204_NO_CONTENT,
+                   response_model=StoreForgotten,
                    responses=CONFLICT_RESPONSE)
     def forget_store(request: Request,
-                     store_id: Identifier) -> Response:
+                     store_id: Identifier,
+                     cascade: bool = Query(
+                         False, description="Delete the stored runs that read "
+                                            "the store's data too.")) -> StoreForgotten:
         """Forget a store.
 
         A folder the user registered is left exactly as it is. A store the
         engine created (`managed`) has its folder deleted too, since nothing
-        else knows it is there.
+        else knows it is there. The stored runs that read its data keep
+        their market inputs, and say so when opened; with `cascade`, they
+        are deleted too.
         """
         record = record_or_404(request, store_id)
         refuse_if_refreshing(request, record)
@@ -278,7 +286,11 @@ def build_stores_router() -> APIRouter:
         if record.get("managed"):
             remove_managed_folder(request.app, Path(record["path"]))
 
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        # BN-413: the runs on it keep its market inputs, or go with it.
+        records: DocumentStore = request.app.state.backtest_record_store
+        outcome = forget_runs(records, record, cascade)
+
+        return StoreForgotten(**outcome)
 
     # async, as every job-submitting endpoint must be: the registry attaches
     # the job to the running event loop.

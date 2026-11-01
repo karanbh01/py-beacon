@@ -21,6 +21,16 @@ The large tables a run keeps beside its record, such as the fund's daily weights
 
 ::: beacon.analysis.panels
 
+## Shared market inputs
+
+A data store's market inputs, kept once for every run on it, and the runs that use them.
+
+::: beacon.analysis.shared_inputs
+
+::: beacon.analysis.shared_runs
+
+::: beacon.analysis.holding_replay
+
 ## Snapshots at each rebalance
 
 What a run's names looked like at each rebalance, such as their sector and country, kept with the run so a later rerun of its analysis gives the same answer.

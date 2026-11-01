@@ -385,7 +385,9 @@ class TestManaging:
 
         response = client.delete("/data/stores/mine", headers=HEADERS)
 
-        assert response.status_code == 204
+        # BN-413: no stored run read its data.
+        assert response.status_code == 200
+        assert response.json() == {"kept": [], "deleted": [], "warning": None}
         assert data_store.exists(folder)
         assert client.get("/data/stores/mine", headers=HEADERS).status_code == 404
 

@@ -96,6 +96,20 @@ class DataStoreCreate(BaseModel):
         return self
 
 
+class StoreForgotten(BaseModel):
+    """Response of `DELETE /data/stores/{store_id}`: what became of the
+    stored runs that read the store's data."""
+    kept: list[str] = Field(
+        description="The strategies whose stored runs read the store's data. "
+                    "Their market inputs are kept, and each run says, when "
+                    "opened, that its store was deleted.")
+    deleted: list[str] = Field(
+        description="The strategies whose stored runs were deleted with the "
+                    "store (`cascade=true`).")
+    warning: str | None = Field(
+        default=None, description="Said when runs still read the store's data.")
+
+
 class DataStoreUpdate(BaseModel):
     """Body of `PATCH /data/stores/{store_id}`. Omitted fields are unchanged."""
     name: str | None = Field(default=None, min_length=1, max_length=80,

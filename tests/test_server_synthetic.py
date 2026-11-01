@@ -152,7 +152,9 @@ class TestForgettingAGeneratedStore:
 
         response = client.delete("/data/stores/temporary", headers=HEADERS)
 
-        assert response.status_code == 204
+        # BN-413: 200 with what became of the runs on it, here none.
+        assert response.status_code == 200
+        assert response.json()["kept"] == []
         assert not folder.exists()
 
 

@@ -184,7 +184,19 @@ start serves the same one.
 | Generate synthetic data into a new store | `POST /data/synthetic` | 202 with a `generate:{id}` job. The store is served when it is ready, unless `activate` is false. |
 | Import CSV files or an Excel workbook into a new store | `POST /data/import` | 201 with the new store, plus a `load:{id}` job when it is being served. `GET /data/import/template` gives the layout. |
 | Rename a store or change its refresh source | `PATCH /data/stores/{id}` | 200 with the store. |
-| Forget a store | `DELETE /data/stores/{id}` | 204. A folder you registered is left as it is; a store the engine created (`managed: true`) has its folder deleted. The store being served cannot be forgotten (409). |
+| Forget a store | `DELETE /data/stores/{id}` | 200 with what became of the stored runs that read it: `kept`, `deleted` and a `warning`. A folder you registered is left as it is; a store the engine created (`managed: true`) has its folder deleted. The runs on it keep their market inputs, and say so when opened; with `?cascade=true` they are deleted too. The store being served cannot be forgotten (409). |
+
+A strategy's stored run keeps the market inputs it read (closes, exchange
+rates, corporate actions, currencies, traded values, characteristics and
+reference data) in its data store's shared folder, `market_inputs/<store id>`
+in the server's storage, once for every run on that store, and only the list
+of pieces it used beside its record. A repeat run on the same data adds
+nothing; a revised price is a new piece, so an older run keeps the numbers it
+ran on. A run on data from no registered store keeps its inputs itself. Runs
+stored before 0.10.0 are moved to this layout when the server starts, under
+`market_inputs/unattributed`, and read the same. `GET
+/strategies/{id}/analytics` carries a run's `warnings`, such as its store
+having been deleted.
 
 Loading runs as a job because reading a large store takes seconds. Until it
 finishes, the engine serves the previous data, and `/health` shows

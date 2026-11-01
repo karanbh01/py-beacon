@@ -38,6 +38,7 @@ from ..analysis_schemas import (
     SavedAnalysisView,
 )
 from ..jobs import JobRegistry
+from ..market_inputs import warnings_of
 from ..schemas import AnalyticsJobStatus, Identifier
 from ..store import DocumentStore
 from .strategy_runs import RECORD_SOURCE, _strategy
@@ -69,11 +70,14 @@ def build_analysis_router() -> APIRouter:
         """
         folder = _run_folder(request, strategy_id)
         block = read_analytics(folder)
+        warnings = warnings_of(folder)
 
         if block is None:
-            return AnalyticsView(status=NOT_COMPUTED, analytics=None, reason=NOT_COMPUTED_REASON)
+            return AnalyticsView(status=NOT_COMPUTED, analytics=None, reason=NOT_COMPUTED_REASON,
+                                 warnings=warnings)
 
-        return AnalyticsView(status=COMPUTED, analytics=AnalyticsBlock.model_validate(block))
+        return AnalyticsView(status=COMPUTED, analytics=AnalyticsBlock.model_validate(block),
+                             warnings=warnings)
 
     @router.get("/strategies/{strategy_id}/tables/{name}", response_model=ColumnarTable,
                 responses={200: {"content": {ARROW: {}},

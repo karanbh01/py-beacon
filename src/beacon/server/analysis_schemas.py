@@ -124,6 +124,10 @@ class AnalyticsView(BaseModel):
     analytics: AnalyticsBlock | None = Field(description="The run's analysis; null when "
                                                          "not computed.")
     reason: str | None = Field(default=None, description="Why it was not computed.")
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="What the stored run says as it opens: that the data "
+                    "store its market inputs came from was deleted, say.")
 
 
 class AnalyticsRerun(BaseModel):

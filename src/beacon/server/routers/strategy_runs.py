@@ -23,7 +23,7 @@ import pandas as pd
 from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError
-from ..active_data import current_data, require_data
+from ..active_data import active_data, current_data, require_data
 from ..backtest_settings import GENERIC, BuiltSettings
 from ..backtest_settings import build as build_settings
 from ..backtests import build_backtest_job
@@ -323,10 +323,15 @@ def build_strategy_runs_router() -> APIRouter:
         registry: JobRegistry = request.app.state.jobs
         store: DocumentStore = request.app.state.index_store
         records: DocumentStore = request.app.state.backtest_record_store
+        holder = active_data(request)
+        # The data store the run reads, whose shared folder keeps its market
+        # inputs (BN-413); none for data from no registered store.
+        reads = ({"id": holder.store_id, "name": holder.store_name}
+                 if holder.store_id is not None else None)
         job = registry.submit(
             backtest_kind(strategy_id),
             build_backtest_job(strategy, document, fetcher, settings, store,
-                               record_store=records, built=built))
+                               record_store=records, built=built, store=reads))
 
         return BacktestJobStatus(**job.snapshot())
 

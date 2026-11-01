@@ -187,7 +187,7 @@ class TestPackedTables:
                                                      data,
                                                      tmp_path,
                                                      monkeypatch):
-        from beacon.analysis import data as module
+        from beacon.analysis import stored_tables as module
 
         data.write(tmp_path / "run")
         calls = []
@@ -212,7 +212,16 @@ class TestPackedTables:
 
         for name in (FUND_WEIGHTS, "index_weights", "benchmark_weights"):
             assert not (folder / f"{name}.parquet").exists(), name
+
+        for name in ("index_weights", "benchmark_weights"):
             assert (folder / f"{name}_holdings.parquet").exists(), name
+
+        # BN-413: the fund's holdings are worked out from its trades, with
+        # what those do not give back.
+        assert not (folder / f"{FUND_WEIGHTS}_holdings.parquet").exists()
+        assert (folder / f"{FUND_WEIGHTS}_holdings_drops.parquet").exists()
+        assert RunData.from_record(folder).tables[FUND_WEIGHTS + "_holdings"].equals(
+            data.tables[FUND_WEIGHTS + "_holdings"])
 
     def test_the_fund_s_weights_need_no_patch(self,
                                               data):

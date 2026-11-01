@@ -10,7 +10,7 @@ from the level series, or compounds the annual returns, must land back on the
 numbers the server sent; if those were computed independently they would drift
 apart at the last decimal and nobody would know which to trust.
 """
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -40,6 +40,7 @@ from .errors import FindingsError
 from .holdings import HOLDINGS_KEY, holdings_document
 from .job_threads import Report, run_in_thread
 from .jobs import JobBody, ProgressReporter
+from .market_inputs import merge_if_due, shared_for
 from .record_tables import slim_record
 from .schemas import (
     ActiveStepPayload,
@@ -229,7 +230,8 @@ def build_backtest_job(strategy: StrategyDocument,
                        request: BacktestRequest,
                        index_store: DocumentStore,
                        record_store: DocumentStore | None = None,
-                       built: BuiltSettings | None = None) -> JobBody:
+                       built: BuiltSettings | None = None,
+                       store: Mapping[str, Any] | None = None) -> JobBody:
     """Build the job body that runs one backtest of a stored strategy.
 
     Returned as a closure rather than run inline: the caller submits it to the
@@ -377,10 +379,16 @@ def build_backtest_job(strategy: StrategyDocument,
             # BN-404: the record's large parts as tables there too.
             run = RunData.from_result(backtest)
             folder = record_store.panels_directory(strategy.id)
-            run.write(folder)
+            # BN-413: its market inputs in its data store's shared folder,
+            # once for every run on the store.
+            shared = shared_for(record_store, store)
+            run.write(folder, shared=shared, store=store)
             whole = {**record.model_dump(mode="json"),
                      HOLDINGS_KEY: holdings_document(backtest, index_result)}
             record_store.write(strategy.id, slim_record(whole, run, folder))
+
+            if shared is not None and store is not None:
+                merge_if_due(record_store, shared, store)
 
         # BN-398: the analysis in the payload, and beside the run's tables,
         # read by strategy.

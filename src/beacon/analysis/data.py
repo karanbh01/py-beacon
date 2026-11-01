@@ -12,9 +12,15 @@ exactly as it was written, whatever has happened to the data store since.
 
 A run stored before its tables were kept loads with what it has, and
 `missing` says, for each table it lacks, why.
+
+Written with a data store's shared folder (`beacon.analysis.shared_inputs`),
+a run keeps its market inputs there, once for every run on that store, and
+only the list of pieces it used itself; it reads them back from there, and
+says so when the store has since been deleted.
 """
 # BN-369.
 import json
+import logging
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from functools import partial
@@ -27,29 +33,44 @@ from ..backtest.result import BacktestResult
 from ..exceptions import ConfigurationError
 from .packing import CLOSES_FLOAT, CLOSES_PACKED, CLOSES_SCALE, pack_closes, unpack_closes
 from .panels import (
-    ACTIONS,
     CASH,
     CHARACTERISTICS,
     CLOSES,
     COSTS,
-    CURRENCIES,
     FUND_WEIGHTS,
     HOLDINGS,
     INDEX_WEIGHTS,
     NAME_RETURNS,
-    RATES,
     REFERENCE,
     TRADED_VALUES,
     TRADES,
     WEIGHT_TABLES,
-    name_returns_from,
     read_manifest,
     read_panels,
     run_panels,
-    weights_from,
     write_panels,
 )
-from .trade_packing import PACKED_TRADES, TRADES_KEPT, pack_trades, unpack_trades
+from .shared_inputs import SHARED, SharedInputs
+from .stored_tables import (
+    FUND_HOLDINGS,
+    HOLDINGS_KEPT,
+    SHARED_PIECES,
+    VALUE,
+    StoredTables,
+    add_shared,
+    column_of,
+    holdings_from,
+    packed_holdings,
+    packed_trades,
+    read_one,
+    rebuilds_of,
+    relative_folder,
+    trades_from,
+    window_of,
+)
+from .trade_packing import PACKED_TRADES, TRADES_KEPT
+
+logger = logging.getLogger(__name__)
 
 # What a run records, beside its tables.
 RUN_FILE = "run.json"
@@ -63,7 +84,6 @@ RETURNS, NAV, UNITS = "returns", "nav", "units"
 PERFORMANCE, INVESTOR_FLOWS = "performance", "investor_flows"
 INDEX, OPTIMISED, BENCHMARK = "index", "optimised", "benchmark"
 _LEVELS = "levels_"
-_VALUE = "value"
 
 # The tables a stored run works out again from the ones it keeps, when it
 # kept what they are worked out from.
@@ -104,6 +124,8 @@ class RunData:
         investor_flows: The investors' cash flows, dated, from their side
             (money put in negative, the final NAV positive), for a run with
             flows; None for any other.
+        warnings: What a stored run says as it opens: that the data store
+            its market inputs came from was deleted, say.
     """
     currency: str
     returns: pd.Series
@@ -118,6 +140,7 @@ class RunData:
     performance: pd.Series | None = None
     performance_start: float | None = None
     investor_flows: pd.Series | None = None
+    warnings: tuple[str, ...] = ()
 
     @classmethod
     def from_result(cls,
@@ -177,16 +200,27 @@ class RunData:
         """The last *rows* rows of table *name*. A stored run's daily weights
         are worked out for those days alone, unless already read whole, and
         are those rows of the whole table exactly."""
-        if isinstance(self.tables, _Tables):
+        if isinstance(self.tables, StoredTables):
             return self.tables.latest(name, rows)
 
         return self.tables[name].tail(rows)
 
     def write(self,
-              folder: Path) -> None:
+              folder: Path,
+              shared: SharedInputs | None = None,
+              store: Mapping[str, Any] | None = None) -> None:
         """Keep this run in *folder*, replacing whatever it held: its tables
         and series as `beacon.analysis.panels` writes them, and the rest in
-        ``run.json``."""
+        ``run.json``.
+
+        Args:
+            folder: Where the run is kept.
+            shared: The shared folder of the data store the run read, which
+                keeps its market inputs instead of *folder*; None to keep
+                them in *folder*.
+            store: The data store the run read (``id`` and ``name``), kept
+                with the run when *shared* is given.
+        """
         series = {RETURNS: self.returns, NAV: self.nav, UNITS: self.units,
                   **{_LEVELS + name: levels for name, levels in self.comparators.items()}}
 
@@ -202,20 +236,37 @@ class RunData:
         kept = {name: self.tables[name] for name in self.tables
                 if name not in derived and name != CLOSES}
         closes = self.tables.get(CLOSES)
+        inputs = None
 
-        if closes is not None:
+        if shared is not None:
+            # BN-413: the market inputs once for every run on the store.
+            pieces, layouts = shared.add({name: self.tables[name] for name in SHARED
+                                          if name in self.tables})
+            kept = {name: table for name, table in kept.items() if name not in layouts}
+            kept[SHARED_PIECES] = pieces
+            inputs = {"folder": relative_folder(shared.folder, folder), "store": dict(store or {}),
+                      "layouts": layouts}
+        elif closes is not None:
             kept.update(pack_closes(closes))
 
         # The trades are kept as what was traded, the rest worked out again
         # on reading (BN-412), when that gives them back exactly.
-        trades = _packed_trades(self.tables, self.currency)
+        trades = packed_trades(self.tables, self.currency)
 
         if trades is not None:
             del kept[TRADES]
             kept.update(trades[0])
 
+        # The fund's holdings are worked out again from its trades, when
+        # that gives them back exactly (BN-413).
+        holdings = packed_holdings(self.tables)
+
+        if holdings is not None:
+            del kept[FUND_HOLDINGS]
+            kept.update({HOLDINGS_KEPT[part]: table for part, table in holdings.items()})
+
         write_panels(folder, {**kept,
-                              **{name: values.to_frame(_VALUE) for name, values in series.items()}})
+                              **{name: values.to_frame(VALUE) for name, values in series.items()}})
         run = {"version": RUN_VERSION, "currency": self.currency,
                "initial_capital": self.initial_capital,
                "periods_per_year": self.periods_per_year,
@@ -227,8 +278,15 @@ class RunData:
                           if name != NAME_RETURNS and len(self.tables[name].columns)},
                "closes": [] if closes is None else [str(name) for name in closes.columns]}
 
+        if inputs is not None:
+            run["inputs"] = inputs
+
         if trades is not None:
             run["trades"] = {"rate": trades[1], "columns": list(self.tables[TRADES].columns)}
+
+        if holdings is not None:
+            run["holdings"] = {"dtypes": {str(column): str(dtype) for column, dtype
+                                          in self.tables[FUND_HOLDINGS].dtypes.items()}}
 
         (folder / RUN_FILE).write_text(json.dumps(run, sort_keys=True), encoding="utf-8")
 
@@ -263,24 +321,29 @@ class RunData:
         # again, the first time it is asked for, so a run opened for its
         # performance figures reads only what they need (BN-403).
         held = list((read_manifest(folder) or {}).get("panels", {}))
-        series = {name: _column(table) for name, table in read_panels(
+        series = {name: column_of(table) for name, table in read_panels(
             folder, [name for name in held if name in (RETURNS, NAV, UNITS, PERFORMANCE,
                                                        INVESTOR_FLOWS)
                      or name.startswith(_LEVELS)]).items()}
         packed = [name for name in (CLOSES_PACKED, CLOSES_SCALE, CLOSES_FLOAT) if name in held]
         kept = [name for name in held if name not in series and name not in packed
-                and name not in PACKED_TRADES]
-        tables = _Tables({}, {name: partial(_read_one, folder, name) for name in kept})
+                and name not in PACKED_TRADES and name != SHARED_PIECES
+                and name not in HOLDINGS_KEPT.values()]
+        tables = StoredTables({}, {name: partial(read_one, folder, name) for name in kept})
+        warnings = add_shared(tables, folder, run.get("inputs"))
 
         if packed:
             tables.add(CLOSES, lambda: unpack_closes(read_panels(folder, packed),
                                                      run.get("closes") or None))
 
         if TRADES_KEPT in held:
-            tables.add(TRADES, partial(_trades_from, folder, tables, run))
+            tables.add(TRADES, partial(trades_from, folder, tables, run))
 
-        for name, rebuild in _rebuilds(tables, run).items():
-            tables.add(name, rebuild, _window(name, tables, run))
+        if run.get("holdings"):
+            tables.add(FUND_HOLDINGS, partial(holdings_from, folder, tables, run))
+
+        for name, rebuild in rebuilds_of(tables, run).items():
+            tables.add(name, rebuild, window_of(name, tables, run))
 
         return cls(currency=run["currency"],
                    returns=series[RETURNS],
@@ -296,7 +359,8 @@ class RunData:
                    performance=series.get(PERFORMANCE),
                    performance_start=(None if run.get("performance_start") is None
                                       else float(run["performance_start"])),
-                   investor_flows=series.get(INVESTOR_FLOWS))
+                   investor_flows=series.get(INVESTOR_FLOWS),
+                   warnings=warnings)
 
 
 class _Built(Mapping[str, pd.DataFrame]):
@@ -344,127 +408,6 @@ class _Lacking(Mapping[str, str]):
 
     def __len__(self) -> int:
         return len(self._all())
-
-
-class _Tables(Mapping[str, pd.DataFrame]):
-    """A stored run's tables, each read from its folder, or worked out again
-    from the ones it kept, the first time it is asked for."""
-
-    def __init__(self,
-                 kept: dict[str, pd.DataFrame],
-                 rebuilds: dict[str, Callable[[], pd.DataFrame]]):
-        self._kept = kept
-        self._rebuilds = rebuilds
-        self._windows: dict[str, Callable[[int], pd.DataFrame]] = {}
-
-    def __getitem__(self,
-                    name: str) -> pd.DataFrame:
-        if name not in self._kept and name in self._rebuilds:
-            self._kept[name] = self._rebuilds[name]()
-
-        return self._kept[name]
-
-    def __iter__(self) -> Iterator[str]:
-        yield from self._kept
-        yield from (name for name in self._rebuilds if name not in self._kept)
-
-    def __len__(self) -> int:
-        return len(set(self._kept) | set(self._rebuilds))
-
-    def add(self,
-            name: str,
-            rebuild: Callable[[], pd.DataFrame],
-            window: Callable[[int], pd.DataFrame] | None = None) -> None:
-        """Have *name* read or worked out the first time it is asked for;
-        *window* works out only its last rows, when it can."""
-        self._rebuilds[name] = rebuild
-
-        if window is not None:
-            self._windows[name] = window
-
-    def latest(self,
-               name: str,
-               rows: int) -> pd.DataFrame:
-        """The last *rows* rows of *name*: worked out for those alone when it
-        is worked out again and has not been already."""
-        if name in self._kept or name not in self._windows:
-            return self[name].tail(rows)
-
-        return self._windows[name](rows)
-
-
-def _packed_trades(tables: Mapping[str, pd.DataFrame],
-                   currency: str) -> tuple[dict[str, pd.DataFrame], float] | None:
-    """A run's trades packed, and the fixed rate; None when the run has no
-    trades or lacks what they are worked out from, or they would not come
-    back exactly."""
-    if TRADES not in tables or not all(name in tables for name in (CLOSES, CURRENCIES, RATES,
-                                                                 ACTIONS)):
-        return None
-
-    return pack_trades(tables[TRADES], tables, currency)
-
-
-def _trades_from(folder: Path,
-                 tables: Mapping[str, pd.DataFrame],
-                 run: Mapping[str, Any]) -> pd.DataFrame:
-    """A stored run's trades, worked out again from what it kept."""
-    return unpack_trades(read_panels(folder, list(PACKED_TRADES)), tables, run["currency"],
-                         float(run["trades"]["rate"]), list(run["trades"]["columns"]))
-
-
-def _read_one(folder: Path,
-              name: str) -> pd.DataFrame:
-    """One stored table."""
-    return read_panels(folder, [name])[name]
-
-
-def _rebuilds(tables: Mapping[str, pd.DataFrame],
-              run: Mapping[str, Any]) -> dict[str, Callable[[], pd.DataFrame]]:
-    """How each table a stored run worked out again is rebuilt from the ones
-    it kept."""
-    rebuilds: dict[str, Callable[[], pd.DataFrame]] = {}
-
-    if NAME_RETURNS in run.get("derived", []):
-        # The run's days are the costs table's, a row for each.
-        rebuilds[NAME_RETURNS] = lambda: name_returns_from(tables, run["currency"],
-                                                           pd.DatetimeIndex(tables[COSTS].index))
-
-    for name in WEIGHT_TABLES:
-        if name in run.get("derived", []):
-            rebuilds[name] = partial(weights_from, name, tables, run["currency"],
-                                     run.get("dtypes", {}).get(name, "float64"))
-
-    return rebuilds
-
-
-def _window(name: str,
-            tables: Mapping[str, pd.DataFrame],
-            run: Mapping[str, Any]) -> Callable[[int], pd.DataFrame] | None:
-    """How a stored run's daily weights are worked out for their last days
-    alone; None for any other table."""
-    if name not in WEIGHT_TABLES:
-        return None
-
-    return partial(_latest_weights, name, tables, run["currency"],
-                   run.get("dtypes", {}).get(name, "float64"))
-
-
-def _latest_weights(name: str,
-                    tables: Mapping[str, pd.DataFrame],
-                    currency: str,
-                    dtype: str,
-                    rows: int) -> pd.DataFrame:
-    """*name*'s daily weights on its last *rows* days."""
-    return weights_from(name, tables, currency, dtype, last=rows)
-
-
-def _column(table: pd.DataFrame) -> pd.Series:
-    """A series kept as a table of one column."""
-    column = table[_VALUE]
-    column.name = None
-
-    return column
 
 
 def _older(folder: Path,

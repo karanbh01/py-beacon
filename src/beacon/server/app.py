@@ -30,6 +30,7 @@ from .compression import RemoteGZip  # noqa: E402
 from .data_stores import StoreRegistry  # noqa: E402
 from .errors import register_exception_handlers  # noqa: E402
 from .jobs import JobRegistry  # noqa: E402
+from .market_inputs import migrate as migrate_inputs  # noqa: E402
 from .methods import LiteralPathMethods  # noqa: E402
 from .query_guard import single_valued_query  # noqa: E402
 from .routers import (  # noqa: E402
@@ -247,6 +248,9 @@ def create_app(config: ServerConfig) -> FastAPI:
     # Written compactly (BN-404): the spaces were about 5% of a record.
     app.state.backtest_record_store = DocumentStore(
         "strategy_backtest_records", root=config.storage_root, compact=True)
+    # BN-413: runs stored before keep their market inputs in the shared
+    # layout from now on, and read the same.
+    migrate_inputs(app.state.backtest_record_store)
 
     # A dataset with no universe document is a dataset the editor cannot
     # select from, so one covering everything is written as soon as data is
