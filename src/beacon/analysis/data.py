@@ -50,6 +50,8 @@ from .panels import (
     run_panels,
     write_panels,
 )
+from .shared_indices import index_tables
+from .shared_indices import keep as keep_index
 from .shared_inputs import SHARED, SharedInputs
 from .stored_tables import (
     FUND_HOLDINGS,
@@ -246,6 +248,13 @@ class RunData:
             kept[SHARED_PIECES] = pieces
             inputs = {"folder": relative_folder(shared.folder, folder), "store": dict(store or {}),
                       "layouts": layouts}
+            # BN-414: the index's results once for every run tracking it.
+            index = index_tables(kept)
+
+            if index:
+                kept = {name: table for name, table in kept.items() if name not in index}
+                inputs["index"] = {"key": keep_index(shared.folder, index),
+                                   "tables": list(index)}
         elif closes is not None:
             kept.update(pack_closes(closes))
 

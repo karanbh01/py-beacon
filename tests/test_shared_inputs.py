@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from beacon.analysis import shared_inputs as inputs
 from beacon.analysis.panels import (
     ACTIONS,
     CHARACTERISTICS,
@@ -163,6 +164,12 @@ class TestSharing:
 
 class TestMerging:
 
+    @pytest.fixture(autouse=True)
+    def no_grace(self,
+                 monkeypatch):
+        # Every file here is new, so none would be dropped otherwise.
+        monkeypatch.setattr(inputs, "GRACE_SECONDS", 0)
+
     def test_a_merge_keeps_what_runs_use_and_reads_the_same(self,
                                                             tmp_path):
         shared = SharedInputs(tmp_path)
@@ -184,6 +191,18 @@ class TestMerging:
             shared.add({CLOSES: closes(bump=float(bump))})
 
         assert shared.due_a_merge()
+
+    def test_pieces_written_lately_are_kept_whether_used_or_not(self,
+                                                                tmp_path,
+                                                                monkeypatch):
+        # A run saved alongside has added its pieces but not yet listed them.
+        monkeypatch.setattr(inputs, "GRACE_SECONDS", 3_600)
+        shared = SharedInputs(tmp_path)
+        pieces, layouts = shared.add({CLOSES: closes()})
+
+        shared.merge(set())
+
+        assert_same(read_all(shared, pieces, layouts)[CLOSES], closes())
 
     def test_a_piece_the_folder_lacks_is_named(self,
                                                tmp_path):

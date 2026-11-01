@@ -23,11 +23,13 @@ The large tables a run keeps beside its record, such as the fund's daily weights
 
 ## Shared market inputs
 
-A data store's market inputs, kept once for every run on it, and the runs that use them.
+A data store's market inputs and index results, kept once for every run on it, and the runs that use them.
 
 ::: beacon.analysis.shared_inputs
 
 ::: beacon.analysis.shared_runs
+
+::: beacon.analysis.shared_indices
 
 ::: beacon.analysis.holding_replay
 

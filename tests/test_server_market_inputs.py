@@ -46,6 +46,10 @@ def activate(client,
 
 @pytest.fixture
 def client(tmp_path):
+    yield from serving(tmp_path)
+
+
+def serving(tmp_path):
     """A server serving the canonical dataset from a registered store, with
     both strategies backtested on it."""
     folder = data_store.save(dataset.data_fetcher(), tmp_path / "canonical")

@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import threading
+import time
 import uuid
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -49,6 +50,10 @@ CATALOGUE = "catalogue.parquet"
 DELETED = "deleted.json"
 # A folder with more files than this is due a merge.
 MERGE_AFTER = 20
+# A merge keeps what was written this recently whether a run lists it or not:
+# a run saved alongside has added its pieces but may not have written its
+# list yet.
+GRACE_SECONDS = 3_600
 
 # The long form every piece is kept in: the name, the day, and the values;
 # while being written, its piece and its place.
@@ -67,7 +72,8 @@ _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_LOCK = threading.Lock()
 
 
-def _lock(folder: Path) -> threading.Lock:
+def folder_lock(folder: Path) -> threading.Lock:
+    """The lock that runs adding to, merging or reading *folder* take."""
     key = str(folder.resolve())
 
     with _LOCKS_LOCK:
@@ -107,7 +113,7 @@ class SharedInputs:
         used = (pd.concat(pieces, ignore_index=True) if pieces
                 else _empty_catalogue()[list(CATALOGUE_COLUMNS[:4])])
 
-        with _lock(self.folder):
+        with folder_lock(self.folder):
             catalogue = self.catalogue()
             known = set(zip(catalogue["table"], catalogue["fingerprint"], strict=True))
             added = []
@@ -139,7 +145,7 @@ class SharedInputs:
         """
         wanted = {int(fingerprint) for fingerprint in fingerprints}
 
-        with _lock(self.folder):
+        with folder_lock(self.folder):
             catalogue = self.catalogue()
             rows = catalogue[(catalogue["table"] == table)
                              & catalogue["fingerprint"].isin(wanted)]
@@ -170,16 +176,19 @@ class SharedInputs:
     def merge(self,
               in_use: Iterable[tuple[str, int]]) -> None:
         """Rewrite the folder as one file per table holding only the pieces
-        *in_use* (table and fingerprint): written beside the old files, the
-        catalogue swapped in, then the old files removed."""
+        *in_use* (table and fingerprint), and those in files written in the
+        last `GRACE_SECONDS`: written beside the old files, the catalogue
+        swapped in, then the old files removed."""
         keep = {(str(table), int(fingerprint)) for table, fingerprint in in_use}
 
-        with _lock(self.folder):
+        with folder_lock(self.folder):
             catalogue = self.catalogue()
             old = set(catalogue["file"])
-            kept = catalogue[[(table, int(fingerprint)) in keep for table, fingerprint
+            recent = {file for file in old if _recent(self.folder / file)}
+            kept = catalogue[[(table, int(fingerprint)) in keep or file in recent
+                              for table, fingerprint, file
                               in zip(catalogue["table"], catalogue["fingerprint"],
-                                     strict=True)]]
+                                     catalogue["file"], strict=True)]]
             written = [self._write(str(table), _rows(self.folder, held), held)
                        for table, held in kept.groupby("table", sort=False)]
             _write_atomic(pd.concat(written, ignore_index=True) if written
@@ -219,6 +228,11 @@ class SharedInputs:
         found["file"] = file
 
         return found[list(CATALOGUE_COLUMNS)]
+
+
+def _recent(path: Path) -> bool:
+    """Whether *path* was written in the last `GRACE_SECONDS`."""
+    return path.exists() and time.time() - path.stat().st_mtime < GRACE_SECONDS
 
 
 def deleted_warning(store: Mapping[str, Any]) -> str:

@@ -18,9 +18,10 @@ from typing import Any
 
 import pandas as pd
 
+from . import shared_indices
 from .data import RUN_FILE, RunData
 from .panels import MANIFEST_FILE, read_manifest, read_panels
-from .shared_inputs import SHARED, SharedInputs, deleted_warning
+from .shared_inputs import MERGE_AFTER, SHARED, SharedInputs, deleted_warning
 from .stored_tables import SHARED_PIECES
 
 logger = logging.getLogger(__name__)
@@ -63,18 +64,38 @@ def in_use(runs: Mapping[str, Path],
     return used
 
 
+def indices_in_use(runs: Mapping[str, Path],
+                   store_id: str) -> set[str]:
+    """Every index result the *runs* on *store_id* use."""
+    used = set()
+
+    for name in runs_on(runs, store_id):
+        index = (_inputs(runs[name]) or {}).get("index")
+
+        if index:
+            used.add(str(index["key"]))
+
+    return used
+
+
 def merge_if_due(runs: Mapping[str, Path],
                  shared: SharedInputs,
                  store_id: str) -> bool:
     """Merge *shared*, keeping the pieces *runs* use, when it holds too many
-    files; whether it did."""
-    if not shared.due_a_merge():
-        return False
+    files, and remove the index results no run uses when it holds too many of
+    those; whether it did either."""
+    merged = False
 
-    shared.merge(in_use(runs, store_id))
-    logger.info("Merged the shared market inputs of data store %s.", store_id)
+    if len(shared_indices.keys(shared.folder)) > MERGE_AFTER:
+        shared_indices.prune(shared.folder, indices_in_use(runs, store_id))
+        merged = True
 
-    return True
+    if shared.due_a_merge():
+        shared.merge(in_use(runs, store_id))
+        logger.info("Merged the shared market inputs of data store %s.", store_id)
+        merged = True
+
+    return merged
 
 
 def forget_store(runs: Mapping[str, Path],

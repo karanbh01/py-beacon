@@ -192,7 +192,7 @@ reference data) in its data store's shared folder, `market_inputs/<store id>`
 in the server's storage, once for every run on that store, and only the list
 of pieces it used beside its record. A repeat run on the same data adds
 nothing; a revised price is a new piece, so an older run keeps the numbers it
-ran on. A run on data from no registered store keeps its inputs itself. Runs
+ran on. An index's results within a run (its books' holdings and patches) are kept there once too, for every strategy tracking that index over the same days. A run on data from no registered store keeps its inputs itself. Runs
 stored before 0.10.0 are moved to this layout when the server starts, under
 `market_inputs/unattributed`, and read the same. `GET
 /strategies/{id}/analytics` carries a run's `warnings`, such as its store

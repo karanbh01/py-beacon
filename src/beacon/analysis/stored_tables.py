@@ -30,6 +30,7 @@ from .panels import (
     read_panels,
     weights_from,
 )
+from .shared_indices import read as read_index
 from .shared_inputs import SharedInputs, deleted_warning
 from .trade_packing import PACKED_TRADES, pack_trades, unpack_trades
 
@@ -125,6 +126,8 @@ def add_shared(tables: "StoredTables",
     for name in inputs["layouts"]:
         tables.add(name, partial(table, name))
 
+    _add_index(tables, shared, inputs.get("index"))
+
     deleted = shared.deleted()
 
     if deleted is None:
@@ -134,6 +137,26 @@ def add_shared(tables: "StoredTables",
     logger.warning(warning)
 
     return (warning,)
+
+
+def _add_index(tables: "StoredTables",
+               shared: SharedInputs,
+               index: Mapping[str, Any] | None) -> None:
+    """Add to *tables* the index's results the run keeps in the shared
+    folder, all read when the first is asked for (BN-414)."""
+    if not index:
+        return
+
+    found: dict[str, dict[str, pd.DataFrame]] = {}
+
+    def part(name: str) -> pd.DataFrame:
+        if "all" not in found:
+            found["all"] = read_index(shared.folder, index["key"], index["tables"])
+
+        return found["all"][name]
+
+    for name in index["tables"]:
+        tables.add(name, partial(part, name))
 
 
 def packed_trades(tables: Mapping[str, pd.DataFrame],
