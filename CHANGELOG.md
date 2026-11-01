@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-01
+
+A run's analysis is a library of its own, `beacon.analysis`: performance, portfolio, risk and attribution figures for a finished or a stored run, and 103 statistics in eight reports that a backtest can ask for (`Backtest.run(analysis=...)`, and `analysis` on the API's backtest) and a stored run can be asked for again later. A run whose names span more than one country is analysed with a global factor model, with country, sector and currency factors. A stored run keeps what it needs to rerun its analysis exactly, and its market inputs and index results are kept once for every run on the same data store: at 6,000 names a run keeps 3.0 MB of its own, and a repeat run on the same data adds nothing else. Figures change: the Sharpe ratio and the information ratio are measured on mean daily returns everywhere, active attribution explains the fund's compounded return less the comparator's, and trades carry the reasons they were made. Deleting a data store answers 200 rather than 204, synthetic prices are in whole cents, and `beacon.risk.factors` and `beacon.analysis.comparison` are gone.
+
 ### Added
 
 - A run's large tables are kept beside its record as Parquet files, with a small manifest saying what is there: `beacon.analysis.panels` writes and reads them (`write_panels`, `read_panels`, `read_manifest`), and they read back exactly. A strategy's backtest record now keeps the fund's weight in every name on every day, unabridged, where the JSON record keeps only the last 1,000 days. A record saved before has no tables, and still opens. Deleting a strategy removes its tables with its record. On a 7-year backtest over 6,000 names, writing them adds about a second.
