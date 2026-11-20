@@ -215,6 +215,41 @@ three-year yearly rate is kept with the run too, for the style box. Growth
 from a value that was zero or negative is None, so a name coming out of a loss
 has no earnings growth.
 
+## Style box
+
+The `style_positions`, `style_box` and `style_classification` statistics place
+each name held on the fund's last day in a style box, by size (large, mid,
+small) and style (value, blend, growth), from its characteristics at the
+latest rebalance (`beacon.analysis.performance.style`).
+
+**Size is by market cap in US dollars, in fixed bands**: large above $10bn,
+mid from $2bn to $10bn, small below $2bn. A name's size position runs from 0
+(the top of large) to 3 (the bottom of small) on a log scale within each band:
+$1tn is 0, $10bn 1, $2bn 2 and $100m 3. The scale is not clipped, so a name
+above $1tn sits below 0 and one below $100m above 3. A run in another currency
+puts its caps in dollars at the rate it kept, or the data store's; with
+neither, the statistics are unavailable (`no_dollar_rate`). Fixed bands drift
+over a long run: $10bn in 2005 was a far larger company than in 2025.
+
+**Style is growth less value.** Each name has a value score, the mean
+cross-sectional z-score of its earnings yield, book yield and dividend yield,
+and a growth score, the mean z-score of its earnings and sales growth. Each
+z-score is over the index's names, clipped at three standard deviations. The
+style position is the style score's cap-weighted percentile among the index's
+names in the same size band, times 3, so each style holds a third of the
+band's cap. A name with no value or growth figure is placed at blend (1.5). A
+name with no market cap is left out, and `style_box` gives each portfolio's
+coverage: the share of its weight placed.
+
+A cell is the floor of a position. `style_box` gives each portfolio's weight
+in the nine cells, over its placed names, and `style_classification` each
+portfolio's centre, the weighted mean of its names' positions, with the cell
+it falls in (for example large blend).
+
+The `style` options section holds the band edges (`large_from`, `mid_from`),
+the scale's ends (`top`, `bottom`) and the growth measure (`growth`: `year`,
+or `three_years` for the yearly rate over three years).
+
 ## Income, AUM and flows
 
 | Method | Gives |

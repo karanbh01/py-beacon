@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, fields
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from ..performance.settings import AnalysisSettings
+from ..performance.style import THREE_YEARS, YEAR, StyleSettings
 
 DAILY, MONTH_END = "daily", "month_end"
 STEPS = (DAILY, MONTH_END)
@@ -189,6 +190,7 @@ class AnalysisOptions:
     liquidity: LiquidityOptions = field(default_factory=LiquidityOptions)
     attribution: AttributionOptions = field(default_factory=AttributionOptions)
     exposures: ExposuresOptions = field(default_factory=ExposuresOptions)
+    style: StyleSettings = field(default_factory=StyleSettings)
 
 
 @dataclass(frozen=True)
@@ -325,6 +327,19 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
                                    "is read from.",
                                    suggestions=("COUNTRY_DOMICILE", "COUNTRY_LISTING",
                                                 "REGION")),
+    }),
+    "style": ("Style box", {
+        "large_from": Described("Large above", "The market cap, in US dollars, large starts "
+                                "above.", unit="usd", minimum=0.0),
+        "mid_from": Described("Mid from", "The market cap, in US dollars, mid starts at; "
+                              "small is below it.", unit="usd", minimum=0.0),
+        "top": Described("Top of large", "The market cap at the top of the box's scale; a "
+                         "larger name sits above it.", unit="usd", minimum=0.0),
+        "bottom": Described("Bottom of small", "The market cap at the bottom of the box's "
+                            "scale; a smaller name sits below it.", unit="usd", minimum=0.0),
+        "growth": Described("Growth over", "The earnings and sales growth the style is "
+                            "measured on.", choices=(YEAR, THREE_YEARS),
+                            choice_labels={YEAR: "A year", THREE_YEARS: "Three years, a year"}),
     }),
 }
 

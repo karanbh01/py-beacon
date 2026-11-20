@@ -47,6 +47,7 @@ RUN_PREDATES = "run_predates"
 NO_CASH_BAND = "no_cash_band"
 NO_FLOWS = "no_flows"
 NO_GROUPING = "no_grouping"
+NO_DOLLAR_RATE = "no_dollar_rate"
 
 REASONS = {
     NO_INDEX: ("No index", "Relative figures need the index the run traded toward."),
@@ -62,6 +63,8 @@ REASONS = {
     NO_CASH_BAND: ("No cash band", "This needs a run that kept its cash in a band."),
     NO_FLOWS: ("No flows", "This needs a run with money arriving or leaving."),
     NO_GROUPING: ("No grouping", "The run kept no reference field to group its names by."),
+    NO_DOLLAR_RATE: ("No dollar rate", "The size bands are in US dollars, and the run has no "
+                                       "rate between the dollar and its currency."),
 }
 
 

@@ -11,7 +11,7 @@ from dataclasses import replace
 
 from ...performance.crises import AFTER_MONTHS
 from ..statistics import Catalogue
-from . import attribution, performance, portfolio, relative, risk
+from . import attribution, performance, portfolio, relative, risk, style
 
 EVERY = ("*",)
 CONTRIBUTIONS = ("contribution", "total_return", "residual", "cap_drag", "cost_drag")
@@ -41,7 +41,7 @@ SIGNED = {
 }
 
 CATALOGUE = Catalogue({statistic.id: replace(statistic, signed=SIGNED.get(statistic.id, ()))
-                       for module in (performance, relative, portfolio, risk, attribution)
+                       for module in (performance, relative, portfolio, style, risk, attribution)
                        for statistic in module.statistics()})
 
 # The categories, in the order the formulas page and the reports read them.
