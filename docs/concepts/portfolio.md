@@ -71,6 +71,19 @@ index, so its active weights are near zero.
 print(portfolio.active_group_weights("SECTOR").abs().max().max())   # about 2e-8
 ```
 
+`group_exposures(fields)` gives each portfolio's weight in each group on the
+fund's last day, for several groupings at once: `fields` maps a grouping's
+name to the field it is read from, such as
+`{"sector": "SECTOR", "country": "COUNTRY_DOMICILE"}`. It is a row a grouping
+and group. **The fund's cash is a group of its own, `Cash`**, so here each
+portfolio's weights sum to 1 in each grouping. The groups are in the order of
+the index's weight, largest first, then those only the fund holds, then
+`Unknown` and `Cash`. A grouping whose field the run did not keep is left out.
+The `group_exposures` statistic reads its fields from the `exposures` options
+section: `sector_field` (`SECTOR` by default) and `country_field`
+(`COUNTRY_DOMICILE` by default, the field the risk model's country factors
+use).
+
 ## Turnover and trading
 
 A market-cap index's weights move with prices, so the sample does not trade

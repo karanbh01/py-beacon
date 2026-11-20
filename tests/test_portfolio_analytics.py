@@ -133,3 +133,64 @@ class TestActiveGroupWeights:
             "SECTOR", "benchmark")
 
         assert active.loc[FIRST, "Tech"] == pytest.approx(0.8 - 1.0)
+
+# The latest exposures' groupings and the fields they are read from.
+EXPOSURE_FIELDS = {"sector": "SECTOR", "country": "COUNTRY_DOMICILE"}
+
+
+class TestExposures:
+    """BN-424: the latest weights by sector and by country, on the last day:
+    the fund holds AAA (Tech, US) 0.3 and BBB (Energy, GB) 0.5 with 0.2 in
+    cash; the index AAA 0.6 and BBB 0.4."""
+
+    COUNTRIES = REFERENCE.assign(COUNTRY_DOMICILE=["US", "GB", None] * 2)
+
+    def exposures(self,
+                  **tables) -> pd.DataFrame:
+        found = PortfolioAnalytics(run(reference=self.COUNTRIES, **tables)).group_exposures(
+            EXPOSURE_FIELDS)
+
+        return found.set_index(["grouping", "group"])
+
+    def test_each_book_s_weights_on_the_last_day(self):
+        found = self.exposures()
+
+        assert found.loc[("sector", "Tech"), "fund"] == pytest.approx(0.3)
+        assert found.loc[("sector", "Energy"), "index"] == pytest.approx(0.4)
+        assert found.loc[("country", "GB"), "fund"] == pytest.approx(0.5)
+        assert found.loc[("country", "US"), "index"] == pytest.approx(0.6)
+        assert found["benchmark"].isna().all()
+
+    def test_the_fund_s_cash_makes_it_sum_to_one(self):
+        found = self.exposures()
+
+        assert found.loc[("sector", "Cash"), "fund"] == pytest.approx(0.2)
+        assert found.loc[("sector", "Cash"), "index"] == 0.0
+
+        for grouping in ("sector", "country"):
+            assert found.loc[grouping, "fund"].sum() == pytest.approx(1.0)
+            assert found.loc[grouping, "index"].sum() == pytest.approx(1.0)
+
+    def test_groups_in_the_index_s_order_then_unknown_and_cash(self):
+        fund = FUND.assign(CCC=0.1)
+        found = self.exposures(fund_weights=fund)
+
+        assert list(found.loc["sector"].index) == ["Tech", "Energy", UNKNOWN, "Cash"]
+        assert list(found.loc["country"].index) == ["US", "GB", UNKNOWN, "Cash"]
+
+    def test_a_benchmark_with_names(self):
+        benchmark = pd.DataFrame({"BBB": [1.0] * 6}, index=DAYS)
+        found = self.exposures(benchmark_weights=benchmark)
+
+        assert found.loc[("sector", "Energy"), "benchmark"] == pytest.approx(1.0)
+        assert found.loc[("sector", "Tech"), "benchmark"] == 0.0
+
+    def test_a_field_the_run_did_not_keep_is_left_out(self):
+        found = PortfolioAnalytics(run()).group_exposures(EXPOSURE_FIELDS)
+
+        assert set(found["grouping"]) == {"sector"}
+
+    def test_none_of_the_fields_is_refused(self,
+                                           portfolio):
+        with pytest.raises(KeyError, match="INDUSTRY"):
+            portfolio.group_exposures({"sector": "INDUSTRY"})

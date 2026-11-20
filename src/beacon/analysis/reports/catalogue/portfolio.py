@@ -36,6 +36,11 @@ RANGE_COLUMNS = (Column("measure", "Measure",
                         labels={"least": "Fewest", "most": "Most", "latest": "Latest"}),
                  Column(FUND, "Fund", "count"), Column("index", "Index", "count"),
                  Column("benchmark", "Benchmark", "count"))
+EXPOSURE_COLUMNS = (Column("grouping", "Grouped by",
+                           labels={"sector": "Sector", "country": "Country"}),
+                    Column("group", "Group"), Column(FUND, "Fund", "fraction"),
+                    Column("index", "Index", "fraction"),
+                    Column("benchmark", "Benchmark", "fraction"))
 DISTRIBUTION_COLUMNS = (Column("names", "Names", "count"), Column("days", "Days", "count"),
                         Column("share", "Share of days", "fraction"))
 
@@ -58,6 +63,13 @@ def _holdings_count(context: Context) -> pd.DataFrame:
               if (found := context.portfolio.holdings_count(book)) is not None}
 
     return pd.DataFrame(counts)
+
+
+def _exposures(context: Context) -> pd.DataFrame:
+    options = context.options.exposures
+
+    return context.portfolio.group_exposures({"sector": options.sector_field,
+                                              "country": options.country_field})
 
 
 def _group_weights(context: Context) -> pd.DataFrame:
@@ -134,6 +146,11 @@ def statistics() -> list[Statistic]:
               "The fund's weight in each group, and less the tracked comparator's.",
               needs(NO_GROUPING, _group_weights), unit="fraction",
               settings=(*GROUPING, "window.tracked")),
+        Statistic("group_exposures", "Exposures by sector and country", HOLDINGS, TABLE,
+                  PORTFOLIO, "The fund's latest weight in each sector and country, against "
+                  "its index's and benchmark's.", needs(NO_GROUPING, _exposures),
+                  unit="fraction", settings=("exposures.sector_field", "exposures.country_field"),
+                  columns=EXPOSURE_COLUMNS),
         table("characteristics", "Characteristics", HOLDINGS, "Weighted market cap, P/E, P/B "
               "and dividend yield of the fund and its comparators at each rebalance.",
               lambda context: frame(context.portfolio.characteristics())),

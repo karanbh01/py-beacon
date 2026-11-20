@@ -13,6 +13,8 @@ group recorded is in ``Unknown``. A book's group weights add up to its
 invested weight each day: the fund's cash is in none of them.
 """
 # BN-382.
+from collections.abc import Mapping
+
 import numpy as np
 import pandas as pd
 
@@ -44,6 +46,12 @@ UNKNOWN = "Unknown"
 
 # What the holdings range gives, a row each.
 LEAST, MOST, LATEST = "least", "most", "latest"
+
+# The fund's weight in no group: its cash, in the latest exposures.
+CASH_GROUP = "Cash"
+
+# A cash weight smaller than this is rounding, and left out.
+NEGLIGIBLE_CASH = 1e-9
 
 
 class PortfolioAnalytics:
@@ -145,6 +153,64 @@ class PortfolioAnalytics:
             found[rows] = grid[rows] @ np.eye(len(groups))[codes]
 
         return pd.DataFrame(found, index=values.index, columns=pd.Index(groups, name=field))
+
+    def group_exposures(self,
+                        fields: Mapping[str, str]) -> pd.DataFrame:
+        """Each book's weight in each group on the fund's last day, for each
+        grouping of *fields* (a grouping's name, such as ``sector``, and the
+        reference field it is read from).
+
+        Columns ``grouping``, ``group``, then a column a book, blank for a
+        book the run kept no weights for. A grouping's groups are in the
+        order of the index's weight, largest first, then those the index does
+        not hold by the fund's, then ``Unknown`` and the fund's ``Cash``: its
+        weight in no group, so each book's weights sum to 1 in each grouping.
+        A grouping whose field the run did not keep is left out.
+
+        Raises:
+            KeyError: If the run kept none of the fields.
+        """
+        # BN-424, for beacon-ui's Summary (BU-294).
+        rows: list[dict[str, object]] = []
+        kept = 0
+
+        for grouping, field in fields.items():
+            try:
+                latest = {book: self._latest_groups(field, book) for book in BOOKS}
+            except KeyError:
+                continue
+
+            kept += 1
+            rows.extend({"grouping": grouping, "group": group,
+                         **{book: (None if weights is None else float(weights.get(group, 0.0)))
+                            for book, weights in latest.items()}}
+                        for group in _exposure_order(latest))
+
+        if not kept:
+            raise KeyError(f"No reference data for {', '.join(fields.values())}.")
+
+        return pd.DataFrame(rows, columns=["grouping", "group", *BOOKS])
+
+    def _latest_groups(self,
+                       field: str,
+                       book: str) -> pd.Series | None:
+        """*book*'s weight in each group of *field* on the fund's last day,
+        the fund's with its cash; None for a book without weights."""
+        held = self.group_weights(field, book)
+
+        if held is None or held.empty:
+            return None
+
+        fund = self.weights(FUND)
+        last = fund.index[-1] if fund is not None and not fund.empty else held.index[-1]
+        position = as_of_position(held.index, last)
+        weights = held.iloc[position if position is not None else 0]
+        weights = weights[weights.abs() > 0.0]
+
+        if book == FUND and abs(cash := 1.0 - float(weights.sum())) > NEGLIGIBLE_CASH:
+            weights = pd.concat([weights, pd.Series({CASH_GROUP: cash})])
+
+        return weights
 
     def active_group_weights(self,
                              field: str,
@@ -367,3 +433,22 @@ class PortfolioAnalytics:
         self._groups[field] = found
 
         return found
+
+
+def _exposure_order(latest: Mapping[str, pd.Series | None]) -> list[str]:
+    """The groups any book holds, by the index's weight, then the fund's,
+    with ``Unknown`` and ``Cash`` last."""
+    index = latest.get(INDEX)
+    fund = latest.get(FUND)
+    groups = {str(group) for weights in latest.values() if weights is not None
+              for group in weights.index}
+    last = [group for group in (UNKNOWN, CASH_GROUP) if group in groups]
+    rest = groups - set(last)
+
+    def weight(weights: pd.Series | None,
+               group: str) -> float:
+        return float(weights.get(group, 0.0)) if weights is not None else 0.0
+
+    ordered = sorted(rest, key=lambda group: (-weight(index, group), -weight(fund, group), group))
+
+    return [*ordered, *last]

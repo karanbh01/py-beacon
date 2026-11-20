@@ -164,6 +164,20 @@ class AttributionOptions:
 
 
 @dataclass(frozen=True)
+class ExposuresOptions:
+    """Where the fund's latest weights by sector and by country are read
+    from.
+
+    Attributes:
+        sector_field: The reference field each name's sector is read from.
+        country_field: The reference field each name's country is read
+            from: its domicile by default, as the risk model's countries.
+    """
+    sector_field: str = "SECTOR"
+    country_field: str = "COUNTRY_DOMICILE"
+
+
+@dataclass(frozen=True)
 class AnalysisOptions:
     """Every choice a run's analysis makes, by section."""
     window: AnalysisSettings = field(default_factory=AnalysisSettings)
@@ -174,6 +188,7 @@ class AnalysisOptions:
     risk_model: RiskModelOptions = field(default_factory=RiskModelOptions)
     liquidity: LiquidityOptions = field(default_factory=LiquidityOptions)
     attribution: AttributionOptions = field(default_factory=AttributionOptions)
+    exposures: ExposuresOptions = field(default_factory=ExposuresOptions)
 
 
 @dataclass(frozen=True)
@@ -302,6 +317,14 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
         "frequency": Described("Periods", "The periods attribution is also given by.",
                                choices=("Y", "Q", "M"),
                                choice_labels={"Y": "Years", "Q": "Quarters", "M": "Months"}),
+    }),
+    "exposures": ("Exposures", {
+        "sector_field": Described("Sector from", "The reference field each name's sector is "
+                                  "read from.", suggestions=("SECTOR", "GICS_INDUSTRY_GROUP")),
+        "country_field": Described("Country from", "The reference field each name's country "
+                                   "is read from.",
+                                   suggestions=("COUNTRY_DOMICILE", "COUNTRY_LISTING",
+                                                "REGION")),
     }),
 }
 
