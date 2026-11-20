@@ -248,6 +248,45 @@ tracks to rounding, so every full window's information ratio is blank.
 print(analytics.rolling(63).dropna().tail(2))
 ```
 
+## Risk rating
+
+`beacon.analysis.performance.risk_rating` rates a fund as a UCITS factsheet
+does, on the synthetic risk and reward indicator (SRRI). The volatility of
+its weekly returns over the last five years, annualised, is placed on a
+scale of 1 to 7. A run shorter than five years uses all of its weeks. Weeks
+end on Friday, each compounding its days, so the first and last may be part
+weeks.
+
+| Rating | Volatility |
+| --- | --- |
+| 1 | under 0.5% |
+| 2 | 0.5% to under 2% |
+| 3 | 2% to under 5% |
+| 4 | 5% to under 10% |
+| 5 | 10% to under 15% |
+| 6 | 15% to under 25% |
+| 7 | 25% and over |
+
+Its tracking error against the tracked comparator, over the same weeks,
+puts it in a band: passive under 0.5%, enhanced from 0.5% to under 2%,
+active from 2% to under 5%, and unconstrained 5% and over. The
+`risk_rating` statistic gives the fund's rating and band and each
+comparator's rating. `risk_distribution` counts the days the fund spent at
+each rating and band, on the volatility and tracking error of daily returns
+over the year ending each day. The run's first year is not counted, and
+because these are daily figures, the last day can sit at a different rating
+from the headline one. Both need a year of daily returns, and are
+`too_short` without it. The `risk_rating` options section holds the
+volatility bounds, the tracking error bounds and the years measured.
+
+```python
+from beacon.analysis.performance.risk_rating import RiskRatingSettings, risk_rating
+
+table = risk_rating(analytics.returns, analytics.tracked, {}, RiskRatingSettings(),
+                    analytics.periods_per_year)
+print(table)
+```
+
 ## Against a comparator
 
 The sample run tracks its index almost exactly, so its relative figures are

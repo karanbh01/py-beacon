@@ -14,6 +14,7 @@ import types
 from dataclasses import dataclass, field, fields
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
+from ..performance.risk_rating import RiskRatingSettings
 from ..performance.settings import AnalysisSettings
 from ..performance.style import THREE_YEARS, YEAR, StyleSettings
 
@@ -191,6 +192,7 @@ class AnalysisOptions:
     attribution: AttributionOptions = field(default_factory=AttributionOptions)
     exposures: ExposuresOptions = field(default_factory=ExposuresOptions)
     style: StyleSettings = field(default_factory=StyleSettings)
+    risk_rating: RiskRatingSettings = field(default_factory=RiskRatingSettings)
 
 
 @dataclass(frozen=True)
@@ -340,6 +342,17 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
         "growth": Described("Growth over", "The earnings and sales growth the style is "
                             "measured on.", choices=(YEAR, THREE_YEARS),
                             choice_labels={YEAR: "A year", THREE_YEARS: "Three years, a year"}),
+    }),
+    "risk_rating": ("Risk rating", {
+        "volatility_bounds": Described("Volatility bounds", "The annualised volatility each "
+                                       "rating above 1 starts at, rising; the factsheet "
+                                       "scale's by default.", items="number",
+                                       items_unit="fraction"),
+        "tracking_bounds": Described("Tracking error bounds", "The tracking error enhanced, "
+                                     "active and unconstrained start at, rising.",
+                                     items="number", items_unit="fraction"),
+        "years": Described("Years measured", "The years of weekly returns the rating is "
+                           "measured over; all of a shorter run's.", unit="count", minimum=1),
     }),
 }
 
