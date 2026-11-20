@@ -19,6 +19,7 @@ from ..data import BENCHMARK, INDEX, OPTIMISED, RunData
 from . import distribution as shape
 from . import formulas, ratios, return_figures, tables
 from . import rolling as moving
+from . import trailing_statistics as trailing
 from .comparisons import Comparison, Period, aligned, comparison_of, periods_of
 from .drawdowns import WORST, DrawdownFigures, drawdown_figures, episodes
 from .settings import AnalysisSettings
@@ -402,6 +403,18 @@ class PerformanceAnalytics:
             comparators[name] = trailing
 
         return tables.trailing_table(self.trailing_returns(), comparators)
+
+    def trailing_statistics(self) -> pd.DataFrame:
+        """The fund's, its index's and its benchmark's main figures over each
+        trailing window, each period to date and since inception, and the
+        fund's against each (`trailing.trailing_statistics`)."""
+        comparators = tables.comparator_returns(self.returns, {
+            name: self.run.comparators[name] for name in (INDEX, BENCHMARK)
+            if name in self.run.comparators})
+
+        return trailing.trailing_statistics(self.returns, self.periods_per_year,
+                                            self.risk_free_rate, comparators,
+                                            inception=self.headline())
 
     def month_of_year(self) -> pd.Series:
         """The fund's mean return in each calendar month over the years."""

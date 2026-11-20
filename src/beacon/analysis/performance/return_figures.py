@@ -24,6 +24,9 @@ TRAILING = {"1M": 1, "3M": 3, "6M": 6, "1Y": 12, "3Y": 36, "5Y": 60, "10Y": 120}
 # Returns to date, by name, and the calendar period each runs over.
 TO_DATE = {"MTD": "M", "QTD": "Q", "YTD": "Y"}
 
+# The whole run, as a window.
+INCEPTION = "inception"
+
 # The periods best and worst are found over.
 DAILY, WEEKLY = "daily", "weekly"
 EXTREMES = (DAILY, WEEKLY, formulas.MONTHLY, formulas.QUARTERLY, formulas.ANNUAL)
@@ -137,43 +140,68 @@ def longer_than_a_year(start: pd.Timestamp,
     return bool(pd.Timestamp(end) > pd.Timestamp(start) + pd.DateOffset(years=1))
 
 
+def window_starts(returns: pd.Series) -> dict[str, pd.Timestamp | None]:
+    """The first day of each trailing window, each period to date and the
+    whole run (``inception``), by name, in that order; None for a trailing
+    window longer than the run.
+
+    A trailing window starts the day after the last close on or before the
+    same date that many months back; a period to date, on its first day the
+    run has, or the run's first day.
+    """
+    names = (*TRAILING, *TO_DATE, INCEPTION)
+
+    if returns.empty:
+        return dict.fromkeys(names)
+
+    days = returns.index
+    last = pd.Timestamp(days[-1])
+    starts: dict[str, pd.Timestamp | None] = {}
+
+    for name, months in TRAILING.items():
+        closed = days[days <= last - pd.DateOffset(months=months)]
+        # A run with no close by the anchor date is too short for the window.
+        starts[name] = pd.Timestamp(days[days > closed[-1]][0]) if len(closed) else None
+
+    for name, period in TO_DATE.items():
+        starts[name] = pd.Timestamp(days[days >= last.to_period(period).start_time][0])
+
+    starts[INCEPTION] = pd.Timestamp(days[0])
+
+    return starts
+
+
+def annualised_over(window: str,
+                    start: pd.Timestamp,
+                    end: pd.Timestamp) -> bool:
+    """Whether a return over *window* (a name `window_starts` gives) from
+    *start* to *end* is given as a rate a year as well: a trailing window
+    longer than a year, or the whole run when it spans more than one."""
+    if window in TRAILING:
+        return TRAILING[window] > 12
+
+    return window == INCEPTION and longer_than_a_year(start, end)
+
+
 def trailing_returns(returns: pd.Series,
                      periods_per_year: int) -> dict[str, WindowReturn | None]:
     """The returns over the last 1, 3 and 6 months and 1, 3, 5 and 10 years,
     by name; None for a window longer than the run."""
-    if returns.empty:
-        return dict.fromkeys(TRAILING)
+    starts = window_starts(returns)
 
-    last = pd.Timestamp(returns.index[-1])
-    trailing: dict[str, WindowReturn | None] = {}
-
-    for name, months in TRAILING.items():
-        anchor = last - pd.DateOffset(months=months)
-        closed = returns.index[returns.index <= anchor]
-        # From the day after the last close on or before the anchor date; a
-        # run with no close by then is too short for the window.
-        trailing[name] = (window_return(returns.loc[returns.index > closed[-1]],
-                                        returns.index[0], periods_per_year,
-                                        annualise=months > 12)
-                          if len(closed) else None)
-
-    return trailing
+    return {name: (window_return(returns, start, periods_per_year, annualise=months > 12)
+                   if (start := starts[name]) is not None else None)
+            for name, months in TRAILING.items()}
 
 
 def returns_to_date(returns: pd.Series,
                     periods_per_year: int) -> dict[str, WindowReturn | None]:
     """The returns for the month, quarter and year to date, by name."""
-    if returns.empty:
-        return dict.fromkeys(TO_DATE)
+    starts = window_starts(returns)
 
-    last = pd.Timestamp(returns.index[-1])
-    to_date: dict[str, WindowReturn | None] = {}
-
-    for name, period in TO_DATE.items():
-        to_date[name] = window_return(returns, last.to_period(period).start_time,
-                                      periods_per_year)
-
-    return to_date
+    return {name: (window_return(returns, start, periods_per_year)
+                   if (start := starts[name]) is not None else None)
+            for name in TO_DATE}
 
 
 def period_returns(returns: pd.Series,

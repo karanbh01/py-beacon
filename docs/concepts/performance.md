@@ -174,6 +174,7 @@ daily drawdown itself, and `levels()` the level everything is measured along.
 | --- | --- |
 | `trailing_returns()` | `1M`, `3M`, `6M`, `1Y`, `3Y`, `5Y`, `10Y`, `MTD`, `QTD`, `YTD` and `inception`, each a `WindowReturn`; None for a window longer than the run |
 | `trailing_table()` | The same as a table, for the fund, its index and benchmark, and the fund's less each's |
+| `trailing_statistics()` | Over the same windows, the total and annualised return, volatility, maximum drawdown and Sharpe ratio of the fund, its index and benchmark, with the fund's tracking difference and tracking error against each: a row a window and figure |
 | `periods(frequency)` | Each calendar year, quarter or month (`annual`, `quarterly`, `monthly`) with the headline figures and each comparator's |
 | `period_table(frequency)` | The same as a table |
 | `monthly_grid(of)` | The calendar grid of monthly returns, a row a year, with each year's; `of` is `fund`, a comparator's name, or `difference index` |
@@ -192,6 +193,13 @@ Since inception is the headline's total return, so over the whole run it
 includes the first day's cost. Returns to date run from the close before the
 month, quarter or year began. Calendar periods compound their own days, so the
 months compound to the year and the years to the run.
+
+`trailing_statistics()` works each figure out as the whole run's is, on the
+window's days. **It gives no Sharpe ratio over a window shorter than six
+months** (1M, 3M, MTD, QTD and YTD), as a month or a quarter of days says too
+little about it; the volatility is given for every window. A comparator's
+figures are over its own window, and the fund's against it only when the two
+cover the same days.
 
 ```python
 print(analytics.trailing_table().loc[["1Y", "YTD", "inception"]])

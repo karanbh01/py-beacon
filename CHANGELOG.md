@@ -8,6 +8,11 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Added
+
+- The main figures over each trailing window, the `trailing_statistics` statistic and `PerformanceAnalytics.trailing_statistics()` (`beacon.analysis.performance.trailing_statistics`). Over the windows `trailing_returns` gives (1, 3 and 6 months, 1, 3, 5 and 10 years, month, quarter and year to date, and since inception), it gives the total and annualised return, volatility, maximum drawdown and Sharpe ratio of the fund, its index and its benchmark, and the fund's tracking difference and tracking error against each. It is a row a window and figure, with columns `period`, `statistic`, `unit`, `fund`, `index` and `benchmark`. Each figure is worked out as the whole run's is, on the window's days. The annualised return is given only beyond a year, and the Sharpe ratio not over a window shorter than six months (1M, 3M, MTD, QTD and YTD). A comparator's figures against the fund are given only when the two cover the same days.
+- `beacon.analysis.performance.return_figures.window_starts` gives the first day of each trailing window and period to date, which the trailing returns and trailing statistics share.
+
 ## [0.10.0] - 2026-11-01
 
 A run's analysis is a library of its own, `beacon.analysis`: performance, portfolio, risk and attribution figures for a finished or a stored run, and 103 statistics in eight reports that a backtest can ask for (`Backtest.run(analysis=...)`, and `analysis` on the API's backtest) and a stored run can be asked for again later. A run whose names span more than one country is analysed with a global factor model, with country, sector and currency factors. A stored run keeps what it needs to rerun its analysis exactly, and its market inputs and index results are kept once for every run on the same data store: at 6,000 names a run keeps 3.0 MB of its own, and a repeat run on the same data adds nothing else. Figures change: the Sharpe ratio and the information ratio are measured on mean daily returns everywhere, active attribution explains the fund's compounded return less the comparator's, and trades carry the reasons they were made. Deleting a data store answers 200 rather than 204, synthetic prices are in whole cents, and `beacon.risk.factors` and `beacon.analysis.comparison` are gone.

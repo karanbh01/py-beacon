@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 
 from ...performance import formulas, ratios
+from ...performance import trailing_statistics as trailing
 from ...performance.analytics import PerformanceAnalytics
 from ..context import Context
 from ..statistics import (
@@ -153,6 +154,22 @@ EPISODE_COLUMNS = (Column("peak", "Peak", "date"), Column("trough", "Trough", "d
 
 RATIO_SETTINGS = ("window.risk_free_rate",)
 
+# The windows and figures of `trailing_statistics`, labelled.
+WINDOW_LABELS = {"1M": "1 month", "3M": "3 months", "6M": "6 months", "1Y": "1 year",
+                 "3Y": "3 years", "5Y": "5 years", "10Y": "10 years", "MTD": "Month to date",
+                 "QTD": "Quarter to date", "YTD": "Year to date",
+                 "inception": "Since inception"}
+TRAILING_LABELS = {"total_return": "Total return",
+                   "annualised_return": "Annualised return (CAGR)",
+                   "volatility": "Volatility", "max_drawdown": "Maximum drawdown",
+                   "sharpe_ratio": "Sharpe ratio", "tracking_difference": "Tracking difference",
+                   "tracking_error": "Tracking error"}
+TRAILING_COLUMNS = (Column("period", "Period", labels=WINDOW_LABELS),
+                    Column("statistic", "Statistic", labels=TRAILING_LABELS),
+                    Column("unit", "Unit", labels={"fraction": "Fraction", "ratio": "Ratio"}),
+                    Column(trailing.FUND, "Fund"), Column(trailing.INDEX, "Index"),
+                    Column(trailing.BENCHMARK, "Benchmark"))
+
 
 def statistics() -> list[Statistic]:
     """The statistics of a run's own returns, in order."""
@@ -173,6 +190,12 @@ def statistics() -> list[Statistic]:
                   "quarter and year to date, and since inception; annualised beyond a year.",
                   lambda context: wire_frame(context.performance.trailing_table()),
                   unit="fraction"),
+        Statistic("trailing_statistics", "Trailing statistics", RETURNS, TABLE, PERFORMANCE,
+                  "Total and annualised return, volatility, maximum drawdown and Sharpe ratio "
+                  "over each trailing period, with tracking difference and tracking error "
+                  "against each comparator.",
+                  lambda context: context.performance.trailing_statistics(),
+                  unit="fraction", settings=RATIO_SETTINGS, columns=TRAILING_COLUMNS),
         Statistic("period_returns", "Period returns", RETURNS, TABLE, PERFORMANCE,
                   "Each month's, quarter's and year's return, against the comparators'.",
                   _periods, unit="fraction"),
