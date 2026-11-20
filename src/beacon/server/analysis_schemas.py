@@ -202,7 +202,8 @@ class StatisticSpec(BaseModel):
         description="What its figure names are made of, part by part, each a key of the "
                     "catalogue's `names`.")
     columns: list[dict[str, Any]] = Field(
-        description="For a table, its columns in order: name, label and unit.")
+        description="For a table, its columns in order: name, label, unit, and for coded "
+                    "text the label of each value (`labels`, null otherwise).")
     signed: list[str] = Field(
         description="Which of its figures are returns or differences, whose sign says better "
                     "or worse, by the last part of a figure's, a column's or a summary "

@@ -41,6 +41,15 @@ EXPOSURE_COLUMNS = (Column("grouping", "Grouped by",
                     Column("group", "Group"), Column(FUND, "Fund", "fraction"),
                     Column("index", "Index", "fraction"),
                     Column("benchmark", "Benchmark", "fraction"))
+# The characteristics, each with its label and unit: a market cap is an amount
+# in the run's currency (whole units), the P/E and P/B are weighted harmonic
+# means, the dividend yield a fraction.
+CHARACTERISTICS = {"MARKET_CAP": ("market cap", "money"), "PE_RATIO": ("P/E", "ratio"),
+                   "PB_RATIO": ("P/B", "ratio"), "DIVIDEND_YIELD": ("dividend yield", "fraction")}
+CHARACTERISTIC_COLUMNS = tuple(Column(f"{book}/{figure}", f"{name} {label}", unit)
+                               for book, name in ((FUND, "Fund"), ("index", "Index"),
+                                                  ("benchmark", "Benchmark"))
+                               for figure, (label, unit) in CHARACTERISTICS.items())
 DISTRIBUTION_COLUMNS = (Column("names", "Names", "count"), Column("days", "Days", "count"),
                         Column("share", "Share of days", "fraction"))
 
@@ -151,9 +160,11 @@ def statistics() -> list[Statistic]:
                   "its index's and benchmark's.", needs(NO_GROUPING, _exposures),
                   unit="fraction", settings=("exposures.sector_field", "exposures.country_field"),
                   columns=EXPOSURE_COLUMNS),
-        table("characteristics", "Characteristics", HOLDINGS, "Weighted market cap, P/E, P/B "
-              "and dividend yield of the fund and its comparators at each rebalance.",
-              lambda context: frame(context.portfolio.characteristics())),
+        Statistic("characteristics", "Characteristics", HOLDINGS, TABLE, PORTFOLIO,
+                  "Weighted market cap, P/E, P/B and dividend yield of the fund and its "
+                  "comparators at each rebalance.",
+                  lambda context: frame(context.portfolio.characteristics()),
+                  columns=CHARACTERISTIC_COLUMNS),
         table("one_way_turnover", "One-way turnover", TRADING, "The lesser of buys and sells "
               "over the NAV, each year, and a year on average.", _turnover("one_way"),
               unit="fraction"),
