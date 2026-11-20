@@ -331,6 +331,24 @@ class TestFeatures:
         assert float(row["VALUE"]) * float(pe) == pytest.approx(close)
 
 
+    def test_revenue_carries_on_along_its_path(self,
+                                               base,
+                                               extended):
+        """BN-426: an extension's revenue follows on from the stored rows: a
+        quarter later, within a few per cent of the last stored."""
+        stored = table(base, store.FEATURES_FILE)
+        before = len(stored)
+        added = table(extended, store.FEATURES_FILE).iloc[before:]
+        old = stored[stored["FIELD"] == "revenue"]
+        new = added[added["FIELD"] == "revenue"]
+
+        assert not new.empty
+        name = sorted(set(old["IDENTIFIER"]) & set(new["IDENTIFIER"]))[0]
+        last = float(old.loc[old["IDENTIFIER"] == name, "VALUE"].iloc[-1])
+        following = float(new.loc[new["IDENTIFIER"] == name, "VALUE"].iloc[0])
+
+        assert 0.8 < following / last < 1.25
+
 class TestUsingIt:
 
     def test_the_extended_store_loads(self,

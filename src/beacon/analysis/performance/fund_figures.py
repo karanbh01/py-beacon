@@ -15,7 +15,8 @@ import numpy as np
 import pandas as pd
 
 # The characteristics weighted, and how: a mean, or a harmonic mean.
-MEANS = ("MARKET_CAP", "DIVIDEND_YIELD")
+# BN-426: the growth figures too, a year's.
+MEANS = ("MARKET_CAP", "DIVIDEND_YIELD", "EPS_GROWTH", "SALES_GROWTH")
 HARMONIC = ("PE_RATIO", "PB_RATIO")
 
 # A year back, for the trailing yields.

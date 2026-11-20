@@ -284,9 +284,10 @@ class PortfolioAnalytics:
         return costs.by_reason(self.run.tables[TRADES])
 
     def characteristics(self) -> pd.DataFrame:
-        """The weighted market cap, P/E, P/B and dividend yield of the fund,
-        its index and its benchmark (when it holds names) at each rebalance:
-        a row a rebalance, columns by book and figure."""
+        """The weighted market cap, P/E, P/B, dividend yield and earnings and
+        sales growth of the fund, its index and its benchmark (when it holds
+        names) at each rebalance: a row a rebalance, columns by book and
+        figure."""
         books = {name: weights for name in BOOKS
                  if (weights := self.weights(name)) is not None}
 

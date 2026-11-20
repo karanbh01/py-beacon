@@ -4,9 +4,9 @@ Synthetic features: fundamental ratios and a little alternative data.
 
 A small set, deliberately. The point is to have something to screen on and
 something to exercise the point-in-time path with, not to simulate a data
-vendor. Four fundamental ratios and two alternative series is enough for a
-universe filter, an index rule and a look-ahead test, and cheap enough that
-every generated store can carry it.
+vendor. Four fundamental ratios, revenue and two alternative series is enough
+for a universe filter, an index rule, a style box and a look-ahead test, and
+cheap enough that every generated store can carry it.
 
 ## Coherent with the price series, not drawn beside it
 
@@ -23,10 +23,19 @@ So the ratios are *derived from* the generated prices:
     book_value = close / pb_ratio
     d/e        = drawn per name, by sector: the one genuinely independent of
                  price, because leverage is a balance-sheet fact
+    revenue    = trailing-twelve-month sales: the name's starting market cap
+                 over its sector's price-to-sales, growing at a rate drawn
+                 per name around its sector's, with noise each quarter
 
 The multiple is what gets drawn, sector by sector, and the per-share figure
 follows from it. That ordering is what makes them consistent by construction
 rather than by luck.
+
+Revenue is the exception, on purpose. Its growth is drawn rather than read
+off the price, so a name's sales growth and its earnings growth (which, with
+a held multiple, is its price's) differ, and a style box has growth that is
+not just momentum under another name. Its draws come from a generator of
+their own, so adding it moved none of the others.
 
 Sentiment and page views are anchored the same way: sentiment tracks recent
 returns, because it does, and page views scale with size and spike on large
@@ -55,6 +64,7 @@ import numpy as np
 import pandas as pd
 
 from ..data.base import as_of_position
+from .sales import DAYS_A_YEAR, revenue_on, sales_path, stored_sales
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +236,9 @@ def _fundamentals(universe: pd.DataFrame,
     closes = prices.to_numpy()
     columns = {name: index for index, name in enumerate(prices.columns)}
     last_date = dates[-1]
+    # BN-426: revenue draws from a generator of its own, so adding it moved
+    # none of the draws the other fields and the lags make.
+    sales_rng = rng.spawn(1)[0]
 
     records = []
     for identifier in covered:
@@ -237,6 +250,7 @@ def _fundamentals(universe: pd.DataFrame,
         pe = _multiple(sector, SECTOR_PE, rng)
         pb = _multiple(sector, SECTOR_PB, rng)
         debt_equity = _multiple(sector, SECTOR_DEBT_EQUITY, rng)
+        path = sales_path(sector, float(universe.loc[identifier, "market_cap"]), sales_rng)
 
         column = columns.get(identifier)
 
@@ -256,8 +270,9 @@ def _fundamentals(universe: pd.DataFrame,
                 # Published after the panel ends, so nobody ever knew it.
                 continue
 
+            revenue = revenue_on(path, (quarter - quarters[0]).days / DAYS_A_YEAR, sales_rng)
             records += _quarterly(identifier, known, quarter, float(close),
-                                  (pe, pb, debt_equity))
+                                  (pe, pb, debt_equity), revenue)
 
     return _frame(records, FUNDAMENTALS)
 
@@ -272,16 +287,21 @@ def _quarterly(identifier: str,
                known: pd.Timestamp,
                quarter: pd.Timestamp,
                close: float,
-               multiples: tuple[float, float, float]
+               multiples: tuple[float, float, float],
+               revenue: float | None = None
                ) -> list[tuple[str, pd.Timestamp, str, float, str]]:
-    """One name's four ratios for one quarter."""
+    """One name's ratios and figures for one quarter."""
     pe, pb, debt_equity = multiples
     detail = _detail(quarter)
-
-    return [(identifier, known, "pe_ratio", pe, detail),
+    rows = [(identifier, known, "pe_ratio", pe, detail),
             (identifier, known, "eps", close / pe, detail),
             (identifier, known, "pb_ratio", pb, detail),
             (identifier, known, "debt_to_equity", debt_equity, detail)]
+
+    if revenue is not None:
+        rows.append((identifier, known, "revenue", revenue, detail))
+
+    return rows
 
 
 def _alternative(universe: pd.DataFrame,
@@ -465,10 +485,18 @@ def _carry_on_fundamentals(stored: pd.DataFrame,
     reported = set(zip(ratios["IDENTIFIER"], ratios["DETAIL"], strict=True))
     quarters = [pd.Timestamp(quarter) for quarter in pd.date_range(
         after - pd.Timedelta(days=LOOKBACK_DAYS), dates[-1], freq="QE")]
+    sales_rng = rng.spawn(1)[0]
+    paths = stored_sales(stored)
 
     records = []
     for identifier in sorted(set(multiples.index) & set(closes.columns)):
         held = multiples.loc[identifier]
+        # A name carries on along the sales path its stored revenue shows; one
+        # with none (a joiner, or a store from before revenue) starts a path
+        # at the extension's first quarter.
+        path, since = paths.get(identifier) or (sales_path(
+            str(universe.loc[identifier, "SECTOR"]),
+            float(universe.loc[identifier, "market_cap"]), sales_rng), quarters[0])
 
         for quarter in quarters:
             row = as_of_position(dates, quarter)
@@ -484,9 +512,10 @@ def _carry_on_fundamentals(stored: pd.DataFrame,
                 rng.integers(earliest, MAX_LAG_DAYS)))
 
             if known <= dates[-1]:
+                revenue = revenue_on(path, (quarter - since).days / DAYS_A_YEAR, sales_rng)
                 records += _quarterly(identifier, known, quarter, float(close),
                                       (float(held["pe_ratio"]),
                                        float(held["pb_ratio"]),
-                                       float(held["debt_to_equity"])))
+                                       float(held["debt_to_equity"])), revenue)
 
     return _frame(records, FUNDAMENTALS)

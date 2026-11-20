@@ -193,12 +193,12 @@ or the creation fees.
 print(portfolio.characteristics().iloc[-1])
 ```
 
-`characteristics()` gives the weighted market cap, P/E, P/B and dividend
-yield of the fund, its index and its benchmark (when it holds names) at each
-rebalance, from each portfolio's weights at the end of that day: a row a
+`characteristics()` gives the weighted market cap, P/E, P/B, dividend yield
+and earnings and sales growth of the fund, its index and its benchmark (when
+it holds names) at each rebalance, from each portfolio's weights at the end of that day: a row a
 rebalance, columns by portfolio and figure. Each is weighted over the names
-with a value, the weights scaled to them. **Market cap and dividend yield are
-weighted means; P/E and P/B are weighted harmonic means**, taken through the
+with a value, the weights scaled to them. **Market cap, dividend yield and the
+growth figures are weighted means; P/E and P/B are weighted harmonic means**, taken through the
 earnings and book yields, so a loss or a tiny book does not blow them up. A
 figure the data does not give is None: the sample has no P/E or P/B.
 
@@ -206,6 +206,14 @@ The values are the ones in force on each rebalance date, kept with the run: a
 market cap is the close times shares outstanding in the portfolio's currency,
 P/E and P/B the `pe_ratio` and `pb_ratio` features, and the dividend yield the
 ordinary dividends over the trailing year over the close.
+
+Earnings and sales growth are the growth over a year of the `eps` and
+`revenue` features, which hold trailing twelve months' earnings per share and
+revenue: the value in force on the rebalance date over the value in force a
+year before it, less 1. Only values knowable on the date are read. Each name's
+three-year yearly rate is kept with the run too, for the style box. Growth
+from a value that was zero or negative is None, so a name coming out of a loss
+has no earnings growth.
 
 ## Income, AUM and flows
 

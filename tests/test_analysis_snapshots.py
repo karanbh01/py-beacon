@@ -108,7 +108,8 @@ class TestCharacteristics:
     SESSIONS = pd.bdate_range("2022-01-03", "2024-06-28")
     ON = pd.Timestamp("2024-06-03")
 
-    def data(self):
+    def data(self,
+             features: pd.DataFrame | None = None):
         from beacon.data import pair_reference
         from beacon.data.corporate_actions import CorporateActions
         from beacon.data.features import FeatureData
@@ -138,7 +139,7 @@ class TestCharacteristics:
             {"IDENTIFIER": "QUID", "EX_DATE": "2024-03-01", "TYPE": "DIVIDEND", "VALUE": 10.0},
             {"IDENTIFIER": "QUID", "EX_DATE": "2024-04-01", "TYPE": "SPECIAL_DIVIDEND",
              "VALUE": 50.0}])
-        features = pd.DataFrame([
+        features = features if features is not None else pd.DataFrame([
             {"IDENTIFIER": "GROW", "DATE": "2024-05-01", "TYPE": "f", "FIELD": "pe_ratio",
              "VALUE": 21.0},
             {"IDENTIFIER": "GROW", "DATE": "2024-06-04", "TYPE": "f", "FIELD": "pe_ratio",
@@ -191,6 +192,49 @@ class TestCharacteristics:
     def test_a_name_that_stopped_trading_has_no_row(self,
                                                     table):
         assert "GONE" not in table.index
+
+
+class TestGrowth:
+    """BN-426: earnings and sales growth from the ``eps`` and ``revenue``
+    features, as knowable on the date (2024-06-03): GROW's earnings went
+    from 1.0 three years before to 2.0 a year before and 2.5 now, with a 9.0
+    published the day after; QUID's sales from 100 to 110, its earnings from
+    a loss to a profit."""
+
+    ROWS = (("GROW", "2021-06-01", "eps", 1.0), ("GROW", "2023-05-01", "eps", 2.0),
+            ("GROW", "2024-05-01", "eps", 2.5), ("GROW", "2024-06-04", "eps", 9.0),
+            ("QUID", "2023-05-15", "revenue", 100.0), ("QUID", "2024-05-15", "revenue", 110.0),
+            ("QUID", "2023-05-01", "eps", -1.0), ("QUID", "2024-05-01", "eps", 2.0))
+
+    @pytest.fixture(scope="class")
+    def table(self):
+        from beacon.analysis.snapshots import characteristics_snapshots
+
+        features = pd.DataFrame([{"IDENTIFIER": name, "DATE": date, "TYPE": "f", "FIELD": field,
+                                  "VALUE": value} for name, date, field, value in self.ROWS])
+        frame = characteristics_snapshots(TestCharacteristics().data(features),
+                                          ["GROW", "QUID"], [TestCharacteristics.ON], "USD")
+
+        return frame.set_index("IDENTIFIER")
+
+    def test_a_year_s_growth_is_now_over_a_year_before(self,
+                                                       table):
+        assert table.loc["GROW", "EPS_GROWTH"] == pytest.approx(2.5 / 2.0 - 1.0, rel=1e-12)
+        assert table.loc["QUID", "SALES_GROWTH"] == pytest.approx(0.1, rel=1e-12)
+
+    def test_three_years_growth_is_a_yearly_rate(self,
+                                                 table):
+        assert table.loc["GROW", "EPS_GROWTH_3Y"] == pytest.approx(2.5 ** (1 / 3) - 1.0,
+                                                                   rel=1e-12)
+
+    def test_growth_from_a_loss_is_missing(self,
+                                           table):
+        assert pd.isna(table.loc["QUID", "EPS_GROWTH"])
+
+    def test_without_the_history_there_is_none(self,
+                                               table):
+        assert pd.isna(table.loc["QUID", "SALES_GROWTH_3Y"])
+        assert pd.isna(table.loc["GROW", "SALES_GROWTH"])
 
 
 class TestTradedValues:

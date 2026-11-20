@@ -43,9 +43,11 @@ EXPOSURE_COLUMNS = (Column("grouping", "Grouped by",
                     Column("benchmark", "Benchmark", "fraction"))
 # The characteristics, each with its label and unit: a market cap is an amount
 # in the run's currency (whole units), the P/E and P/B are weighted harmonic
-# means, the dividend yield a fraction.
+# means, the dividend yield and a year's growth fractions.
 CHARACTERISTICS = {"MARKET_CAP": ("market cap", "money"), "PE_RATIO": ("P/E", "ratio"),
-                   "PB_RATIO": ("P/B", "ratio"), "DIVIDEND_YIELD": ("dividend yield", "fraction")}
+                   "PB_RATIO": ("P/B", "ratio"), "DIVIDEND_YIELD": ("dividend yield", "fraction"),
+                   "EPS_GROWTH": ("earnings growth", "fraction"),
+                   "SALES_GROWTH": ("sales growth", "fraction")}
 CHARACTERISTIC_COLUMNS = tuple(Column(f"{book}/{figure}", f"{name} {label}", unit)
                                for book, name in ((FUND, "Fund"), ("index", "Index"),
                                                   ("benchmark", "Benchmark"))
@@ -161,8 +163,8 @@ def statistics() -> list[Statistic]:
                   unit="fraction", settings=("exposures.sector_field", "exposures.country_field"),
                   columns=EXPOSURE_COLUMNS),
         Statistic("characteristics", "Characteristics", HOLDINGS, TABLE, PORTFOLIO,
-                  "Weighted market cap, P/E, P/B and dividend yield of the fund and its "
-                  "comparators at each rebalance.",
+                  "Weighted market cap, P/E, P/B, dividend yield and earnings and sales "
+                  "growth of the fund and its comparators at each rebalance.",
                   lambda context: frame(context.portfolio.characteristics()),
                   columns=CHARACTERISTIC_COLUMNS),
         table("one_way_turnover", "One-way turnover", TRADING, "The lesser of buys and sells "

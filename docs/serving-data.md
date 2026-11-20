@@ -273,10 +273,13 @@ and an extension of it keeps both.) The model draws log returns, so however fat 
 tail, a price can come close to zero but never reach or pass it.
 
 It also generates **features**: four fundamental ratios (`pe_ratio`,
-`pb_ratio`, `eps`, `debt_to_equity`) quarterly, and two alternative series
-(`x_sentiment`, `wikipedia_views`) monthly. The ratios are derived from the
-price path rather than drawn beside it, so `pe_ratio x eps` is exactly the
-close at the period end. Announcement lags vary by name and quarter, and
+`pb_ratio`, `eps`, `debt_to_equity`) and trailing twelve months' `revenue`
+quarterly, and two alternative series (`x_sentiment`, `wikipedia_views`)
+monthly. The ratios are derived from the price path rather than drawn beside
+it, so `pe_ratio x eps` is exactly the close at the period end. Revenue grows
+at a rate drawn for each name around its sector's, so its growth is not the
+price's. (A store generated before py-beacon 0.10.1 has no revenue; an
+extension of it starts each name's revenue at the extension.) Announcement lags vary by name and quarter, and
 coverage is deliberately incomplete, so a point-in-time read has a ragged edge
 to resolve.
 

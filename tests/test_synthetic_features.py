@@ -53,7 +53,7 @@ class TestWhatIsGenerated:
     def test_the_fundamental_ratios(self,
                                     panel):
         assert set(panel.features.fields("fundamentals")) == {
-            "pe_ratio", "pb_ratio", "eps", "debt_to_equity"}
+            "pe_ratio", "pb_ratio", "eps", "debt_to_equity", "revenue"}
 
     def test_the_alternative_series(self,
                                     panel):
@@ -117,6 +117,34 @@ class TestCoherenceWithThePrices:
                 checked += 1
 
         assert checked > 10, "too few pairs checked to mean anything"
+
+    def test_revenue_is_reported_with_the_ratios(self,
+                                                 rows):
+        """BN-426: a quarter's revenue is published with its earnings."""
+        fundamentals = rows[rows["TYPE"] == "fundamentals"]
+        keys = ["IDENTIFIER", "DATE", "DETAIL"]
+        revenue = fundamentals[fundamentals["FIELD"] == "revenue"].set_index(keys)
+        eps = fundamentals[fundamentals["FIELD"] == "eps"].set_index(keys)
+
+        assert len(revenue) == len(eps)
+        assert revenue.index.sort_values().equals(eps.index.sort_values())
+        assert (revenue["VALUE"].astype(float) > 0).all()
+
+    def test_sales_growth_is_not_the_price_s(self,
+                                             rows):
+        """Earnings growth, with a held multiple, is the price's; sales growth
+        is drawn, so the two barely move together across names."""
+        fundamentals = rows[rows["TYPE"] == "fundamentals"]
+        values = fundamentals.assign(PERIOD=fundamentals["DETAIL"].map(period_end_of))
+        wide = values.pivot_table(index=["IDENTIFIER", "PERIOD"], columns="FIELD",
+                                  values="VALUE").reset_index()
+        first = wide.groupby("IDENTIFIER").first()
+        last = wide.groupby("IDENTIFIER").last()
+        growth = pd.DataFrame({"eps": last["eps"] / first["eps"],
+                               "revenue": last["revenue"] / first["revenue"]}).dropna()
+
+        assert len(growth) > 20
+        assert abs(np.log(growth).corr().loc["eps", "revenue"]) < 0.5
 
     def test_the_multiples_differ_by_sector(self,
                                             panel,

@@ -92,8 +92,16 @@ PE_RATIO = "PE_RATIO"
 PB_RATIO = "PB_RATIO"
 DIVIDEND_YIELD = "DIVIDEND_YIELD"
 MOMENTUM = "MOMENTUM"
-CHARACTERISTICS = (MARKET_CAP, PE_RATIO, PB_RATIO, DIVIDEND_YIELD, MOMENTUM)
+EPS_GROWTH, SALES_GROWTH = "EPS_GROWTH", "SALES_GROWTH"
+EPS_GROWTH_3Y, SALES_GROWTH_3Y = "EPS_GROWTH_3Y", "SALES_GROWTH_3Y"
+CHARACTERISTICS = (MARKET_CAP, PE_RATIO, PB_RATIO, DIVIDEND_YIELD, MOMENTUM, EPS_GROWTH,
+                   SALES_GROWTH, EPS_GROWTH_3Y, SALES_GROWTH_3Y)
 RATIO_FEATURES = {PE_RATIO: "pe_ratio", PB_RATIO: "pb_ratio"}
+
+# The growth figures: each column, the feature it is the growth of (trailing
+# twelve months' earnings per share and revenue) and the years it is over.
+GROWTH_FEATURES = {EPS_GROWTH: ("eps", 1), SALES_GROWTH: ("revenue", 1),
+                   EPS_GROWTH_3Y: ("eps", 3), SALES_GROWTH_3Y: ("revenue", 3)}
 
 # Momentum is the return from a year before to a month before, in sessions.
 _MOMENTUM_FROM, _MOMENTUM_TO = 252, 21
@@ -120,6 +128,13 @@ def characteristics_snapshots(source: DataFetcher,
       close, as `DataFetcher.fetch_trailing_dividend_yield` gives it.
     - ``MOMENTUM``: the total return, in the name's own currency, from 252
       sessions before the date to 21 sessions before it.
+    - ``EPS_GROWTH`` and ``SALES_GROWTH``: the growth over a year of the
+      ``eps`` and ``revenue`` features (trailing twelve months' earnings per
+      share and revenue): the value in force on the date over the value in
+      force a year before, less 1. ``EPS_GROWTH_3Y`` and ``SALES_GROWTH_3Y``:
+      the yearly rate over three years. Only values knowable on the date are
+      read. Growth from a value that was zero or negative is missing, as is a
+      three-year rate to a negative value.
 
     A value the data does not give is missing. A name only has a row while it
     trades: one whose last close is more than five sessions old by the date
@@ -158,6 +173,7 @@ def characteristics_snapshots(source: DataFetcher,
     ratios = {column: source.features.table_as_of(names, feature, dates)
               for column, feature in RATIO_FEATURES.items()}
     trailing = _trailing_dividends(source, names, dates)
+    growths = _growths(source, names, dates)
     frames = []
 
     for date in dates:
@@ -174,6 +190,7 @@ def characteristics_snapshots(source: DataFetcher,
             PB_RATIO: ratios[PB_RATIO].loc[date],
             DIVIDEND_YIELD: (trailing.loc[date] / close).where(close > 0),
             MOMENTUM: _momentum(growth, row),
+            **{column: found.loc[date] for column, found in growths.items()},
         }, index=names)
         # A name that has stopped trading, or not yet started, is not
         # described, though a ratio published before may still be in force.
@@ -199,6 +216,27 @@ def market_history(source: DataFetcher,
 
     return wide_columns(source, names, str((dates[0] - _HISTORY).date()), str(last.date()),
                         [PRICE_COLUMN, SHARES_COLUMN, VOLUME_COLUMN])
+
+
+def _growths(source: DataFetcher,
+             names: list[str],
+             dates: list[pd.Timestamp]) -> dict[str, pd.DataFrame]:
+    """Each growth figure, dates by name (`GROWTH_FEATURES`)."""
+    # BN-426, for the style box.
+    found = {}
+    now = {feature: source.features.table_as_of(names, feature, dates)
+           for feature in {feature for feature, _ in GROWTH_FEATURES.values()}}
+
+    for column, (feature, years) in GROWTH_FEATURES.items():
+        before = source.features.table_as_of(
+            names, feature, [date - pd.DateOffset(years=years) for date in dates])
+        before.index = now[feature].index
+        ratio = now[feature] / before.where(before > 0)
+        # A three-year rate to a negative value has no real root: missing.
+        found[column] = (ratio - 1.0 if years == 1
+                         else ratio.where(ratio > 0) ** (1.0 / years) - 1.0)
+
+    return found
 
 
 def _momentum(growth: pd.DataFrame,
