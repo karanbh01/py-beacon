@@ -20,6 +20,7 @@ from ..statistics import (
     NO_SHARE_CLASSES,
     PORTFOLIO,
     TABLE,
+    Column,
     Statistic,
     Summarised,
     Unavailable,
@@ -30,6 +31,13 @@ HOLDINGS, TRADING, CASH, INCOME, ETF, FUTURES = ("portfolio", "trading_and_costs
                                                  "cash_and_flows", "income", "etf", "futures")
 
 GROUPING = ("attribution.grouping",)
+
+RANGE_COLUMNS = (Column("measure", "Measure",
+                        labels={"least": "Fewest", "most": "Most", "latest": "Latest"}),
+                 Column(FUND, "Fund", "count"), Column("index", "Index", "count"),
+                 Column("benchmark", "Benchmark", "count"))
+DISTRIBUTION_COLUMNS = (Column("names", "Names", "count"), Column("days", "Days", "count"),
+                        Column("share", "Share of days", "fraction"))
 
 
 def needs(code: str,
@@ -113,6 +121,15 @@ def statistics() -> list[Statistic]:
     return [
         table("holdings_count", "Holdings count", HOLDINGS, "How many names the fund and its "
               "comparators held each day.", _holdings_count, unit="count"),
+        Statistic("holdings_range", "Holdings range", HOLDINGS, TABLE, PORTFOLIO,
+                  "The fewest and most names the fund and its comparators held on any day, "
+                  "and how many they hold now.",
+                  lambda context: context.portfolio.holdings_range(), unit="count",
+                  columns=RANGE_COLUMNS),
+        Statistic("holdings_distribution", "Days at each holdings count", HOLDINGS, TABLE,
+                  PORTFOLIO, "How many days the fund held each number of names.",
+                  lambda context: context.portfolio.holdings_distribution(), unit="count",
+                  columns=DISTRIBUTION_COLUMNS),
         table("group_weights", "Group weights and active group weights", HOLDINGS,
               "The fund's weight in each group, and less the tracked comparator's.",
               needs(NO_GROUPING, _group_weights), unit="fraction",

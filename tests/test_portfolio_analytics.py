@@ -51,6 +51,29 @@ class TestHoldings:
         assert portfolio.holdings_count("benchmark") is None
         assert portfolio.group_weights("SECTOR", "benchmark") is None
 
+    def test_the_range_of_names_held(self,
+                                     portfolio):
+        found = portfolio.holdings_range().set_index("measure")
+
+        assert found.loc[["least", "most", "latest"], "fund"].tolist() == [2, 3, 2]
+        assert found.loc[["least", "most", "latest"], "index"].tolist() == [2, 2, 2]
+        assert found["benchmark"].isna().all()
+
+    def test_the_days_at_each_count(self,
+                                    portfolio):
+        found = portfolio.holdings_distribution()
+
+        assert found["names"].tolist() == [2, 3]
+        assert found["days"].tolist() == [3, 3]
+        assert found["share"].tolist() == pytest.approx([0.5, 0.5])
+        assert found["share"].sum() == pytest.approx(1.0)
+
+    def test_a_fund_without_weights_has_no_days(self):
+        portfolio = PortfolioAnalytics(run(fund_weights=FUND.iloc[:0]))
+
+        assert portfolio.holdings_distribution().empty
+        assert portfolio.holdings_range()["fund"].isna().all()
+
 
 class TestGroupWeights:
 

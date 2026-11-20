@@ -42,6 +42,9 @@ BOOKS = {FUND: FUND_WEIGHTS, INDEX: INDEX_WEIGHTS, BENCHMARK: BENCHMARK_WEIGHTS}
 # The group of a name with none recorded.
 UNKNOWN = "Unknown"
 
+# What the holdings range gives, a row each.
+LEAST, MOST, LATEST = "least", "most", "latest"
+
 
 class PortfolioAnalytics:
     """What a run held, and in which groups.
@@ -70,6 +73,37 @@ class PortfolioAnalytics:
         weights = self.weights(book)
 
         return None if weights is None else (weights.fillna(0.0) > 0).sum(axis=1)
+
+    def holdings_range(self) -> pd.DataFrame:
+        """The fewest and most names each book held on any day of the run,
+        and how many it held on the last: a row a measure (``least``,
+        ``most``, ``latest``, in the ``measure`` column) and a column a book;
+        blank for a book the run kept no weights for."""
+        # BN-423. Every day, not only rebalances: a name that stops trading
+        # between them leaves the count until the next.
+        found: dict[str, object] = {"measure": [LEAST, MOST, LATEST]}
+
+        for book in BOOKS:
+            counts = self.holdings_count(book)
+            found[book] = ([None] * 3 if counts is None or counts.empty
+                           else [int(counts.min()), int(counts.max()), int(counts.iloc[-1])])
+
+        return pd.DataFrame(found)
+
+    def holdings_distribution(self) -> pd.DataFrame:
+        """How many days the fund held each number of names, fewest first:
+        columns ``names``, ``days`` and ``share``, the share of the run's
+        days, which sum to 1."""
+        counts = self.holdings_count()
+
+        if counts is None or counts.empty:
+            return pd.DataFrame({"names": pd.Series(dtype=int), "days": pd.Series(dtype=int),
+                                 "share": pd.Series(dtype=float)})
+
+        days = counts.value_counts().sort_index()
+
+        return pd.DataFrame({"names": days.index.astype(int), "days": days.to_numpy(dtype=int),
+                             "share": days.to_numpy(dtype=float) / float(days.sum())})
 
     def group_weights(self,
                       field: str,

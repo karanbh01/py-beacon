@@ -49,6 +49,11 @@ print(portfolio.group_weights("SECTOR").tail(1))
 `index` or `benchmark`. It is None for a portfolio the run kept no weights
 for, such as a benchmark given as a level series. `holdings_count(book)` is
 how many names it held each day.
+`holdings_range()` gives the fewest and most names each portfolio held on
+any day of the run, and how many it held on the last. `holdings_distribution()`
+gives how many days the fund held each number of names, with each count's
+share of the run's days. Both count every day, not only rebalances, so a name
+that stops trading between rebalances lowers the count until the next one.
 
 `group_weights(field, book)` adds the weights up by a grouping field of the
 run's reference data: `SECTOR`, `CURRENCY` and `EXCHANGE` in the sample, and
