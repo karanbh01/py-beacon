@@ -217,6 +217,15 @@ the tail ratio (the 95th percentile over the size of the 5th); the serial
 correlation at lags of 1 to 5 days; and a `Histogram` of 50 bins with the
 counts a normal distribution of the same mean and spread would give.
 
+The `return_distribution` statistic counts the fund's, the index's and the
+benchmark's returns into the same bins, so they can be drawn on one chart.
+Each book's count is a share of its returns. A `normal` column gives the
+share a normal distribution of the fund's mean and standard deviation would
+put in each bin. The returns are daily unless the `histogram_horizon` setting
+(in the `returns` options) asks for more days. Each return then compounds that
+many days, in periods that do not overlap, and a last period that falls short
+is dropped.
+
 `bootstrap()` says how far the annualised return and the Sharpe ratio could
 have come out otherwise. It draws the run's own days again, 1,000 runs of the
 same length by default, in blocks of `block` days to keep any dependence
@@ -287,6 +296,34 @@ table = risk_rating(analytics.returns, analytics.tracked, {}, RiskRatingSettings
 print(table)
 ```
 
+## Risk and return
+
+`beacon.analysis.performance.members` puts every name the index held on any
+day of the run, not only its latest members, on one chart of risk against
+return. Daily returns are compounded into weeks ending on Friday (or calendar
+months, with the `risk_return` options' `frequency`). A name's return is its
+mean weekly return times 52, and its volatility is the standard deviation of
+its weekly returns times the square root of 52, each over the weeks it has.
+The mean rather than the compounded return is what a mean-variance frontier is
+drawn in, so a single name sits on or inside the frontier. A name with under a
+year of weeks is left out, and the `member_risk_return` statistic's summary
+counts it as `too_short`. Each row also gives the name's latest fund and
+index weight, and whether it was in the index at the end.
+
+`portfolio_risk_return` measures the fund, the index and the benchmark the same
+way, so their markers sit on the names' scale. `efficient_frontier` traces the
+long-only, fully invested mean-variance frontier at 50 points, from the
+minimum-variance portfolio, which is flagged, to the best name. It uses the
+100 largest latest index members that have a return in every week, with their
+sample covariance and mean returns, so a late listing cannot shorten every
+name's weeks. It is drawn with returns the run went on to see, so it is a
+frontier in hindsight, not one an investor could have held. It needs a year
+of weeks, and more weeks than names, and is `too_short` otherwise. Its
+summary gives the names it was drawn from and the weeks they cover. All three
+read the run's name returns and index weights. Over 6,000 synthetic names,
+5,000 of them in the index, the member table took under a second and the
+frontier about six seconds.
+
 ## Against a comparator
 
 The sample run tracks its index almost exactly, so its relative figures are
@@ -356,8 +393,10 @@ Each `Crisis` gives the fund's and comparator's return over the days after
 the start through the end, the outperformance, each's deepest fall inside,
 the beta over the window, the alpha beyond what the whole run's beta
 predicts, the returns 3 and 6 months after the trough, and the trading days
-the fund took to get back to its value at the start. A window the run covers
-only part of is marked `partial`. `summary()` gives the average
+the fund took to get back to its value at the start, and the day it did. A
+window the run covers only part of is marked `partial`. Its `status` is
+`covered` or `partial`. `unseen()` lists the episodes the run saw none of, each
+as `before_run` or `after_run`. `summary()` gives the average
 outperformance, the share of crises outperformed, the crisis capture and the
 pooled alpha over every crisis day, a year.
 
@@ -382,6 +421,17 @@ print(regimes["down months"])
 
 The sample's market never fell 15%, so the example lowers the threshold to 5%
 and has no bear markets or corrections.
+
+In a report, the `crises` options choose the list with `episodes`: `market`
+(the market's falls, the default) or `named` (`NAMED_CRISES`). With the named
+list, `crisis_returns` keeps a row for every crisis, with its status, and a
+crisis the run saw none of has no figures. `crisis_paths` gives the fund's,
+the index's and the benchmark's levels through each crisis, rebased to 100 at
+its start. A crisis the run joined late starts at 100 on the run's first day.
+Each path runs on past the crisis's end: for at least three months, then to a
+month after the fund's recovery, and for at most eighteen months, stopping at
+the run's end. Each day's `phase` is `crisis` through the end and `after`
+beyond it.
 
 ## Where it sits
 

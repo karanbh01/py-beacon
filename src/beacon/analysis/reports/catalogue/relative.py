@@ -10,8 +10,18 @@ from typing import Any
 import pandas as pd
 
 from ...performance.comparisons import relative_figures
+from ...performance.crises import (
+    AFTER_CRISIS,
+    AFTER_RUN,
+    BEFORE_RUN,
+    COVERED,
+    IN_CRISIS,
+    PARTIAL,
+    crisis_paths,
+)
 from ...performance.relative_analytics import RelativeAnalytics
-from ..context import Context
+from ..context import FUND, Context
+from ..options import BENCHMARK, INDEX
 from ..statistics import (
     FIGURES,
     LIGHT,
@@ -27,6 +37,11 @@ from .performance import EPISODE_COLUMNS
 RELATIVE, ROLLING, CRISES = "relative", "rolling", "crises_and_regimes"
 
 COMPARED = ("comparator",)
+
+STATUS_LABELS = {COVERED: "Covered", PARTIAL: "Partly covered", BEFORE_RUN: "Before the run",
+                 AFTER_RUN: "After the run"}
+PHASE_LABELS = {IN_CRISIS: "Crisis", AFTER_CRISIS: "After"}
+BOOK_LABELS = {FUND: "Fund", INDEX: "Index", BENCHMARK: "Benchmark"}
 
 
 def _basic(name: str) -> Any:
@@ -83,10 +98,25 @@ def _crises(context: Context) -> pd.DataFrame:
 
     for crisis in context.crises.crises():
         row = {name: value for name, value in asdict(crisis).items() if name != "after"}
+        row["status"] = crisis.status
         row.update({f"after/{name}": value for name, value in (crisis.after or {}).items()})
         rows.append(row)
 
-    return pd.DataFrame(rows)
+    # A named crisis the run saw none of keeps its row, with no figures.
+    rows.extend({"name": episode.name, "start": episode.start, "end": episode.end,
+                 "status": status} for episode, status in context.crises.unseen())
+
+    found = pd.DataFrame(rows)
+
+    return found.sort_values("start", kind="stable", ignore_index=True) if rows else found
+
+
+def _crisis_paths(context: Context) -> pd.DataFrame:
+    books = {FUND: context.performance.returns}
+    books.update({name: context.book(name).returns for name in (INDEX, BENCHMARK)
+                  if name in context.run.comparators})
+
+    return crisis_paths(context.crises.crises(), books)
 
 
 def _regimes(context: Context) -> dict[str, Any]:
@@ -162,7 +192,8 @@ def statistics() -> list[Statistic]:
         Statistic("crisis_returns", "Crisis returns", CRISES, TABLE, PERFORMANCE,
                   "The fund's and comparator's return, outperformance, drawdowns, beta and "
                   "alpha in each crisis.", _crises,
-                  settings=("crises.market", "crises.threshold", "window.tracked"),
+                  settings=("crises.market", "crises.threshold", "crises.episodes",
+                            "window.tracked"),
                   columns=(Column("name", "Crisis"), Column("start", "Start", "date"),
                            Column("end", "End", "date"), Column("days", "Days", "days"),
                            Column("fund", "Fund", "fraction"),
@@ -171,7 +202,18 @@ def statistics() -> list[Statistic]:
                            Column("fund_drawdown", "Fund's drawdown", "fraction"),
                            Column("comparator_drawdown", "Comparator's drawdown", "fraction"),
                            Column("beta", "Beta", "ratio"), Column("alpha", "Alpha", "fraction"),
-                           Column("recovery_days", "Days to recover", "days"))),
+                           Column("recovery_days", "Days to recover", "days"),
+                           Column("recovery_date", "Recovered", "date"),
+                           Column("status", "Status", labels=STATUS_LABELS))),
+        Statistic("crisis_paths", "Crisis paths", CRISES, TABLE, PERFORMANCE,
+                  "The fund's, the index's and the benchmark's levels through each crisis "
+                  "and the months after it, rebased to 100 at its start.", _crisis_paths,
+                  settings=("crises.market", "crises.threshold", "crises.episodes",
+                            "window.tracked"),
+                  columns=(Column("crisis", "Crisis"), Column("date", "Date", "date"),
+                           Column("book", "Portfolio", labels=BOOK_LABELS),
+                           Column("level", "Level"),
+                           Column("phase", "Phase", labels=PHASE_LABELS))),
         Statistic("crisis_summary", "Crisis summary", CRISES, FIGURES, PERFORMANCE,
                   "Across crises: average outperformance, share outperformed, capture, "
                   "pooled alpha.", lambda context: context.crises.summary(), unit="fraction",

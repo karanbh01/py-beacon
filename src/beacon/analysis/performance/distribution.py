@@ -4,8 +4,13 @@ The shape of a run's daily returns: their spread below a target and below
 their mean, their skew and tails, how each day's return relates to the days
 before, a histogram to draw, and, by resampling, how far its annualised
 return and Sharpe ratio could have come out otherwise.
+
+The return distribution counts the fund's and each comparator's returns
+into the same bins, as shares of their periods, with the share a normal
+distribution of the fund's mean and spread would put in each.
 """
-# BN-376.
+# BN-376. The return distribution, BN-430.
+from collections.abc import Mapping
 from dataclasses import dataclass
 from itertools import pairwise
 from statistics import NormalDist
@@ -140,6 +145,67 @@ def histogram(returns: pd.Series,
     return Histogram(edges=[float(edge) for edge in edges],
                      counts=[int(count) for count in counts],
                      normal=[float(value) for value in normal])
+
+
+def over_horizon(returns: pd.Series,
+                 horizon: int) -> pd.Series:
+    """Daily returns compounded over periods of *horizon* days that do not
+    overlap, from the first; a last period short of *horizon* is dropped.
+    Each is dated on its last day."""
+    values = returns.dropna()
+
+    if horizon <= 1:
+        return values
+
+    whole = len(values) - len(values) % horizon
+    kept = values.iloc[:whole]
+    blocks = np.arange(whole) // horizon
+    growth = (1.0 + kept).groupby(blocks).prod() - 1.0
+    growth.index = kept.index[horizon - 1::horizon]
+
+    return growth
+
+
+def return_distribution(books: Mapping[str, pd.Series],
+                        bins: int = BINS,
+                        horizon: int = 1,
+                        fund: str = "fund") -> pd.DataFrame:
+    """Each book's returns counted into the same bins, as shares.
+
+    Args:
+        books: Each book's daily returns, by name.
+        bins: How many bins of equal width span every book's returns.
+        horizon: The days each return is compounded over.
+        fund: The book the normal distribution is fitted to.
+
+    Returns:
+        pd.DataFrame: A row a bin: ``low`` and ``high`` edges, a book's
+        share of its returns in it by name, and ``normal``, the share a
+        normal distribution of the fund's mean and standard deviation would
+        put in it. Empty when no book has a return.
+    """
+    found = {name: over_horizon(returns, horizon).to_numpy(dtype=float)
+             for name, returns in books.items()}
+    every = np.concatenate(list(found.values())) if found else np.array([])
+
+    if not len(every):
+        return pd.DataFrame(columns=["low", "high", *books, "normal"])
+
+    edges = np.histogram_bin_edges(every, bins=bins)
+    table = pd.DataFrame({"low": edges[:-1], "high": edges[1:]})
+
+    for name, values in found.items():
+        counts = np.histogram(values, bins=edges)[0]
+        table[name] = counts / len(values) if len(values) else np.nan
+
+    ours = found.get(fund, np.array([]))
+    spread = float(ours.std(ddof=1)) if len(ours) > 1 else 0.0
+    table["normal"] = ([_normal_cdf(high, float(ours.mean()), spread)
+                        - _normal_cdf(low, float(ours.mean()), spread)
+                        for low, high in pairwise(edges)]
+                       if spread > 0 else np.nan)
+
+    return table
 
 
 def bootstrap(returns: pd.Series,

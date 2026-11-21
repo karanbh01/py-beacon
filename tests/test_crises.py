@@ -6,6 +6,8 @@ days (a crisis), recovers, then dips 10% (not one, at the 15% threshold). The
 comparator is the market; the fund moves half as much, every day, so its
 beta is 0.5 in and out of the crisis and its alpha against that beta is 0.
 """
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -15,6 +17,7 @@ from beacon.analysis.performance.crises import (
     NAMED_CRISES,
     CrisisAnalytics,
     Episode,
+    crisis_paths,
     market_crises,
 )
 
@@ -148,3 +151,94 @@ class TestTheMarket:
 
     def test_any_market_series_can_be_given(self):
         assert len(analytics(market=MARKET * 3).episodes) == 1
+
+
+class TestStatus:
+    """BN-431: each crisis says how much of it the run covered, and a named
+    one the run saw none of keeps its row."""
+
+    def test_covered_and_partial(self):
+        named = [Episode("A wobble", DAYS[150], DAYS[170]),
+                 Episode("Straddling the end", DAYS[390], DAYS[-1] + pd.DateOffset(days=30))]
+
+        crises = analytics(named=named).crises()
+
+        assert [crisis.status for crisis in crises] == ["covered", "partial"]
+
+    def test_crises_the_run_saw_none_of(self):
+        named = [Episode("Before", pd.Timestamp("2010-01-04"), pd.Timestamp("2010-06-01")),
+                 Episode("A wobble", DAYS[150], DAYS[170]),
+                 Episode("After", DAYS[-1] + pd.DateOffset(days=30),
+                         DAYS[-1] + pd.DateOffset(days=90))]
+
+        unseen = analytics(named=named).unseen()
+
+        assert [(episode.name, status) for episode, status in unseen] == [
+            ("Before", "before_run"), ("After", "after_run")]
+
+    def test_the_recovery_date(self):
+        crisis = analytics().crises()[0]
+        back = DAYS[DAYS > TROUGH][crisis.recovery_days - 1]
+
+        assert crisis.recovery_date == back
+
+
+class TestPaths:
+    """BN-431: each book's level through a crisis and on past it."""
+
+    def paths(self,
+              crisis=None):
+        crisis = crisis or analytics().crises()[0]
+
+        return crisis, crisis_paths([crisis], {"fund": FUND, "index": MARKET_RETURNS})
+
+    def test_from_100_at_the_start(self):
+        crisis, found = self.paths()
+        fund = found[found["book"] == "fund"].set_index("date")["level"]
+
+        assert fund.iloc[0] == 100.0 and fund.index[0] == PEAK
+        assert fund.loc[TROUGH] == pytest.approx(100.0 * (1 + crisis.fund))
+
+    def test_the_phases(self):
+        _, found = self.paths()
+        index = found[found["book"] == "index"]
+
+        assert (index[index["date"] <= TROUGH]["phase"] == "crisis").all()
+        assert (index[index["date"] > TROUGH]["phase"] == "after").all()
+
+    def test_a_month_past_the_recovery_or_three_past_the_end(self):
+        crisis, found = self.paths()
+        last = found["date"].max()
+        expected = max(TROUGH + pd.DateOffset(months=3),
+                       crisis.recovery_date + pd.DateOffset(months=1))
+
+        assert last == DAYS[DAYS.to_series() <= expected].max()
+
+    def test_eighteen_months_at_most_and_never_past_the_run(self):
+        crisis = replace(analytics().crises()[0], recovery_date=None)
+
+        _, found = self.paths(crisis)
+
+        assert found["date"].max() == DAYS[-1]
+
+    def test_a_crisis_the_run_joined_late_starts_on_its_first_day(self):
+        named = [Episode("Joined late", pd.Timestamp("2020-12-01"), DAYS[20])]
+        crisis = analytics(named=named).crises()[0]
+
+        _, found = self.paths(crisis)
+        fund = found[found["book"] == "fund"].set_index("date")["level"]
+
+        assert fund.index[0] == DAYS[0] and fund.iloc[0] == 100.0
+        assert fund.loc[DAYS[20]] == pytest.approx(100.0 * (1 + FUND.loc[DAYS[1]:DAYS[20]]).prod())
+
+
+class TestThroughTheCatalogue:
+
+    def test_a_run_with_no_crisis_has_an_empty_table(self):
+        from beacon.analysis.reports.catalogue import CATALOGUE
+        from beacon.analysis.reports.context import Context
+
+        run = RunData.of_returns(FUND, 252, 0.0, {"index": pd.Series(100.0, index=DAYS)})
+
+        assert CATALOGUE["crisis_returns"].compute(Context(run)).empty
+        assert CATALOGUE["crisis_paths"].compute(Context(run)).empty

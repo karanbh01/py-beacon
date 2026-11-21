@@ -14,6 +14,7 @@ import types
 from dataclasses import dataclass, field, fields
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
+from ..performance.members import FREQUENCIES, MONTHLY, WEEKLY, RiskReturnSettings
 from ..performance.risk_rating import RiskRatingSettings
 from ..performance.settings import AnalysisSettings
 from ..performance.style import THREE_YEARS, YEAR, StyleSettings
@@ -22,6 +23,8 @@ DAILY, MONTH_END = "daily", "month_end"
 STEPS = (DAILY, MONTH_END)
 
 INDEX, BENCHMARK, OPTIMISED = "index", "benchmark", "optimised"
+
+MARKET_FALLS, NAMED = "market", "named"
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,8 @@ class ReturnsOptions:
         bootstrap_block: Consecutive days drawn together.
         bootstrap_seed: The random seed, so a range is the same each time.
         histogram_bins: How many bins the return histogram has.
+        histogram_horizon: The days each return in the return distribution
+            is compounded over, in periods that do not overlap.
     """
     worst_drawdowns: int = 5
     gains_frequency: str = "daily"
@@ -66,6 +71,7 @@ class ReturnsOptions:
     bootstrap_block: int = 1
     bootstrap_seed: int = 0
     histogram_bins: int = 50
+    histogram_horizon: int = 1
 
 
 @dataclass(frozen=True)
@@ -76,9 +82,13 @@ class CrisesOptions:
         market: The comparator crises and regimes are read from: the
             benchmark when the run has one, else the index, when None.
         threshold: The fall from a peak that makes a crisis.
+        episodes: Which crises: ``market``, the market's falls of
+            *threshold* or more, or ``named``, the named list from the
+            dot-com bust on, each with a row whether the run saw it or not.
     """
     market: str | None = None
     threshold: float = 0.15
+    episodes: str = MARKET_FALLS
 
 
 @dataclass(frozen=True)
@@ -193,6 +203,7 @@ class AnalysisOptions:
     exposures: ExposuresOptions = field(default_factory=ExposuresOptions)
     style: StyleSettings = field(default_factory=StyleSettings)
     risk_rating: RiskRatingSettings = field(default_factory=RiskRatingSettings)
+    risk_return: RiskReturnSettings = field(default_factory=RiskReturnSettings)
 
 
 @dataclass(frozen=True)
@@ -262,6 +273,10 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
                                     "time."),
         "histogram_bins": Described("Histogram bins", "How many bins the return histogram "
                                     "has.", unit="count", minimum=1),
+        "histogram_horizon": Described("Distribution horizon", "The days each return in the "
+                                       "return distribution is compounded over, in periods "
+                                       "that do not overlap.", unit="days",
+                                       suggestions=(1, 5, 21), minimum=1),
     }),
     "crises": ("Crises and regimes", {
         "market": Described("Market", "The comparator crises and regimes are read from; the "
@@ -271,6 +286,11 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
                                            BENCHMARK: COMPARATORS[BENCHMARK]}),
         "threshold": Described("Fall that makes a crisis", "The fall from a peak that makes "
                                "a crisis.", unit="fraction", minimum=0.0, maximum=1.0),
+        "episodes": Described("Crises", "The market's falls of the threshold or more, or the "
+                              "named list from the dot-com bust on, each listed whether the "
+                              "run saw it or not.", choices=(MARKET_FALLS, NAMED),
+                              choice_labels={MARKET_FALLS: "The market's falls",
+                                             NAMED: "Named crises"}),
     }),
     "value_at_risk": ("Value at risk", {
         "levels": Described("Confidence levels", "Each level value at risk and expected "
@@ -353,6 +373,17 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
                                      items="number", items_unit="fraction"),
         "years": Described("Years measured", "The years of weekly returns the rating is "
                            "measured over; all of a shorter run's.", unit="count", minimum=1),
+    }),
+    "risk_return": ("Risk and return", {
+        "frequency": Described("Measured on", "The returns each name's and portfolio's risk "
+                               "and return, and the frontier, are measured on.",
+                               choices=tuple(FREQUENCIES),
+                               choice_labels={WEEKLY: "Weeks", MONTHLY: "Months"}),
+        "frontier_names": Described("Frontier names", "How many of the largest latest index "
+                                    "members with a return in every period the frontier is "
+                                    "drawn from.", unit="count", minimum=2),
+        "frontier_points": Described("Frontier points", "How many portfolios the frontier is "
+                                     "traced at.", unit="count", minimum=2),
     }),
 }
 

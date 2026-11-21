@@ -10,10 +10,11 @@ from typing import Any
 
 import pandas as pd
 
-from ...performance import formulas, ratios
+from ...performance import distribution, formulas, ratios
 from ...performance import trailing_statistics as trailing
 from ...performance.analytics import PerformanceAnalytics
-from ..context import Context
+from ..context import FUND, Context
+from ..options import BENCHMARK, INDEX
 from ..statistics import (
     FIGURES,
     LIGHT,
@@ -129,6 +130,16 @@ def _episodes(context: Context) -> Summarised:
                if name not in ("worst", "current_drawdown")}
 
     return Summarised(table, summary)
+
+
+def _shared_histogram(context: Context) -> pd.DataFrame:
+    books = {FUND: context.performance.returns}
+    books.update({name: context.book(name).returns for name in (INDEX, BENCHMARK)
+                  if name in context.run.comparators})
+    options = context.options.returns
+
+    return distribution.return_distribution(books, options.histogram_bins,
+                                            options.histogram_horizon, FUND)
 
 
 def _histogram(context: Context) -> pd.DataFrame:
@@ -269,6 +280,15 @@ def _distribution() -> list[Statistic]:
                   columns=(Column("low", "From", "fraction"), Column("high", "To", "fraction"),
                            Column("count", "Days", "count"),
                            Column("normal", "Normal", "count"))),
+        Statistic("return_distribution", "Return distribution", DISTRIBUTION, TABLE,
+                  PERFORMANCE, "The fund's, the index's and the benchmark's returns counted "
+                  "into the same bins, as shares, with the share a normal distribution of the "
+                  "fund's would put in each.", _shared_histogram,
+                  settings=("returns.histogram_bins", "returns.histogram_horizon"),
+                  columns=(Column("low", "From", "fraction"), Column("high", "To", "fraction"),
+                           Column(FUND, "Fund", "fraction"), Column(INDEX, "Index", "fraction"),
+                           Column(BENCHMARK, "Benchmark", "fraction"),
+                           Column("normal", "Normal", "fraction"))),
         Statistic("bootstrap_ranges", "Bootstrap ranges", DISTRIBUTION, FIGURES, PERFORMANCE,
                   "Confidence ranges for the main figures from resampled returns.",
                   _bootstrap, settings=("returns.bootstrap_samples",

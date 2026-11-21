@@ -16,7 +16,7 @@ covers only part of is marked partial.
 # BN-380. As decided with Karan on 2026-10-27: the threshold applies to a
 # broad market series the user chooses, market data or an index built in
 # Beacon, not necessarily the fund's comparator.
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -34,6 +34,15 @@ THRESHOLD = 0.15
 
 # The months after a crisis's trough the returns are given for.
 AFTER_MONTHS = (3, 6)
+
+# How much of the run a crisis covered.
+COVERED, PARTIAL, BEFORE_RUN, AFTER_RUN = "covered", "partial", "before_run", "after_run"
+
+# A crisis's path runs on past its end: at least three months, a month past
+# the fund's recovery, at most eighteen months (beacon-ui, 2026-11-21).
+PATH_MONTHS, PATH_PAST_RECOVERY, PATH_MOST = 3, 1, 18
+IN_CRISIS, AFTER_CRISIS = "crisis", "after"
+PATH_COLUMNS = ["crisis", "date", "book", "level", "phase"]
 
 
 @dataclass(frozen=True)
@@ -81,6 +90,7 @@ class Crisis:
             ends too soon.
         recovery_days: Trading days from the end until the fund was back at
             its value at the start; None if it had not been by the run's end.
+        recovery_date: The day it was back; None if it had not been.
     """
     name: str
     start: pd.Timestamp
@@ -96,6 +106,13 @@ class Crisis:
     alpha: float
     after: dict[str, float | None]
     recovery_days: int | None
+    recovery_date: pd.Timestamp | None = None
+
+    @property
+    def status(self) -> str:
+        """``partial`` for a crisis the run covered only part of, else
+        ``covered``."""
+        return PARTIAL if self.partial else COVERED
 
 
 def market_crises(market: pd.Series,
@@ -119,6 +136,7 @@ def crisis_of(episode: Episode,
         return None
 
     fund, comparator = ours[inside], theirs[inside]
+    recovered = _recovery(ours, episode)
     total, theirs_total = formulas.compounded_return(fund), formulas.compounded_return(comparator)
 
     return Crisis(name=episode.name, start=episode.start, end=episode.end,
@@ -130,7 +148,8 @@ def crisis_of(episode: Episode,
                   beta=formulas.beta(fund, comparator),
                   alpha=total - run_beta * theirs_total,
                   after=_after(ours, theirs, episode.end),
-                  recovery_days=_recovery(ours, episode))
+                  recovery_days=recovered[0] if recovered else None,
+                  recovery_date=recovered[1] if recovered else None)
 
 
 def across(crises: Sequence[Crisis],
@@ -210,6 +229,83 @@ class CrisisAnalytics:
         return across(self.crises(), self.ours, self.theirs, self.run_beta,
                       self.periods_per_year)
 
+    def unseen(self) -> list[tuple[Episode, str]]:
+        """Each crisis the run saw none of, in order, and whether it came
+        ``before_run`` or ``after_run``."""
+        if self.ours.empty:
+            return []
+
+        seen = {(crisis.name, crisis.start) for crisis in self.crises()}
+
+        return [(episode, BEFORE_RUN if episode.end <= self.ours.index[0] else AFTER_RUN)
+                for episode in sorted(self.episodes, key=lambda episode: episode.start)
+                if (episode.name, episode.start) not in seen]
+
+
+def crisis_paths(crises: Sequence[Crisis],
+                 books: Mapping[str, pd.Series]) -> pd.DataFrame:
+    """Each book's level through each crisis and after it, rebased to 100
+    at the crisis's start (or the run's first day, for a crisis the run
+    joined late).
+
+    The path runs on past the crisis's end for at least three months, to a
+    month after the fund's recovery, and for at most eighteen months,
+    stopping at the run's end.
+
+    Args:
+        crises: The crises.
+        books: Each book's daily returns, by name.
+
+    Returns:
+        pd.DataFrame: A row a crisis, day and book: ``crisis``, ``date``,
+        ``book``, ``level`` and ``phase``, ``crisis`` through the crisis's
+        end and ``after`` beyond it.
+    """
+    rows: list[dict[str, object]] = []
+
+    for crisis in crises:
+        until = _path_end(crisis)
+
+        for book, returns in books.items():
+            rows.extend({"crisis": crisis.name, "date": day, "book": book, "level": level,
+                         "phase": IN_CRISIS if day <= crisis.end else AFTER_CRISIS}
+                        for day, level in _path(returns, crisis.start, until).items())
+
+    return pd.DataFrame(rows, columns=PATH_COLUMNS)
+
+
+def _path_end(crisis: Crisis) -> pd.Timestamp:
+    """The last day a crisis's path is drawn to, before the run's end."""
+    least = crisis.end + pd.DateOffset(months=PATH_MONTHS)
+    most = crisis.end + pd.DateOffset(months=PATH_MOST)
+
+    if crisis.recovery_date is None:
+        return pd.Timestamp(most)
+
+    past = crisis.recovery_date + pd.DateOffset(months=PATH_PAST_RECOVERY)
+
+    return pd.Timestamp(min(max(least, past), most))
+
+
+def _path(returns: pd.Series,
+          start: pd.Timestamp,
+          until: pd.Timestamp) -> pd.Series:
+    """The level from 100 on *start* (or the first day after it the returns
+    have) through *until*."""
+    after = returns[(returns.index > start) & (returns.index <= until)].dropna()
+
+    if after.empty:
+        return pd.Series(dtype=float)
+
+    if (returns.index <= start).any():
+        return pd.concat([pd.Series([100.0], index=[start]), 100.0 * (1.0 + after).cumprod()])
+
+    # The run's first day is where it joined: 100, its own return not counted.
+    growth = 1.0 + after
+    growth.iloc[0] = 1.0
+
+    return 100.0 * growth.cumprod()
+
 
 def _after(ours: pd.Series,
            theirs: pd.Series,
@@ -232,13 +328,13 @@ def _after(ours: pd.Series,
 
 
 def _recovery(ours: pd.Series,
-              episode: Episode) -> int | None:
+              episode: Episode) -> tuple[int, pd.Timestamp] | None:
     """Trading days from the episode's end until the fund was back at its
-    value at the start; None if not by the run's end."""
+    value at the start, and that day; None if not by the run's end."""
     level = (1.0 + ours).cumprod()
     before = level[level.index <= episode.start]
     start_value = float(before.iloc[-1]) if len(before) else 1.0
     after = level[level.index > episode.end]
     back = np.flatnonzero(after.to_numpy() >= start_value)
 
-    return int(back[0]) + 1 if len(back) else None
+    return (int(back[0]) + 1, pd.Timestamp(after.index[back[0]])) if len(back) else None

@@ -27,7 +27,7 @@ from ..class_panels import CLASS_DAYS
 from ..data import RunData
 from ..performance.analytics import PerformanceAnalytics
 from ..performance.comparisons import aligned
-from ..performance.crises import CrisisAnalytics
+from ..performance.crises import NAMED_CRISES, CrisisAnalytics
 from ..performance.portfolio import PortfolioAnalytics
 from ..performance.regimes import RegimeAnalytics
 from ..performance.relative_analytics import RelativeAnalytics
@@ -37,7 +37,7 @@ from ..risk.contributions import RiskOverTime
 from ..risk.factors import FactorAnalytics
 from ..risk.liquidity import LiquidityAnalytics
 from ..risk.var import RiskOfLoss
-from .options import BENCHMARK, INDEX, OPTIMISED, AnalysisOptions
+from .options import BENCHMARK, INDEX, NAMED, OPTIMISED, AnalysisOptions
 from .statistics import (
     NO_BENCHMARK,
     NO_DATA_STORE,
@@ -208,8 +208,10 @@ class Context:
     @cached_property
     def crises(self) -> CrisisAnalytics:
         """The run's crises, against the tracked comparator."""
+        named = NAMED_CRISES if self.options.crises.episodes == NAMED else None
+
         return CrisisAnalytics(self.run, self.require_tracked(), self.market(),
-                               threshold=self.options.crises.threshold,
+                               threshold=self.options.crises.threshold, named=named,
                                settings=self.options.window)
 
     @cached_property
