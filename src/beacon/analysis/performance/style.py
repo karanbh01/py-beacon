@@ -279,8 +279,8 @@ def _style_positions(scores: pd.Series,
         levels = among["score"].to_numpy(dtype=float)
         running = np.concatenate([[0.0], np.cumsum(among["cap"].to_numpy(dtype=float))])
         mine = scored[names].to_numpy(dtype=float)
-        below = running[np.searchsorted(levels, mine, side="left")]
-        level = running[np.searchsorted(levels, mine, side="right")] - below
+        below = running[np.digitize(mine, levels, right=True)]
+        level = running[np.digitize(mine, levels)] - below
         found[names] = 3.0 * (below + level / 2.0) / running[-1]
 
     return found

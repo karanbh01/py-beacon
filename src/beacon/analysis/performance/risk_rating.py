@@ -92,7 +92,7 @@ class RiskRatingSettings:
 def ratings(volatility: float | np.ndarray,
             bounds: tuple[float, ...] = VOLATILITY_BOUNDS) -> np.ndarray:
     """Each volatility's rating: 1, and one more for each bound it reaches."""
-    found: np.ndarray = np.searchsorted(bounds, np.atleast_1d(volatility), side="right") + 1
+    found: np.ndarray = np.digitize(np.atleast_1d(volatility), bounds) + 1
 
     return found
 
@@ -101,7 +101,7 @@ def bands(tracking_error: float | np.ndarray,
           bounds: tuple[float, ...] = TRACKING_BOUNDS) -> np.ndarray:
     """Each tracking error's band."""
     found: np.ndarray = np.array(BANDS, dtype=object)[
-        np.searchsorted(bounds, np.atleast_1d(tracking_error), side="right")]
+        np.digitize(np.atleast_1d(tracking_error), bounds)]
 
     return found
 
