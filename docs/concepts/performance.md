@@ -352,20 +352,22 @@ print(table)
 
 ## Risk and return
 
-`beacon.analysis.performance.members` puts every name the index held on any
-day of the run, not only its latest members, on one chart of risk against
-return. Daily returns are compounded into weeks ending on Friday (or calendar
-months, with the `risk_return` options' `frequency`). A name's return is its
-mean weekly return times 52, and its volatility is the standard deviation of
-its weekly returns times the square root of 52, each over the weeks it has.
-The mean rather than the compounded return is what a mean-variance frontier is
-drawn in, so a single name sits on or inside the frontier. A name with under a
-year of weeks is left out, and the `member_risk_return` statistic's summary
-counts it as `too_short`. Each row also gives the name's latest fund and
-index weight, and whether it was in the index at the end.
+Every name's risk and return, for one chart of risk against return, is the
+per-name table at weekly returns,
+`result.analytics.instrument.table(frequency="weekly")`: a row for every name
+any portfolio held on any day of the run, not only its latest members. Daily
+returns are compounded into weeks ending on Friday. A name's annualised
+return is its mean weekly return times 52, and its volatility is the standard
+deviation of its weekly returns times the square root of 52, each over the
+weeks it has. The mean rather than the compounded return is what a
+mean-variance frontier is drawn in, so a single name sits on or inside the
+frontier. A name with under a year of weeks keeps its row, with its
+annualised return blank. Each row also gives when the name was held, its
+weights and whether it was in the index at the end.
 
-`portfolio_risk_return` measures the fund, the index and the benchmark the same
-way, so their markers sit on the names' scale. `efficient_frontier` traces the
+`portfolio_risk_return` (`beacon.analysis.performance.members`) measures the
+fund, the index and the benchmark the same way, so their markers sit on the
+names' scale. `efficient_frontier` traces the
 long-only, fully invested mean-variance frontier at 50 points, from the
 minimum-variance portfolio, which is flagged, to the best name. It uses the
 100 largest latest index members that have a return in every week, with their
@@ -373,10 +375,9 @@ sample covariance and mean returns, so a late listing cannot shorten every
 name's weeks. It is drawn with returns the run went on to see, so it is a
 frontier in hindsight, not one an investor could have held. It needs a year
 of weeks, and more weeks than names, and is `too_short` otherwise. Its
-summary gives the names it was drawn from and the weeks they cover. All three
-read the run's name returns and index weights. Over 6,000 synthetic names,
-5,000 of them in the index, the member table took under a second and the
-frontier about six seconds.
+summary gives the names it was drawn from and the weeks they cover. The frontier
+reads the run's name returns and index weights. Over 6,000 synthetic names,
+5,000 of them in the index, it took about six seconds.
 
 ## Against a comparator
 

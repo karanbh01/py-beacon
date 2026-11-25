@@ -7,7 +7,7 @@ them in hindsight (`beacon.analysis.performance.members`).
 # BN-429. Agreed with Karan on 2026-11-21 for beacon-ui's Risk & correlation view.
 import pandas as pd
 
-from ...panels import FUND_WEIGHTS, INDEX_WEIGHTS, NAME_RETURNS
+from ...panels import INDEX_WEIGHTS, NAME_RETURNS
 from ...performance import members
 from ..context import Context
 from ..options import BENCHMARK, INDEX
@@ -22,7 +22,6 @@ from ..statistics import (
     Summarised,
     Unavailable,
 )
-from .build import memo
 
 CATEGORY = "risk"
 
@@ -34,10 +33,6 @@ FIGURE_COLUMNS = (Column("return", "Return", "fraction"),
                   Column("volatility", "Volatility", "fraction"),
                   Column("observations", "Periods", "count"),
                   Column("first", "First", "date"), Column("last", "Last", "date"))
-MEMBER_COLUMNS = (Column("name", "Name"), *FIGURE_COLUMNS,
-                  Column("in_index_at_end", "In the index at the end"),
-                  Column("fund_weight", "Fund weight", "fraction"),
-                  Column("index_weight", "Index weight", "fraction"))
 PORTFOLIO_COLUMNS = (Column("book", "Portfolio", labels=BOOK_LABELS), *FIGURE_COLUMNS)
 FRONTIER_COLUMNS = (Column("volatility", "Volatility", "fraction"),
                     Column("return", "Return", "fraction"),
@@ -71,22 +66,6 @@ def _tables(context: Context) -> tuple[pd.DataFrame, pd.DataFrame]:
     return _window(context, tables[NAME_RETURNS]), _window(context, tables[INDEX_WEIGHTS])
 
 
-def _members(context: Context) -> Summarised:
-    def work_out() -> Summarised:
-        name_returns, index_weights = _tables(context)
-        fund = context.run.tables.get(FUND_WEIGHTS)
-        found = members.member_risk_return(name_returns, index_weights,
-                                           None if fund is None else _window(context, fund),
-                                           context.options.risk_return)
-
-        return Summarised(found.table, {"measured": found.measured,
-                                        "too_short": found.too_short})
-
-    found: Summarised = memo(context, "member_risk_return", work_out)
-
-    return found
-
-
 def _portfolios(context: Context) -> pd.DataFrame:
     books = {"fund": context.performance.returns}
     books.update({name: context.book(name).returns for name in (INDEX, BENCHMARK)
@@ -109,15 +88,9 @@ def _frontier(context: Context) -> Summarised:
 def statistics() -> list[StatisticSpec]:
     """The risk and return statistics, in order."""
     return [
-        StatisticSpec("member_risk_return", "Risk and return of every member", CATEGORY, TABLE,
-                      RISK,
-                      "The annualised return and volatility of every name the index held over "
-                      "the run, on weekly returns; names with under a year are counted, not "
-                      "shown.", _members, unit="fraction", settings=SETTINGS,
-                      columns=MEMBER_COLUMNS),
         StatisticSpec("portfolio_risk_return", "Risk and return of each portfolio", CATEGORY,
                       TABLE, RISK, "The fund's, the index's and the benchmark's annualised return "
-                      "and volatility, measured as the members' are.", _portfolios,
+                      "and volatility, measured as each name's is at weekly returns.", _portfolios,
                       unit="fraction", settings=SETTINGS, columns=PORTFOLIO_COLUMNS),
         StatisticSpec("efficient_frontier", "Efficient frontier in hindsight", CATEGORY, TABLE,
                       RISK, "The long-only, fully invested mean-variance frontier of the largest "

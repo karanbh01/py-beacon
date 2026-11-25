@@ -1,9 +1,9 @@
 # src/beacon/analysis/performance/members.py
 """
-Each name's risk and return, the fund's and its comparators' measured the
-same way, and the efficient frontier through them in hindsight.
+The fund's and its comparators' risk and return, measured as each name's is
+in the per-name table at weekly returns, and the efficient frontier through
+the names in hindsight.
 
-    member_risk_return(name_returns, index_weights, fund_weights, settings)
     portfolio_risk_return(books, settings)
     hindsight_frontier(name_returns, index_weights, settings)
 
@@ -16,9 +16,6 @@ deviation of its weekly returns times the square root of 52. The mean, not
 the compounded return, is what a mean-variance frontier is drawn in, so a
 single name sits on or inside it. A run's first and last weeks may be part
 weeks.
-
-Every name the index held on any day of the run is measured, not only its
-latest members. A name with under a year of weeks is left out, and counted.
 
 ## The frontier
 
@@ -48,14 +45,14 @@ WEEKLY, MONTHLY = "weekly", "monthly"
 FREQUENCIES = {WEEKLY: ("W-FRI", 52), MONTHLY: ("ME", 12)}
 
 FIGURE_COLUMNS = ["return", "volatility", "observations", "first", "last"]
-MEMBER_COLUMNS = ["name", *FIGURE_COLUMNS, "in_index_at_end", "fund_weight", "index_weight"]
 PORTFOLIO_COLUMNS = ["book", *FIGURE_COLUMNS]
 FRONTIER_COLUMNS = ["volatility", "return", "minimum_variance"]
 
 
 @dataclass(frozen=True)
 class RiskReturnSettings:
-    """How names' risk and return, and the frontier, are measured.
+    """How the portfolios' risk and return, and the frontier, are
+    measured.
 
     Attributes:
         frequency: The returns measured: ``weekly`` or ``monthly``.
@@ -82,20 +79,6 @@ class RiskReturnSettings:
     def per_year(self) -> int:
         """How many of these periods make a year."""
         return FREQUENCIES[self.frequency][1]
-
-
-@dataclass(frozen=True)
-class Members:
-    """Every name the index held, measured.
-
-    Attributes:
-        table: A row a name measured.
-        measured: How many names were measured.
-        too_short: How many had under a year of periods and were left out.
-    """
-    table: pd.DataFrame
-    measured: int
-    too_short: int
 
 
 @dataclass(frozen=True)
@@ -146,43 +129,6 @@ def risk_return(periods: pd.DataFrame,
                         index=periods.columns)
 
 
-def member_risk_return(name_returns: pd.DataFrame,
-                       index_weights: pd.DataFrame,
-                       fund_weights: pd.DataFrame | None,
-                       settings: RiskReturnSettings) -> Members:
-    """The risk and return of every name the index held on any day.
-
-    Args:
-        name_returns: Each name's daily returns, dates by name, over the
-            days measured.
-        index_weights: The index's daily weights, dates by name, over the
-            same days.
-        fund_weights: The fund's daily weights; None for a run without.
-        settings: The periods measured.
-
-    Returns:
-        Members: A row a name with a year of periods or more, by name:
-        ``name``, ``return``, ``volatility``, ``observations``, ``first``,
-        ``last``, ``in_index_at_end`` and the latest ``fund_weight`` and
-        ``index_weight``, blank for a name out of that portfolio.
-    """
-    held = _held(index_weights)
-    members = [name for name in held.index if name in name_returns.columns]
-    figures = risk_return(compounded(name_returns[members], settings.frequency),
-                          settings.per_year)
-    long_enough = figures[figures["observations"] >= settings.per_year]
-    index_latest = _latest(index_weights)
-    fund_latest = _latest(fund_weights) if fund_weights is not None else pd.Series(dtype=float)
-    table = long_enough.rename_axis("name").reset_index()
-    table["in_index_at_end"] = [bool(index_latest.get(name, 0.0) > 0)
-                                for name in table["name"]]
-    table["fund_weight"] = [_weight(fund_latest, name) for name in table["name"]]
-    table["index_weight"] = [_weight(index_latest, name) for name in table["name"]]
-
-    return Members(table=table[MEMBER_COLUMNS].sort_values("name", ignore_index=True),
-                   measured=len(table), too_short=len(figures) - len(long_enough))
-
-
 def portfolio_risk_return(books: Mapping[str, pd.Series],
                           settings: RiskReturnSettings) -> pd.DataFrame:
     """Each portfolio's risk and return, from its daily returns by name,
@@ -231,14 +177,6 @@ def hindsight_frontier(name_returns: pd.DataFrame,
                     first=pd.Timestamp(common.index[0]), last=pd.Timestamp(common.index[-1]))
 
 
-def _held(weights: pd.DataFrame) -> pd.Series:
-    """Whether each name had weight on any day, for the names that did."""
-    found = (weights.fillna(0.0) > 0).any()
-    found.index = found.index.astype(str)
-
-    return found[found]
-
-
 def _latest(weights: pd.DataFrame) -> pd.Series:
     """The last day's weights, by name."""
     if weights.empty:
@@ -248,10 +186,3 @@ def _latest(weights: pd.DataFrame) -> pd.Series:
     row.index = row.index.astype(str)
 
     return row
-
-
-def _weight(latest: pd.Series,
-            name: str) -> float | None:
-    value = float(latest.get(name, 0.0))
-
-    return value if value > 0 else None

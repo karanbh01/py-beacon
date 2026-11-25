@@ -25,8 +25,8 @@ shortest window an annualised rate is given over
 The weights each portfolio gave each name, the days each holding would take
 to sell, and the value each name traded are here too, a row a name.
 """
-# BN-452 (Karan, 2026-11-24). member_risk_return stays on weekly returns,
-# as decided on 2026-11-21, so the frontier and its dots share a scale.
+# BN-452 (Karan, 2026-11-24). BN-461 (Karan, 2026-11-25): member_risk_return
+# is removed; its figures are table(frequency="weekly")'s.
 from collections.abc import Sequence
 from typing import Any
 
@@ -58,17 +58,8 @@ class InstrumentLevel(Category):
     statistics given a row a name."""
 
     name = "instrument"
-    statistics = ("member_risk_return", "style_positions")
+    statistics = ("style_positions",)
     extras = (*name_figures.FIGURES, "average_weight", "days_to_sell", "traded_value", "table")
-
-    def member_risk_return(self,
-                           *,
-                           start: Day = None,
-                           end: Day = None) -> Any:
-        """The annualised return and volatility of every name the index
-        held over the run, on weekly returns; names with under a year are
-        counted, not shown."""
-        return self._get("member_risk_return", start=start, end=end)
 
     def style_positions(self) -> Any:
         """Where each name held sits by size and style, from 0 to 3 on each,

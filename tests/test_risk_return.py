@@ -1,6 +1,7 @@
 # tests/test_risk_return.py
-"""BN-429/BN-430/BN-431: every member's risk and return, each portfolio's,
-the frontier in hindsight, and the statistics beacon-ui's Risk view reads.
+"""BN-429/BN-430/BN-431: each portfolio's risk and return, the frontier in
+hindsight, and the statistics beacon-ui's Risk view reads. Each name's is the
+per-name table's at weekly returns (BN-461), in test_analytics_instrument.
 
 Seeded weekly-scale noise on a few names: the index holds four of them over
 the run and drops one before its end; one is listed too late to have a year;
@@ -18,8 +19,8 @@ from beacon.analysis.performance.members import (
     RiskReturnSettings,
     compounded,
     hindsight_frontier,
-    member_risk_return,
     portfolio_risk_return,
+    risk_return,
 )
 from beacon.analysis.reports.catalogue import CATALOGUE
 from beacon.analysis.reports.context import Context
@@ -66,54 +67,15 @@ class TestCompounding:
         assert monthly.iloc[0] == pytest.approx(1.01 ** 20 - 1)
 
 
-class TestMembers:
-
-    @pytest.fixture(scope="class")
-    def found(self):
-        return member_risk_return(names(), index_weights(), index_weights(), SETTINGS)
-
-    def test_every_name_ever_held_with_a_year(self,
-                                              found):
-        assert found.table["name"].tolist() == ["A", "B", "C", "D"]
-        assert found.measured == 4 and found.too_short == 1
-
-    def test_the_mean_times_52_and_the_spread_times_its_root(self,
-                                                              found):
-        weekly = compounded(names()["C"])
-        row = found.table.set_index("name").loc["C"]
-
-        assert row["return"] == pytest.approx(weekly.mean() * 52)
-        assert row["volatility"] == pytest.approx(weekly.std() * np.sqrt(52))
-        assert row["observations"] == len(weekly)
-        assert row["first"] == weekly.index[0] and row["last"] == weekly.index[-1]
-
-    def test_the_latest_weights(self,
-                                found):
-        table = found.table.set_index("name")
-
-        assert table.loc["A", "in_index_at_end"]
-        assert table.loc["A", "index_weight"] == pytest.approx(0.4)
-        assert not table.loc["D", "in_index_at_end"]
-        assert pd.isna(table.loc["D", "index_weight"]) and pd.isna(table.loc["D", "fund_weight"])
-
-    def test_monthly_needs_twelve_months(self):
-        found = member_risk_return(names(), index_weights(), None,
-                                   RiskReturnSettings(frequency="monthly"))
-
-        assert found.table["observations"].min() >= 12
-        assert found.table["fund_weight"].isna().all()
-
-
 class TestPortfolios:
 
     def test_measured_as_the_names_are(self):
         daily = names()
 
         found = portfolio_risk_return({"fund": daily["A"], "index": daily["B"]}, SETTINGS)
-        members = member_risk_return(daily, index_weights(), None, SETTINGS).table
+        names_ = risk_return(compounded(daily[["A", "B"]]), 52)
 
-        np.testing.assert_allclose(found["volatility"],
-                                   members.set_index("name").loc[["A", "B"], "volatility"])
+        np.testing.assert_allclose(found["volatility"], names_["volatility"])
         assert found["book"].tolist() == ["fund", "index"]
 
 
@@ -176,13 +138,6 @@ class TestTheCatalogue:
 
         return Context(self.run(), chosen)
 
-    def test_members_with_their_count(self):
-        found = payload("table", CATALOGUE["member_risk_return"].compute(self.context()))
-
-        assert found["summary"] == {"measured": 4, "too_short": 1}
-        assert found["point"]["columns"][:3] == ["name", "return", "volatility"]
-        assert len(found["point"]["data"]) == 4
-
     def test_the_portfolios(self):
         found = CATALOGUE["portfolio_risk_return"].compute(self.context())
 
@@ -198,17 +153,16 @@ class TestTheCatalogue:
     def test_a_run_without_its_tables(self):
         context = Context(self.run(tables=False), AnalysisOptions(risk_return=SETTINGS))
 
-        for statistic_id in ("member_risk_return", "efficient_frontier"):
-            with pytest.raises(Unavailable) as raised:
-                CATALOGUE[statistic_id].compute(context)
+        with pytest.raises(Unavailable) as raised:
+            CATALOGUE["efficient_frontier"].compute(context)
 
-            assert raised.value.code == RUN_PREDATES
+        assert raised.value.code == RUN_PREDATES
 
     def test_a_run_without_an_index(self):
         context = Context(RunData.of_returns(names()["A"], YEAR))
 
         with pytest.raises(Unavailable) as raised:
-            CATALOGUE["member_risk_return"].compute(context)
+            CATALOGUE["efficient_frontier"].compute(context)
 
         assert raised.value.code == NO_INDEX
 

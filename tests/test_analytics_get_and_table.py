@@ -41,9 +41,9 @@ class TestGet:
 
     def test_an_instrument_statistic(self,
                                      analytics):
-        found = analytics.get(Statistic.MEMBER_RISK_RETURN)
-        today = CATALOGUE["member_risk_return"].compute(
-            Context(analytics.run_data, None, analytics._source)).table
+        found = analytics.get(Statistic.STYLE_POSITIONS)
+        today = CATALOGUE["style_positions"].compute(
+            Context(analytics.run_data, None, analytics._source))
 
         assert found.equals(today)
 

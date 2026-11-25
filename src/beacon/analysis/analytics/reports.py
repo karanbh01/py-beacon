@@ -15,7 +15,7 @@ Each statistic is an `Entry` with the same shape: its ``headline`` value,
 its ``rolling`` view (None when the report does not show it rolling), its
 ``label`` and its ``unit``. Entries sit under the report's categories, as
 the analytics do: ``report.portfolio.risk.volatility``, and
-``report.instrument.member_risk_return``. Only what the report holds is
+``report.instrument.style_positions``. Only what the report holds is
 there; asking for anything else says whether ``add=`` could bring it in.
 
 Each value is what the statistic's analytic gives called bare, at the run's

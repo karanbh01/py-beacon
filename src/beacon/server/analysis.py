@@ -289,8 +289,9 @@ def catalogue() -> dict[str, Any]:
         "unavailable": [{"code": code, "label": label, "help": help_text}
                         for code, (label, help_text) in REASONS.items()],
         "renamed": {},
-        # BN-467: the summary statistic table gives its figures.
-        "dropped": ["trailing_statistics"],
+        # BN-467: the summary statistic table gives its figures. BN-461: the
+        # per-name table at weekly returns gives member_risk_return's.
+        "dropped": ["trailing_statistics", "member_risk_return"],
     }
 
 

@@ -43,7 +43,7 @@ WINDOW = _ids("""
     return_distribution bootstrap_ranges sharpe_ratio sortino_ratio calmar_ratio omega_ratio
     kappa_3 upside_potential_ratio martin_ratio sterling_ratio burke_ratio gain_to_pain
     probabilistic_sharpe_ratio deflated_sharpe_ratio lo_sharpe_ratio risk_distribution
-    member_risk_return portfolio_risk_return efficient_frontier tracking_difference
+    portfolio_risk_return efficient_frontier tracking_difference
     tracking_error information_ratio information_ratio_t annualised_relative_return beta
     correlation alpha r_squared residual_risk treynor_ratio capture up_capture down_capture
     batting_average

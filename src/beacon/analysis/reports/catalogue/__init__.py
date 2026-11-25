@@ -45,7 +45,7 @@ SIGNED = {
                 "total", "active_return", "explained", "residual"),
     "currency_attribution": EVERY, "factor_attribution": EVERY,
     "implementation_breakdown": EVERY,
-    "member_risk_return": ("return",), "portfolio_risk_return": ("return",),
+    "portfolio_risk_return": ("return",),
     "efficient_frontier": ("return",),
 }
 

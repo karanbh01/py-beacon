@@ -56,7 +56,7 @@ PLACED = {
     ATTRIBUTION: """
         contribution active_attribution brinson currency_attribution factor_attribution
         implementation_breakdown""",
-    INSTRUMENT: "member_risk_return style_positions",
+    INSTRUMENT: "style_positions",
 }
 
 PART_OF = {statistic_id: part for part, ids in PLACED.items() for statistic_id in ids.split()}

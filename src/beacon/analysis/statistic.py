@@ -68,7 +68,6 @@ class Statistic(StrEnum):
     # Risk
     RISK_RATING = "risk_rating"
     RISK_DISTRIBUTION = "risk_distribution"
-    MEMBER_RISK_RETURN = "member_risk_return"
     PORTFOLIO_RISK_RETURN = "portfolio_risk_return"
     EFFICIENT_FRONTIER = "efficient_frontier"
 

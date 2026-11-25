@@ -94,11 +94,17 @@ class TestEachIsTheFormulaOnTheName:
                                                                      rel=1e-12)
 
     def test_weekly_it_is_the_frontier_s(self,
-                                         instrument):
-        members = instrument.member_risk_return().set_index("name")
+                                         instrument,
+                                         mine):
+        from beacon.analysis.performance.members import compounded
 
+        ours, _ = mine
+        weekly = compounded(ours)
+
+        # As the frontier's names are measured (BN-461: in place of
+        # member_risk_return).
         assert instrument.annualised_return(frequency="weekly")[NAME] == pytest.approx(
-            members.loc[NAME, "return"], rel=1e-12)
+            weekly.mean() * 52, rel=1e-12)
 
     def test_under_a_year_it_is_blank_unless_asked_for(self,
                                                        instrument,
@@ -186,15 +192,6 @@ class TestTheForms:
 
 
 class TestTheStatisticsANameAtATime:
-    def test_member_risk_return_is_the_analysis_s(self,
-                                                  result,
-                                                  instrument):
-        from beacon.analysis.reports.catalogue import CATALOGUE
-
-        today = CATALOGUE["member_risk_return"].compute(result.analytics._context).table
-
-        assert instrument.member_risk_return().equals(today)
-
     def test_its_methods(self,
                          instrument):
         assert set(instrument.extras) == {"total_return", "annualised_return", "volatility",
@@ -202,7 +199,7 @@ class TestTheStatisticsANameAtATime:
                                           "correlation", "tracking_error", "residual_risk",
                                           "average_weight", "days_to_sell", "traded_value",
                                           "table"}
-        assert repr(instrument).startswith("InstrumentLevel(member_risk_return, style_positions")
+        assert repr(instrument).startswith("InstrumentLevel(style_positions")
 
 
 class TestWeightsAndLiquidity:
