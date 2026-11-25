@@ -91,11 +91,20 @@ def _check(ids: list[str],
                         f"on its own.")
 
     unused = [keyword for keyword in form if not any(
-        keyword in _own(CATALOGUE[statistic_id], {keyword: form[keyword]})
-        for statistic_id in ids)]
+        _takes(CATALOGUE[statistic_id], keyword, form[keyword]) for statistic_id in ids)]
 
     if unused:
         raise TypeError(f"None of these statistics takes {', '.join(unused)}.")
+
+
+def _takes(statistic: StatisticSpec,
+           keyword: str,
+           given: Any) -> bool:
+    """Whether *statistic* is given *keyword*: ``of="all"`` too when it is
+    given as its ``against``."""
+    own = _own(statistic, {keyword: given})
+
+    return keyword in own or (keyword == OF and AGAINST in own)
 
 
 def _own(statistic: StatisticSpec,

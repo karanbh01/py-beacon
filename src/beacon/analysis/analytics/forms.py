@@ -187,6 +187,10 @@ def _picked_table(statistic: StatisticSpec,
     give it."""
     first = statistic.figure_names[:1]
 
+    # A table's rolling figures are its own columns (factor_betas' factors).
+    if statistic.kind != FIGURES:
+        return table
+
     if first == (BOOK,):
         return of_table(table, form.get(OF, FUND))
 

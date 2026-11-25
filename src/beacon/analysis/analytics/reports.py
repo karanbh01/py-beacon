@@ -8,6 +8,7 @@ worked out together.
     report.portfolio.performance.sharpe_ratio.headline  # portfolio.performance.sharpe_ratio()
     report["sharpe_ratio"].rolling                     # its rolling view, when it shows one
     report.to_frame()                                  # its single figures side by side
+    print(report)                                      # formatted; in Jupyter, as a page
     result.analytics.reports.asked                     # the reports the run's request named
 
 Each statistic is an `Entry` with the same shape: its ``headline`` value,
@@ -37,6 +38,7 @@ from ..reports.definitions import BOTH, CORE, REPORTS, ROLLING
 from ..reports.options import AnalysisOptions
 from ..reports.statistics import Unavailable
 from ..request import FAILED, AnalysisRequest, analyse_run
+from . import display
 from .tables import single_figure
 
 
@@ -207,10 +209,32 @@ class Report:
     def to_frame(self) -> pd.DataFrame:
         """Its single-figure statistics side by side: a row a statistic, a
         column a portfolio, as `analytics.table(..., of="all")` gives them."""
-        ids = [statistic_id for statistic_id in self._values
-               if single_figure(CATALOGUE[statistic_id])]
+        return self._side_by_side([statistic_id for statistic_id in self._values
+                                   if single_figure(CATALOGUE[statistic_id])])
 
-        return self._analytics.table(ids, of="all") if ids else pd.DataFrame()
+    def _side_by_side(self,
+                      ids: list[str]) -> pd.DataFrame:
+        """Single figures *ids* side by side, a column a portfolio or
+        comparator when any is given for more than the fund."""
+        if not ids:
+            return pd.DataFrame()
+
+        # BN-458: a table of the fund's figures alone takes no of=.
+        if any({"of", "against"} & set(CATALOGUE[statistic_id].forms) for statistic_id in ids):
+            return self._analytics.table(ids, of="all")
+
+        return self._analytics.table(ids).rename(columns={"value": "fund"})
+
+    def to_html(self) -> str:
+        """The report as a whole HTML page, as Jupyter shows it, to save or
+        send (`beacon.analysis.analytics.display`)."""
+        return display.to_document(display.page_of(self))
+
+    def _repr_html_(self) -> str:
+        return display.to_html(display.page_of(self))
+
+    def __str__(self) -> str:
+        return display.to_text(display.page_of(self))
 
     def to_dict(self) -> dict[str, Any]:
         """The report as the API gives it: the analytics block of a request

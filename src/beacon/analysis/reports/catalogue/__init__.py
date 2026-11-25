@@ -50,6 +50,21 @@ SIGNED = {
 }
 
 
+# The figures of a statistic of several whose unit is not the statistic's
+# own, by the figure's name or the name of what it measures (BN-458).
+FIELD_UNITS = {
+    "gains_and_losses": {"ratio": "ratio", "gains": "count", "losses": "count"},
+    "streaks": {"months": "count", "total": "fraction"},
+    "bootstrap_ranges": {"annualised_return": "fraction", "sharpe_ratio": "ratio",
+                         "confidence": "fraction"},
+    "information_ratio_t": {"p": "fraction"},
+    "alpha": {"t": "ratio", "p": "fraction"},
+    "crisis_summary": {"capture": "ratio"},
+    "regimes": {"days": "count", "beta": "ratio"},
+    "period_returns": {"sharpe_ratio": "ratio"},
+}
+
+
 
 def annualised(statistic: StatisticSpec) -> Callable[[Context], Any]:
     """*statistic*'s calculation, with its annualised figures left blank
@@ -95,4 +110,4 @@ CATEGORIES = {
     "liquidity": "Liquidity", "attribution": "Attribution",
 }
 
-__all__ = ["CATALOGUE", "CATEGORIES", "SIGNED"]
+__all__ = ["CATALOGUE", "CATEGORIES", "FIELD_UNITS", "SIGNED"]

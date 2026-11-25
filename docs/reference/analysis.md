@@ -23,6 +23,8 @@ A run's performance, portfolio, risk and attribution analytics, and the older he
 
 ::: beacon.analysis.analytics.reports
 
+::: beacon.analysis.analytics.display
+
 ::: beacon.analysis.analytics.category
 
 ::: beacon.analysis.analytics.forms
