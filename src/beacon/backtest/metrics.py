@@ -6,6 +6,7 @@ money-weighted return. Mixed into `BacktestResult`.
 """
 # Moved out of result.py when it was split (BN-268). The metrics are
 # unchanged; they read the result's fields through the declarations below.
+import warnings
 from typing import Any
 
 import numpy as np
@@ -334,7 +335,7 @@ class MetricsMixin:
             result.update(self.market_summary())
 
         if self.active:
-            result.update(self.active_summary())
+            result.update(self._active_figures())
 
         return result
 
@@ -350,7 +351,23 @@ class MetricsMixin:
 
     def active_summary(self) -> dict[str, float | None]:
         """An active strategy's figures: its information ratio, average
-        active share and average ex-ante tracking error."""
+        active share and average ex-ante tracking error.
+
+        Deprecated: each is a figure of `result.analytics.portfolio.relative`:
+        ``information_ratio()``, ``active_share().mean()`` and
+        ``ex_ante_tracking_error().mean()``.
+        """
+        # BN-451: removed in 0.12.0.
+        warnings.warn("active_summary() is deprecated and will be removed in 0.12.0; use "
+                      "result.analytics.portfolio.relative.information_ratio(), "
+                      "active_share().mean() and ex_ante_tracking_error().mean().",
+                      DeprecationWarning, stacklevel=2)
+
+        return self._active_figures()
+
+    def _active_figures(self) -> dict[str, float | None]:
+        """An active strategy's information ratio, average active share and
+        average ex-ante tracking error, as its summary gives them."""
         return {"information_ratio": self.information_ratio(),
                 "average_active_share": float(np.mean([step.active_share
                                                        for step in self.active])),

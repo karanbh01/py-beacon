@@ -46,6 +46,9 @@ class Analytics:
             were, so its work is shared.
         active: An active strategy's steps, one each rebalance, as a
             finished run holds them; None when they are not kept.
+        replication: An index tracking strategy's replication steps, one
+            each rebalance, as a finished run holds them; None when they are
+            not kept.
     """
 
     def __init__(self,
@@ -56,7 +59,8 @@ class Analytics:
                  block: dict[str, Any] | None = None,
                  timings: dict[str, float] | None = None,
                  context: Context | None = None,
-                 active: Sequence[Any] | None = None):
+                 active: Sequence[Any] | None = None,
+                 replication: Sequence[Any] | None = None):
         self._run = run
         self._request = request
         self._source = source
@@ -66,6 +70,7 @@ class Analytics:
         self._given_context = context
         self._contexts: dict[tuple[Any, ...], Context] = {}
         self._active = active
+        self._replication = replication
 
     @classmethod
     def of_result(cls,
@@ -74,7 +79,8 @@ class Analytics:
         return cls(lambda: result.run_data, result.analysis_request,
                    getattr(result, "_data_fetcher", None), block=result.analysis_block,
                    timings=result.analysis_timings,
-                   context=result.__dict__.get("_analysis_context"), active=result.active)
+                   context=result.__dict__.get("_analysis_context"), active=result.active,
+                   replication=result.replication)
 
     @cached_property
     def run_data(self) -> RunData:
@@ -198,6 +204,24 @@ class Analytics:
             raise ValueError("The run's active steps were not kept with it.")
 
         return pd.Series({step.date: step.active_share for step in self._active}, dtype=float)
+
+    def _ex_ante_tracking_error(self) -> pd.Series:
+        """The strategy's own forecast of its tracking error at each
+        rebalance: an active strategy's, else an index tracking strategy's
+        replication's, blank where it was not estimated.
+
+        Raises:
+            ValueError: If the run's rebalance steps were not kept with it.
+        """
+        # BN-451.
+        if self._active is None and self._replication is None:
+            raise ValueError("The run's rebalance steps were not kept with it.")
+
+        steps = self._active or self._replication or []
+
+        return pd.Series({step.date: (float("nan") if step.tracking_error is None
+                                      else step.tracking_error) for step in steps},
+                         dtype=float)
 
     def _context_for(self,
                      start: Any = None,

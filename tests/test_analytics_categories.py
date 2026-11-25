@@ -257,3 +257,39 @@ class TestVehicle:
         vehicle = result.analytics.portfolio.vehicle
 
         assert vehicle.market_return() is None and vehicle.market_summary() is None
+
+
+class TestTheExAnteTrackingError:
+    """BN-451: each strategy's own forecast, and active_summary() retired."""
+
+    def test_an_active_strategy_s(self):
+        from test_strategy_active import run, strategy
+
+        result = run(strategy())
+        relative = result.analytics.portfolio.relative
+        found = relative.ex_ante_tracking_error()
+
+        pd.testing.assert_series_equal(found, pd.Series(
+            {step.date: step.tracking_error for step in result.active}, dtype=float))
+
+        with pytest.warns(DeprecationWarning, match="active_summary"):
+            summary = result.active_summary()
+
+        assert summary["average_ex_ante_tracking_error"] == pytest.approx(found.mean())
+        assert summary["average_active_share"] == pytest.approx(
+            relative.active_share().mean())
+
+    def test_an_optimised_replication_s(self):
+        from beacon.strategy import IndexTracking, OptimisedReplication
+        from test_strategy_tracking import definition, run
+
+        result = run(IndexTracking(definition(), OptimisedReplication(holdings=8)))
+        found = result.analytics.portfolio.relative.ex_ante_tracking_error()
+
+        assert list(found.index) == [step.date for step in result.replication]
+        assert (found > 0.0).all()
+
+    def test_a_stored_run_keeps_none(self,
+                                     result):
+        with pytest.raises(ValueError, match="rebalance steps were not kept"):
+            Analytics(result.run_data).portfolio.relative.ex_ante_tracking_error()

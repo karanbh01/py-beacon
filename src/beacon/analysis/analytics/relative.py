@@ -28,7 +28,7 @@ class RelativeCategory(Category):
                   "correlation", "alpha", "r_squared", "residual_risk",
                   "treynor_ratio", "capture", "batting_average",
                   "downside_tracking_error", "relative_drawdowns")
-    extras = ("active_share",)
+    extras = ("active_share", "ex_ante_tracking_error")
 
     # -- against the index or benchmark ---------------------------------------
 
@@ -219,4 +219,11 @@ class RelativeCategory(Category):
         """An active strategy's active share against its index at each
         rebalance: half the summed absolute differences of their weights."""
         return self._analytics._active_share()
+
+    def ex_ante_tracking_error(self) -> pd.Series:
+        """The strategy's own forecast of its tracking error at each
+        rebalance, annualised: an active strategy's to its benchmark, or an
+        optimised replication's to its index, blank where it was not
+        estimated. A run read back from storage keeps none."""
+        return self._analytics._ex_ante_tracking_error()
 
