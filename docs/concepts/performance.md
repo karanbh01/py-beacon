@@ -17,8 +17,9 @@ so they cannot disagree.
 
 ## A run's analytics
 
-A finished backtest carries its analytics as `result.analytics`, built on
-first read and kept.
+A finished backtest's analytics are `result.analytics`, the way in to every
+calculation on the run, built on first read and kept. Its fund's performance
+is `PerformanceAnalytics` on the run's `run_data`.
 
 ```python
 import logging
@@ -41,7 +42,9 @@ backtest = Backtest(initial_capital=1_000_000.0, transaction_cost_bps=5.0,
                     data_provider=dataset.data_fetcher())
 result = backtest.run(definition, start="2023-01-03", end="2024-12-31")
 
-analytics = result.analytics
+from beacon.analysis.performance import PerformanceAnalytics
+
+analytics = PerformanceAnalytics(result.analytics.run_data)
 print(analytics.headline())   # total_return 0.457, sharpe_ratio 1.53, ...
 print(analytics.summary())    # with the monthly hit rate and tracking figures
 ```
@@ -55,7 +58,6 @@ months ago gives the same figures as when it finished.
 from pathlib import Path
 
 from beacon.analysis import RunData
-from beacon.analysis.performance import PerformanceAnalytics
 
 result.run_data.write(Path("stored-run"))
 stored = PerformanceAnalytics(RunData.from_record(Path("stored-run")))

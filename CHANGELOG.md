@@ -14,6 +14,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Changed
 
+- **Breaking:** `result.analytics` is the run's `Analytics` (`beacon.analysis.analytics`), the way in to every calculation on it, rather than the fund's `PerformanceAnalytics`. It has `portfolio`, a whole portfolio's analytics in nine categories (`performance`, `risk`, `relative`, `holdings`, `trading`, `flows`, `income`, `vehicle` and `attribution`), and `request`, `timings`, `to_dict()` and `run_data`: the analysis the run was asked for, how long each part took, its analytics block and the run's data. For a run asked for no analysis, `to_dict()` works out the default factsheet the first time it is called. The fund's `PerformanceAnalytics` is `PerformanceAnalytics(result.analytics.run_data)`.
 - The catalogue's entry class, `beacon.analysis.reports.statistics.Statistic`, is now `StatisticSpec`, so `Statistic` is the enum alone.
 
 ## [0.10.1] - 2026-11-25

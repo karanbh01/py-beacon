@@ -1,8 +1,8 @@
 # src/beacon/backtest/analytics_access.py
 """
-A backtest result's analytics, each built on first read and kept: its
-performance, portfolio, risk and attribution, with the settings of the
-analysis the run was asked for, or the defaults.
+A backtest result's analytics, each built on first read and kept: all of
+them as `analytics`, and its portfolio figures, risk and attribution on their
+own, with the settings of the analysis the run was asked for, or the defaults.
 """
 # BN-397. The analytics modules read a RunData, whose module imports the
 # backtest result, so each is imported when first asked for.
@@ -39,11 +39,13 @@ class AnalyticsMixin:
 
     @property
     def analytics(self) -> Any:
-        """The run's performance (`beacon.analysis.performance.PerformanceAnalytics`)."""
-        from ..analysis.performance.analytics import PerformanceAnalytics  # noqa: PLC0415
+        """The run's analytics (`beacon.analysis.analytics.Analytics`), the
+        one way in to every calculation on it: `analytics.portfolio` and its
+        nine categories, and the analysis the run was asked for."""
+        from ..analysis.analytics import Analytics  # noqa: PLC0415
 
-        return self._kept("analytics", lambda: PerformanceAnalytics(self.run_data,
-                                                                    self._settings()))
+        # BN-433: 0.10.0's result.analytics was the fund's PerformanceAnalytics.
+        return self._kept("analytics", lambda: Analytics.of_result(self))
 
     @property
     def portfolio_analytics(self) -> Any:
@@ -90,9 +92,3 @@ class AnalyticsMixin:
         from ..analysis.attribution.analytics import Attribution  # noqa: PLC0415
 
         return self._kept("attribution", lambda: Attribution(self.run_data))
-
-    def _settings(self) -> Any:
-        """The analysis settings asked for, or None for the defaults."""
-        request = self.analysis_request
-
-        return request.settings if request is not None else None

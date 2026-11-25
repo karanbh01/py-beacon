@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from beacon.analysis.performance.analytics import PerformanceAnalytics
 from beacon.analysis.performance.relative_analytics import RelativeAnalytics
 from beacon.analysis.performance.settings import AnalysisSettings
 from beacon.analysis.reports.catalogue import CATALOGUE, CATEGORIES
@@ -198,8 +199,8 @@ class TestTheBlock:
         statistics = block["statistics"]
         relative = RelativeAnalytics(result.run_data, "benchmark")
 
-        assert statistics["sharpe_ratio"]["point"]["fund"] == result.analytics.headline()[
-            "sharpe_ratio"]
+        assert statistics["sharpe_ratio"]["point"]["fund"] == PerformanceAnalytics(
+            result.run_data).headline()["sharpe_ratio"]
         assert statistics["beta"]["point"]["benchmark"] == pytest.approx(
             relative.regression().beta, rel=1e-12)
         assert statistics["total_return"]["point"]["active"] == pytest.approx(

@@ -64,7 +64,7 @@ class TestBuiltOnFirstRead:
                                                                  plain):
         own = PerformanceAnalytics(RunData.from_result(plain)).summary()
 
-        assert plain.analytics.summary() == own
+        assert PerformanceAnalytics(plain.analytics.run_data).summary() == own
         assert plain.attribution.contribution().to_frame().equals(
             Attribution(RunData.from_result(plain)).contribution().to_frame())
 
@@ -91,7 +91,8 @@ class TestAskedForUpFront:
                                   plain,
                                   analysed):
         pd.testing.assert_series_equal(analysed.portfolio.nav, plain.portfolio.nav)
-        assert analysed.analytics.summary() == plain.analytics.summary()
+        assert (PerformanceAnalytics(analysed.analytics.run_data).summary()
+                == PerformanceAnalytics(plain.analytics.run_data).summary())
 
     def test_a_factsheet_core_by_default(self):
         assert dict(AnalysisRequest().reports) == {"factsheet": "core"}
@@ -106,7 +107,9 @@ class TestAskedForUpFront:
         settings = AnalysisSettings(start=pd.Timestamp("2024-07-01"))
         result = run(index(), analysis=AnalysisRequest(options=AnalysisOptions(window=settings)))
 
-        assert result.analytics.returns.index[0] >= pd.Timestamp("2024-07-01")
+        returns = result.analytics._context.performance.returns
+
+        assert returns.index[0] >= pd.Timestamp("2024-07-01")
 
     def test_its_factors_reach_the_risk(self):
         factor = Factor("constant", FunctionSignal(lambda name, date, fetched: 1.0))

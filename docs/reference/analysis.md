@@ -9,6 +9,16 @@ A run's performance, portfolio, risk and attribution analytics, and the older he
 
 ::: beacon.analysis
 
+## A run's analytics
+
+`result.analytics`, the way in to every calculation on a run: a whole portfolio's analytics in nine categories, and the analysis the run was asked for.
+
+::: beacon.analysis.analytics.entry
+
+::: beacon.analysis.analytics.portfolio
+
+::: beacon.analysis.analytics.category
+
 ## A run's data
 
 Everything a run's analysis reads, from a finished run or a stored one, read back exactly as it was written.
