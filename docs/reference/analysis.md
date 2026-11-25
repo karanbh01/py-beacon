@@ -17,6 +17,8 @@ A run's performance, portfolio, risk and attribution analytics, and the older he
 
 ::: beacon.analysis.analytics.portfolio
 
+::: beacon.analysis.analytics.instrument
+
 ::: beacon.analysis.analytics.category
 
 ::: beacon.analysis.analytics.forms
@@ -72,6 +74,8 @@ A run's performance, its figures against its comparators, in crises and in each 
 ::: beacon.analysis.performance.regimes
 
 ::: beacon.analysis.performance.formulas
+
+::: beacon.analysis.performance.name_figures
 
 ## Portfolio
 

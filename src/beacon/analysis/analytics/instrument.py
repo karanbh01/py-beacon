@@ -1,0 +1,279 @@
+# src/beacon/analysis/analytics/instrument.py
+"""
+A run's analytics a name at a time: `result.analytics.instrument`.
+
+    instrument = result.analytics.instrument
+    instrument.volatility()                         # a value a name
+    instrument.beta(names=["AAPL", "MSFT"], against="benchmark")
+    instrument.total_return(by="year")              # a row a year, a column a name
+    instrument.tracking_error(rolling="1Y")         # dates by names
+    instrument.volatility(frequency="weekly")
+
+Each figure is measured from the run's daily returns of every name it held
+or its index held, in the portfolio's currency, over the analysis window
+(`start`, `end`), as `beacon.analysis.performance.name_figures` measures
+them. ``frequency`` compounds them into weeks or months first. Every result
+says what it was measured on in ``attrs``: its ``basis`` (``daily``,
+``weekly`` or ``monthly``) and, against a comparator, ``against``.
+"""
+# BN-452 (Karan, 2026-11-24). member_risk_return stays on weekly returns,
+# as decided on 2026-11-21, so the frontier and its dots share a scale.
+from collections.abc import Sequence
+from typing import Any
+
+import pandas as pd
+
+from ..annualising import days_in
+from ..panels import NAME_RETURNS
+from ..performance import name_figures
+from ..performance.name_figures import DAILY, RELATIVE
+from ..reports.rolling import window_ends
+from ..reports.statistics import RUN_PREDATES, TOO_SHORT, Unavailable
+from .category import Category, Day
+from .forms import PERIODS
+from .groupings import FREQUENCIES
+
+DAILY_STEP, MONTH_END = "daily", "month_end"
+
+# Names, one or several; every name the run measured when None.
+Names = str | Sequence[str] | None
+
+
+class InstrumentLevel(Category):
+    """A run's analytics a name at a time: a figure for each name, and the
+    statistics given a row a name."""
+
+    name = "instrument"
+    statistics = ("member_risk_return", "style_positions")
+    extras = name_figures.FIGURES
+
+    def member_risk_return(self,
+                           *,
+                           start: Day = None,
+                           end: Day = None) -> Any:
+        """The annualised return and volatility of every name the index
+        held over the run, on weekly returns; names with under a year are
+        counted, not shown."""
+        return self._get("member_risk_return", start=start, end=end)
+
+    def style_positions(self) -> Any:
+        """Where each name held sits by size and style, from 0 to 3 on each,
+        with each portfolio's weight in it."""
+        return self._get("style_positions")
+
+    def total_return(self,
+                     *,
+                     names: Names = None,
+                     start: Day = None,
+                     end: Day = None,
+                     by: str | None = None,
+                     rolling: int | str | None = None,
+                     step: str | None = None,
+                     frequency: str = DAILY) -> Any:
+        """Each name's compounded return over the window."""
+        return self._figure("total_return", names, start, end, by, rolling, step, frequency)
+
+    def volatility(self,
+                   *,
+                   names: Names = None,
+                   start: Day = None,
+                   end: Day = None,
+                   by: str | None = None,
+                   rolling: int | str | None = None,
+                   step: str | None = None,
+                   frequency: str = DAILY) -> Any:
+        """Each name's annualised standard deviation of returns."""
+        return self._figure("volatility", names, start, end, by, rolling, step, frequency)
+
+    def max_drawdown(self,
+                     *,
+                     names: Names = None,
+                     start: Day = None,
+                     end: Day = None,
+                     by: str | None = None,
+                     rolling: int | str | None = None,
+                     step: str | None = None,
+                     frequency: str = DAILY) -> Any:
+        """Each name's deepest fall from a running peak. Rolled, its windows
+        end each month end unless ``step`` says otherwise."""
+        return self._figure("max_drawdown", names, start, end, by, rolling, step, frequency)
+
+    def beta(self,
+             *,
+             names: Names = None,
+             start: Day = None,
+             end: Day = None,
+             by: str | None = None,
+             rolling: int | str | None = None,
+             step: str | None = None,
+             against: str | None = None,
+             frequency: str = DAILY) -> Any:
+        """Each name's covariance with the comparator over its variance."""
+        return self._figure("beta", names, start, end, by, rolling, step, frequency, against)
+
+    def correlation(self,
+                    *,
+                    names: Names = None,
+                    start: Day = None,
+                    end: Day = None,
+                    by: str | None = None,
+                    rolling: int | str | None = None,
+                    step: str | None = None,
+                    against: str | None = None,
+                    frequency: str = DAILY) -> Any:
+        """Each name's correlation with the comparator."""
+        return self._figure("correlation", names, start, end, by, rolling, step, frequency,
+                            against)
+
+    def tracking_error(self,
+                       *,
+                       names: Names = None,
+                       start: Day = None,
+                       end: Day = None,
+                       by: str | None = None,
+                       rolling: int | str | None = None,
+                       step: str | None = None,
+                       against: str | None = None,
+                       frequency: str = DAILY) -> Any:
+        """Each name's annualised standard deviation of its returns less the
+        comparator's."""
+        return self._figure("tracking_error", names, start, end, by, rolling, step, frequency,
+                            against)
+
+    def residual_risk(self,
+                      *,
+                      names: Names = None,
+                      start: Day = None,
+                      end: Day = None,
+                      by: str | None = None,
+                      rolling: int | str | None = None,
+                      step: str | None = None,
+                      against: str | None = None,
+                      frequency: str = DAILY) -> Any:
+        """Each name's annualised spread of the residuals of its returns
+        regressed on the comparator's."""
+        return self._figure("residual_risk", names, start, end, by, rolling, step, frequency,
+                            against)
+
+    def _figure(self,
+                figure: str,
+                names: Names,
+                start: Day,
+                end: Day,
+                by: str | None,
+                rolling: int | str | None,
+                step: str | None,
+                frequency: str,
+                against: str | None = None) -> Any:
+        """Figure *figure* of each name in the form the keywords ask for.
+
+        Raises:
+            ValueError: If a name is not one the run measured, a keyword
+                is not one it takes, or both ``by`` and ``rolling`` are
+                given.
+            Unavailable: If the run kept no names' returns, or lacks the
+                comparator.
+        """
+        if by is not None and rolling is not None:
+            raise ValueError("Give one of by and rolling at a time, not both.")
+
+        if step is not None and rolling is None:
+            raise ValueError("step goes with rolling.")
+
+        context = self._analytics._context_for(start=start, end=end)
+        returns = _picked(_name_returns(context), names)
+        comparator = None if figure not in RELATIVE else context.require(
+            against or context.require_tracked())
+        theirs = None if comparator is None else context.book(comparator).returns
+        returns, theirs, periods = name_figures.on_basis(returns, theirs, frequency,
+                                                         context.performance.periods_per_year)
+
+        if by is not None:
+            found: Any = _by_period(figure, returns, theirs, by, periods)
+        elif rolling is not None:
+            found = _rolling(figure, returns, theirs, rolling, step, periods)
+        else:
+            found = name_figures.figure(figure, returns, theirs, periods).rename(figure)
+
+        found.attrs = {"basis": frequency, **({"against": comparator} if comparator else {})}
+
+        return found
+
+
+def _name_returns(context: Any) -> pd.DataFrame:
+    """The run's names' daily returns over the analysis window."""
+    tables = context.run.tables
+
+    if NAME_RETURNS not in tables:
+        raise Unavailable(RUN_PREDATES)
+
+    days = context.performance.returns.index
+
+    if not len(days):
+        raise Unavailable(TOO_SHORT)
+
+    found: pd.DataFrame = tables[NAME_RETURNS]
+
+    return found.loc[(found.index >= days[0]) & (found.index <= days[-1])]
+
+
+def _picked(returns: pd.DataFrame,
+            names: Names) -> pd.DataFrame:
+    """*returns* of *names*, every name when None."""
+    if names is None:
+        return returns
+
+    wanted = [names] if isinstance(names, str) else list(names)
+    unknown = [name for name in wanted if name not in returns.columns]
+
+    if unknown:
+        raise ValueError(f"The run measured no {', '.join(unknown[:5])}"
+                         f"{' and others' if len(unknown) > 5 else ''}.")
+
+    return returns[wanted]
+
+
+def _by_period(figure: str,
+               returns: pd.DataFrame,
+               theirs: pd.Series | None,
+               by: str,
+               periods: int) -> pd.DataFrame:
+    """*figure* of each name in each calendar period, a row a period."""
+    if by not in PERIODS:
+        raise ValueError(f"by is one of {', '.join(PERIODS)}, got {by!r}.")
+
+    labels = pd.DatetimeIndex(returns.index).to_period(FREQUENCIES[by]).astype(str)
+    rows = {label: name_figures.figure(figure, returns[labels == label],
+                                       None if theirs is None else theirs[labels == label],
+                                       periods)
+            for label in pd.unique(labels)}
+
+    return pd.DataFrame.from_dict(rows, orient="index").rename_axis("period")
+
+
+def _rolling(figure: str,
+             returns: pd.DataFrame,
+             theirs: pd.Series | None,
+             rolling: int | str,
+             step: str | None,
+             periods: int) -> pd.DataFrame:
+    """*figure* of each name over each trailing window, dates by names."""
+    window = days_in(rolling, periods) if isinstance(rolling, str) else rolling
+
+    if isinstance(window, bool) or not isinstance(window, int) or window < 2:
+        raise ValueError(f"rolling is a number of periods, at least 2, or a span such as "
+                         f"'1Y', got {rolling!r}.")
+
+    step = step or (MONTH_END if figure == "max_drawdown" else DAILY_STEP)
+
+    if step not in (DAILY_STEP, MONTH_END):
+        raise ValueError(f"step is {DAILY_STEP!r} or {MONTH_END!r}, got {step!r}.")
+
+    ends = (window_ends(pd.DatetimeIndex(returns.index), window, MONTH_END)
+            if step == MONTH_END else None)
+    found = name_figures.rolled(figure, returns, theirs, window, periods, ends)
+
+    return found.dropna(how="all").rename_axis("DATE")
+
+
+__all__ = ["InstrumentLevel", "Names"]

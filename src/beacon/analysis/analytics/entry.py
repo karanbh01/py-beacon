@@ -24,6 +24,7 @@ from ..reports.context import Context
 from ..reports.options import RollingOptions
 from ..request import AnalysisRequest, analyse_run
 from .forms import value, windowed
+from .instrument import InstrumentLevel
 from .portfolio import PortfolioLevel
 from .shape import ALL
 from .tables import table as side_by_side
@@ -152,6 +153,13 @@ class Analytics:
         risk, relative, holdings, trading, flows, income, vehicle and
         attribution."""
         return PortfolioLevel(self)
+
+    @cached_property
+    def instrument(self) -> InstrumentLevel:
+        """The analytics a name at a time: each name's return, risk and
+        figures against a comparator, and the statistics given a row a
+        name."""
+        return InstrumentLevel(self)
 
     @cached_property
     def _context(self) -> Context:

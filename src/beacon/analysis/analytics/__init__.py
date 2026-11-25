@@ -4,6 +4,7 @@ A run's analytics, the one way in to every calculation on it, as
 `result.analytics`:
 
     result.analytics.portfolio.performance   # a whole portfolio's figures
+    result.analytics.instrument              # a figure for each name
     result.analytics.request                 # the analysis the run was asked for
     result.analytics.to_dict()               # its analytics block
 
@@ -14,6 +15,7 @@ A portfolio's analytics come in nine categories: `performance`, `risk`,
 # BN-433.
 from .category import Category
 from .entry import Analytics
+from .instrument import InstrumentLevel
 from .portfolio import PortfolioLevel
 
-__all__ = ["Analytics", "Category", "PortfolioLevel"]
+__all__ = ["Analytics", "Category", "InstrumentLevel", "PortfolioLevel"]
