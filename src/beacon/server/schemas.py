@@ -3574,6 +3574,15 @@ class ModellingAssumptionsSpec(BaseModel):
         default=None, ge=0,
         description="Calendar days a reported volume stands in for a blank one "
                     "under an execution limit.")
+    min_annualised_rate_window: str | None = Field(
+        default=None, pattern=r"^\d+[MYmy]$",
+        description="The shortest window a rate compounded or scaled to a year, "
+                    "such as the annualised return, is given over, as months or "
+                    "years (6M, 1Y); 0M gives it over any.")
+    min_annualised_ratio_window: str | None = Field(
+        default=None, pattern=r"^\d+[MYmy]$",
+        description="The same for a ratio scaled by the square root of a year, "
+                    "such as the Sharpe ratio.")
 
 
 class ShareClassSpec(BaseModel):

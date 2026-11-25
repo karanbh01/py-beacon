@@ -7,11 +7,15 @@ Every statistic a run's analysis gives, in the order the categories are read.
     CATALOGUE["sharpe_ratio"].label  # "Sharpe ratio"
 """
 # BN-398/BN-400.
+from collections.abc import Callable
 from dataclasses import replace
+from typing import Any
 
+from ...annualising import ANNUALISED, blank, blanked_over
 from ...performance.crises import AFTER_MONTHS
 from ...placement import PART_OF
-from ..statistics import Catalogue
+from ..context import Context
+from ..statistics import Catalogue, StatisticSpec
 from . import attribution, performance, portfolio, rating, relative, risk, risk_return, style
 from .forms import forms_of
 
@@ -44,10 +48,33 @@ SIGNED = {
     "efficient_frontier": ("return",),
 }
 
+
+
+def annualised(statistic: StatisticSpec) -> Callable[[Context], Any]:
+    """*statistic*'s calculation, with its annualised figures left blank
+    over a window too short for them (`beacon.analysis.annualising`)."""
+    compute = statistic.compute
+
+    if statistic.id not in ANNUALISED:
+        return compute
+
+    def within(context: Context) -> Any:
+        found = compute(context)
+        performance = context.performance
+        rate_window, ratio_window = performance.annualising
+        fields = blanked_over(statistic.id, len(performance.returns), rate_window,
+                              ratio_window, performance.periods_per_year)
+
+        return found if fields is None else blank(found, fields)
+
+    return within
+
+
 # Each statistic's part is where it sits in `result.analytics` (BN-436).
 CATALOGUE = Catalogue({statistic.id: replace(statistic, part=PART_OF[statistic.id],
                                               signed=SIGNED.get(statistic.id, ()),
-                                              forms=forms_of(statistic))
+                                              forms=forms_of(statistic),
+                                              compute=annualised(statistic))
                        for module in (performance, rating, risk_return, relative, portfolio,
                                       style, risk, attribution)
                        for statistic in module.statistics()})

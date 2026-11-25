@@ -47,10 +47,11 @@ class RiskCategory(Category):
                    by: str | None = None,
                    trailing: Windows = None,
                    rolling: int | str | None = None,
-                   step: str | None = None) -> Any:
+                   step: str | None = None,
+                   annualise: bool | None = None) -> Any:
         """The annualised standard deviation of daily returns."""
         return self._get("volatility", of=of, start=start, end=end, by=by, trailing=trailing,
-                         rolling=rolling, step=step)
+                         rolling=rolling, step=step, annualise=annualise)
 
     def max_drawdown(self,
                      *,

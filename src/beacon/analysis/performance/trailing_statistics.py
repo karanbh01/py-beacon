@@ -11,19 +11,20 @@ returns: a window starts from the close before its first day. A comparator's
 figures are over its own window, and its figures against the fund only when
 the two cover the same days, as in `trailing_table`.
 
-- The annualised return is given only beyond a year, as in
-  `trailing_returns`.
-- The Sharpe ratio is not given over a window shorter than six months
-  (`NO_SHARPE`): a month or a quarter of days says too little about it.
+- The annualised return and the Sharpe ratio are left blank over a window
+  too short to annualise them, a year and six months unless set
+  (`beacon.analysis.annualising`).
 - A window longer than the run has no figures.
 """
-# BN-422. Agreed with beacon-ui for its Summary (BU-294); the short windows'
-# Sharpe ratio left out by Karan on 2026-11-20 (QTD with them, as it is
-# shorter than 3M).
+# BN-422. Agreed with beacon-ui for its Summary (BU-294). BN-465: the short
+# windows' figures follow the rule every annualised figure does, in place of
+# this table's own (no Sharpe ratio under 6M, set by Karan on 2026-11-20).
 from collections.abc import Mapping
 
 import pandas as pd
 
+from ...assumptions import DEFAULT_MIN_ANNUALISED_RATE_WINDOW, DEFAULT_MIN_ANNUALISED_RATIO_WINDOW
+from ..annualising import blanked_over
 from . import formulas, return_figures
 
 FUND, INDEX, BENCHMARK = "fund", "index", "benchmark"
@@ -34,8 +35,8 @@ COMPARATORS = (INDEX, BENCHMARK)
 OWN = ("total_return", "annualised_return", "volatility", "max_drawdown", "sharpe_ratio")
 AGAINST = ("tracking_difference", "tracking_error")
 
-# The windows too short for a Sharpe ratio.
-NO_SHARPE = ("1M", "3M", "MTD", "QTD", "YTD")
+# The figures annualised, which a short window leaves blank.
+ANNUALISED = ("annualised_return", "sharpe_ratio")
 
 # What each figure is measured in, so a row says how it reads.
 UNITS = {**dict.fromkeys((*OWN, *AGAINST), "fraction"), "sharpe_ratio": "ratio"}
@@ -44,12 +45,17 @@ COLUMNS = ("period", "statistic", "unit", FUND, *COMPARATORS)
 
 Figures = dict[str, float | None]
 
+# How short a window an annualised rate and ratio are blank over.
+Windows = tuple[str, str]
+DEFAULTS: Windows = (DEFAULT_MIN_ANNUALISED_RATE_WINDOW, DEFAULT_MIN_ANNUALISED_RATIO_WINDOW)
+
 
 def trailing_statistics(returns: pd.Series,
                         periods_per_year: int,
                         risk_free_rate: float,
                         comparators: Mapping[str, tuple[pd.Series, pd.Series]],
-                        inception: Mapping[str, float] | None = None) -> pd.DataFrame:
+                        inception: Mapping[str, float] | None = None,
+                        annualising: Windows = DEFAULTS) -> pd.DataFrame:
     """The figures over each window, a row a window and figure.
 
     Args:
@@ -62,6 +68,8 @@ def trailing_statistics(returns: pd.Series,
         inception: The fund's headline figures over the whole run, which
             start from what the fund started with; worked out from
             *returns* when None.
+        annualising: The shortest windows an annualised rate and ratio are
+            given over.
 
     Returns:
         pd.DataFrame: Columns ``period``, ``statistic``, ``unit`` (``fraction``,
@@ -69,14 +77,15 @@ def trailing_statistics(returns: pd.Series,
         ``benchmark``; a comparator the run lacks is blank.
     """
     starts = return_figures.window_starts(returns)
-    ours = {window: _own(returns, window, start, periods_per_year, risk_free_rate)
+    ours = {window: _own(returns, start, periods_per_year, risk_free_rate, annualising)
             for window, start in starts.items()}
 
     if inception is not None and ours[return_figures.INCEPTION] is not None:
-        ours[return_figures.INCEPTION] = _shown(dict(inception), return_figures.INCEPTION,
-                                                returns.index[0], returns.index[-1])
+        ours[return_figures.INCEPTION] = _shown(dict(inception), len(returns), periods_per_year,
+                                                annualising)
 
-    theirs = {name: _against(returns, pair, ours, periods_per_year, risk_free_rate)
+    theirs = {name: _against(returns, pair, ours, periods_per_year, risk_free_rate,
+                             annualising)
               for name, pair in comparators.items() if name in COMPARATORS}
     rows = []
 
@@ -96,11 +105,11 @@ def trailing_statistics(returns: pd.Series,
 
 
 def _own(returns: pd.Series,
-         window: str,
          start: pd.Timestamp | None,
          periods_per_year: int,
-         risk_free_rate: float) -> Figures | None:
-    """A book's own figures over *window*, from the close before *start*;
+         risk_free_rate: float,
+         annualising: Windows) -> Figures | None:
+    """A book's own figures over a window from the close before *start*;
     None for a window longer than its returns."""
     if start is None:
         return None
@@ -110,21 +119,20 @@ def _own(returns: pd.Series,
     figures = formulas.headline_figures(days, float(path.iloc[-1] - 1.0), path,
                                         periods_per_year, risk_free_rate)
 
-    return _shown(dict(figures), window, days.index[0], days.index[-1])
+    return _shown(dict(figures), len(days), periods_per_year, annualising)
 
 
 def _shown(figures: Figures,
-           window: str,
-           start: pd.Timestamp,
-           end: pd.Timestamp) -> Figures:
-    """*figures* with those a window does not give left blank."""
+           days: int,
+           periods_per_year: int,
+           annualising: Windows) -> Figures:
+    """*figures* over *days* daily returns, with those annualised over too
+    few of them left blank."""
     shown: Figures = {name: figures.get(name) for name in OWN}
 
-    if not return_figures.annualised_over(window, start, end):
-        shown["annualised_return"] = None
-
-    if window in NO_SHARPE:
-        shown["sharpe_ratio"] = None
+    for name in ANNUALISED:
+        if blanked_over(name, days, *annualising, periods_per_year) is not None:
+            shown[name] = None
 
     return shown
 
@@ -133,7 +141,8 @@ def _against(returns: pd.Series,
              pair: tuple[pd.Series, pd.Series],
              ours: Mapping[str, Figures | None],
              periods_per_year: int,
-             risk_free_rate: float) -> dict[str, Figures | None]:
+             risk_free_rate: float,
+             annualising: Windows) -> dict[str, Figures | None]:
     """A comparator's own figures over each window, with the fund's against
     it where the two cover the same days."""
     aligned, theirs = pair
@@ -142,7 +151,7 @@ def _against(returns: pd.Series,
     found: dict[str, Figures | None] = {}
 
     for window, start in starts.items():
-        own = _own(theirs, window, start, periods_per_year, risk_free_rate)
+        own = _own(theirs, start, periods_per_year, risk_free_rate, annualising)
         mine = ours.get(window)
         same = (own is not None and mine is not None and start == fund_starts[window]
                 and theirs.index[-1] == returns.index[-1])

@@ -256,6 +256,15 @@ class MetricsMixin:
 
         return rate or 0.0
 
+    def _annualising(self) -> tuple[str, str]:
+        """The shortest windows the run's annualised rates and ratios are
+        given over (`beacon.analysis.annualising`)."""
+        assumptions = self.modelling_assumptions or ModellingAssumptions()
+        resolved = assumptions.with_defaults()
+
+        return (str(resolved.min_annualised_rate_window),
+                str(resolved.min_annualised_ratio_window))
+
     def _analytics(self) -> Any:
         """The run's performance analytics, which its figures are."""
         # Imported here, as both read the result this mixin is part of, which

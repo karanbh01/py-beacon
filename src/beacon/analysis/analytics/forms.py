@@ -11,6 +11,7 @@ over the whole run; keywords combine:
     volatility(rolling=126, step="month_end")
     tracking_error(against="benchmark", start="2024-01-01")
     holdings_count(as_of="2024-06-28")
+    sharpe_ratio(by="month", annualise=False)
 
 Each statistic takes the keywords its catalogue entry lists (`forms`); any
 other is refused, naming the ones it takes. Only one of ``by``,
@@ -24,10 +25,12 @@ from typing import Any
 import pandas as pd
 
 from ...data.base import as_of_position
-from ..performance.formulas import ANNUAL, MONTHLY, QUARTERLY, grouped
+from ..annualising import ANY_WINDOW
+from ..performance.formulas import ANNUAL, MONTHLY, QUARTERLY, daily_rate, grouped
 from ..performance.return_figures import window_starts
 from ..reports.catalogue.forms import (
     AGAINST,
+    ANNUALISE,
     AS_OF,
     BOOK,
     BY,
@@ -91,7 +94,8 @@ def value(statistic: StatisticSpec,
         statistic: The statistic.
         form: Its keywords, those left as None not given.
         context_for: The context for a window (`start`, `end`), a tracked
-            comparator (`tracked`) and rolling options (`rolling`).
+            comparator (`tracked`), rolling options (`rolling`) and a way of
+            annualising (`annualise`).
 
     Raises:
         Unavailable: If the run cannot give it.
@@ -99,7 +103,8 @@ def value(statistic: StatisticSpec,
     form = {keyword: given for keyword, given in form.items() if given is not None}
     check(statistic, form)
     tracked = _tracked(statistic, form.get(AGAINST))
-    window = {"start": form.get(START), "end": form.get(END), "tracked": tracked}
+    window = {"start": form.get(START), "end": form.get(END), "tracked": tracked,
+              "annualise": _annualise(form)}
 
     if BY in form:
         return _by_period(statistic, form, context_for, window)
@@ -107,7 +112,9 @@ def value(statistic: StatisticSpec,
     if TRAILING in form:
         return _trailing(statistic, form, context_for, window)
 
-    context = context_for(**window, rolling=_rolling_options(form, context_for(**window)))
+    # A rolling window in months is counted in the run's days, even per day.
+    days = context_for(**{**window, "annualise": None})
+    context = context_for(**window, rolling=_rolling_options(form, days))
 
     if ROLLING in form:
         return _picked_table(statistic, rolled(statistic, context), form, context)
@@ -118,6 +125,17 @@ def value(statistic: StatisticSpec,
         return _as_of(statistic, found, form, context)
 
     return _picked(statistic, found, form, context)
+
+
+def _annualise(form: Mapping[str, Any]) -> bool | None:
+    """How an annualised figure is given: over any window (True), per day
+    (False), or over a window long enough for it (None)."""
+    annualise = form.get(ANNUALISE)
+
+    if annualise is not None and not isinstance(annualise, bool):
+        raise ValueError(f"annualise is True, False or None, got {annualise!r}.")
+
+    return annualise
 
 
 def _tracked(statistic: StatisticSpec,
@@ -242,7 +260,8 @@ def _over(statistic: StatisticSpec,
             rows[label] = None
             continue
 
-        context = context_for(start=start, end=end, tracked=window["tracked"])
+        context = context_for(start=start, end=end, tracked=window["tracked"],
+                              annualise=window["annualise"])
 
         try:
             rows[label] = _picked(statistic, plain(statistic.compute(context)), form, context)
@@ -298,10 +317,13 @@ def windowed(context: Context,
              start: Any = None,
              end: Any = None,
              tracked: str | None = None,
-             rolling: RollingOptions | None = None) -> Context:
-    """*context* over another window, tracking another comparator or rolling
-    another window; *context* itself when nothing changes."""
-    if start is None and end is None and tracked is None and rolling is None:
+             rolling: RollingOptions | None = None,
+             annualise: bool | None = None) -> Context:
+    """*context* over another window, tracking another comparator, rolling
+    another window, or annualising over any window (*annualise* True) or per
+    day (False); *context* itself when nothing changes."""
+    if (start is None and end is None and tracked is None and rolling is None
+            and annualise is None):
         return context
 
     window = context.options.window
@@ -309,6 +331,18 @@ def windowed(context: Context,
                      start=pd.Timestamp(start) if start is not None else window.start,
                      end=pd.Timestamp(end) if end is not None else window.end,
                      tracked=tracked if tracked is not None else window.tracked)
+
+    if annualise is not None:
+        window = replace(window, min_annualised_rate_window=ANY_WINDOW,
+                         min_annualised_ratio_window=ANY_WINDOW)
+
+    # Per day is a year of one period, with the daily rate that compounds to
+    # the risk-free rate.
+    if annualise is False:
+        performance = context.performance
+        window = replace(window, periods_per_year=1,
+                         risk_free_rate=daily_rate(performance.risk_free_rate,
+                                                   performance.periods_per_year))
     options = replace(context.options, window=window,
                       rolling=rolling if rolling is not None else context.options.rolling)
 

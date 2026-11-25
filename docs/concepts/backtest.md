@@ -600,6 +600,8 @@ data, so a result can say what it assumed. Every field is optional:
 | `periods_per_year` | 252 | How returns, volatility and tracking error are annualised |
 | `withholding_tax_rate` | 0 | The share of each dividend withheld before the book receives it |
 | `volume_backfill_days` | 5 | How many calendar days a name's last reported volume stands in for a blank one under an execution limit |
+| `min_annualised_rate_window` | `"1Y"` | The shortest window a rate compounded or scaled to a year is given over: the annualised return, alpha, and the Calmar, Martin, Sterling, Burke and Treynor ratios. `"0M"` gives it over any window |
+| `min_annualised_ratio_window` | `"6M"` | The same for a ratio scaled by the square root of a year: the Sharpe, Sortino, information and Lo Sharpe ratios |
 
 The first three are **data treatment**: they decide how data is read, so they
 reach the index calculation too. A backtest hands its assumptions to the

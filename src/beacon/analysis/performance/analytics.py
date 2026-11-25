@@ -53,6 +53,13 @@ class PerformanceAnalytics:
         return self.run.risk_free_rate if rate is None else rate
 
     @property
+    def annualising(self) -> tuple[str, str]:
+        """The shortest windows an annualised rate and an annualised ratio
+        are given over (`beacon.analysis.annualising`)."""
+        return (self.settings.min_annualised_rate_window or self.run.min_annualised_rate_window,
+                self.settings.min_annualised_ratio_window or self.run.min_annualised_ratio_window)
+
+    @property
     def returns(self) -> pd.Series:
         """The fund's daily returns over the days measured."""
         return self._window(self.run.returns)
@@ -414,7 +421,8 @@ class PerformanceAnalytics:
 
         return trailing.trailing_statistics(self.returns, self.periods_per_year,
                                             self.risk_free_rate, comparators,
-                                            inception=self.headline())
+                                            inception=self.headline(),
+                                            annualising=self.annualising)
 
     def month_of_year(self) -> pd.Series:
         """The fund's mean return in each calendar month over the years."""

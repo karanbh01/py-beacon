@@ -55,10 +55,11 @@ class PerformanceCategory(Category):
                           by: str | None = None,
                           trailing: Windows = None,
                           rolling: int | str | None = None,
-                          step: str | None = None) -> Any:
+                          step: str | None = None,
+                          annualise: bool | None = None) -> Any:
         """The constant yearly rate that compounds to the total return."""
-        return self._get("annualised_return", of=of, start=start, end=end, by=by, trailing=trailing,
-                         rolling=rolling, step=step)
+        return self._get("annualised_return", of=of, start=start, end=end, by=by,
+                         trailing=trailing, rolling=rolling, step=step, annualise=annualise)
 
     def money_weighted_return(self,
                               *,
@@ -153,11 +154,12 @@ class PerformanceCategory(Category):
                      by: str | None = None,
                      trailing: Windows = None,
                      rolling: int | str | None = None,
-                     step: str | None = None) -> Any:
+                     step: str | None = None,
+                     annualise: bool | None = None) -> Any:
         """Mean daily return over the risk-free rate, per unit of its
         volatility, annualised."""
         return self._get("sharpe_ratio", of=of, start=start, end=end, by=by, trailing=trailing,
-                         rolling=rolling, step=step)
+                         rolling=rolling, step=step, annualise=annualise)
 
     def sortino_ratio(self,
                       *,
@@ -165,9 +167,11 @@ class PerformanceCategory(Category):
                       start: Day = None,
                       end: Day = None,
                       rolling: int | str | None = None,
-                      step: str | None = None) -> Any:
+                      step: str | None = None,
+                      annualise: bool | None = None) -> Any:
         """The Sharpe ratio with only downside deviation as risk."""
-        return self._get("sortino_ratio", of=of, start=start, end=end, rolling=rolling, step=step)
+        return self._get("sortino_ratio", of=of, start=start, end=end, rolling=rolling, step=step,
+                         annualise=annualise)
 
     def calmar_ratio(self,
                      *,
@@ -175,9 +179,11 @@ class PerformanceCategory(Category):
                      start: Day = None,
                      end: Day = None,
                      rolling: int | str | None = None,
-                     step: str | None = None) -> Any:
+                     step: str | None = None,
+                     annualise: bool | None = None) -> Any:
         """The annualised return over the deepest drawdown."""
-        return self._get("calmar_ratio", of=of, start=start, end=end, rolling=rolling, step=step)
+        return self._get("calmar_ratio", of=of, start=start, end=end, rolling=rolling, step=step,
+                         annualise=annualise)
 
     def omega_ratio(self,
                     *,
@@ -216,9 +222,11 @@ class PerformanceCategory(Category):
                      start: Day = None,
                      end: Day = None,
                      rolling: int | str | None = None,
-                     step: str | None = None) -> Any:
+                     step: str | None = None,
+                     annualise: bool | None = None) -> Any:
         """Excess annual return over the Ulcer index."""
-        return self._get("martin_ratio", of=of, start=start, end=end, rolling=rolling, step=step)
+        return self._get("martin_ratio", of=of, start=start, end=end, rolling=rolling, step=step,
+                         annualise=annualise)
 
     def sterling_ratio(self,
                        *,
@@ -226,10 +234,12 @@ class PerformanceCategory(Category):
                        start: Day = None,
                        end: Day = None,
                        rolling: int | str | None = None,
-                       step: str | None = None) -> Any:
+                       step: str | None = None,
+                       annualise: bool | None = None) -> Any:
         """Annual return over the average of the yearly maximum
         drawdowns."""
-        return self._get("sterling_ratio", of=of, start=start, end=end, rolling=rolling, step=step)
+        return self._get("sterling_ratio", of=of, start=start, end=end, rolling=rolling,
+                         step=step, annualise=annualise)
 
     def burke_ratio(self,
                     *,
@@ -237,9 +247,11 @@ class PerformanceCategory(Category):
                     start: Day = None,
                     end: Day = None,
                     rolling: int | str | None = None,
-                    step: str | None = None) -> Any:
+                    step: str | None = None,
+                    annualise: bool | None = None) -> Any:
         """Excess annual return over the root sum of squared drawdowns."""
-        return self._get("burke_ratio", of=of, start=start, end=end, rolling=rolling, step=step)
+        return self._get("burke_ratio", of=of, start=start, end=end, rolling=rolling, step=step,
+                         annualise=annualise)
 
     def gain_to_pain(self,
                      *,
@@ -281,10 +293,12 @@ class PerformanceCategory(Category):
                         start: Day = None,
                         end: Day = None,
                         rolling: int | str | None = None,
-                        step: str | None = None) -> Any:
+                        step: str | None = None,
+                        annualise: bool | None = None) -> Any:
         """The Sharpe ratio corrected for serial correlation when
         annualising."""
-        return self._get("lo_sharpe_ratio", of=of, start=start, end=end, rolling=rolling, step=step)
+        return self._get("lo_sharpe_ratio", of=of, start=start, end=end, rolling=rolling,
+                         step=step, annualise=annualise)
 
     # -- rolling --------------------------------------------------------------
 

@@ -203,13 +203,15 @@ class Analytics:
                      start: Any = None,
                      end: Any = None,
                      tracked: str | None = None,
-                     rolling: RollingOptions | None = None) -> Context:
-        """The context over a window, tracking a comparator or rolling a
-        window, built once for each."""
-        key = (start and str(start), end and str(end), tracked, rolling)
+                     rolling: RollingOptions | None = None,
+                     annualise: bool | None = None) -> Context:
+        """The context over a window, tracking a comparator, rolling a
+        window or annualising another way, built once for each."""
+        key = (start and str(start), end and str(end), tracked, rolling, annualise)
 
         if key not in self._contexts:
-            self._contexts[key] = windowed(self._context, start, end, tracked, rolling)
+            self._contexts[key] = windowed(self._context, start, end, tracked, rolling,
+                                           annualise)
 
         return self._contexts[key]
 

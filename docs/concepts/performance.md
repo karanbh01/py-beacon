@@ -208,11 +208,47 @@ month, quarter or year began. Calendar periods compound their own days, so the
 months compound to the year and the years to the run.
 
 `trailing_statistics()` works each figure out as the whole run's is, on the
-window's days. **It gives no Sharpe ratio over a window shorter than six
-months** (1M, 3M, MTD, QTD and YTD), as a month or a quarter of days says too
-little about it; the volatility is given for every window. A comparator's
-figures are over its own window, and the fund's against it only when the two
-cover the same days.
+window's days, and leaves the annualised return and the Sharpe ratio blank
+over a window too short for them, as every analytic does (below). A
+comparator's figures are over its own window, and the fund's against it only
+when the two cover the same days.
+
+## Annualised figures over short windows
+
+A figure annualised over a few weeks says more about the scaling than the
+fund, so **it is left blank over a window too short for it**, wherever it is
+asked for: over the whole run, a `start` and `end`, each period of `by`, each
+window of `trailing` and each `rolling` window, in `result.analytics` and in
+the analysis the server gives.
+
+| Figures | Need a window of at least | Set by |
+| --- | --- | --- |
+| Rates compounded or scaled to a year: the annualised return and annualised relative return, alpha, and the Calmar, Martin, Sterling, Burke and Treynor ratios | A year | `min_annualised_rate_window` |
+| Ratios scaled by the square root of a year: the Sharpe, Sortino, information and Lo Sharpe ratios | Six months | `min_annualised_ratio_window` |
+| Spreads: volatility, tracking error, residual risk and downside tracking error | Any window | |
+
+Both thresholds are modelling assumptions, recorded with each run, and
+`AnalysisSettings` sets them for one analysis. Each is a number of months or
+years, such as `"3M"` or `"2Y"`, and `"0M"` turns it off. A window counts as
+long enough when it holds the threshold's daily returns less a week's, since
+a calendar year holds 250 to 253 trading days. Only the annualised figure of
+alpha is left blank: its t-statistic and p-value are given over any window.
+
+Every annualised analytic takes `annualise`, which asks for it another way:
+
+```python
+performance = result.analytics.portfolio.performance
+
+performance.sharpe_ratio(by="quarter")                    # blank: a quarter is too short
+performance.sharpe_ratio(by="quarter", annualise=True)    # annualised all the same
+performance.sharpe_ratio(by="quarter", annualise=False)   # per day, never blank
+```
+
+`annualise=False` gives the figure per day: it is measured with a year of one
+period, so the Sharpe ratio is the mean daily excess return over its spread,
+the volatility the daily standard deviation, and the annualised return the
+daily rate that compounds to the total. The risk-free rate is taken as the
+daily rate that compounds to it.
 
 ```python
 print(analytics.trailing_table().loc[["1Y", "YTD", "inception"]])

@@ -21,7 +21,9 @@ never assume different things.
 cash earns, the risk-free rate the Sharpe ratio is measured against, how many
 periods make a year when returns are annualised, the share of each
 dividend withheld, and how far a day's traded volume carries over blank
-cells when an execution limit needs it. They do not affect an index.
+cells when an execution limit needs it, and how short a window an
+annualised figure is left blank over (`beacon.analysis.annualising`). They do
+not affect an index.
 
 ## Unset fields, and where their values come from
 
@@ -49,6 +51,13 @@ DEFAULT_PERIODS_PER_YEAR = 252
 # BN-266: a missed volume print is carried this far before the execution
 # limit falls back to the average daily volume.
 DEFAULT_VOLUME_BACKFILL_DAYS = 5
+# BN-465: a rate annualised over less than a year, or a ratio over less than
+# six months, is left blank (`beacon.analysis.annualising`).
+DEFAULT_MIN_ANNUALISED_RATE_WINDOW = "1Y"
+DEFAULT_MIN_ANNUALISED_RATIO_WINDOW = "6M"
+
+# The windows the two thresholds take: a number of months or years.
+WINDOW_UNITS = ("M", "Y")
 
 # The fields that change how data is read, and so reach the index.
 DATA_TREATMENT = ("fx_policy", "max_price_staleness_days",
@@ -81,6 +90,13 @@ class ModellingAssumptions:
             volume stands in for a blank one when an execution limit reads
             the day's volume. Past that, its average daily volume is used. A
             volume reported as 0 is never replaced. Unset is 5.
+        min_annualised_rate_window: The shortest window a rate compounded or
+            scaled to a year is given over, such as the annualised return or
+            alpha, as a number of months or years (``"6M"``, ``"1Y"``);
+            ``"0M"`` gives it over any window. Unset is ``"1Y"``.
+        min_annualised_ratio_window: The same for a ratio scaled by the
+            square root of a year, such as the Sharpe ratio. Unset is
+            ``"6M"``.
 
     Raises:
         ValueError: If a field is set to a value it cannot take.
@@ -93,6 +109,8 @@ class ModellingAssumptions:
     periods_per_year: int | None = None
     withholding_tax_rate: float | None = None
     volume_backfill_days: int | None = None
+    min_annualised_rate_window: str | None = None
+    min_annualised_ratio_window: str | None = None
 
     def __post_init__(self) -> None:
         if self.fx_policy is not None and self.fx_policy not in FX_POLICIES:
@@ -126,6 +144,13 @@ class ModellingAssumptions:
                 raise ValueError(f"{name} is an annual rate as a decimal, such "
                                  f"as 0.02 for 2%, got {value!r}.")
 
+        for name in ("min_annualised_rate_window", "min_annualised_ratio_window"):
+            value = getattr(self, name)
+
+            if value is not None and not is_window(value):
+                raise ValueError(f"{name} is a number of months or years, such as "
+                                 f"'6M' or '1Y', got {value!r}.")
+
     def over(self,
              base: "ModellingAssumptions") -> "ModellingAssumptions":
         """These assumptions, with *base*'s filling every field unset here."""
@@ -153,7 +178,11 @@ class ModellingAssumptions:
                                  DEFAULT_PERIODS_PER_YEAR),
             withholding_tax_rate=_or(self.withholding_tax_rate, 0.0),
             volume_backfill_days=_or(self.volume_backfill_days,
-                                     DEFAULT_VOLUME_BACKFILL_DAYS))
+                                     DEFAULT_VOLUME_BACKFILL_DAYS),
+            min_annualised_rate_window=_or(self.min_annualised_rate_window,
+                                           DEFAULT_MIN_ANNUALISED_RATE_WINDOW),
+            min_annualised_ratio_window=_or(self.min_annualised_ratio_window,
+                                            DEFAULT_MIN_ANNUALISED_RATIO_WINDOW))
 
     def with_defaults(self) -> "ModellingAssumptions":
         """The simulation conventions filled from the library defaults where
@@ -166,7 +195,13 @@ class ModellingAssumptions:
                                             DEFAULT_PERIODS_PER_YEAR),
                        withholding_tax_rate=_or(self.withholding_tax_rate, 0.0),
                        volume_backfill_days=_or(self.volume_backfill_days,
-                                                DEFAULT_VOLUME_BACKFILL_DAYS))
+                                                DEFAULT_VOLUME_BACKFILL_DAYS),
+                       min_annualised_rate_window=_or(
+                           self.min_annualised_rate_window,
+                           DEFAULT_MIN_ANNUALISED_RATE_WINDOW),
+                       min_annualised_ratio_window=_or(
+                           self.min_annualised_ratio_window,
+                           DEFAULT_MIN_ANNUALISED_RATIO_WINDOW))
 
     def effective(self) -> "ModellingAssumptions":
         """These assumptions laid over the process-wide default."""
@@ -218,6 +253,12 @@ def apply(assumptions: ModellingAssumptions,
         return fetcher
 
     return assumptions.applied_to(fetcher)
+
+
+def is_window(value: Any) -> bool:
+    """Whether *value* is a number of months or years, such as ``"6M"``."""
+    return (isinstance(value, str) and value[:-1].isdigit()
+            and value[-1:].upper() in WINDOW_UNITS)
 
 
 def _or(value: Any,

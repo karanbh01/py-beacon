@@ -29,6 +29,7 @@ from typing import Any
 
 import pandas as pd
 
+from ..assumptions import DEFAULT_MIN_ANNUALISED_RATE_WINDOW, DEFAULT_MIN_ANNUALISED_RATIO_WINDOW
 from ..backtest.result import BacktestResult
 from ..exceptions import ConfigurationError
 from .packing import CLOSES_FLOAT, CLOSES_PACKED, CLOSES_SCALE, pack_closes, unpack_closes
@@ -128,6 +129,9 @@ class RunData:
             flows; None for any other.
         warnings: What a stored run says as it opens: that the data store
             its market inputs came from was deleted, say.
+        min_annualised_rate_window: The shortest window a rate annualised
+            is given over (`beacon.analysis.annualising`).
+        min_annualised_ratio_window: The same for a ratio annualised.
     """
     currency: str
     returns: pd.Series
@@ -143,6 +147,8 @@ class RunData:
     performance_start: float | None = None
     investor_flows: pd.Series | None = None
     warnings: tuple[str, ...] = ()
+    min_annualised_rate_window: str = DEFAULT_MIN_ANNUALISED_RATE_WINDOW
+    min_annualised_ratio_window: str = DEFAULT_MIN_ANNUALISED_RATIO_WINDOW
 
     @classmethod
     def from_result(cls,
@@ -156,6 +162,7 @@ class RunData:
         # run's data without its tables, which take seconds at 6,000 names.
         tables = _Built(partial(run_panels, result))
         performance, start = result._performance_nav()
+        rate_window, ratio_window = result._annualising()
 
         return cls(currency=result.currency,
                    returns=result.get_returns(),
@@ -170,7 +177,9 @@ class RunData:
                    missing=_Lacking(tables),
                    performance=performance,
                    performance_start=float(start),
-                   investor_flows=result._investor_flows() if result.flows else None)
+                   investor_flows=result._investor_flows() if result.flows else None,
+                   min_annualised_rate_window=rate_window,
+                   min_annualised_ratio_window=ratio_window)
 
     @classmethod
     def of_returns(cls,
@@ -280,6 +289,8 @@ class RunData:
                "initial_capital": self.initial_capital,
                "periods_per_year": self.periods_per_year,
                "risk_free_rate": self.risk_free_rate,
+               "min_annualised_rate_window": self.min_annualised_rate_window,
+               "min_annualised_ratio_window": self.min_annualised_ratio_window,
                "performance_start": self.performance_start,
                "missing": dict(self.missing),
                "derived": derived,
@@ -369,7 +380,12 @@ class RunData:
                    performance_start=(None if run.get("performance_start") is None
                                       else float(run["performance_start"])),
                    investor_flows=series.get(INVESTOR_FLOWS),
-                   warnings=warnings)
+                   warnings=warnings,
+                   # A run kept before BN-465 takes the library's thresholds.
+                   min_annualised_rate_window=run.get("min_annualised_rate_window",
+                                                      DEFAULT_MIN_ANNUALISED_RATE_WINDOW),
+                   min_annualised_ratio_window=run.get("min_annualised_ratio_window",
+                                                       DEFAULT_MIN_ANNUALISED_RATIO_WINDOW))
 
 
 class _Built(Mapping[str, pd.DataFrame]):

@@ -53,10 +53,11 @@ class RelativeCategory(Category):
                        trailing: Windows = None,
                        rolling: int | str | None = None,
                        step: str | None = None,
-                       against: str | None = None) -> Any:
+                       against: str | None = None,
+                       annualise: bool | None = None) -> Any:
         """The annualised standard deviation of daily active returns."""
         return self._get("tracking_error", start=start, end=end, by=by, trailing=trailing,
-                         rolling=rolling, step=step, against=against)
+                         rolling=rolling, step=step, against=against, annualise=annualise)
 
     def information_ratio(self,
                           *,
@@ -65,10 +66,11 @@ class RelativeCategory(Category):
                           by: str | None = None,
                           rolling: int | str | None = None,
                           step: str | None = None,
-                          against: str | None = None) -> Any:
+                          against: str | None = None,
+                          annualise: bool | None = None) -> Any:
         """Mean daily active return over its spread, annualised."""
         return self._get("information_ratio", start=start, end=end, by=by, rolling=rolling,
-                         step=step, against=against)
+                         step=step, against=against, annualise=annualise)
 
     def information_ratio_t(self,
                             *,
@@ -89,11 +91,12 @@ class RelativeCategory(Category):
                                    by: str | None = None,
                                    rolling: int | str | None = None,
                                    step: str | None = None,
-                                   against: str | None = None) -> Any:
+                                   against: str | None = None,
+                                   annualise: bool | None = None) -> Any:
         """The yearly rate of the fund's growth relative to the
         comparator's."""
-        return self._get("annualised_relative_return", start=start, end=end, by=by, rolling=rolling,
-                         step=step, against=against)
+        return self._get("annualised_relative_return", start=start, end=end, by=by,
+                         rolling=rolling, step=step, against=against, annualise=annualise)
 
     def beta(self,
              *,
@@ -126,10 +129,12 @@ class RelativeCategory(Category):
               end: Day = None,
               rolling: int | str | None = None,
               step: str | None = None,
-              against: str | None = None) -> Any:
+              against: str | None = None,
+              annualise: bool | None = None) -> Any:
         """The intercept of the fund's excess returns regressed on the
         comparator's, a year, and its significance."""
-        return self._get("alpha", start=start, end=end, rolling=rolling, step=step, against=against)
+        return self._get("alpha", start=start, end=end, rolling=rolling, step=step,
+                         against=against, annualise=annualise)
 
     def r_squared(self,
                   *,
@@ -149,10 +154,11 @@ class RelativeCategory(Category):
                       end: Day = None,
                       rolling: int | str | None = None,
                       step: str | None = None,
-                      against: str | None = None) -> Any:
+                      against: str | None = None,
+                      annualise: bool | None = None) -> Any:
         """The annualised spread of the regression's residuals."""
         return self._get("residual_risk", start=start, end=end, rolling=rolling, step=step,
-                         against=against)
+                         against=against, annualise=annualise)
 
     def treynor_ratio(self,
                       *,
@@ -160,10 +166,11 @@ class RelativeCategory(Category):
                       end: Day = None,
                       rolling: int | str | None = None,
                       step: str | None = None,
-                      against: str | None = None) -> Any:
+                      against: str | None = None,
+                      annualise: bool | None = None) -> Any:
         """Excess annual return per unit of beta."""
         return self._get("treynor_ratio", start=start, end=end, rolling=rolling, step=step,
-                         against=against)
+                         against=against, annualise=annualise)
 
     def capture(self,
                 *,
@@ -195,10 +202,11 @@ class RelativeCategory(Category):
                                 end: Day = None,
                                 rolling: int | str | None = None,
                                 step: str | None = None,
-                                against: str | None = None) -> Any:
+                                against: str | None = None,
+                                annualise: bool | None = None) -> Any:
         """Tracking error counting only days the fund lagged."""
         return self._get("downside_tracking_error", start=start, end=end, rolling=rolling,
-                         step=step, against=against)
+                         step=step, against=against, annualise=annualise)
 
     def relative_drawdowns(self,
                            *,

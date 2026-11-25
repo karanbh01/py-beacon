@@ -4,7 +4,8 @@
 A generated fund and index over a little more than five years to the end of
 January 2026: each window's figures are the whole-run formulas on its days,
 its returns agree with the trailing returns table, the short windows give no
-Sharpe ratio and the windows the run is too short for give nothing.
+Sharpe ratio or annualised return (BN-465) and the windows the run is too
+short for give nothing.
 """
 import numpy as np
 import pandas as pd
@@ -13,7 +14,8 @@ import pytest
 from beacon.analysis.data import RunData
 from beacon.analysis.performance import formulas
 from beacon.analysis.performance.analytics import PerformanceAnalytics
-from beacon.analysis.performance.trailing_statistics import COLUMNS, NO_SHARPE
+from beacon.analysis.performance.settings import AnalysisSettings
+from beacon.analysis.performance.trailing_statistics import COLUMNS
 from beacon.analysis.reports.catalogue import CATALOGUE
 
 DAYS = pd.bdate_range("2020-11-16", "2026-01-30")
@@ -23,9 +25,14 @@ OURS = THEIRS * 0.95 + pd.Series(np.r_[0.0, RANDOM.normal(0.0001, 0.003, len(DAY
                                  index=DAYS)
 RISK_FREE = 0.02
 
+# The windows shorter than six months: the run ends in January.
+SHORT = ("1M", "3M", "MTD", "QTD", "YTD")
 
-def analytics_of(levels: pd.Series) -> PerformanceAnalytics:
-    return PerformanceAnalytics(RunData.of_returns(OURS, 252, RISK_FREE, {"index": levels}))
+
+def analytics_of(levels: pd.Series,
+                 settings: AnalysisSettings | None = None) -> PerformanceAnalytics:
+    return PerformanceAnalytics(RunData.of_returns(OURS, 252, RISK_FREE, {"index": levels}),
+                                settings)
 
 
 @pytest.fixture(scope="module")
@@ -123,20 +130,29 @@ class TestWhatIsLeftBlank:
 
     def test_no_sharpe_ratio_over_a_short_window(self,
                                                  table):
-        for window in NO_SHARPE:
+        for window in SHORT:
             assert blank(cell(table, window, "sharpe_ratio", "fund")), window
             assert blank(cell(table, window, "sharpe_ratio", "index")), window
 
         assert not blank(cell(table, "6M", "sharpe_ratio", "fund"))
         assert not blank(cell(table, "1M", "volatility", "fund"))
 
-    def test_annualised_only_beyond_a_year(self,
-                                           table):
-        for window in ("1M", "6M", "1Y", "YTD"):
+    def test_annualised_only_over_a_year_or_more(self,
+                                                 table):
+        for window in ("1M", "6M", "YTD"):
             assert blank(cell(table, window, "annualised_return", "fund")), window
 
-        for window in ("3Y", "5Y", "inception"):
+        for window in ("1Y", "3Y", "5Y", "inception"):
             assert not blank(cell(table, window, "annualised_return", "fund")), window
+
+    def test_an_analysis_can_set_the_shortest_windows(self):
+        settings = AnalysisSettings(min_annualised_rate_window="0M",
+                                    min_annualised_ratio_window="3M")
+        table = analytics_of(100.0 * (1 + THEIRS).cumprod(), settings).trailing_statistics()
+
+        assert not blank(cell(table, "1M", "annualised_return", "fund"))
+        assert not blank(cell(table, "3M", "sharpe_ratio", "fund"))
+        assert blank(cell(table, "1M", "sharpe_ratio", "fund"))
 
     def test_a_window_longer_than_the_run_is_blank(self,
                                                    table):

@@ -224,6 +224,9 @@ class Described:
 
 COMPARATORS = {INDEX: "The index", BENCHMARK: "The benchmark", OPTIMISED: "The optimised index"}
 
+# The windows the annualising thresholds suggest.
+WINDOWS = ("0M", "3M", "6M", "1Y", "3Y")
+
 SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
     "window": ("Window", {
         "start": Described("Start", "The first day measured; the run's first when empty.",
@@ -237,6 +240,14 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
                              "returns are measured against; the index the run traded toward "
                              "when empty.", choices=tuple(COMPARATORS),
                              choice_labels=COMPARATORS),
+        "min_annualised_rate_window": Described(
+            "Shortest window for a rate a year", "The shortest window a rate compounded or "
+            "scaled to a year, such as the annualised return, is given over; 0M gives it over "
+            "any. The run's when empty.", suggestions=WINDOWS),
+        "min_annualised_ratio_window": Described(
+            "Shortest window for a ratio a year", "The shortest window a ratio scaled by the "
+            "square root of a year, such as the Sharpe ratio, is given over; 0M gives it over "
+            "any. The run's when empty.", suggestions=WINDOWS),
     }),
     "rolling": ("Rolling figures", {
         "window": Described("Window", "The trailing window each rolling figure covers.",

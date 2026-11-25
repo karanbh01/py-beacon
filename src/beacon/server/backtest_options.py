@@ -142,6 +142,16 @@ ASSUMPTION_DISPLAYS = {
     "withholding_tax_rate": Display("Dividend withholding", unit=FRACTION, minimum=0.0,
                                     maximum=1.0),
     "volume_backfill_days": Display("Volume carried for", unit=DAYS, minimum=0),
+    "min_annualised_rate_window": Display(
+        "Shortest window for a rate a year",
+        help="A rate compounded or scaled to a year, such as the annualised return, is left "
+             "blank over a shorter window. A number of months or years, such as 1Y; 0M "
+             "gives it over any."),
+    "min_annualised_ratio_window": Display(
+        "Shortest window for a ratio a year",
+        help="A ratio scaled by the square root of a year, such as the Sharpe ratio, is left "
+             "blank over a shorter window. A number of months or years, such as 6M; 0M "
+             "gives it over any."),
 }
 
 FAMILIES = {

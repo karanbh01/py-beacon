@@ -10,15 +10,19 @@ given in (`result.analytics`):
 - ``trailing``: windows ending on the last day;
 - ``rolling`` (and ``step``): a rolling window, for a statistic that rolls;
 - ``against``: the comparator, for a relative figure;
-- ``as_of``: one day, for a statistic that runs through time.
+- ``as_of``: one day, for a statistic that runs through time;
+- ``annualise``: whether an annualised figure is given over any window
+  (True), per day (False), or only over a window long enough for it (None,
+  `beacon.analysis.annualising`).
 """
 # BN-434 (Karan, 2026-11-24). The sets are the formats each statistic was
 # given in when the 0.11.0 result API was agreed.
+from ...annualising import ANNUALISED
 from ..statistics import FIGURES, StatisticSpec
 
-OF, START, END, BY, TRAILING, ROLLING, STEP, AGAINST, AS_OF = (
-    "of", "start", "end", "by", "trailing", "rolling", "step", "against", "as_of")
-KEYWORDS = (OF, START, END, BY, TRAILING, ROLLING, STEP, AGAINST, AS_OF)
+OF, START, END, BY, TRAILING, ROLLING, STEP, AGAINST, AS_OF, ANNUALISE = (
+    "of", "start", "end", "by", "trailing", "rolling", "step", "against", "as_of", "annualise")
+KEYWORDS = (OF, START, END, BY, TRAILING, ROLLING, STEP, AGAINST, AS_OF, ANNUALISE)
 
 BOOK, COMPARATOR = "book", "comparator"
 
@@ -102,5 +106,9 @@ def forms_of(statistic: StatisticSpec) -> tuple[str, ...]:
 
     if statistic.id in THROUGH_TIME:
         found.add(AS_OF)
+
+    # BN-465.
+    if statistic.id in ANNUALISED:
+        found.add(ANNUALISE)
 
     return tuple(keyword for keyword in KEYWORDS if keyword in found)

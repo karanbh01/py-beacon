@@ -24,6 +24,7 @@ from dataclasses import replace
 
 import pandas as pd
 
+from ..annualising import blanked_over
 from ..performance.rolling import rolling_figures, rolling_relative
 from .context import FUND, Context
 from .options import DAILY, MONTH_END, AnalysisOptions
@@ -99,7 +100,29 @@ def rolling_all(statistics: Sequence[StatisticSpec],
     for step, chosen in by_window.items():
         found.update(window_by_window(chosen, context, step))
 
-    return found
+    return {statistic_id: _annualised(statistic_id, table, context)
+            for statistic_id, table in found.items()}
+
+
+def _annualised(statistic_id: str,
+                table: pd.DataFrame,
+                context: Context) -> pd.DataFrame:
+    """*table* with its annualised figures blank when the window is too
+    short for them (`beacon.analysis.annualising`)."""
+    performance = context.performance
+    rate_window, ratio_window = performance.annualising
+    fields = blanked_over(statistic_id, context.options.rolling.window, rate_window,
+                          ratio_window, performance.periods_per_year)
+
+    if fields is None:
+        return table
+
+    blanked = [column for column in table.columns
+               if not fields or str(column).rsplit("/", 1)[-1] in fields]
+    table = table.copy()
+    table[blanked] = float("nan")
+
+    return table
 
 
 def window_by_window(statistics: Sequence[StatisticSpec],

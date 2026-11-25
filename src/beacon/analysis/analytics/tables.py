@@ -21,7 +21,16 @@ from typing import Any
 import pandas as pd
 
 from ..reports.catalogue import CATALOGUE
-from ..reports.catalogue.forms import AGAINST, AS_OF, BOOK, COMPARATOR, OF, ROLLING, STEP
+from ..reports.catalogue.forms import (
+    AGAINST,
+    ANNUALISE,
+    AS_OF,
+    BOOK,
+    COMPARATOR,
+    OF,
+    ROLLING,
+    STEP,
+)
 from ..reports.statistics import FIGURES, StatisticSpec
 from .shape import ALL
 
@@ -93,8 +102,8 @@ def _own(statistic: StatisticSpec,
          form: Mapping[str, Any]) -> dict[str, Any]:
     """The keywords of *form* *statistic* is given: those it takes, with a
     portfolio's ``of`` its ``against`` when it measures the fund against a
-    comparator; a window or period whether it takes it or not, so one it
-    does not is refused."""
+    comparator, and ``annualise`` only when it is annualised; a window or
+    period whether it takes it or not, so one it does not is refused."""
     own: dict[str, Any] = {}
 
     for keyword, given in form.items():
@@ -103,7 +112,7 @@ def _own(statistic: StatisticSpec,
                 own[AGAINST] = ALL
             continue
 
-        if keyword == AGAINST and AGAINST not in statistic.forms:
+        if keyword in (AGAINST, ANNUALISE) and keyword not in statistic.forms:
             continue
 
         own[keyword] = given

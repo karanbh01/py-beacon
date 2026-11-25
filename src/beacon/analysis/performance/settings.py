@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from ...assumptions import is_window
+
 
 @dataclass(frozen=True)
 class AnalysisSettings:
@@ -23,9 +25,24 @@ class AnalysisSettings:
             (``index``, ``optimised`` or ``benchmark``): the index the run
             traded toward when None, which is the optimised index when it
             solved one.
+        min_annualised_rate_window: The shortest window a rate compounded or
+            scaled to a year is given over, such as ``"1Y"``; ``"0M"`` gives
+            it over any window (`beacon.analysis.annualising`).
+        min_annualised_ratio_window: The same for a ratio scaled by the
+            square root of a year, such as the Sharpe ratio.
     """
     start: pd.Timestamp | str | None = None
     end: pd.Timestamp | str | None = None
     periods_per_year: int | None = None
     risk_free_rate: float | None = None
     tracked: str | None = None
+    min_annualised_rate_window: str | None = None
+    min_annualised_ratio_window: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("min_annualised_rate_window", "min_annualised_ratio_window"):
+            value = getattr(self, name)
+
+            if value is not None and not is_window(value):
+                raise ValueError(f"{name} is a number of months or years, such as "
+                                 f"'6M' or '1Y', got {value!r}.")
