@@ -121,13 +121,9 @@ class TestTheCatalogue:
         """BN-425: a table statistic's columns carry their units, and coded
         text the label of each value."""
         statistics = {statistic["id"]: statistic for statistic in listed["statistics"]}
-        trailing = {column["name"]: column
-                    for column in statistics["trailing_statistics"]["columns"]}
         characteristics = {column["name"]: column
                            for column in statistics["characteristics"]["columns"]}
 
-        assert trailing["period"]["labels"]["inception"] == "Since inception"
-        assert trailing["fund"]["labels"] is None
         assert characteristics["fund/MARKET_CAP"]["unit"] == "money"
         assert characteristics["index/PE_RATIO"]["unit"] == "ratio"
         assert characteristics["benchmark/DIVIDEND_YIELD"]["unit"] == "fraction"

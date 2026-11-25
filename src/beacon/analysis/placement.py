@@ -27,7 +27,7 @@ PLACED = {
         sortino_ratio calmar_ratio omega_ratio kappa_3 upside_potential_ratio martin_ratio
         sterling_ratio burke_ratio gain_to_pain probabilistic_sharpe_ratio deflated_sharpe_ratio
         lo_sharpe_ratio rolling_outcomes crisis_returns crisis_paths crisis_summary regimes
-        trailing_returns trailing_statistics period_returns""",
+        trailing_returns period_returns""",
     RISK: """
         volatility max_drawdown drawdown drawdown_episodes risk_rating risk_distribution
         downside_deviation semi_variance skew excess_kurtosis tail_ratio serial_correlation
@@ -65,8 +65,7 @@ PART_OF = {statistic_id: part for part, ids in PLACED.items() for statistic_id i
 # them; their ids stay, for the reports.
 FOLDED = {"trailing_returns": "performance.total_return(trailing=[...])",
           "period_returns": 'performance.total_return(by="month")',
-          "tracking_difference_by_year": 'relative.tracking_difference(by="year")',
-          "trailing_statistics": "analytics.table([...], trailing=[...])"}
+          "tracking_difference_by_year": 'relative.tracking_difference(by="year")'}
 
 # Statistics not repeated as an analytic, being what the result records.
 DROPPED = {"aum": "result.fund.aum", "cash_band_events": "result.fund.cash_band.events"}

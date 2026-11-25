@@ -22,7 +22,6 @@ class Statistic(StrEnum):
     ANNUALISED_RETURN = "annualised_return"
     MONEY_WEIGHTED_RETURN = "money_weighted_return"
     TRAILING_RETURNS = "trailing_returns"
-    TRAILING_STATISTICS = "trailing_statistics"
     PERIOD_RETURNS = "period_returns"
     BEST_AND_WORST = "best_and_worst"
     POSITIVE_SHARE = "positive_share"

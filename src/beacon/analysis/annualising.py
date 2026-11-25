@@ -24,7 +24,7 @@ annualised figure over any window, False the figure per day (measured with a
 year of one period), which is never blanked.
 """
 # BN-465 (Karan, 2026-11-25): one rule wherever a figure is asked for, in
-# place of trailing_statistics' own (BN-422).
+# place of the trailing statistics table's own (BN-422, removed in BN-467).
 from collections.abc import Mapping
 from typing import Any
 
