@@ -10,7 +10,7 @@ Nothing is worked out until it is asked for, and each answer is kept.
 """
 # BN-433 (Karan, 2026-11-24): replaces 0.10.0's `result.analytics`, which was
 # the fund's PerformanceAnalytics.
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from functools import cached_property
 from pathlib import Path
 from typing import Any
@@ -26,6 +26,7 @@ from ..request import AnalysisRequest, analyse_run
 from .forms import value, windowed
 from .portfolio import PortfolioLevel
 from .shape import ALL
+from .tables import table as side_by_side
 
 
 class Analytics:
@@ -104,6 +105,40 @@ class Analytics:
             self._timings = self._timings or dict(self._block["timings"])
 
         return self._block
+
+    def get(self,
+            statistic: str,
+            **form: Any) -> Any:
+        """Any statistic by its id or `Statistic` member, with the keywords
+        its method takes: ``get(Statistic.TOTAL_RETURN, by="year")`` is
+        ``portfolio.performance.total_return(by="year")``.
+
+        Raises:
+            ValueError: If no statistic has that id.
+            TypeError: If a keyword is not one the statistic takes.
+            Unavailable: If the run cannot give it.
+        """
+        if str(statistic) not in CATALOGUE:
+            raise ValueError(f"Unknown statistic {str(statistic)!r}.")
+
+        return self._value(str(statistic), form)
+
+    def table(self,
+              statistics: Iterable[str],
+              **form: Any) -> pd.DataFrame:
+        """Several single-figure statistics side by side, by id or
+        `Statistic` member: a row a statistic, a column a window, period or
+        portfolio (`beacon.analysis.analytics.tables`).
+
+            analytics.table([Statistic.TOTAL_RETURN, Statistic.SHARPE_RATIO],
+                            trailing=["1Y", "3Y"], of="all")
+
+        Raises:
+            ValueError: If a statistic gives more than one figure.
+            TypeError: If a keyword is one no table takes, or none of the
+                statistics takes.
+        """
+        return side_by_side(statistics, form, self._value)
 
     @cached_property
     def portfolio(self) -> PortfolioLevel:
