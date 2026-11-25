@@ -26,6 +26,7 @@ from ..request import AnalysisRequest, analyse_run
 from .forms import value, windowed
 from .instrument import InstrumentLevel
 from .portfolio import PortfolioLevel
+from .reports import Reports
 from .shape import ALL
 from .tables import table as side_by_side
 
@@ -153,6 +154,18 @@ class Analytics:
         risk, relative, holdings, trading, flows, income, vehicle and
         attribution."""
         return PortfolioLevel(self)
+
+    @cached_property
+    def reports(self) -> Reports:
+        """The run's reports, a method a report, each its statistics worked
+        out together, and those its request asked for (``asked``)."""
+        return Reports(self)
+
+    def _with(self,
+              request: AnalysisRequest) -> "Analytics":
+        """These analytics under another request's choices."""
+        return Analytics(self._run, request, self._source, self._folder,
+                         active=self._active, replication=self._replication)
 
     @cached_property
     def instrument(self) -> InstrumentLevel:
