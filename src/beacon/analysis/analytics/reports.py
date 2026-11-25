@@ -4,10 +4,18 @@ A run's reports, the second way into its analytics: a report's statistics
 worked out together.
 
     report = result.analytics.reports.factsheet(level="extended", add=["calmar_ratio"])
-    report.statistics            # the ids, in the report's order
-    report["sharpe_ratio"]       # what portfolio.performance.sharpe_ratio() gives
-    report.to_frame()            # its single figures side by side
-    result.analytics.reports.asked     # the reports the run's request named
+    report.statistics                                  # the ids, in the report's order
+    report.portfolio.performance.sharpe_ratio.headline  # portfolio.performance.sharpe_ratio()
+    report["sharpe_ratio"].rolling                     # its rolling view, when it shows one
+    report.to_frame()                                  # its single figures side by side
+    result.analytics.reports.asked                     # the reports the run's request named
+
+Each statistic is an `Entry` with the same shape: its ``headline`` value,
+its ``rolling`` view (None when the report does not show it rolling), its
+``label`` and its ``unit``. Entries sit under the report's categories, as
+the analytics do: ``report.portfolio.risk.volatility``, and
+``report.instrument.member_risk_return``. Only what the report holds is
+there; asking for anything else says whether ``add=`` could bring it in.
 
 Each value is what the statistic's analytic gives called bare, at the run's
 settings or the ``options`` given. A statistic folded into another's form or
@@ -15,19 +23,110 @@ held by the result (`beacon.analysis.placement`) keeps its id here, for the
 reports that show it. The reports and their levels are
 `beacon.analysis.reports.definitions`'.
 """
-# BN-456 (Karan, 2026-11-24).
+# BN-456 and BN-457 (Karan, 2026-11-24). Editors do not see the entries;
+# Jupyter and IPython do, through __dir__, which was accepted.
 from collections.abc import Sequence
 from functools import cached_property
 from typing import Any
 
 import pandas as pd
 
+from ..placement import CATEGORIES, INSTRUMENT, PART_OF
 from ..reports.catalogue import CATALOGUE
-from ..reports.definitions import CORE, REPORTS
+from ..reports.definitions import BOTH, CORE, REPORTS, ROLLING
 from ..reports.options import AnalysisOptions
 from ..reports.statistics import Unavailable
 from ..request import FAILED, AnalysisRequest, analyse_run
 from .tables import single_figure
+
+
+class Entry:
+    """One statistic in a report.
+
+    Attributes:
+        id: The statistic's id.
+        label: How it reads.
+        unit: What it is measured in; None for text or a table of several.
+        headline: Its value over the window, as its analytic gives it
+            called bare.
+    """
+
+    def __init__(self,
+                 report: "Report",
+                 statistic_id: str,
+                 headline: Any):
+        spec = CATALOGUE[statistic_id]
+        self.id = statistic_id
+        self.label = spec.label
+        self.unit = spec.unit
+        self.headline = headline
+        self._report = report
+
+    @cached_property
+    def rolling(self) -> Any:
+        """Its value over each trailing window of the report's rolling
+        options, dates down; None when the report does not show it
+        rolling."""
+        if self._report.views.get(self.id) not in (ROLLING, BOTH):
+            return None
+
+        window = self._report._analytics._context.options.rolling.window
+
+        return self._report._analytics._value(self.id, {"rolling": window})
+
+    def __repr__(self) -> str:
+        return f"Entry({self.id}: {self.label})"
+
+
+class Section:
+    """A report's entries of one category, an attribute each."""
+
+    def __init__(self,
+                 report: "Report",
+                 category: str):
+        self._report = report
+        self._category = category
+        self._ids = [statistic_id for statistic_id in report.statistics
+                     if PART_OF.get(statistic_id) == category and statistic_id in report]
+
+    def __getattr__(self,
+                    name: str) -> Entry:
+        if name.startswith("_"):
+            raise AttributeError(name)
+
+        if name in self._ids:
+            return self._report[name]
+
+        if name in self._report and PART_OF.get(name) != self._category:
+            raise AttributeError(f"{name} is under {PART_OF.get(name)}, not {self._category}.")
+
+        raise AttributeError(self._report._missing(name))
+
+    def __dir__(self) -> list[str]:
+        return list(self._ids)
+
+    def __repr__(self) -> str:
+        return f"{self._category}({', '.join(self._ids)})"
+
+
+class _Portfolio:
+    """A report's entries of a whole portfolio, a section a category."""
+
+    def __init__(self,
+                 report: "Report"):
+        self._report = report
+        self._sections = {category: Section(report, category) for category in CATEGORIES}
+
+    def __getattr__(self,
+                    name: str) -> Section:
+        if name in self._sections:
+            return self._sections[name]
+
+        raise AttributeError(f"A portfolio's categories are {', '.join(CATEGORIES)}; "
+                             f"not {name}.")
+
+    def __dir__(self) -> list[str]:
+        return [category for category, section in self._sections.items() if dir(section)]
 
 
 class Report:
@@ -62,14 +161,15 @@ class Report:
         self.optional = [statistic_id for statistic_id in definition.level(level).optional
                          if statistic_id not in self.views]
         self._values: dict[str, Any] = {}
+        self._entries: dict[str, Entry] = {}
         self.unavailable: dict[str, str] = {}
 
         for statistic_id in self.statistics:
             self._work_out(statistic_id)
 
     def __getitem__(self,
-                    statistic: str) -> Any:
-        """The value of *statistic*, by id or `Statistic` member.
+                    statistic: str) -> Entry:
+        """The entry of *statistic*, by id or `Statistic` member.
 
         Raises:
             KeyError: If the report does not hold it, saying whether the
@@ -77,10 +177,24 @@ class Report:
         """
         statistic_id = str(statistic)
 
-        if statistic_id in self._values:
-            return self._values[statistic_id]
+        if statistic_id not in self._values:
+            raise KeyError(self._missing(statistic_id))
 
-        raise KeyError(self._missing(statistic_id))
+        if statistic_id not in self._entries:
+            self._entries[statistic_id] = Entry(self, statistic_id, self._values[statistic_id])
+
+        return self._entries[statistic_id]
+
+    @cached_property
+    def portfolio(self) -> _Portfolio:
+        """Its entries of a whole portfolio, a section a category:
+        ``report.portfolio.risk.volatility``."""
+        return _Portfolio(self)
+
+    @cached_property
+    def instrument(self) -> Section:
+        """Its entries given a row a name."""
+        return Section(self, INSTRUMENT)
 
     def __contains__(self,
                      statistic: object) -> bool:
@@ -249,4 +363,4 @@ class Reports:
         return f"Reports({', '.join(REPORTS)})"
 
 
-__all__ = ["Report", "Reports"]
+__all__ = ["Entry", "Report", "Reports", "Section"]

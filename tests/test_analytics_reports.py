@@ -1,6 +1,7 @@
 # tests/test_analytics_reports.py
-"""BN-456: `result.analytics.reports`, a report's statistics worked out
-together, each what its analytic gives called bare.
+"""BN-456 and BN-457: `result.analytics.reports`, a report's statistics
+worked out together, each an entry whose headline is what its analytic gives
+called bare.
 
 The run is test_strategy_futures' eight-name market-cap index held physically
 through 2024, with its total-return version as the benchmark.
@@ -44,9 +45,9 @@ class TestAReport:
                                                     factsheet):
         portfolio = result.analytics.portfolio
 
-        assert factsheet["sharpe_ratio"] == portfolio.performance.sharpe_ratio()
-        assert factsheet[Statistic.VOLATILITY] == portfolio.risk.volatility()
-        assert factsheet["total_return"] == portfolio.performance.total_return()
+        assert factsheet["sharpe_ratio"].headline == portfolio.performance.sharpe_ratio()
+        assert factsheet[Statistic.VOLATILITY].headline == portfolio.risk.volatility()
+        assert factsheet["total_return"].headline == portfolio.performance.total_return()
 
     def test_a_folded_statistic_keeps_its_id(self,
                                              factsheet):
@@ -90,7 +91,8 @@ class TestAskingForOne:
                                                    remove=["volatility"])
 
         assert "calmar_ratio" in found and "volatility" not in found
-        assert found["calmar_ratio"] == result.analytics.portfolio.performance.calmar_ratio()
+        assert found["calmar_ratio"].headline == (
+            result.analytics.portfolio.performance.calmar_ratio())
 
     def test_its_extended_level(self,
                                 result):
@@ -103,7 +105,8 @@ class TestAskingForOne:
         options = AnalysisOptions(window=AnalysisSettings(risk_free_rate=0.05))
         found = result.analytics.reports.performance(options=options)
 
-        assert found["sharpe_ratio"] < result.analytics.portfolio.performance.sharpe_ratio()
+        assert found["sharpe_ratio"].headline < (
+            result.analytics.portfolio.performance.sharpe_ratio())
 
     def test_a_statistic_it_cannot_add(self,
                                        result):
@@ -122,3 +125,43 @@ def test_the_reports_the_run_asked_for(result):
 
     assert list(asked) == ["factsheet"]
     assert isinstance(asked["factsheet"].to_frame(), pd.DataFrame)
+
+
+class TestItsEntries:
+    """BN-457: each statistic an entry, under the report's categories."""
+
+    def test_under_its_category(self,
+                                factsheet):
+        entry = factsheet.portfolio.performance.sharpe_ratio
+
+        assert entry is factsheet["sharpe_ratio"] is factsheet[Statistic.SHARPE_RATIO]
+        assert entry.label == "Sharpe ratio" and entry.unit == "ratio"
+        assert factsheet.portfolio.risk.volatility.headline == factsheet["volatility"].headline
+
+    def test_its_rolling_view_when_the_report_shows_one(self,
+                                                        result):
+        found = result.analytics.reports.performance(level="extended")
+        rolled = [statistic_id for statistic_id, view in found.views.items()
+                  if view in ("rolling", "both") and statistic_id in found]
+        point = [statistic_id for statistic_id, view in found.views.items()
+                 if view == "point" and statistic_id in found]
+
+        assert rolled and isinstance(found[rolled[0]].rolling, pd.Series | pd.DataFrame)
+        assert found[point[0]].rolling is None
+
+    def test_only_what_it_holds(self,
+                                factsheet):
+        with pytest.raises(AttributeError, match="optional in the factsheet core"):
+            _ = factsheet.portfolio.performance.calmar_ratio
+
+        with pytest.raises(AttributeError, match="sharpe_ratio is under performance"):
+            _ = factsheet.portfolio.risk.sharpe_ratio
+
+        with pytest.raises(AttributeError, match="A portfolio's categories"):
+            _ = factsheet.portfolio.liquidity
+
+    def test_dir_lists_what_is_there(self,
+                                     factsheet):
+        assert "sharpe_ratio" in dir(factsheet.portfolio.performance)
+        assert "calmar_ratio" not in dir(factsheet.portfolio.performance)
+        assert "performance" in dir(factsheet.portfolio)
