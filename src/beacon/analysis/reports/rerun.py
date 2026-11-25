@@ -67,6 +67,8 @@ def rerun(run: RunData,
 
     return {**block, "statistics": statistics, "unavailable": unavailable,
             "reports": {**previous.get("reports", {}), **block["reports"]},
+            "statistic_tables": {**previous.get("statistic_tables", {}),
+                                 **block["statistic_tables"]},
             "groupings": block.get("groupings", previous.get("groupings", []))}
 
 

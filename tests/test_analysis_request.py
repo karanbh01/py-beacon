@@ -21,6 +21,7 @@ from beacon.analysis.request import (
     ATTRIBUTION,
     PERFORMANCE,
     RISK,
+    STATISTIC_TABLES,
     TABLES,
     AnalysisRequest,
 )
@@ -73,7 +74,8 @@ class TestAskedForUpFront:
     def test_the_request_and_each_part_s_time_are_kept(self,
                                                        analysed):
         assert analysed.analysis_request is EVERYTHING
-        assert list(analysed.analysis_timings) == [TABLES, *EVERYTHING.parts()]
+        assert list(analysed.analysis_timings) == [TABLES, *EVERYTHING.parts(),
+                                                   STATISTIC_TABLES]
         assert {PERFORMANCE, RISK, ATTRIBUTION} <= set(EVERYTHING.parts())
         assert analysed.analysis_block["timings"] == analysed.analysis_timings
         assert all(seconds >= 0.0 for seconds in analysed.analysis_timings.values())

@@ -106,3 +106,5 @@ Every statistic's id as an enum, so ids autocomplete: `Statistic.SHARPE_RATIO` g
 What a run's analysis should give: the reports, the statistics added to or taken from them, and every choice the analysis makes. See [Reports](../concepts/reports.md).
 
 ::: beacon.analysis.request
+
+::: beacon.analysis.statistic_tables

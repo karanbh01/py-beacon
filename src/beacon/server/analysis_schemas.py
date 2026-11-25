@@ -12,6 +12,29 @@ from pydantic import BaseModel, ConfigDict, Field
 COMPUTED, NOT_COMPUTED = "computed", "not_computed"
 
 
+class StatisticTableSpec(BaseModel):
+    """Single-figure statistics side by side: a row a statistic, or a
+    statistic and window or period, and a column a portfolio."""
+    # BN-467.
+    model_config = ConfigDict(extra="forbid")
+    statistics: list[str] = Field(min_length=1, description="Statistic ids, each one that "
+                                                            "gives a single figure.")
+    trailing: list[str] | None = Field(
+        default=None, description="Trailing windows, a row each: 1M, 3M, 6M, 1Y, 3Y, 5Y, 10Y, "
+                                  "MTD, QTD, YTD or inception.")
+    by: str | None = Field(default=None, description="Calendar periods, a row each: 'month', "
+                                                     "'quarter' or 'year'.")
+    of: str | None = Field(
+        default=None, description="The portfolio, or 'all' for a column each, with the "
+                                  "figures against a comparator under the comparator's. The "
+                                  "fund's in a 'value' column when null.")
+    against: str | None = Field(default=None, description="The comparator relative figures "
+                                                          "are measured against.")
+    annualise: bool | None = Field(
+        default=None, description="true gives annualised figures over any window, false per "
+                                  "day; null leaves those over too short a window blank.")
+
+
 class AnalysisRequestSpec(BaseModel):
     """What a run's analysis should give: the reports wanted, each at a
     level, with statistics added or taken out, their time views, and every
@@ -34,6 +57,12 @@ class AnalysisRequestSpec(BaseModel):
     statistics: list[str] = Field(
         default_factory=list,
         description="Statistics wanted outside any report, by id.")
+    statistic_tables: dict[str, StatisticTableSpec] | None = Field(
+        default=None,
+        description="Named tables of single-figure statistics side by side. Null gives the "
+                    "'summary': the total and annualised return, volatility, maximum "
+                    "drawdown, Sharpe ratio, tracking difference and tracking error of every "
+                    "portfolio over each trailing window. An empty object gives none.")
     options: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Every choice the analysis makes, by section and setting, as "
@@ -101,6 +130,13 @@ class AnalyticsBlock(BaseModel):
     statistics: dict[str, StatisticValue] = Field(
         description="Each statistic worked out, by id. Labels, units and decimals are in "
                     "`GET /analysis/options`.")
+    statistic_tables: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Each named table asked for, as `{index, columns, data}`: columns "
+                    "'statistic', 'window' or 'period' when it has them, 'unit', then a "
+                    "column a portfolio or comparator, or 'value'. One that could not be "
+                    "worked out is under `unavailable` as 'statistic_tables/<name>'. Window "
+                    "labels are `names.window` in `GET /analysis/options`.")
     unavailable: dict[str, UnavailableReason] = Field(
         description="Each statistic asked for that the run cannot give, by id.")
     active_against: str | None = Field(
@@ -112,7 +148,7 @@ class AnalyticsBlock(BaseModel):
     timings: dict[str, float] = Field(
         description="Seconds each part took: 'tables', then each of 'performance', 'risk', "
                     "'relative', 'holdings', 'trading', 'flows', 'income', 'vehicle', "
-                    "'attribution' and 'instrument' asked for.")
+                    "'attribution' and 'instrument' asked for, then 'statistic_tables'.")
     tables: dict[str, TableRef] = Field(
         default_factory=dict, description="The run's large tables, by name, read on their own.")
 

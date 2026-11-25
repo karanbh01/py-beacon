@@ -41,11 +41,14 @@ from .placement import (
     VEHICLE,
 )
 from .reports.options import AnalysisOptions
+from .statistic_tables import tables_of, worked_out
 
 logger = logging.getLogger(__name__)
 
 # Building the run's tables, which most parts read.
 TABLES = "tables"
+# The named tables of statistics side by side, in the block and its timings.
+STATISTIC_TABLES = "statistic_tables"
 
 # What each part says as it starts (BN-436: a part a category of the result).
 MESSAGES = {PERFORMANCE: "Computing performance", RISK: "Computing risk",
@@ -75,6 +78,10 @@ class AnalysisRequest:
         time_views: By report, statistic ids with the time view to show
             them in: ``point``, ``rolling`` or ``both``.
         statistics: Statistics wanted outside any report, over the window.
+        statistic_tables: Named tables of single-figure statistics side by
+            side (`beacon.analysis.statistic_tables`), each a
+            `StatisticTable` or its plain data; a ``summary`` when None, and
+            none when empty.
         options: Every choice the analysis makes; the defaults when left out.
         factors: The factors risk and attribution use; the defaults (size,
             value, momentum) when None.
@@ -90,6 +97,7 @@ class AnalysisRequest:
     remove: Mapping[str, Sequence[str]] = field(default_factory=dict)
     time_views: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
     statistics: Sequence[str] = ()
+    statistic_tables: Mapping[str, Any] | None = None
     options: AnalysisOptions = field(default_factory=AnalysisOptions)
     factors: Sequence[Factor] | None = None
 
@@ -103,6 +111,8 @@ class AnalysisRequest:
                                                          for id_, view in views.items()}
                                                 for report, views in self.time_views.items()})
         object.__setattr__(self, "statistics", tuple(str(id_) for id_ in self.statistics))
+        # BN-467.
+        object.__setattr__(self, "statistic_tables", tables_of(self.statistic_tables))
         self.selection()
 
     @property
@@ -118,6 +128,9 @@ class AnalysisRequest:
         from .reports.definitions import REPORTS, VIEWS  # noqa: PLC0415
 
         _known(list(self.statistics), CATALOGUE.statistics, "statistic")
+
+        for table in tables_of(self.statistic_tables).values():
+            table.check()
         _known([*self.add, *self.remove, *self.time_views], self.reports, "report asked for")
         chosen = {}
 
@@ -170,6 +183,8 @@ class AnalysisRequest:
                 "remove": {name: list(ids) for name, ids in self.remove.items()},
                 "time_views": {name: dict(views) for name, views in self.time_views.items()},
                 "statistics": list(self.statistics),
+                "statistic_tables": {name: table.as_data() for name, table
+                                     in tables_of(self.statistic_tables).items()},
                 "options": _plain(dataclasses.asdict(self.options)),
                 "factors": None if self.factors is None else [factor.name
                                                               for factor in self.factors]}
@@ -256,14 +271,39 @@ def analyse_run(context: Any,
 
         timings[part] = time.perf_counter() - start
 
+    start = time.perf_counter()
+    tables = _side_by_side(request, context, unavailable)
+    timings[STATISTIC_TABLES] = time.perf_counter() - start
     reports = {report_id: {"level": request.reports[report_id],
                            "statistics": [{"id": statistic_id, "view": view}
                                           for statistic_id, view in entries]}
                for report_id, entries in request.selection().items()}
 
     return {"request": request.as_data(), "reports": reports, "statistics": statistics,
-            "unavailable": unavailable, "active_against": context.tracked,
+            "statistic_tables": tables, "unavailable": unavailable,
+            "active_against": context.tracked,
             "groupings": _groupings(context.run), "timings": timings}
+
+
+def _side_by_side(request: AnalysisRequest,
+                  context: Any,
+                  unavailable: dict[str, Any]) -> dict[str, Any]:
+    """Each named table asked for, as ``{index, columns, data}``; one that
+    cannot be worked out is named under *unavailable* as
+    ``statistic_tables/<name>``."""
+    from .reports.wire import table_payload  # noqa: PLC0415
+
+    found = {}
+
+    for name, table in tables_of(request.statistic_tables).items():
+        try:
+            found[name] = table_payload(worked_out(table, context))
+        except Exception as error:  # A failure shows in place, and does not stop the rest.
+            logger.warning(f"The {name} table could not be worked out: {error}")
+            unavailable[f"{STATISTIC_TABLES}/{name}"] = {
+                "code": FAILED, "reason": f"It could not be worked out: {error}"}
+
+    return found
 
 
 def _work_out(statistic: Any,

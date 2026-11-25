@@ -27,6 +27,7 @@ from ..analysis.reports.rerun import rerun, same_choices
 from ..analysis.reports.rolling import step_for
 from ..analysis.reports.statistics import REASONS, decimals_of
 from ..analysis.request import AnalysisRequest
+from ..analysis.statistic_tables import WINDOW_LABELS
 from ..data.fetcher import DataFetcher
 from ..exceptions import DataNotFoundError, InvalidArgumentError
 from ..portfolio.reasons import REASONS as TRADE_REASONS
@@ -72,6 +73,8 @@ NAMES = {
     "book": {"fund": "Fund", "index": "Index", "optimised": "Optimised index",
              "benchmark": "Benchmark", "active": "Active", "class": "Class"},
     "comparator": {"index": "Index", "optimised": "Optimised index", "benchmark": "Benchmark"},
+    # BN-467: the windows of a statistic table's rows.
+    "window": dict(WINDOW_LABELS),
     "method": {"historical": "Historical", "normal": "Normal", "cornish_fisher": "Cornish-Fisher"},
     "confidence": {"0.9": "90%", "0.95": "95%", "0.975": "97.5%", "0.99": "99%",
                    "0.995": "99.5%"},
@@ -97,6 +100,10 @@ def build_request(spec: Any) -> AnalysisRequest:
     try:
         return AnalysisRequest(reports=spec.reports, add=spec.add, remove=spec.remove,
                                time_views=spec.time_views, statistics=spec.statistics,
+                               statistic_tables=(None if spec.statistic_tables is None
+                                                 else {name: table.model_dump()
+                                                       for name, table
+                                                       in spec.statistic_tables.items()}),
                                options=_options(spec.options))
     except (TypeError, ValueError) as error:
         raise InvalidArgumentError(f"The analysis asked for cannot be given: {error}") from error
