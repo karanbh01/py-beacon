@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 from beacon.analysis.performance.analytics import PerformanceAnalytics
+from beacon.analysis.placement import PARTS
 from beacon.analysis.performance.relative_analytics import RelativeAnalytics
 from beacon.analysis.performance.settings import AnalysisSettings
 from beacon.analysis.reports.catalogue import CATALOGUE, CATEGORIES
@@ -32,7 +33,6 @@ from beacon.analysis.reports.statistics import (
     KINDS,
     LIGHT,
     MODERATE,
-    PARTS,
     REASONS,
 )
 from beacon.analysis.request import FAILED, MESSAGES, AnalysisRequest, analyse
@@ -250,16 +250,16 @@ class TestTheBlock:
 
         analyse(result, EVERY_REPORT, said.append)
 
-        assert said == [MESSAGES[part] for part in ("performance", "portfolio", "risk",
-                                                    "attribution")]
+        assert said == [MESSAGES[part] for part in EVERY_REPORT.parts()]
+        assert EVERY_REPORT.parts() == [part for part in PARTS if part != "instrument"]
 
     def test_a_factsheet_core_needs_no_risk_model(self,
                                                   result):
-        found = analyse(result, AnalysisRequest(remove={"factsheet": ["factor_betas",
-                                                                      "average_correlation",
-                                                                      "top_weights"]}))
+        analyse(result, AnalysisRequest(remove={"factsheet": ["factor_betas",
+                                                              "average_correlation",
+                                                              "top_weights"]}))
 
-        assert "risk" not in found["timings"]
+        assert "factor_analytics" not in result._analysis_context.__dict__
 
 
 class TestRolling:

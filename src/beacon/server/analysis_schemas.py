@@ -110,8 +110,9 @@ class AnalyticsBlock(BaseModel):
         description="The reference fields the run kept for its names, which "
                     "`options.attribution.grouping` can name.")
     timings: dict[str, float] = Field(
-        description="Seconds each part took: 'tables', then 'performance', 'portfolio', "
-                    "'risk' and 'attribution' as asked for.")
+        description="Seconds each part took: 'tables', then each of 'performance', 'risk', "
+                    "'relative', 'holdings', 'trading', 'flows', 'income', 'vehicle', "
+                    "'attribution' and 'instrument' asked for.")
     tables: dict[str, TableRef] = Field(
         default_factory=dict, description="The run's large tables, by name, read on their own.")
 
@@ -188,8 +189,9 @@ class StatisticSpec(BaseModel):
     label: str = Field(description="Its name, as shown.")
     category: str = Field(description="What it is a figure of; reports are sectioned by it.")
     kind: str = Field(description="'figures', 'series' or 'table'.")
-    part: str = Field(description="The analysis that works it out: 'performance', "
-                                  "'portfolio', 'risk' or 'attribution'.")
+    part: str = Field(description="Where it sits in a run's analytics: 'performance', "
+                                  "'risk', 'relative', 'holdings', 'trading', 'flows', "
+                                  "'income', 'vehicle', 'attribution' or 'instrument'.")
     description: str = Field(description="One line saying what it measures.")
     unit: str | None = Field(description="What its figures are measured in; null for none.")
     decimals: int | None = Field(description="How many decimals it is shown to.")

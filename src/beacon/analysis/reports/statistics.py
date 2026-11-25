@@ -27,8 +27,9 @@ import pandas as pd
 FIGURES, SERIES, TABLE = "figures", "series", "table"
 KINDS = (FIGURES, SERIES, TABLE)
 
+# The analysis each catalogue module's statistics read. A statistic's part,
+# where it sits in `result.analytics`, is set from `beacon.analysis.placement`.
 PERFORMANCE, PORTFOLIO, RISK, ATTRIBUTION = "performance", "portfolio", "risk", "attribution"
-PARTS = (PERFORMANCE, PORTFOLIO, RISK, ATTRIBUTION)
 
 # What rolling a statistic costs: running it over each trailing window is
 # light or moderate for most, heavy for a few, which step month end unless
@@ -109,8 +110,11 @@ class StatisticSpec:
         label: Its name, as shown.
         category: What it is a figure of, which reports are sectioned by.
         kind: ``figures``, ``series`` or ``table``.
-        part: The analysis that works it out: ``performance``,
-            ``portfolio``, ``risk`` or ``attribution``.
+        part: Where it sits in `result.analytics`: one of the nine
+            categories of a whole portfolio (``performance``, ``risk``,
+            ``relative``, ``holdings``, ``trading``, ``flows``, ``income``,
+            ``vehicle``, ``attribution``) or ``instrument``. The analysis
+            works out and times each part's statistics together.
         description: One line saying what it measures.
         compute: Works it out from a `Context`.
         unit: What its figures (or series) are measured in.

@@ -10,6 +10,7 @@ Every statistic a run's analysis gives, in the order the categories are read.
 from dataclasses import replace
 
 from ...performance.crises import AFTER_MONTHS
+from ...placement import PART_OF
 from ..statistics import Catalogue
 from . import attribution, performance, portfolio, rating, relative, risk, risk_return, style
 from .forms import forms_of
@@ -43,7 +44,9 @@ SIGNED = {
     "efficient_frontier": ("return",),
 }
 
-CATALOGUE = Catalogue({statistic.id: replace(statistic, signed=SIGNED.get(statistic.id, ()),
+# Each statistic's part is where it sits in `result.analytics` (BN-436).
+CATALOGUE = Catalogue({statistic.id: replace(statistic, part=PART_OF[statistic.id],
+                                              signed=SIGNED.get(statistic.id, ()),
                                               forms=forms_of(statistic))
                        for module in (performance, rating, risk_return, relative, portfolio,
                                       style, risk, attribution)

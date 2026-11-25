@@ -27,22 +27,34 @@ import pandas as pd
 
 from ..strategy.factors import Factor
 from .performance.settings import AnalysisSettings
+from .placement import (
+    ATTRIBUTION,
+    FLOWS,
+    HOLDINGS,
+    INCOME,
+    INSTRUMENT,
+    PARTS,
+    PERFORMANCE,
+    RELATIVE,
+    RISK,
+    TRADING,
+    VEHICLE,
+)
 from .reports.options import AnalysisOptions
 
 logger = logging.getLogger(__name__)
 
-PERFORMANCE = "performance"
-PORTFOLIO = "portfolio"
-RISK = "risk"
-ATTRIBUTION = "attribution"
-PARTS = (PERFORMANCE, PORTFOLIO, RISK, ATTRIBUTION)
-
-# Building the run's tables, which every part but performance reads.
+# Building the run's tables, which most parts read.
 TABLES = "tables"
 
-# What each part says as it starts.
-MESSAGES = {PERFORMANCE: "Computing performance", PORTFOLIO: "Computing the portfolio figures",
-            RISK: "Building the risk model", ATTRIBUTION: "Working out the attribution"}
+# What each part says as it starts (BN-436: a part a category of the result).
+MESSAGES = {PERFORMANCE: "Computing performance", RISK: "Computing risk",
+            RELATIVE: "Comparing with the index and benchmark",
+            HOLDINGS: "Computing the holdings figures", TRADING: "Computing trading and costs",
+            FLOWS: "Computing flows", INCOME: "Computing income",
+            VEHICLE: "Computing the ETF and futures figures",
+            ATTRIBUTION: "Working out the attribution",
+            INSTRUMENT: "Computing each name's figures"}
 
 # The code of a statistic that failed to be worked out for another reason.
 FAILED = "failed"
