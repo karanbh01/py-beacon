@@ -62,7 +62,8 @@ PERIODS = _ids("""
 # Figures given over each trailing window.
 TRAILING_WINDOWS = _ids("""
     total_return annualised_return volatility max_drawdown sharpe_ratio tracking_difference
-    tracking_error""")
+    tracking_error beta downside_deviation downside_tracking_error tail_ratio skew
+    excess_kurtosis""")
 
 # Tables with a row each day or rebalance.
 THROUGH_TIME = _ids("""

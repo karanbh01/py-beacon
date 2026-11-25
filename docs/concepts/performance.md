@@ -206,11 +206,17 @@ includes the first day's cost. Returns to date run from the close before the
 month, quarter or year began. Calendar periods compound their own days, so the
 months compound to the year and the years to the run.
 
-Any single figure over the same windows, of every portfolio, is
-`result.analytics.table([...], trailing=[...], of="all")`: each figure is
+The main return and risk figures over the same windows, of every portfolio,
+are `result.analytics.table([...], trailing=[...], of="all")`: each figure is
 worked out as the whole run's is, on the window's days, and an annualised one
-is blank over a window too short for it (below). Every analysis holds such a
-table as its `summary` statistic table (`beacon.analysis.statistic_tables`).
+is blank over a window too short for it (below). The figures that take
+`trailing` are the total and annualised return, volatility, maximum drawdown,
+downside deviation, skew, excess kurtosis, tail ratio, Sharpe ratio, and
+against a comparator the tracking difference, tracking error, downside
+tracking error and beta. Every analysis holds two such tables
+(`beacon.analysis.statistic_tables`): its `summary`, the main figures over
+every window, and `risk`, the risk figures over the last 1, 3 and 5 years and
+since inception.
 
 ## Annualised figures over short windows
 

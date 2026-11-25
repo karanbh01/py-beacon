@@ -59,10 +59,13 @@ class AnalysisRequestSpec(BaseModel):
         description="Statistics wanted outside any report, by id.")
     statistic_tables: dict[str, StatisticTableSpec] | None = Field(
         default=None,
-        description="Named tables of single-figure statistics side by side. Null gives the "
-                    "'summary': the total and annualised return, volatility, maximum "
-                    "drawdown, Sharpe ratio, tracking difference and tracking error of every "
-                    "portfolio over each trailing window. An empty object gives none.")
+        description="Named tables of single-figure statistics side by side. Null gives "
+                    "two. The 'summary' is the total and annualised return, volatility, "
+                    "maximum drawdown, Sharpe ratio, tracking difference and tracking error "
+                    "of every portfolio over each trailing window. 'risk' is the volatility, "
+                    "maximum drawdown, downside deviation, skew, excess kurtosis, tail "
+                    "ratio, beta and downside tracking error over the last 1, 3 and 5 "
+                    "years and since inception. An empty object gives none.")
     options: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Every choice the analysis makes, by section and setting, as "

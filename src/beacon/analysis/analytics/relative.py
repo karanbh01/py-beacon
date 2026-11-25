@@ -103,12 +103,13 @@ class RelativeCategory(Category):
              start: Day = None,
              end: Day = None,
              by: str | None = None,
+             trailing: Windows = None,
              rolling: int | str | None = None,
              step: str | None = None,
              against: str | None = None) -> Any:
         """How much the fund moves with the comparator."""
-        return self._get("beta", start=start, end=end, by=by, rolling=rolling, step=step,
-                         against=against)
+        return self._get("beta", start=start, end=end, by=by, trailing=trailing, rolling=rolling,
+                         step=step, against=against)
 
     def correlation(self,
                     *,
@@ -200,13 +201,14 @@ class RelativeCategory(Category):
                                 *,
                                 start: Day = None,
                                 end: Day = None,
+                                trailing: Windows = None,
                                 rolling: int | str | None = None,
                                 step: str | None = None,
                                 against: str | None = None,
                                 annualise: bool | None = None) -> Any:
         """Tracking error counting only days the fund lagged."""
-        return self._get("downside_tracking_error", start=start, end=end, rolling=rolling,
-                         step=step, against=against, annualise=annualise)
+        return self._get("downside_tracking_error", start=start, end=end, trailing=trailing,
+                         rolling=rolling, step=step, against=against, annualise=annualise)
 
     def relative_drawdowns(self,
                            *,

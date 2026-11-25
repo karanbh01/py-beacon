@@ -107,12 +107,13 @@ class RiskCategory(Category):
                            of: str = FUND,
                            start: Day = None,
                            end: Day = None,
+                           trailing: Windows = None,
                            rolling: int | str | None = None,
                            step: str | None = None) -> Any:
         """The spread of returns below a target (the daily risk-free
         rate)."""
-        return self._get("downside_deviation", of=of, start=start, end=end, rolling=rolling,
-                         step=step)
+        return self._get("downside_deviation", of=of, start=start, end=end, trailing=trailing,
+                         rolling=rolling, step=step)
 
     def semi_variance(self,
                       *,
@@ -129,30 +130,36 @@ class RiskCategory(Category):
              of: str = FUND,
              start: Day = None,
              end: Day = None,
+             trailing: Windows = None,
              rolling: int | str | None = None,
              step: str | None = None) -> Any:
         """How lopsided returns are; negative means a longer left tail."""
-        return self._get("skew", of=of, start=start, end=end, rolling=rolling, step=step)
+        return self._get("skew", of=of, start=start, end=end, trailing=trailing,
+                         rolling=rolling, step=step)
 
     def excess_kurtosis(self,
                         *,
                         of: str = FUND,
                         start: Day = None,
                         end: Day = None,
+                        trailing: Windows = None,
                         rolling: int | str | None = None,
                         step: str | None = None) -> Any:
         """How fat the tails are beyond a normal distribution's."""
-        return self._get("excess_kurtosis", of=of, start=start, end=end, rolling=rolling, step=step)
+        return self._get("excess_kurtosis", of=of, start=start, end=end, trailing=trailing,
+                         rolling=rolling, step=step)
 
     def tail_ratio(self,
                    *,
                    of: str = FUND,
                    start: Day = None,
                    end: Day = None,
+                   trailing: Windows = None,
                    rolling: int | str | None = None,
                    step: str | None = None) -> Any:
         """The 95th percentile return over the size of the 5th."""
-        return self._get("tail_ratio", of=of, start=start, end=end, rolling=rolling, step=step)
+        return self._get("tail_ratio", of=of, start=start, end=end, trailing=trailing,
+                         rolling=rolling, step=step)
 
     def serial_correlation(self,
                            *,

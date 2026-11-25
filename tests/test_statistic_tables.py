@@ -1,6 +1,7 @@
 # tests/test_statistic_tables.py
 """BN-467: named tables of single-figure statistics side by side in a run's
-analysis, `analytics.table()` for the API, with a ``summary`` by default.
+analysis, `analytics.table()` for the API, with a ``summary`` and ``risk``
+by default.
 
 The run is test_strategy_futures' eight-name market-cap index held physically
 through 2024, with its total-return version as the benchmark.
@@ -10,7 +11,7 @@ import pytest
 
 from beacon.analysis.reports.rerun import rerun
 from beacon.analysis.request import AnalysisRequest, analyse
-from beacon.analysis.statistic_tables import SUMMARY, WINDOWS, StatisticTable
+from beacon.analysis.statistic_tables import RISK, SUMMARY, WINDOWS, StatisticTable
 from beacon.backtest import Backtest
 from beacon.server.analysis import build_request, catalogue
 from beacon.server.analysis_schemas import AnalysisRequestSpec
@@ -84,6 +85,36 @@ class TestTheSummary:
         assert not pd.isna(summary.loc[("volatility", "3M"), "fund"])
 
 
+class TestTheRiskTable:
+    def test_every_analysis_holds_it(self,
+                                     block):
+        risk = frame(block["statistic_tables"]["risk"])
+
+        assert list(risk["statistic"].unique()) == list(RISK.statistics)
+        assert list(risk["window"].unique()) == ["1Y", "3Y", "5Y", "inception"]
+
+    def test_its_figures_are_the_analytics(self,
+                                           result,
+                                           block):
+        risk = frame(block["statistic_tables"]["risk"]).set_index(["statistic", "window"])
+        portfolio = result.analytics.portfolio
+
+        assert risk.loc[("skew", "inception"), "index"] == pytest.approx(
+            portfolio.risk.skew(of="index"))
+        assert risk.loc[("beta", "inception"), "benchmark"] == pytest.approx(
+            portfolio.relative.beta(against="benchmark"))
+        assert risk.loc[("downside_deviation", "inception"), "fund"] == pytest.approx(
+            portfolio.risk.downside_deviation(trailing=["inception"])["inception"])
+
+    def test_windows_longer_than_the_run_are_blank(self,
+                                                   block):
+        risk = frame(block["statistic_tables"]["risk"]).set_index(["statistic", "window"])
+
+        # The run covers 2024 alone, so even its 1Y window starts before it.
+        assert risk.loc[("volatility", "3Y")].drop("unit").isna().all()
+        assert risk.loc[("volatility", "1Y")].drop("unit").isna().all()
+
+
 class TestOtherTables:
     def test_by_period_with_one_portfolio(self,
                                           result):
@@ -138,7 +169,7 @@ class TestThroughTheServer:
 
         assert request.as_data()["statistic_tables"]["years"]["by"] == "year"
         assert build_request(AnalysisRequestSpec()).as_data()["statistic_tables"] == {
-            "summary": SUMMARY.as_data()}
+            "summary": SUMMARY.as_data(), "risk": RISK.as_data()}
 
     def test_the_catalogue_labels_the_windows(self):
         assert catalogue()["names"]["window"]["inception"] == "Since inception"
@@ -149,4 +180,4 @@ def test_a_rerun_keeps_the_tables(result,
     request = AnalysisRequest(reports={}, statistics=["volatility"], statistic_tables={})
     again = rerun(result.run_data, request, None, previous=block)
 
-    assert "summary" in again["statistic_tables"]
+    assert {"summary", "risk"} <= set(again["statistic_tables"])

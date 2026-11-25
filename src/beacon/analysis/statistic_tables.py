@@ -10,12 +10,14 @@ for the API.
 A table's rows are a statistic each, or a statistic and window (or period)
 each, named in a ``statistic`` column and a ``window`` (or ``period``)
 column, with the statistic's ``unit``; its columns are the portfolios and
-comparators, or ``value`` for one portfolio. Every analysis holds a
-``summary`` unless it asks for other tables: the main figures of every
-portfolio over each trailing window.
+comparators, or ``value`` for one portfolio. Every analysis holds two
+unless it asks for other tables: a ``summary``, the main figures of every
+portfolio over each trailing window, and ``risk``, their risk over the last
+1, 3 and 5 years and since inception.
 """
 # BN-467 (Karan, 2026-11-25), in place of trailing_statistics. Agreed with
-# beacon-ui for its Summary.
+# beacon-ui for its Summary; the risk table follows its Risk view, less the
+# capture ratios, which give three figures each.
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -95,12 +97,17 @@ class StatisticTable:
 
 
 # The main figures of every portfolio over each trailing window, which an
-# analysis holds unless it asks for other tables.
+# analysis holds with `RISK` unless it asks for other tables.
 SUMMARY = StatisticTable(statistics=("total_return", "annualised_return", "volatility",
                                      "max_drawdown", "sharpe_ratio", "tracking_difference",
                                      "tracking_error"),
                          trailing=WINDOWS, of="all")
-DEFAULT = {"summary": SUMMARY}
+# The risk of every portfolio over the longer windows.
+RISK = StatisticTable(statistics=("volatility", "max_drawdown", "downside_deviation", "skew",
+                                  "excess_kurtosis", "tail_ratio", "beta",
+                                  "downside_tracking_error"),
+                      trailing=("1Y", "3Y", "5Y", INCEPTION), of="all")
+DEFAULT = {"summary": SUMMARY, "risk": RISK}
 
 
 @dataclass
@@ -177,5 +184,5 @@ def tables_of(asked: Mapping[str, Any] | None) -> dict[str, StatisticTable]:
             for name, table in asked.items()}
 
 
-__all__ = ["DEFAULT", "SUMMARY", "WINDOWS", "WINDOW_LABELS", "StatisticTable", "tables_of",
+__all__ = ["DEFAULT", "RISK", "SUMMARY", "WINDOWS", "WINDOW_LABELS", "StatisticTable", "tables_of",
            "worked_out"]
