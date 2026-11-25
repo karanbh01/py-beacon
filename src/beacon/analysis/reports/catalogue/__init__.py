@@ -17,6 +17,7 @@ from ...placement import PART_OF
 from ..context import Context
 from ..statistics import Catalogue, StatisticSpec
 from . import attribution, performance, portfolio, rating, relative, risk, risk_return, style
+from .columns import COLUMNS
 from .forms import forms_of
 
 EVERY = ("*",)
@@ -70,11 +71,14 @@ def annualised(statistic: StatisticSpec) -> Callable[[Context], Any]:
     return within
 
 
-# Each statistic's part is where it sits in `result.analytics` (BN-436).
+# Each statistic's part is where it sits in `result.analytics` (BN-436), and
+# a table's columns are listed with their units (BN-455).
 CATALOGUE = Catalogue({statistic.id: replace(statistic, part=PART_OF[statistic.id],
                                               signed=SIGNED.get(statistic.id, ()),
                                               forms=forms_of(statistic),
-                                              compute=annualised(statistic))
+                                              compute=annualised(statistic),
+                                              columns=statistic.columns
+                                              or COLUMNS.get(statistic.id, ()))
                        for module in (performance, rating, risk_return, relative, portfolio,
                                       style, risk, attribution)
                        for statistic in module.statistics()})

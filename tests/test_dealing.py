@@ -148,3 +148,14 @@ class TestEachClass:
 
         with pytest.raises(KeyError):
             PortfolioAnalytics(RunData.from_result(flow_run())).class_costs()
+
+
+def test_the_catalogue_lists_the_class_costs_columns(classes):
+    """BN-455: each column of the class costs is in the catalogue, with its
+    unit."""
+    from beacon.analysis.reports.catalogue import CATALOGUE
+
+    _, data = classes
+    table = PortfolioAnalytics(data).class_costs()
+
+    assert list(table.columns) == [column.name for column in CATALOGUE["class_costs"].columns]
