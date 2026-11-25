@@ -40,6 +40,7 @@ from ..risk.liquidity import BOOKS, LiquidityAnalytics
 from .category import Category, Day
 from .forms import PERIODS
 from .groupings import FREQUENCIES
+from .instrument_table import per_name
 from .shape import ALL
 
 DAILY_STEP, MONTH_END = "daily", "month_end"
@@ -54,7 +55,7 @@ class InstrumentLevel(Category):
 
     name = "instrument"
     statistics = ("member_risk_return", "style_positions")
-    extras = (*name_figures.FIGURES, "average_weight", "days_to_sell", "traded_value")
+    extras = (*name_figures.FIGURES, "average_weight", "days_to_sell", "traded_value", "table")
 
     def member_risk_return(self,
                            *,
@@ -239,6 +240,22 @@ class InstrumentLevel(Category):
         found = traded.loc[(traded.index >= days[0]) & (traded.index <= days[-1])]
 
         return _picked(found, names) if names is not None else found
+
+    def table(self,
+              *,
+              columns: Sequence[str] | None = None,
+              names: Names = None,
+              start: Day = None,
+              end: Day = None,
+              against: str | None = None,
+              frequency: str = DAILY) -> pd.DataFrame:
+        """Every per-name figure in one table, a row a name: its return and
+        risk, against the comparator, its weights, its contributions to
+        return and risk, and its days to sell
+        (`beacon.analysis.analytics.instrument_table`). ``columns`` picks
+        some; one the run cannot give is left out, and ``attrs`` say why."""
+        # BN-454.
+        return per_name(self, columns, names, start, end, against, frequency)
 
     def _figure(self,
                 figure: str,

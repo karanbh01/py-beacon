@@ -165,7 +165,8 @@ class TestTheStatisticsANameAtATime:
                          instrument):
         assert set(instrument.extras) == {"total_return", "volatility", "max_drawdown", "beta",
                                           "correlation", "tracking_error", "residual_risk",
-                                          "average_weight", "days_to_sell", "traded_value"}
+                                          "average_weight", "days_to_sell", "traded_value",
+                                          "table"}
         assert repr(instrument).startswith("InstrumentLevel(member_risk_return, style_positions")
 
 
@@ -224,3 +225,50 @@ class TestWeightsAndLiquidity:
 
         pd.testing.assert_frame_equal(names.traded_value(),
                                       LiquidityAnalytics(data).traded_values())
+
+
+class TestThePerNameTable:
+    """BN-454: every per-name figure in one table, each column its method's."""
+
+    def test_each_column_is_its_method_s(self,
+                                         instrument):
+        table = instrument.table()
+
+        pd.testing.assert_series_equal(table["beta"], instrument.beta(), check_names=False)
+        pd.testing.assert_series_equal(table["total_return"], instrument.total_return(),
+                                       check_names=False)
+        pd.testing.assert_series_equal(table["average_weight/fund"].dropna(),
+                                       instrument.average_weight().reindex(
+                                           table.index).dropna(), check_names=False)
+        assert table.loc["N0", "contribution"] == pytest.approx(
+            instrument._analytics.portfolio.attribution.contribution().set_index(
+                "asset_id").loc["N0", "contribution"])
+
+    def test_it_says_its_basis_and_what_it_could_not_give(self,
+                                                          instrument):
+        attrs = instrument.table().attrs
+
+        assert attrs["basis"] == "daily" and attrs["against"] == "index"
+        assert "risk_contribution" in attrs["unavailable"]
+
+    def test_some_columns_and_names(self,
+                                    instrument):
+        found = instrument.table(columns=["beta", "weight"], names=["N0", NAME],
+                                 against="benchmark")
+
+        assert list(found.index) == ["N0", NAME]
+        assert found.columns[0] == "beta" and "weight/fund" in found.columns
+        assert found.attrs["against"] == "benchmark"
+
+    def test_an_unknown_column(self,
+                               instrument):
+        with pytest.raises(ValueError, match="Unknown column alpha"):
+            instrument.table(columns=["alpha"])
+
+    def test_a_weekly_basis(self,
+                            instrument):
+        found = instrument.table(columns=["volatility"], frequency="weekly")
+
+        pd.testing.assert_series_equal(found["volatility"],
+                                       instrument.volatility(frequency="weekly"),
+                                       check_names=False)
