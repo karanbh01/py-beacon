@@ -12,15 +12,15 @@ import pytest
 
 from beacon.analysis.analytics import Analytics
 from beacon.analysis.analytics.shape import plain
-from beacon.analysis.placement import DROPPED, FOLDED, PART_OF
+from beacon.analysis.placement import CATEGORIES, DROPPED, FOLDED, PART_OF
 from beacon.analysis.reports.catalogue import CATALOGUE
 from beacon.analysis.reports.context import Context
 from beacon.analysis.reports.statistics import FIGURES, Unavailable
 from beacon.analysis.request import AnalysisRequest, analyse
 from beacon.backtest import Backtest
 
-# The categories wired so far, each with the statistics it gives.
-WIRED = ["performance", "risk", "relative", "holdings", "trading", "flows", "income", "vehicle"]
+# Every category of a whole portfolio.
+WIRED = list(CATEGORIES)
 
 
 @pytest.fixture(scope="module")

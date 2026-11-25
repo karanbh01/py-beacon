@@ -20,6 +20,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `result.analytics.portfolio.flows`: money arriving and leaving and what dealing in it cost, a method a statistic: `net_flows()`, `flow_costs()`, `dealing_costs()` and `class_costs()`. The assets under management are not repeated: they stay on the result, and reports still show `aum`.
 - `result.analytics.portfolio.income`: `income_yields()`, the yields the fund paid out and earned through the run, and `dividend_growth()`, its dividends each year and how they grew.
 - `result.analytics.portfolio.vehicle`: an ETF's premium to NAV and a futures fund's trading, basis and basis risk, a method a statistic: `etf_premium()`, `futures_trading()`, `futures_basis()` and `futures_basis_risk()`. `market_return()` and `market_summary()` give an exchange investor's return and the ETF's trading at market prices, as the result's methods of the same names do, None for a fund not listed. The cash band's events are not repeated: they stay on the result.
+- `result.analytics.portfolio.attribution`: where the return and the active return came from, a method a statistic: `contribution()`, `active_attribution()`, `brinson()`, `currency_attribution()`, `factor_attribution()` and `implementation_breakdown()`.
 
 ### Changed
 
