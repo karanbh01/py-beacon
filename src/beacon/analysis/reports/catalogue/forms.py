@@ -37,7 +37,8 @@ def _ids(text: str) -> frozenset[str]:
 # Figures of a window of returns, which any window can be measured over.
 WINDOW = _ids("""
     total_return annualised_return money_weighted_return best_and_worst positive_share
-    gains_and_losses streaks mean_return hit_rate volatility max_drawdown downside_deviation
+    gains_and_losses streaks mean_return hit_rate volatility max_drawdown drawdown
+    downside_deviation
     semi_variance skew excess_kurtosis tail_ratio serial_correlation return_histogram
     return_distribution bootstrap_ranges sharpe_ratio sortino_ratio calmar_ratio omega_ratio
     kappa_3 upside_potential_ratio martin_ratio sterling_ratio burke_ratio gain_to_pain
@@ -66,6 +67,7 @@ TRAILING_WINDOWS = _ids("""
 # Tables with a row each day or rebalance.
 THROUGH_TIME = _ids("""
     holdings_count group_weights characteristics aum flow_costs income_yields factor_exposures
+    drawdown
     factor_returns expected_risk diversification_ratio average_correlation herfindahl
     top_weights gini_and_entropy concentration_by_risk drift days_to_sell""")
 
@@ -76,7 +78,7 @@ AGAINST_TRACKED = _ids("""
     crisis_summary regimes""")
 
 # Dated tables with a column for each portfolio, or each portfolio's fields.
-BY_BOOK_TABLES = _ids("holdings_count characteristics factor_exposures")
+BY_BOOK_TABLES = _ids("holdings_count characteristics factor_exposures drawdown")
 
 # Figures given for the fund alone, never its index or benchmark.
 FUND_ONLY = _ids("money_weighted_return")

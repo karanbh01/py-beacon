@@ -196,6 +196,24 @@ class TestPerformance:
             result.analytics.portfolio.performance.returns(of="optimised")
 
 
+class TestRisk:
+    def test_the_drawdown_reaches_the_deepest_fall(self,
+                                                   result):
+        risk = result.analytics.portfolio.risk
+        found = risk.drawdown(of="all")
+
+        assert list(found.columns) == ["fund", "index", "benchmark"]
+        pd.testing.assert_series_equal(found.min(), risk.max_drawdown(of="all"),
+                                       check_names=False)
+        assert (found <= 0.0).all().all()
+
+    def test_the_drawdown_on_a_day(self,
+                                   result):
+        risk = result.analytics.portfolio.risk
+
+        assert risk.drawdown(as_of="2024-06-28") == risk.drawdown().loc["2024-06-28"]
+
+
 class TestRelative:
     def test_active_share_is_the_result_s(self,
                                           result):

@@ -37,6 +37,7 @@ class Statistic(StrEnum):
 
     # Drawdown
     MAX_DRAWDOWN = "max_drawdown"
+    DRAWDOWN = "drawdown"
     DRAWDOWN_EPISODES = "drawdown_episodes"
 
     # Distribution

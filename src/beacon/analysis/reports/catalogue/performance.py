@@ -121,6 +121,14 @@ def _streaks(book: PerformanceAnalytics,
     return {"winning": winning, "losing": losing}
 
 
+def _drawdown(context: Context) -> pd.DataFrame:
+    """How far below its running peak each portfolio stood each day, a
+    column each."""
+    # BN-447.
+    return pd.DataFrame({book: context.book(book).drawdown_series()
+                         for book in (FUND, *context.comparators)})
+
+
 def _episodes(context: Context) -> Summarised:
     """The deepest drawdowns, and what sums the run's drawdowns up."""
     found = context.performance.drawdowns(context.options.returns.worst_drawdowns)
@@ -244,6 +252,9 @@ def statistics() -> list[StatisticSpec]:
         StatisticSpec("max_drawdown", "Maximum drawdown", DRAWDOWN, FIGURES, PERFORMANCE,
                       "The deepest fall from a running peak.",
                       per_book(_headline("max_drawdown")), unit="fraction", rolling=MODERATE),
+        StatisticSpec("drawdown", "Drawdown", DRAWDOWN, TABLE, PERFORMANCE,
+                      "How far below its running peak each portfolio stood each day: the "
+                      "underwater curve.", _drawdown, unit="fraction"),
         StatisticSpec("drawdown_episodes", "Drawdown episodes", DRAWDOWN, TABLE, PERFORMANCE,
                       "Each fall from a peak: its depth, start, trough, recovery, and how long "
                       "each part took.", _episodes, settings=("returns.worst_drawdowns",),

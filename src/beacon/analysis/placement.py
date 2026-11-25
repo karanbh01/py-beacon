@@ -29,7 +29,7 @@ PLACED = {
         lo_sharpe_ratio rolling_outcomes crisis_returns crisis_paths crisis_summary regimes
         trailing_returns trailing_statistics period_returns""",
     RISK: """
-        volatility max_drawdown drawdown_episodes risk_rating risk_distribution
+        volatility max_drawdown drawdown drawdown_episodes risk_rating risk_distribution
         downside_deviation semi_variance skew excess_kurtosis tail_ratio serial_correlation
         return_histogram return_distribution bootstrap_ranges value_at_risk expected_shortfall
         stress_windows portfolio_risk_return efficient_frontier factor_exposures factor_returns

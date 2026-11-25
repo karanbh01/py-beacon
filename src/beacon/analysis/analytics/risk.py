@@ -24,8 +24,8 @@ class RiskCategory(Category):
     the form it is given in (`beacon.analysis.analytics.forms`)."""
 
     name = "risk"
-    statistics = ("volatility", "max_drawdown", "drawdown_episodes", "risk_rating",
-                  "risk_distribution", "downside_deviation", "semi_variance",
+    statistics = ("volatility", "max_drawdown", "drawdown", "drawdown_episodes",
+                  "risk_rating", "risk_distribution", "downside_deviation", "semi_variance",
                   "skew", "excess_kurtosis", "tail_ratio", "serial_correlation",
                   "return_histogram", "return_distribution", "bootstrap_ranges",
                   "value_at_risk", "expected_shortfall", "stress_windows",
@@ -65,6 +65,16 @@ class RiskCategory(Category):
         """The deepest fall from a running peak."""
         return self._get("max_drawdown", of=of, start=start, end=end, by=by, trailing=trailing,
                          rolling=rolling, step=step)
+
+    def drawdown(self,
+                 *,
+                 of: str = FUND,
+                 start: Day = None,
+                 end: Day = None,
+                 as_of: Day = None) -> Any:
+        """How far below its running peak each portfolio stood each day: the
+        underwater curve."""
+        return self._get("drawdown", of=of, start=start, end=end, as_of=as_of)
 
     def drawdown_episodes(self) -> Any:
         """Each fall from a peak: its depth, start, trough, recovery, and
