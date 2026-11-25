@@ -18,8 +18,10 @@ so they cannot disagree.
 ## A run's analytics
 
 A finished backtest's analytics are `result.analytics`, the way in to every
-calculation on the run, built on first read and kept. Its fund's performance
-is `PerformanceAnalytics` on the run's `run_data`.
+calculation on the run, built on first read and kept. Its performance is
+`result.analytics.portfolio.performance`: each figure a method named by its
+statistic, giving the fund's over the whole run, with keywords for another
+portfolio, window or form.
 
 ```python
 import logging
@@ -42,9 +44,18 @@ backtest = Backtest(initial_capital=1_000_000.0, transaction_cost_bps=5.0,
                     data_provider=dataset.data_fetcher())
 result = backtest.run(definition, start="2023-01-03", end="2024-12-31")
 
+performance = result.analytics.portfolio.performance
+print(performance.total_return())            # 0.457, the fund's over the run
+print(performance.sharpe_ratio(of="all"))    # the fund's and its index's
+print(performance.total_return(by="year"))   # a Series, a year a row
+```
+
+`PerformanceAnalytics` gives the same figures from a `RunData`, together:
+
+```python
 from beacon.analysis.performance import PerformanceAnalytics
 
-analytics = PerformanceAnalytics(result.analytics.run_data)
+analytics = PerformanceAnalytics(result.run_data)
 print(analytics.headline())   # total_return 0.457, sharpe_ratio 1.53, ...
 print(analytics.summary())    # with the monthly hit rate and tracking figures
 ```

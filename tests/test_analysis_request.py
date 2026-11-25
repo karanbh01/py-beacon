@@ -107,7 +107,7 @@ class TestAskedForUpFront:
         settings = AnalysisSettings(start=pd.Timestamp("2024-07-01"))
         result = run(index(), analysis=AnalysisRequest(options=AnalysisOptions(window=settings)))
 
-        returns = result.analytics._context.performance.returns
+        returns = result.analytics.portfolio.performance.returns()
 
         assert returns.index[0] >= pd.Timestamp("2024-07-01")
 

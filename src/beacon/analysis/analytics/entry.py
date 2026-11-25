@@ -15,6 +15,8 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from ...data.fetcher import DataFetcher
 from ..data import RunData
 from ..reports.catalogue import CATALOGUE
@@ -23,6 +25,7 @@ from ..reports.options import RollingOptions
 from ..request import AnalysisRequest, analyse_run
 from .forms import value, windowed
 from .portfolio import PortfolioLevel
+from .shape import ALL
 
 
 class Analytics:
@@ -123,6 +126,27 @@ class Analytics:
         """Statistic *statistic_id* in the form its keywords *form* ask for
         (`beacon.analysis.analytics.forms`)."""
         return value(CATALOGUE[statistic_id], form, self._context_for)
+
+    def _returns(self,
+                 of: str,
+                 start: Any = None,
+                 end: Any = None) -> Any:
+        """Daily returns over a window: portfolio *of*'s, or each one's in a
+        column (``all``).
+
+        Raises:
+            ValueError: If the run has no portfolio *of*.
+        """
+        context = self._context_for(start=start, end=end)
+        books = context.books()
+
+        if of != ALL and of not in books:
+            raise ValueError(f"No portfolio {of!r} here. Known: {', '.join(books)}.")
+
+        if of != ALL:
+            return context.book(of).returns
+
+        return pd.DataFrame({name: context.book(name).returns for name in books})
 
     def _context_for(self,
                      start: Any = None,

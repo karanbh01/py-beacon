@@ -4,7 +4,16 @@ What every category of a run's analytics shares: the run's analytics it reads
 from, and the statistics it gives, each a method named by its id.
 """
 # BN-433.
+from collections.abc import Sequence
 from typing import Any
+
+import pandas as pd
+
+# A day, as a date's text or a timestamp; None leaves it to the run.
+Day = str | pd.Timestamp | None
+
+# Trailing windows, by name (``1Y``, ``YTD``, ``inception``), one or several.
+Windows = str | Sequence[str] | None
 
 
 class Category:
@@ -14,10 +23,12 @@ class Category:
         name: The category, as `result.analytics.portfolio` names it.
         statistics: The ids of the statistics it gives, in order, each a
             method of the same name.
+        extras: Its methods that are not a statistic of the catalogue.
     """
 
     name = ""
     statistics: tuple[str, ...] = ()
+    extras: tuple[str, ...] = ()
 
     def __init__(self,
                  analytics: Any):
@@ -31,4 +42,4 @@ class Category:
         return self._analytics._value(statistic_id, form)
 
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({', '.join(self.statistics)})"
+        return f"{type(self).__name__}({', '.join((*self.statistics, *self.extras))})"
