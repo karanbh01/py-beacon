@@ -209,7 +209,8 @@ class FactorRiskModel:
         values = eigsh(operator, k=count, which="LA", return_eigenvectors=False,
                        v0=np.full(size, 1.0 / np.sqrt(size)), tol=1e-12)
 
-        return np.sort(values)[::-1]
+        # scipy is untyped, so its eigenvalues are given a type here.
+        return np.sort(np.asarray(values, dtype=float))[::-1]
 
     def total_variance(self) -> float:
         """The covariance's trace: every name's variance added up."""
