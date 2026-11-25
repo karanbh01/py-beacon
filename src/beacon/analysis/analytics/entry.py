@@ -10,7 +10,7 @@ Nothing is worked out until it is asked for, and each answer is kept.
 """
 # BN-433 (Karan, 2026-11-24): replaces 0.10.0's `result.analytics`, which was
 # the fund's PerformanceAnalytics.
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from functools import cached_property
 from pathlib import Path
 from typing import Any
@@ -43,6 +43,8 @@ class Analytics:
         timings: How long each part of that block took, in seconds.
         context: What the run's statistics were worked out from, when they
             were, so its work is shared.
+        active: An active strategy's steps, one each rebalance, as a
+            finished run holds them; None when they are not kept.
     """
 
     def __init__(self,
@@ -52,7 +54,8 @@ class Analytics:
                  folder: Path | None = None,
                  block: dict[str, Any] | None = None,
                  timings: dict[str, float] | None = None,
-                 context: Context | None = None):
+                 context: Context | None = None,
+                 active: Sequence[Any] | None = None):
         self._run = run
         self._request = request
         self._source = source
@@ -61,6 +64,7 @@ class Analytics:
         self._timings = dict(timings or {})
         self._given_context = context
         self._contexts: dict[tuple[Any, ...], Context] = {}
+        self._active = active
 
     @classmethod
     def of_result(cls,
@@ -69,7 +73,7 @@ class Analytics:
         return cls(lambda: result.run_data, result.analysis_request,
                    getattr(result, "_data_fetcher", None), block=result.analysis_block,
                    timings=result.analysis_timings,
-                   context=result.__dict__.get("_analysis_context"))
+                   context=result.__dict__.get("_analysis_context"), active=result.active)
 
     @cached_property
     def run_data(self) -> RunData:
@@ -147,6 +151,18 @@ class Analytics:
             return context.book(of).returns
 
         return pd.DataFrame({name: context.book(name).returns for name in books})
+
+    def _active_share(self) -> pd.Series:
+        """An active strategy's active share at each rebalance; empty for
+        a strategy that is not active.
+
+        Raises:
+            ValueError: If the run's active steps were not kept with it.
+        """
+        if self._active is None:
+            raise ValueError("The run's active steps were not kept with it.")
+
+        return pd.Series({step.date: step.active_share for step in self._active}, dtype=float)
 
     def _context_for(self,
                      start: Any = None,

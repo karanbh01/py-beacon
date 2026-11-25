@@ -10,6 +10,7 @@ import inspect
 import pandas as pd
 import pytest
 
+from beacon.analysis.analytics import Analytics
 from beacon.analysis.analytics.shape import plain
 from beacon.analysis.placement import DROPPED, FOLDED, PART_OF
 from beacon.analysis.reports.catalogue import CATALOGUE
@@ -19,7 +20,7 @@ from beacon.analysis.request import AnalysisRequest, analyse
 from beacon.backtest import Backtest
 
 # The categories wired so far, each with the statistics it gives.
-WIRED = ["performance", "risk"]
+WIRED = ["performance", "risk", "relative"]
 
 
 @pytest.fixture(scope="module")
@@ -161,3 +162,18 @@ class TestPerformance:
                                        result):
         with pytest.raises(ValueError, match="No portfolio 'optimised' here"):
             result.analytics.portfolio.performance.returns(of="optimised")
+
+
+class TestRelative:
+    def test_active_share_is_the_result_s(self,
+                                          result):
+        found = result.analytics.portfolio.relative.active_share()
+
+        pd.testing.assert_series_equal(found, result.active_share())
+
+    def test_a_stored_run_keeps_no_active_steps(self,
+                                                result):
+        stored = Analytics(result.run_data)
+
+        with pytest.raises(ValueError, match="active steps were not kept"):
+            stored.portfolio.relative.active_share()
