@@ -153,16 +153,18 @@ class TestTheEngineViews:
 
     def test_the_asset_view_says_both_currencies(self,
                                                  fetcher):
-        """Returns in the index's currency, the price chart in the name's."""
+        """The figures in the portfolio's currency, as the run's analytics
+        give them (BN-454), the price chart in the name's."""
         run = {"rebalances": [{"date": str(DAYS[0].date()),
                                "weights": {"AAA": 0.5, "VOD": 0.5}}],
                "level": {"index": [str(day.date()) for day in DAYS],
                          "data": [100.0] * len(DAYS)}}
+        figures = {"total_return": 0.25, "currency": "USD"}
 
-        view = build_asset_view("fx", "fx", "VOD", run, fetcher, "usd")
+        view = build_asset_view("fx", "fx", "VOD", run, fetcher, figures)
 
         assert (view.currency, view.price_currency) == ("USD", "GBP")
-        assert view.total_return == pytest.approx(RATES[-1] / RATES[0] - 1)
+        assert view.total_return == 0.25
         assert view.price.data[-1] == 2.0
 
     def test_a_risk_model_says_its_currency(self,
