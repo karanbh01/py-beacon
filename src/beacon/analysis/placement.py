@@ -33,7 +33,8 @@ PLACED = {
         downside_deviation semi_variance skew excess_kurtosis tail_ratio serial_correlation
         return_histogram return_distribution bootstrap_ranges value_at_risk expected_shortfall
         stress_windows portfolio_risk_return efficient_frontier factor_exposures factor_returns
-        factor_betas expected_risk risk_contributions measured_contributions
+        factor_betas expected_risk forecast_check bias_test risk_contributions
+        measured_contributions
         diversification_ratio average_correlation concentration_by_risk absorption_ratio
         herfindahl top_weights concentration_curve gini_and_entropy concentration_by_outcome
         drift days_to_sell""",

@@ -108,6 +108,18 @@ def _expected(columns: list[str]) -> Callable[[Context], pd.DataFrame]:
     return compute
 
 
+def _checked(read: Callable[[Any, str | None], Any]) -> Callable[[Context], Any]:
+    """A check of the model's forecasts against the tracked comparator,
+    `Unavailable` when no rebalance had one."""
+    def compute(context: Context) -> Any:
+        over_time = context.risk_over_time
+        _last(over_time.dates())
+
+        return read(over_time, context.tracked)
+
+    return compute
+
+
 def _last(dates: list[pd.Timestamp]) -> pd.Timestamp:
     """The last of *dates*, or `Unavailable` when the run has none."""
     if not dates:
@@ -195,6 +207,17 @@ def statistics() -> list[StatisticSpec]:
         stat("expected_risk", "Expected volatility and tracking error", CONTRIBUTIONS, TABLE,
              "From the factor model at each rebalance, split into factor and specific.",
              _expected(expected), unit="fraction", settings=MODEL),
+        # BN-448: how well the model forecast what followed.
+        stat("forecast_check", "Forecast against what followed", CONTRIBUTIONS, TABLE,
+             "Each rebalance's expected volatility and tracking error beside those measured "
+             "until the next rebalance, and the measured over the expected.",
+             _checked(lambda over_time, against: over_time.forecast_check(against=against)),
+             settings=MODEL),
+        stat("bias_test", "Bias statistic", CONTRIBUTIONS, FIGURES, "The spread of daily "
+             "returns over the forecast in force: 1 when the forecasts were right on "
+             "average, above 1 when they ran low, below 1 when they ran high.",
+             _checked(lambda over_time, against: over_time.bias_statistics(against=against)),
+             unit="ratio", settings=MODEL, figure_names=("field",)),
         stat("risk_contributions", "Risk contributions", CONTRIBUTIONS, TABLE, "Each name's "
              "marginal contribution, contribution and share of expected risk at the last "
              "rebalance.", _contributions, settings=MODEL),

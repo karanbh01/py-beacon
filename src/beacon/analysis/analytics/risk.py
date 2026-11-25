@@ -31,7 +31,8 @@ class RiskCategory(Category):
                   "value_at_risk", "expected_shortfall", "stress_windows",
                   "portfolio_risk_return", "efficient_frontier",
                   "factor_exposures", "factor_returns", "factor_betas",
-                  "expected_risk", "risk_contributions", "measured_contributions",
+                  "expected_risk", "forecast_check", "bias_test", "risk_contributions",
+                  "measured_contributions",
                   "diversification_ratio", "average_correlation",
                   "concentration_by_risk", "absorption_ratio", "herfindahl",
                   "top_weights", "concentration_curve", "gini_and_entropy",
@@ -270,6 +271,23 @@ class RiskCategory(Category):
         """From the factor model at each rebalance, split into factor and
         specific."""
         return self._get("expected_risk", as_of=as_of)
+
+    def forecast_check(self,
+                       *,
+                       against: str | None = None,
+                       as_of: Day = None) -> Any:
+        """Each rebalance's expected volatility and tracking error beside
+        those measured until the next rebalance, and the measured over the
+        expected."""
+        return self._get("forecast_check", against=against, as_of=as_of)
+
+    def bias_test(self,
+                  *,
+                  against: str | None = None) -> Any:
+        """The spread of daily returns over the forecast in force: 1 when
+        the forecasts were right on average, above 1 when they ran low,
+        below 1 when they ran high."""
+        return self._get("bias_test", against=against)
 
     def risk_contributions(self,
                            *,

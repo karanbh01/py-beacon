@@ -153,6 +153,8 @@ class Statistic(StrEnum):
 
     # Risk contributions
     EXPECTED_RISK = "expected_risk"
+    FORECAST_CHECK = "forecast_check"
+    BIAS_TEST = "bias_test"
     RISK_CONTRIBUTIONS = "risk_contributions"
     MEASURED_CONTRIBUTIONS = "measured_contributions"
     DIVERSIFICATION_RATIO = "diversification_ratio"

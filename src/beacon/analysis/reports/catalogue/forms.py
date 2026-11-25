@@ -67,7 +67,7 @@ TRAILING_WINDOWS = _ids("""
 # Tables with a row each day or rebalance.
 THROUGH_TIME = _ids("""
     holdings_count group_weights characteristics aum flow_costs income_yields factor_exposures
-    drawdown
+    drawdown forecast_check
     factor_returns expected_risk diversification_ratio average_correlation herfindahl
     top_weights gini_and_entropy concentration_by_risk drift days_to_sell""")
 
@@ -75,7 +75,7 @@ THROUGH_TIME = _ids("""
 # one per comparator.
 AGAINST_TRACKED = _ids("""
     risk_rating risk_distribution relative_drawdowns rolling_outcomes crisis_returns
-    crisis_summary regimes""")
+    crisis_summary regimes forecast_check bias_test""")
 
 # Dated tables with a column for each portfolio, or each portfolio's fields.
 BY_BOOK_TABLES = _ids("holdings_count characteristics factor_exposures drawdown")
