@@ -20,7 +20,7 @@ from beacon.analysis.request import AnalysisRequest, analyse
 from beacon.backtest import Backtest
 
 # The categories wired so far, each with the statistics it gives.
-WIRED = ["performance", "risk", "relative", "holdings", "trading"]
+WIRED = ["performance", "risk", "relative", "holdings", "trading", "flows"]
 
 
 @pytest.fixture(scope="module")
@@ -109,9 +109,17 @@ def test_no_statistic_is_in_two_categories(result):
 
 def test_each_gives_what_the_run_s_analysis_gives(result,
                                                  block):
+    check_as_today(result, block, statistics_of(result))
+
+
+def check_as_today(result,
+                   block: dict,
+                   placed: list[tuple[str, str]]) -> None:
+    """Each statistic's method gives what the run's analysis, *block*, gives
+    for it."""
     context = Context(result.run_data, None, result._data_fetcher)
 
-    for name, statistic_id in statistics_of(result):
+    for name, statistic_id in placed:
         method = getattr(category(result, name), statistic_id)
         spec = CATALOGUE[statistic_id]
 
@@ -127,20 +135,44 @@ def test_each_gives_what_the_run_s_analysis_gives(result,
             assert same, statistic_id
             continue
 
+        first = spec.figure_names[:1]
         every = ({"of": "all"} if "of" in spec.forms
-                 else {"against": "all"} if spec.figure_names[:1] == ("comparator",) else {})
+                 else {"against": "all"} if first == ("comparator",) else {})
         found = named(method(**every))
         # A figure the run cannot give is None in the block, NaN in a Series.
         point = {key: float("nan") if item is None else item
                  for key, item in block["statistics"][statistic_id]["point"].items()}
 
-        if every:
-            assert found == pytest.approx(point, nan_ok=True), statistic_id
-        else:
-            fund_only = {key.split("/", 1)[-1] if key.startswith("fund") else key: item
-                         for key, item in point.items()}
-            fund_only = {("" if key == "fund" else key): item for key, item in fund_only.items()}
-            assert found == pytest.approx(fund_only, nan_ok=True), statistic_id
+        # A fund's figure alone is given without the fund's name.
+        if not every and first == ("book",):
+            point = {key.removeprefix("fund").removeprefix("/"): item
+                     for key, item in point.items()}
+
+        assert found == pytest.approx(point, nan_ok=True), statistic_id
+
+
+class TestAListedFundWithFlows:
+    """An ETF with money arriving and leaving, for the statistics a plain
+    index fund cannot give."""
+
+    @pytest.fixture(scope="class")
+    def listed(self):
+        from beacon.backtest import DatedFlows
+        from test_backtest_etf import etf
+        from test_backtest_flows import DAYS, QUIET, run
+
+        return run(vehicle=etf(in_kind=True),
+                   flows=DatedFlows({QUIET: 500_000.0, DAYS[60]: -300_000.0}))
+
+    def test_each_gives_what_the_run_s_analysis_gives(self,
+                                                      listed):
+        placed = [(name, statistic_id) for name in ("flows", "vehicle", "income", "trading")
+                  if name in WIRED for statistic_id in category(listed, name).statistics]
+        block = analyse(listed, AnalysisRequest(reports={}, statistics=[
+            statistic_id for _, statistic_id in placed]))
+
+        assert "net_flows" not in block["unavailable"]
+        check_as_today(listed, block, placed)
 
 
 class TestPerformance:

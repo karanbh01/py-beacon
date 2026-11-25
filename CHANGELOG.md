@@ -17,6 +17,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `result.analytics.portfolio.relative`: the fund against its index or benchmark, which `against=` picks, a method a statistic: `tracking_difference()`, `tracking_error()`, `information_ratio()`, `information_ratio_t()`, `annualised_relative_return()`, `beta()`, `correlation()`, `alpha()`, `r_squared()`, `residual_risk()`, `treynor_ratio()`, `capture()`, `batting_average()`, `downside_tracking_error()` and `relative_drawdowns()`. `active_share()` gives an active strategy's active share at each rebalance, as `result.active_share()` does.
 - `result.analytics.portfolio.holdings`: what each portfolio held, a method a statistic: `holdings_count()`, `holdings_range()`, `holdings_distribution()`, `characteristics()`, `group_weights()`, `group_exposures()`, `style_box()` and `style_classification()`. The daily weights are not repeated: they stay on `result.portfolio`.
 - `result.analytics.portfolio.trading`: turnover, trades and their costs, a method a statistic: `one_way_turnover()`, `two_way_turnover()`, `trade_counts()`, `costs()`, `cost_per_traded()` and `cash_trading()`.
+- `result.analytics.portfolio.flows`: money arriving and leaving and what dealing in it cost, a method a statistic: `net_flows()`, `flow_costs()`, `dealing_costs()` and `class_costs()`. The assets under management are not repeated: they stay on the result, and reports still show `aum`.
 
 ### Changed
 
