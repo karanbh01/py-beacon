@@ -20,7 +20,7 @@ from beacon.analysis.request import AnalysisRequest, analyse
 from beacon.backtest import Backtest
 
 # The categories wired so far, each with the statistics it gives.
-WIRED = ["performance", "risk", "relative", "holdings", "trading", "flows", "income"]
+WIRED = ["performance", "risk", "relative", "holdings", "trading", "flows", "income", "vehicle"]
 
 
 @pytest.fixture(scope="module")
@@ -209,3 +209,33 @@ class TestRelative:
 
         with pytest.raises(ValueError, match="active steps were not kept"):
             stored.portfolio.relative.active_share()
+
+
+class TestVehicle:
+    def test_a_futures_fund_s_figures(self):
+        from test_strategy_futures import futures, run
+
+        held = run(futures())
+        placed = [("vehicle", statistic_id)
+                  for statistic_id in held.analytics.portfolio.vehicle.statistics]
+        block = analyse(held, AnalysisRequest(reports={}, statistics=[
+            statistic_id for _, statistic_id in placed]))
+
+        assert "futures_trading" not in block["unavailable"]
+        check_as_today(held, block, placed)
+
+    def test_a_listed_fund_s_return_at_market_prices(self):
+        from test_backtest_etf import etf
+        from test_backtest_flows import run
+
+        listed = run(vehicle=etf(in_kind=True))
+        vehicle = listed.analytics.portfolio.vehicle
+
+        assert vehicle.market_return() == listed.market_return()
+        assert vehicle.market_summary() == listed.market_summary()
+
+    def test_a_fund_not_listed_has_none(self,
+                                        result):
+        vehicle = result.analytics.portfolio.vehicle
+
+        assert vehicle.market_return() is None and vehicle.market_summary() is None
