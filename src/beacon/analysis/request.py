@@ -52,6 +52,9 @@ FAILED = "failed"
 class AnalysisRequest:
     """What a run's analysis should give.
 
+    A statistic is named by its id or its `Statistic` member, which is kept
+    as the id.
+
     Attributes:
         reports: Each report wanted, by id, with its level: ``core`` or
             ``extended``.
@@ -79,6 +82,15 @@ class AnalysisRequest:
     factors: Sequence[Factor] | None = None
 
     def __post_init__(self) -> None:
+        # BN-432: a `Statistic` member is kept as the plain id it stands for.
+        object.__setattr__(self, "add", {report: [str(id_) for id_ in ids]
+                                         for report, ids in self.add.items()})
+        object.__setattr__(self, "remove", {report: [str(id_) for id_ in ids]
+                                            for report, ids in self.remove.items()})
+        object.__setattr__(self, "time_views", {report: {str(id_): view
+                                                         for id_, view in views.items()}
+                                                for report, views in self.time_views.items()})
+        object.__setattr__(self, "statistics", tuple(str(id_) for id_ in self.statistics))
         self.selection()
 
     @property

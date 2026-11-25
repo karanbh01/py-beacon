@@ -101,7 +101,7 @@ class Column:
 
 
 @dataclass(frozen=True)
-class Statistic:
+class StatisticSpec:
     """One statistic.
 
     Attributes:
@@ -155,7 +155,7 @@ class Summarised:
 DECIMALS = {"fraction": 4, "ratio": 2, "bps": 1, "money": 2, "count": 0, "days": 0, "years": 1}
 
 
-def decimals_of(statistic: Statistic) -> int | None:
+def decimals_of(statistic: StatisticSpec) -> int | None:
     """How many decimals *statistic* is shown to."""
     if statistic.decimals is not None:
         return statistic.decimals
@@ -166,10 +166,10 @@ def decimals_of(statistic: Statistic) -> int | None:
 @dataclass(frozen=True)
 class Catalogue:
     """Every statistic, by id, in order."""
-    statistics: Mapping[str, Statistic] = field(default_factory=dict)
+    statistics: Mapping[str, StatisticSpec] = field(default_factory=dict)
 
     def __getitem__(self,
-                    statistic_id: str) -> Statistic:
+                    statistic_id: str) -> StatisticSpec:
         return self.statistics[statistic_id]
 
     def __contains__(self,

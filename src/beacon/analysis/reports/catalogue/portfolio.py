@@ -21,7 +21,7 @@ from ..statistics import (
     PORTFOLIO,
     TABLE,
     Column,
-    Statistic,
+    StatisticSpec,
     Summarised,
     Unavailable,
 )
@@ -129,7 +129,7 @@ def _premium(context: Context) -> dict[str, Any]:
     return found
 
 
-def statistics() -> list[Statistic]:
+def statistics() -> list[StatisticSpec]:
     """The portfolio statistics, in order."""
     def table(id_: str,
               label: str,
@@ -137,36 +137,37 @@ def statistics() -> list[Statistic]:
               description: str,
               read: Callable[[Context], Any],
               unit: str | None = None,
-              settings: tuple[str, ...] = ()) -> Statistic:
-        return Statistic(id_, label, category, TABLE, PORTFOLIO, description, read, unit=unit,
-                         settings=settings)
+              settings: tuple[str, ...] = ()) -> StatisticSpec:
+        return StatisticSpec(id_, label, category, TABLE, PORTFOLIO, description, read, unit=unit,
+                             settings=settings)
 
     return [
         table("holdings_count", "Holdings count", HOLDINGS, "How many names the fund and its "
               "comparators held each day.", _holdings_count, unit="count"),
-        Statistic("holdings_range", "Holdings range", HOLDINGS, TABLE, PORTFOLIO,
-                  "The fewest and most names the fund and its comparators held on any day, "
-                  "and how many they hold now.",
-                  lambda context: context.portfolio.holdings_range(), unit="count",
-                  columns=RANGE_COLUMNS),
-        Statistic("holdings_distribution", "Days at each holdings count", HOLDINGS, TABLE,
-                  PORTFOLIO, "How many days the fund held each number of names.",
-                  lambda context: context.portfolio.holdings_distribution(), unit="count",
-                  columns=DISTRIBUTION_COLUMNS),
+        StatisticSpec("holdings_range", "Holdings range", HOLDINGS, TABLE, PORTFOLIO,
+                      "The fewest and most names the fund and its comparators held on any day, "
+                      "and how many they hold now.",
+                      lambda context: context.portfolio.holdings_range(), unit="count",
+                      columns=RANGE_COLUMNS),
+        StatisticSpec("holdings_distribution", "Days at each holdings count", HOLDINGS, TABLE,
+                      PORTFOLIO, "How many days the fund held each number of names.",
+                      lambda context: context.portfolio.holdings_distribution(), unit="count",
+                      columns=DISTRIBUTION_COLUMNS),
         table("group_weights", "Group weights and active group weights", HOLDINGS,
               "The fund's weight in each group, and less the tracked comparator's.",
               needs(NO_GROUPING, _group_weights), unit="fraction",
               settings=(*GROUPING, "window.tracked")),
-        Statistic("group_exposures", "Exposures by sector and country", HOLDINGS, TABLE,
-                  PORTFOLIO, "The fund's latest weight in each sector and country, against "
-                  "its index's and benchmark's.", needs(NO_GROUPING, _exposures),
-                  unit="fraction", settings=("exposures.sector_field", "exposures.country_field"),
-                  columns=EXPOSURE_COLUMNS),
-        Statistic("characteristics", "Characteristics", HOLDINGS, TABLE, PORTFOLIO,
-                  "Weighted market cap, P/E, P/B, dividend yield and earnings and sales "
-                  "growth of the fund and its comparators at each rebalance.",
-                  lambda context: frame(context.portfolio.characteristics()),
-                  columns=CHARACTERISTIC_COLUMNS),
+        StatisticSpec("group_exposures", "Exposures by sector and country", HOLDINGS, TABLE,
+                      PORTFOLIO, "The fund's latest weight in each sector and country, against "
+                      "its index's and benchmark's.", needs(NO_GROUPING, _exposures),
+                      unit="fraction",
+                      settings=("exposures.sector_field", "exposures.country_field"),
+                      columns=EXPOSURE_COLUMNS),
+        StatisticSpec("characteristics", "Characteristics", HOLDINGS, TABLE, PORTFOLIO,
+                      "Weighted market cap, P/E, P/B, dividend yield and earnings and sales "
+                      "growth of the fund and its comparators at each rebalance.",
+                      lambda context: frame(context.portfolio.characteristics()),
+                      columns=CHARACTERISTIC_COLUMNS),
         table("one_way_turnover", "One-way turnover", TRADING, "The lesser of buys and sells "
               "over the NAV, each year, and a year on average.", _turnover("one_way"),
               unit="fraction"),
@@ -177,10 +178,10 @@ def statistics() -> list[Statistic]:
         table("costs", "Costs by kind", TRADING, "Fixed costs, market impact, futures rolls "
               "and trading, creation fees received, and the net, in money and in bp of "
               "assets a year.", lambda context: context.portfolio.costs()),
-        Statistic("cost_per_traded", "Cost per unit traded", TRADING, FIGURES, PORTFOLIO,
-                  "Trading costs in bp of the value traded.",
-                  lambda context: context.portfolio.cost_per_traded(), unit="bps",
-                  figure_names=("field",)),
+        StatisticSpec("cost_per_traded", "Cost per unit traded", TRADING, FIGURES, PORTFOLIO,
+                      "Trading costs in bp of the value traded.",
+                      lambda context: context.portfolio.cost_per_traded(), unit="bps",
+                      figure_names=("field",)),
         table("cash_band_events", "Cash band events", CASH, "Each time the cash left its "
               "band: raise or spend-down, cash before and after, gap closed, cost.",
               lambda context: context.portfolio.cash_band_events()),
@@ -206,9 +207,9 @@ def statistics() -> list[Statistic]:
               lambda context: context.portfolio.income(), unit="fraction"),
         table("dividend_growth", "Dividend growth", INCOME, "Each year's dividends and their "
               "growth.", lambda context: context.portfolio.dividend_growth()),
-        Statistic("etf_premium", "ETF premium", ETF, FIGURES, PORTFOLIO, "Mean, volatility "
-                  "and extremes of the premium to NAV, and the mean spread.", _premium,
-                  unit="fraction", figure_names=("field",)),
+        StatisticSpec("etf_premium", "ETF premium", ETF, FIGURES, PORTFOLIO, "Mean, volatility "
+                      "and extremes of the premium to NAV, and the mean spread.", _premium,
+                      unit="fraction", figure_names=("field",)),
         table("futures_trading", "Futures trading", FUTURES, "Futures trades by reason, "
               "contracts and notional, cost per contract and in bp, turnover.",
               needs(NO_FUTURES, lambda context: context.portfolio.futures_trading())),

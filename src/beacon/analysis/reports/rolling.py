@@ -27,18 +27,18 @@ import pandas as pd
 from ..performance.rolling import rolling_figures, rolling_relative
 from .context import FUND, Context
 from .options import DAILY, MONTH_END, AnalysisOptions
-from .statistics import HEAVY, Statistic, Unavailable, figures_of
+from .statistics import HEAVY, StatisticSpec, Unavailable, figures_of
 
 ACTIVE = "active"
 
 
-def step_of(statistic: Statistic,
+def step_of(statistic: StatisticSpec,
             context: Context) -> str:
     """How often *statistic*'s windows end: as asked, else by its cost."""
     return step_for(statistic, context.options)
 
 
-def step_for(statistic: Statistic,
+def step_for(statistic: StatisticSpec,
              options: AnalysisOptions) -> str:
     """How often *statistic*'s windows end under *options*: as they ask,
     else by its cost."""
@@ -63,7 +63,7 @@ def window_ends(days: pd.DatetimeIndex,
     return ends
 
 
-def rolling(statistic: Statistic,
+def rolling(statistic: StatisticSpec,
             context: Context) -> pd.DataFrame:
     """*statistic*'s figures over each trailing window: dates by figure
     name, empty when the window is longer than the run.
@@ -74,7 +74,7 @@ def rolling(statistic: Statistic,
     return rolling_all([statistic], context)[statistic.id]
 
 
-def rolling_all(statistics: Sequence[Statistic],
+def rolling_all(statistics: Sequence[StatisticSpec],
                 context: Context) -> dict[str, pd.DataFrame]:
     """Each of *statistics* over each trailing window, by id.
 
@@ -82,7 +82,7 @@ def rolling_all(statistics: Sequence[Statistic],
         ValueError: If one of them cannot roll.
     """
     found: dict[str, pd.DataFrame] = {}
-    by_window: dict[str, list[Statistic]] = {}
+    by_window: dict[str, list[StatisticSpec]] = {}
 
     for statistic in statistics:
         if statistic.rolling is None:
@@ -102,7 +102,7 @@ def rolling_all(statistics: Sequence[Statistic],
     return found
 
 
-def window_by_window(statistics: Sequence[Statistic],
+def window_by_window(statistics: Sequence[StatisticSpec],
                      context: Context,
                      step: str) -> dict[str, pd.DataFrame]:
     """*statistics* worked out on each window in turn, sharing each window's
@@ -134,7 +134,7 @@ def _dated(rows: dict[pd.Timestamp, dict[str, object]]) -> pd.DataFrame:
 
 
 def _stepped(table: pd.DataFrame,
-             statistic: Statistic,
+             statistic: StatisticSpec,
              context: Context) -> pd.DataFrame:
     """A daily rolling table cut to its full windows, at the statistic's
     step."""

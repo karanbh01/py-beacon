@@ -14,7 +14,7 @@ import pandas as pd
 from ...attribution.contribution import AttributionResult
 from ...attribution.effects import EffectsResult
 from ..context import Context
-from ..statistics import ATTRIBUTION, NO_GROUPING, TABLE, Statistic, Summarised, Unavailable
+from ..statistics import ATTRIBUTION, NO_GROUPING, TABLE, StatisticSpec, Summarised, Unavailable
 
 CATEGORY = "attribution"
 
@@ -102,15 +102,15 @@ def _implementation(context: Context) -> Summarised:
     return Summarised(found.effects.rename("effect").to_frame(), _effects(found))
 
 
-def statistics() -> list[Statistic]:
+def statistics() -> list[StatisticSpec]:
     """The attribution statistics, in order."""
     def stat(id_: str,
              label: str,
              description: str,
              read: Callable[[Context], Any],
-             settings: tuple[str, ...] = ()) -> Statistic:
-        return Statistic(id_, label, CATEGORY, TABLE, ATTRIBUTION, description, read,
-                         unit="fraction", settings=settings)
+             settings: tuple[str, ...] = ()) -> StatisticSpec:
+        return StatisticSpec(id_, label, CATEGORY, TABLE, ATTRIBUTION, description, read,
+                             unit="fraction", settings=settings)
 
     return [
         stat("contribution", "Contribution by name and group", "Each name's and group's "

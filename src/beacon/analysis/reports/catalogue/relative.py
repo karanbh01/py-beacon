@@ -28,7 +28,7 @@ from ..statistics import (
     PERFORMANCE,
     TABLE,
     Column,
-    Statistic,
+    StatisticSpec,
     Summarised,
 )
 from .build import memo, per_comparator
@@ -124,7 +124,7 @@ def _regimes(context: Context) -> dict[str, Any]:
             if regime is not None}
 
 
-def statistics() -> list[Statistic]:
+def statistics() -> list[StatisticSpec]:
     """The relative, rolling, crisis and regime statistics, in order."""
     def relative(id_: str,
                  label: str,
@@ -132,10 +132,10 @@ def statistics() -> list[Statistic]:
                  read: Any,
                  unit: str | None = "fraction",
                  rolling: str | None = LIGHT,
-                 names: tuple[str, ...] = COMPARED) -> Statistic:
-        return Statistic(id_, label, RELATIVE, FIGURES, PERFORMANCE, description,
-                         per_comparator(read), unit=unit, rolling=rolling,
-                         figure_names=names)
+                 names: tuple[str, ...] = COMPARED) -> StatisticSpec:
+        return StatisticSpec(id_, label, RELATIVE, FIGURES, PERFORMANCE, description,
+                             per_comparator(read), unit=unit, rolling=rolling,
+                             figure_names=names)
 
     return [
         relative("tracking_difference", "Tracking difference", "The fund's return less "
@@ -173,54 +173,55 @@ def statistics() -> list[Statistic]:
         relative("downside_tracking_error", "Downside tracking error", "Tracking error "
                  "counting only days the fund lagged.",
                  lambda found, context: found.downside_tracking_error()),
-        Statistic("relative_drawdowns", "Relative drawdowns", RELATIVE, TABLE, PERFORMANCE,
-                  "Drawdowns of the fund's value relative to the tracked comparator's.",
-                  _relative_drawdowns, rolling=None, settings=("returns.worst_drawdowns",
-                                                               "window.tracked"),
-                  columns=EPISODE_COLUMNS),
-        Statistic("tracking_difference_by_year", "Tracking difference by year", RELATIVE,
-                  TABLE, PERFORMANCE, "Each year's tracking difference against the tracked "
-                  "comparator, and their spread.", _by_year, settings=("window.tracked",),
-                  columns=(Column("fund", "Fund", "fraction"),
-                           Column("comparator", "Comparator", "fraction"),
-                           Column("difference", "Difference", "fraction"))),
-        Statistic("rolling_outcomes", "Rolling outcomes", ROLLING, FIGURES, PERFORMANCE,
-                  "The worst, median and best rolling return, the share of windows that "
-                  "gained, and the share ahead of the tracked comparator.", _outcomes,
-                  unit="fraction", settings=("rolling.window", "window.tracked"),
-                  figure_names=("field",)),
-        Statistic("crisis_returns", "Crisis returns", CRISES, TABLE, PERFORMANCE,
-                  "The fund's and comparator's return, outperformance, drawdowns, beta and "
-                  "alpha in each crisis.", _crises,
-                  settings=("crises.market", "crises.threshold", "crises.episodes",
-                            "window.tracked"),
-                  columns=(Column("name", "Crisis"), Column("start", "Start", "date"),
-                           Column("end", "End", "date"), Column("days", "Days", "days"),
-                           Column("fund", "Fund", "fraction"),
-                           Column("comparator", "Comparator", "fraction"),
-                           Column("outperformance", "Outperformance", "fraction"),
-                           Column("fund_drawdown", "Fund's drawdown", "fraction"),
-                           Column("comparator_drawdown", "Comparator's drawdown", "fraction"),
-                           Column("beta", "Beta", "ratio"), Column("alpha", "Alpha", "fraction"),
-                           Column("recovery_days", "Days to recover", "days"),
-                           Column("recovery_date", "Recovered", "date"),
-                           Column("status", "Status", labels=STATUS_LABELS))),
-        Statistic("crisis_paths", "Crisis paths", CRISES, TABLE, PERFORMANCE,
-                  "The fund's, the index's and the benchmark's levels through each crisis "
-                  "and the months after it, rebased to 100 at its start.", _crisis_paths,
-                  settings=("crises.market", "crises.threshold", "crises.episodes",
-                            "window.tracked"),
-                  columns=(Column("crisis", "Crisis"), Column("date", "Date", "date"),
-                           Column("book", "Portfolio", labels=BOOK_LABELS),
-                           Column("level", "Level"),
-                           Column("phase", "Phase", labels=PHASE_LABELS))),
-        Statistic("crisis_summary", "Crisis summary", CRISES, FIGURES, PERFORMANCE,
-                  "Across crises: average outperformance, share outperformed, capture, "
-                  "pooled alpha.", lambda context: context.crises.summary(), unit="fraction",
-                  settings=("crises.market", "crises.threshold"), figure_names=("field",)),
-        Statistic("regimes", "Regime figures", CRISES, FIGURES, PERFORMANCE,
-                  "Returns and relative figures in up and down months, calm and volatile "
-                  "months, bear markets and corrections.", _regimes, unit="fraction",
-                  settings=("crises.market", "window.tracked"),
-                  figure_names=("regime", "field"), rolling=None),
+        StatisticSpec("relative_drawdowns", "Relative drawdowns", RELATIVE, TABLE, PERFORMANCE,
+                      "Drawdowns of the fund's value relative to the tracked comparator's.",
+                      _relative_drawdowns, rolling=None, settings=("returns.worst_drawdowns",
+                                                                   "window.tracked"),
+                      columns=EPISODE_COLUMNS),
+        StatisticSpec("tracking_difference_by_year", "Tracking difference by year", RELATIVE,
+                      TABLE, PERFORMANCE, "Each year's tracking difference against the tracked "
+                      "comparator, and their spread.", _by_year, settings=("window.tracked",),
+                      columns=(Column("fund", "Fund", "fraction"),
+                               Column("comparator", "Comparator", "fraction"),
+                               Column("difference", "Difference", "fraction"))),
+        StatisticSpec("rolling_outcomes", "Rolling outcomes", ROLLING, FIGURES, PERFORMANCE,
+                      "The worst, median and best rolling return, the share of windows that "
+                      "gained, and the share ahead of the tracked comparator.", _outcomes,
+                      unit="fraction", settings=("rolling.window", "window.tracked"),
+                      figure_names=("field",)),
+        StatisticSpec("crisis_returns", "Crisis returns", CRISES, TABLE, PERFORMANCE,
+                      "The fund's and comparator's return, outperformance, drawdowns, beta and "
+                      "alpha in each crisis.", _crises,
+                      settings=("crises.market", "crises.threshold", "crises.episodes",
+                                "window.tracked"),
+                      columns=(Column("name", "Crisis"), Column("start", "Start", "date"),
+                               Column("end", "End", "date"), Column("days", "Days", "days"),
+                               Column("fund", "Fund", "fraction"),
+                               Column("comparator", "Comparator", "fraction"),
+                               Column("outperformance", "Outperformance", "fraction"),
+                               Column("fund_drawdown", "Fund's drawdown", "fraction"),
+                               Column("comparator_drawdown", "Comparator's drawdown", "fraction"),
+                               Column("beta", "Beta", "ratio"),
+                               Column("alpha", "Alpha", "fraction"),
+                               Column("recovery_days", "Days to recover", "days"),
+                               Column("recovery_date", "Recovered", "date"),
+                               Column("status", "Status", labels=STATUS_LABELS))),
+        StatisticSpec("crisis_paths", "Crisis paths", CRISES, TABLE, PERFORMANCE,
+                      "The fund's, the index's and the benchmark's levels through each crisis "
+                      "and the months after it, rebased to 100 at its start.", _crisis_paths,
+                      settings=("crises.market", "crises.threshold", "crises.episodes",
+                                "window.tracked"),
+                      columns=(Column("crisis", "Crisis"), Column("date", "Date", "date"),
+                               Column("book", "Portfolio", labels=BOOK_LABELS),
+                               Column("level", "Level"),
+                               Column("phase", "Phase", labels=PHASE_LABELS))),
+        StatisticSpec("crisis_summary", "Crisis summary", CRISES, FIGURES, PERFORMANCE,
+                      "Across crises: average outperformance, share outperformed, capture, "
+                      "pooled alpha.", lambda context: context.crises.summary(), unit="fraction",
+                      settings=("crises.market", "crises.threshold"), figure_names=("field",)),
+        StatisticSpec("regimes", "Regime figures", CRISES, FIGURES, PERFORMANCE,
+                      "Returns and relative figures in up and down months, calm and volatile "
+                      "months, bear markets and corrections.", _regimes, unit="fraction",
+                      settings=("crises.market", "window.tracked"),
+                      figure_names=("regime", "field"), rolling=None),
     ]

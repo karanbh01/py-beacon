@@ -8,6 +8,14 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+### Added
+
+- `Statistic` (`beacon.analysis.Statistic`), every statistic's id as an enum, so ids autocomplete and a misspelt one fails where it is written: `Statistic.SHARPE_RATIO` is `"sharpe_ratio"`. A member goes wherever an id does, and `AnalysisRequest` keeps it as the plain id.
+
+### Changed
+
+- The catalogue's entry class, `beacon.analysis.reports.statistics.Statistic`, is now `StatisticSpec`, so `Statistic` is the enum alone.
+
 ## [0.10.1] - 2026-11-25
 
 More of a run's analysis: the main figures over each trailing window, how many names a run held, its weights by sector and country, a style box, a risk rating on a UCITS factsheet's scale, every name's risk and return with the efficient frontier through them, a histogram of returns, and each crisis's path and recovery. Earnings and sales growth join a run's characteristics, and synthetic stores generate revenue. Existing figures are unchanged; `characteristics` and `crisis_returns` gain columns.

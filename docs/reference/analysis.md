@@ -77,6 +77,12 @@ A run's attribution: by name and group, Brinson-Fachler, currency, factors and i
 
 ::: beacon.analysis.attribution.analytics
 
+## Statistic ids
+
+Every statistic's id as an enum, so ids autocomplete: `Statistic.SHARPE_RATIO` goes wherever `"sharpe_ratio"` does.
+
+::: beacon.analysis.statistic
+
 ## Analysis requests
 
 What a run's analysis should give: the reports, the statistics added to or taken from them, and every choice the analysis makes. See [Reports](../concepts/reports.md).

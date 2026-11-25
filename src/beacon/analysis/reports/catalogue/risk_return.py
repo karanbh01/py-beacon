@@ -18,7 +18,7 @@ from ..statistics import (
     TABLE,
     TOO_SHORT,
     Column,
-    Statistic,
+    StatisticSpec,
     Summarised,
     Unavailable,
 )
@@ -106,21 +106,22 @@ def _frontier(context: Context) -> Summarised:
                                     "first": found.first, "last": found.last})
 
 
-def statistics() -> list[Statistic]:
+def statistics() -> list[StatisticSpec]:
     """The risk and return statistics, in order."""
     return [
-        Statistic("member_risk_return", "Risk and return of every member", CATEGORY, TABLE, RISK,
-                  "The annualised return and volatility of every name the index held over "
-                  "the run, on weekly returns; names with under a year are counted, not "
-                  "shown.", _members, unit="fraction", settings=SETTINGS,
-                  columns=MEMBER_COLUMNS),
-        Statistic("portfolio_risk_return", "Risk and return of each portfolio", CATEGORY,
-                  TABLE, RISK, "The fund's, the index's and the benchmark's annualised return "
-                  "and volatility, measured as the members' are.", _portfolios,
-                  unit="fraction", settings=SETTINGS, columns=PORTFOLIO_COLUMNS),
-        Statistic("efficient_frontier", "Efficient frontier in hindsight", CATEGORY, TABLE,
-                  RISK, "The long-only, fully invested mean-variance frontier of the largest "
-                  "latest index members, drawn with the returns the run went on to see.",
-                  _frontier, unit="fraction", settings=FRONTIER_SETTINGS,
-                  columns=FRONTIER_COLUMNS),
+        StatisticSpec("member_risk_return", "Risk and return of every member", CATEGORY, TABLE,
+                      RISK,
+                      "The annualised return and volatility of every name the index held over "
+                      "the run, on weekly returns; names with under a year are counted, not "
+                      "shown.", _members, unit="fraction", settings=SETTINGS,
+                      columns=MEMBER_COLUMNS),
+        StatisticSpec("portfolio_risk_return", "Risk and return of each portfolio", CATEGORY,
+                      TABLE, RISK, "The fund's, the index's and the benchmark's annualised return "
+                      "and volatility, measured as the members' are.", _portfolios,
+                      unit="fraction", settings=SETTINGS, columns=PORTFOLIO_COLUMNS),
+        StatisticSpec("efficient_frontier", "Efficient frontier in hindsight", CATEGORY, TABLE,
+                      RISK, "The long-only, fully invested mean-variance frontier of the largest "
+                      "latest index members, drawn with the returns the run went on to see.",
+                      _frontier, unit="fraction", settings=FRONTIER_SETTINGS,
+                      columns=FRONTIER_COLUMNS),
     ]

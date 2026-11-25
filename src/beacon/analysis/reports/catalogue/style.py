@@ -20,7 +20,7 @@ from ..statistics import (
     RUN_PREDATES,
     TABLE,
     Column,
-    Statistic,
+    StatisticSpec,
     Summarised,
     Unavailable,
 )
@@ -133,15 +133,15 @@ def _classification(context: Context) -> pd.DataFrame:
     return style.style_classification(_placed(context)[0], tuple(BOOKS))
 
 
-def statistics() -> list[Statistic]:
+def statistics() -> list[StatisticSpec]:
     """The style box statistics, in order."""
     def table(id_: str,
               label: str,
               description: str,
               read: Any,
-              columns: tuple[Column, ...]) -> Statistic:
-        return Statistic(id_, label, HOLDINGS, TABLE, PORTFOLIO, description, read,
-                         unit="fraction", settings=STYLE_SETTINGS, columns=columns)
+              columns: tuple[Column, ...]) -> StatisticSpec:
+        return StatisticSpec(id_, label, HOLDINGS, TABLE, PORTFOLIO, description, read,
+                             unit="fraction", settings=STYLE_SETTINGS, columns=columns)
 
     return [
         table("style_positions", "Style positions", "Where each name held sits by size and "

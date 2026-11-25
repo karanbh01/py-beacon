@@ -10,7 +10,7 @@ import pandas as pd
 from ...performance import risk_rating as rating
 from ..context import Context
 from ..options import BENCHMARK, INDEX
-from ..statistics import PERFORMANCE, TABLE, TOO_SHORT, Column, Statistic, Unavailable
+from ..statistics import PERFORMANCE, TABLE, TOO_SHORT, Column, StatisticSpec, Unavailable
 
 RISK = "risk"
 
@@ -62,16 +62,16 @@ def _distribution(context: Context) -> pd.DataFrame:
     return found
 
 
-def statistics() -> list[Statistic]:
+def statistics() -> list[StatisticSpec]:
     """The risk rating statistics, in order."""
     return [
-        Statistic("risk_rating", "Risk rating", RISK, TABLE, PERFORMANCE,
-                  "The factsheet's 1 to 7 risk rating, on the volatility of weekly returns "
-                  "over the last five years, and the band the tracking error puts the fund "
-                  "in, from passive to unconstrained.", _rating, unit="fraction",
-                  settings=SETTINGS, columns=RATING_COLUMNS),
-        Statistic("risk_distribution", "Risk rating over time", RISK, TABLE, PERFORMANCE,
-                  "The days the fund spent at each rating and band, on each day's volatility "
-                  "and tracking error over the year ending that day.", _distribution,
-                  unit="fraction", settings=SETTINGS, columns=DISTRIBUTION_COLUMNS),
+        StatisticSpec("risk_rating", "Risk rating", RISK, TABLE, PERFORMANCE,
+                      "The factsheet's 1 to 7 risk rating, on the volatility of weekly returns "
+                      "over the last five years, and the band the tracking error puts the fund "
+                      "in, from passive to unconstrained.", _rating, unit="fraction",
+                      settings=SETTINGS, columns=RATING_COLUMNS),
+        StatisticSpec("risk_distribution", "Risk rating over time", RISK, TABLE, PERFORMANCE,
+                      "The days the fund spent at each rating and band, on each day's volatility "
+                      "and tracking error over the year ending that day.", _distribution,
+                      unit="fraction", settings=SETTINGS, columns=DISTRIBUTION_COLUMNS),
     ]

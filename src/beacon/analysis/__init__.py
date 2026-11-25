@@ -7,7 +7,7 @@ Covers a run's performance (`beacon.analysis.performance`), risk
 cap drag), concentration and drift from target weights, liquidity and ETF
 tracking analytics (tracking difference, tracking error, premium or discount
 to NAV), and `RunData`, everything a run's analysis reads, from a finished run
-or a stored one.
+or a stored one. `Statistic` names every statistic the analysis gives.
 
 `RiskMetricsCalculator`, `calculate_volatility`, `calculate_sharpe_ratio`,
 `calculate_max_drawdown` and `simple_performance_attribution` are deprecated,
@@ -50,6 +50,7 @@ from .risk import (
     calculate_sharpe_ratio,
     calculate_volatility,
 )
+from .statistic import Statistic
 
 
 def __getattr__(name: str) -> Any:
@@ -78,6 +79,7 @@ __all__ = [
     "ETFAnalytics",
     "RiskMetricsCalculator",
     "RunData",
+    "Statistic",
     "attribute",
     "average_daily_volume",
     "calculate_max_drawdown",

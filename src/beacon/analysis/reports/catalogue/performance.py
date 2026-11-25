@@ -24,7 +24,7 @@ from ..statistics import (
     SERIES,
     TABLE,
     Column,
-    Statistic,
+    StatisticSpec,
     Summarised,
     Unavailable,
 )
@@ -182,85 +182,85 @@ TRAILING_COLUMNS = (Column("period", "Period", labels=WINDOW_LABELS),
                     Column(trailing.BENCHMARK, "Benchmark"))
 
 
-def statistics() -> list[Statistic]:
+def statistics() -> list[StatisticSpec]:
     """The statistics of a run's own returns, in order."""
     return [
-        Statistic("total_return", "Total return", RETURNS, FIGURES, PERFORMANCE,
-                  "The fund's compounded return over the window.",
-                  per_book(_headline("total_return"), active=True), unit="fraction",
-                  rolling=LIGHT),
-        Statistic("annualised_return", "Annualised return (CAGR)", RETURNS, FIGURES, PERFORMANCE,
-                  "The constant yearly rate that compounds to the total return.",
-                  per_book(_headline("annualised_return"), active=True), unit="fraction",
-                  rolling=LIGHT, settings=("window.periods_per_year",)),
-        Statistic("money_weighted_return", "Money-weighted return", RETURNS, FIGURES,
-                  PERFORMANCE, "The return an investor earned given when money came in and "
-                  "went out (the IRR).", fund_only(_money_weighted), unit="fraction"),
-        Statistic("trailing_returns", "Trailing returns", RETURNS, TABLE, PERFORMANCE,
-                  "The return over the last 1, 3 and 6 months, 1, 3, 5 and 10 years, month, "
-                  "quarter and year to date, and since inception; annualised beyond a year.",
-                  lambda context: wire_frame(context.performance.trailing_table()),
-                  unit="fraction"),
-        Statistic("trailing_statistics", "Trailing statistics", RETURNS, TABLE, PERFORMANCE,
-                  "Total and annualised return, volatility, maximum drawdown and Sharpe ratio "
-                  "over each trailing period, with tracking difference and tracking error "
-                  "against each comparator.",
-                  lambda context: context.performance.trailing_statistics(),
-                  unit="fraction", settings=RATIO_SETTINGS, columns=TRAILING_COLUMNS),
-        Statistic("period_returns", "Period returns", RETURNS, TABLE, PERFORMANCE,
-                  "Each month's, quarter's and year's return, against the comparators'.",
-                  _periods, unit="fraction"),
-        Statistic("best_and_worst", "Best and worst periods", RETURNS, FIGURES, PERFORMANCE,
-                  "The best and worst day, week, month, quarter and year.",
-                  per_book(_best_and_worst), unit="fraction",
-                  figure_names=("book", "frequency", "extreme", "field")),
-        Statistic("positive_share", "Share of positive periods", RETURNS, FIGURES, PERFORMANCE,
-                  "The share of days, months and years with a gain.",
-                  per_book(lambda book, context: book.positive_shares()), unit="fraction",
-                  rolling=LIGHT, figure_names=("book", "frequency")),
-        Statistic("gains_and_losses", "Average gain and loss", RETURNS, FIGURES, PERFORMANCE,
-                  "The mean of the periods that gained and of those that lost, and their "
-                  "ratio.", per_book(lambda book, context: book.gains_and_losses(
-                      context.options.returns.gains_frequency)), unit="fraction",
-                  rolling=LIGHT, settings=("returns.gains_frequency",),
-                  figure_names=("book", "field")),
-        Statistic("streaks", "Longest winning and losing streaks", RETURNS, FIGURES,
-                  PERFORMANCE, "The most months in a row with a gain, and with a loss.",
-                  per_book(_streaks), figure_names=("book", "streak", "field")),
-        Statistic("mean_return", "Arithmetic and geometric mean return", RETURNS, FIGURES,
-                  PERFORMANCE, "The mean daily return, and the daily rate that compounds to "
-                  "the total, each also a year.", per_book(lambda book, context: book.means()),
-                  unit="fraction", rolling=LIGHT, figure_names=("book", "mean")),
-        Statistic("hit_rate", "Hit rate (monthly)", RETURNS, FIGURES, PERFORMANCE,
-                  "The share of months the fund rose.",
-                  per_book(lambda book, context: book.hit_rate_monthly()), unit="fraction",
-                  rolling=LIGHT),
-        Statistic("month_of_year", "Month of year", RETURNS, SERIES, PERFORMANCE,
-                  "The mean return of each calendar month across the years.",
-                  lambda context: context.performance.month_of_year(), unit="fraction"),
-        Statistic("volatility", "Volatility", RISK, FIGURES, PERFORMANCE,
-                  "The annualised standard deviation of daily returns.",
-                  per_book(_headline("volatility")), unit="fraction", rolling=LIGHT),
-        Statistic("max_drawdown", "Maximum drawdown", DRAWDOWN, FIGURES, PERFORMANCE,
-                  "The deepest fall from a running peak.",
-                  per_book(_headline("max_drawdown")), unit="fraction", rolling=MODERATE),
-        Statistic("drawdown_episodes", "Drawdown episodes", DRAWDOWN, TABLE, PERFORMANCE,
-                  "Each fall from a peak: its depth, start, trough, recovery, and how long "
-                  "each part took.", _episodes, settings=("returns.worst_drawdowns",),
-                  columns=EPISODE_COLUMNS),
+        StatisticSpec("total_return", "Total return", RETURNS, FIGURES, PERFORMANCE,
+                      "The fund's compounded return over the window.",
+                      per_book(_headline("total_return"), active=True), unit="fraction",
+                      rolling=LIGHT),
+        StatisticSpec("annualised_return", "Annualised return (CAGR)", RETURNS, FIGURES,
+                      PERFORMANCE, "The constant yearly rate that compounds to the total return.",
+                      per_book(_headline("annualised_return"), active=True), unit="fraction",
+                      rolling=LIGHT, settings=("window.periods_per_year",)),
+        StatisticSpec("money_weighted_return", "Money-weighted return", RETURNS, FIGURES,
+                      PERFORMANCE, "The return an investor earned given when money came in and "
+                      "went out (the IRR).", fund_only(_money_weighted), unit="fraction"),
+        StatisticSpec("trailing_returns", "Trailing returns", RETURNS, TABLE, PERFORMANCE,
+                      "The return over the last 1, 3 and 6 months, 1, 3, 5 and 10 years, month, "
+                      "quarter and year to date, and since inception; annualised beyond a year.",
+                      lambda context: wire_frame(context.performance.trailing_table()),
+                      unit="fraction"),
+        StatisticSpec("trailing_statistics", "Trailing statistics", RETURNS, TABLE, PERFORMANCE,
+                      "Total and annualised return, volatility, maximum drawdown and Sharpe ratio "
+                      "over each trailing period, with tracking difference and tracking error "
+                      "against each comparator.",
+                      lambda context: context.performance.trailing_statistics(),
+                      unit="fraction", settings=RATIO_SETTINGS, columns=TRAILING_COLUMNS),
+        StatisticSpec("period_returns", "Period returns", RETURNS, TABLE, PERFORMANCE,
+                      "Each month's, quarter's and year's return, against the comparators'.",
+                      _periods, unit="fraction"),
+        StatisticSpec("best_and_worst", "Best and worst periods", RETURNS, FIGURES, PERFORMANCE,
+                      "The best and worst day, week, month, quarter and year.",
+                      per_book(_best_and_worst), unit="fraction",
+                      figure_names=("book", "frequency", "extreme", "field")),
+        StatisticSpec("positive_share", "Share of positive periods", RETURNS, FIGURES, PERFORMANCE,
+                      "The share of days, months and years with a gain.",
+                      per_book(lambda book, context: book.positive_shares()), unit="fraction",
+                      rolling=LIGHT, figure_names=("book", "frequency")),
+        StatisticSpec("gains_and_losses", "Average gain and loss", RETURNS, FIGURES, PERFORMANCE,
+                      "The mean of the periods that gained and of those that lost, and their "
+                      "ratio.", per_book(lambda book, context: book.gains_and_losses(
+                          context.options.returns.gains_frequency)), unit="fraction",
+                      rolling=LIGHT, settings=("returns.gains_frequency",),
+                      figure_names=("book", "field")),
+        StatisticSpec("streaks", "Longest winning and losing streaks", RETURNS, FIGURES,
+                      PERFORMANCE, "The most months in a row with a gain, and with a loss.",
+                      per_book(_streaks), figure_names=("book", "streak", "field")),
+        StatisticSpec("mean_return", "Arithmetic and geometric mean return", RETURNS, FIGURES,
+                      PERFORMANCE, "The mean daily return, and the daily rate that compounds to "
+                      "the total, each also a year.", per_book(lambda book, context: book.means()),
+                      unit="fraction", rolling=LIGHT, figure_names=("book", "mean")),
+        StatisticSpec("hit_rate", "Hit rate (monthly)", RETURNS, FIGURES, PERFORMANCE,
+                      "The share of months the fund rose.",
+                      per_book(lambda book, context: book.hit_rate_monthly()), unit="fraction",
+                      rolling=LIGHT),
+        StatisticSpec("month_of_year", "Month of year", RETURNS, SERIES, PERFORMANCE,
+                      "The mean return of each calendar month across the years.",
+                      lambda context: context.performance.month_of_year(), unit="fraction"),
+        StatisticSpec("volatility", "Volatility", RISK, FIGURES, PERFORMANCE,
+                      "The annualised standard deviation of daily returns.",
+                      per_book(_headline("volatility")), unit="fraction", rolling=LIGHT),
+        StatisticSpec("max_drawdown", "Maximum drawdown", DRAWDOWN, FIGURES, PERFORMANCE,
+                      "The deepest fall from a running peak.",
+                      per_book(_headline("max_drawdown")), unit="fraction", rolling=MODERATE),
+        StatisticSpec("drawdown_episodes", "Drawdown episodes", DRAWDOWN, TABLE, PERFORMANCE,
+                      "Each fall from a peak: its depth, start, trough, recovery, and how long "
+                      "each part took.", _episodes, settings=("returns.worst_drawdowns",),
+                      columns=EPISODE_COLUMNS),
         *_distribution(),
         *_ratios(),
     ]
 
 
-def _distribution() -> list[Statistic]:
+def _distribution() -> list[StatisticSpec]:
     def shape(id_: str,
               label: str,
               description: str,
               unit: str | None = None,
-              names: tuple[str, ...] = ("book",)) -> Statistic:
-        return Statistic(id_, label, DISTRIBUTION, FIGURES, PERFORMANCE, description,
-                         per_book(_shape(id_)), unit=unit, rolling=LIGHT, figure_names=names)
+              names: tuple[str, ...] = ("book",)) -> StatisticSpec:
+        return StatisticSpec(id_, label, DISTRIBUTION, FIGURES, PERFORMANCE, description,
+                             per_book(_shape(id_)), unit=unit, rolling=LIGHT, figure_names=names)
 
     return [
         shape("downside_deviation", "Downside deviation", "The spread of returns below a "
@@ -274,47 +274,47 @@ def _distribution() -> list[Statistic]:
               "5th.", unit="ratio"),
         shape("serial_correlation", "Serial correlation", "The correlation of each day's "
               "return with the days before.", unit="ratio", names=("book", "lag")),
-        Statistic("return_histogram", "Return histogram", DISTRIBUTION, TABLE, PERFORMANCE,
-                  "Daily returns counted into bins, with what a normal distribution would put "
-                  "in each.", _histogram, settings=("returns.histogram_bins",),
-                  columns=(Column("low", "From", "fraction"), Column("high", "To", "fraction"),
-                           Column("count", "Days", "count"),
-                           Column("normal", "Normal", "count"))),
-        Statistic("return_distribution", "Return distribution", DISTRIBUTION, TABLE,
-                  PERFORMANCE, "The fund's, the index's and the benchmark's returns counted "
-                  "into the same bins, as shares, with the share a normal distribution of the "
-                  "fund's would put in each.", _shared_histogram,
-                  settings=("returns.histogram_bins", "returns.histogram_horizon"),
-                  columns=(Column("low", "From", "fraction"), Column("high", "To", "fraction"),
-                           Column(FUND, "Fund", "fraction"), Column(INDEX, "Index", "fraction"),
-                           Column(BENCHMARK, "Benchmark", "fraction"),
-                           Column("normal", "Normal", "fraction"))),
-        Statistic("bootstrap_ranges", "Bootstrap ranges", DISTRIBUTION, FIGURES, PERFORMANCE,
-                  "Confidence ranges for the main figures from resampled returns.",
-                  _bootstrap, settings=("returns.bootstrap_samples",
-                                        "returns.bootstrap_confidence", "returns.bootstrap_block",
-                                        "returns.bootstrap_seed"),
-                  figure_names=("figure", "field")),
+        StatisticSpec("return_histogram", "Return histogram", DISTRIBUTION, TABLE, PERFORMANCE,
+                      "Daily returns counted into bins, with what a normal distribution would put "
+                      "in each.", _histogram, settings=("returns.histogram_bins",),
+                      columns=(Column("low", "From", "fraction"), Column("high", "To", "fraction"),
+                               Column("count", "Days", "count"),
+                               Column("normal", "Normal", "count"))),
+        StatisticSpec("return_distribution", "Return distribution", DISTRIBUTION, TABLE,
+                      PERFORMANCE, "The fund's, the index's and the benchmark's returns counted "
+                      "into the same bins, as shares, with the share a normal distribution of the "
+                      "fund's would put in each.", _shared_histogram,
+                      settings=("returns.histogram_bins", "returns.histogram_horizon"),
+                      columns=(Column("low", "From", "fraction"), Column("high", "To", "fraction"),
+                               Column(FUND, "Fund", "fraction"), Column(INDEX, "Index", "fraction"),
+                               Column(BENCHMARK, "Benchmark", "fraction"),
+                               Column("normal", "Normal", "fraction"))),
+        StatisticSpec("bootstrap_ranges", "Bootstrap ranges", DISTRIBUTION, FIGURES, PERFORMANCE,
+                      "Confidence ranges for the main figures from resampled returns.",
+                      _bootstrap, settings=("returns.bootstrap_samples",
+                                            "returns.bootstrap_confidence",
+                                            "returns.bootstrap_block", "returns.bootstrap_seed"),
+                      figure_names=("figure", "field")),
     ]
 
 
-def _ratios() -> list[Statistic]:
+def _ratios() -> list[StatisticSpec]:
     def ratio(id_: str,
               key: str,
               label: str,
               description: str,
               rolling: str = LIGHT,
               settings: tuple[str, ...] = RATIO_SETTINGS,
-              unit: str = "ratio") -> Statistic:
-        return Statistic(id_, label, RISK_ADJUSTED, FIGURES, PERFORMANCE, description,
-                         per_book(_ratio(key)), unit=unit, rolling=rolling,
-                         settings=settings)
+              unit: str = "ratio") -> StatisticSpec:
+        return StatisticSpec(id_, label, RISK_ADJUSTED, FIGURES, PERFORMANCE, description,
+                             per_book(_ratio(key)), unit=unit, rolling=rolling,
+                             settings=settings)
 
     return [
-        Statistic("sharpe_ratio", "Sharpe ratio", RISK_ADJUSTED, FIGURES, PERFORMANCE,
-                  "Mean daily return over the risk-free rate, per unit of its volatility, "
-                  "annualised.", per_book(_headline("sharpe_ratio")), unit="ratio",
-                  rolling=LIGHT, settings=RATIO_SETTINGS),
+        StatisticSpec("sharpe_ratio", "Sharpe ratio", RISK_ADJUSTED, FIGURES, PERFORMANCE,
+                      "Mean daily return over the risk-free rate, per unit of its volatility, "
+                      "annualised.", per_book(_headline("sharpe_ratio")), unit="ratio",
+                      rolling=LIGHT, settings=RATIO_SETTINGS),
         ratio("sortino_ratio", "sortino", "Sortino ratio", "The Sharpe ratio with only "
               "downside deviation as risk."),
         ratio("calmar_ratio", "calmar", "Calmar ratio", "The annualised return over the "

@@ -23,7 +23,7 @@ from ..statistics import (
     SERIES,
     TABLE,
     TOO_SHORT,
-    Statistic,
+    StatisticSpec,
     Summarised,
     Unavailable,
 )
@@ -153,7 +153,7 @@ def _days_to_sell(context: Context) -> pd.DataFrame:
     return context.liquidity.profile(horizons=context.options.liquidity.horizons)
 
 
-def statistics() -> list[Statistic]:
+def statistics() -> list[StatisticSpec]:
     """The risk statistics, in order."""
     def stat(id_: str,
              label: str,
@@ -161,9 +161,9 @@ def statistics() -> list[Statistic]:
              kind: str,
              description: str,
              read: Callable[[Context], Any],
-             **details: Any) -> Statistic:
-        return Statistic(id_, label, category, kind, RISK, description, long_enough(read),
-                         **details)
+             **details: Any) -> StatisticSpec:
+        return StatisticSpec(id_, label, category, kind, RISK, description, long_enough(read),
+                             **details)
 
     expected = ["volatility", "factor_volatility", "specific_volatility", "factor_share",
                 "tracking_error", "factor_tracking_error", "specific_tracking_error"]
