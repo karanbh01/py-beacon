@@ -20,7 +20,7 @@ from beacon.analysis.request import AnalysisRequest, analyse
 from beacon.backtest import Backtest
 
 # The categories wired so far, each with the statistics it gives.
-WIRED = ["performance", "risk", "relative", "holdings"]
+WIRED = ["performance", "risk", "relative", "holdings", "trading"]
 
 
 @pytest.fixture(scope="module")
