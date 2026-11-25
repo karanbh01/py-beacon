@@ -8,6 +8,8 @@ A run's analytics a name at a time: `result.analytics.instrument`.
     instrument.total_return(by="year")              # a row a year, a column a name
     instrument.tracking_error(rolling="1Y")         # dates by names
     instrument.volatility(frequency="weekly")
+    instrument.average_weight(of="all")             # a row a name, a column a portfolio
+    instrument.days_to_sell()                       # at the last rebalance or month end
 
 Each figure is measured from the run's daily returns of every name it held
 or its index held, in the portfolio's currency, over the analysis window
@@ -15,6 +17,9 @@ or its index held, in the portfolio's currency, over the analysis window
 them. ``frequency`` compounds them into weeks or months first. Every result
 says what it was measured on in ``attrs``: its ``basis`` (``daily``,
 ``weekly`` or ``monthly``) and, against a comparator, ``against``.
+
+The weights each portfolio gave each name, the days each holding would take
+to sell, and the value each name traded are here too, a row a name.
 """
 # BN-452 (Karan, 2026-11-24). member_risk_return stays on weekly returns,
 # as decided on 2026-11-21, so the frontier and its dots share a scale.
@@ -23,15 +28,19 @@ from typing import Any
 
 import pandas as pd
 
+from ...data.base import as_of_position
 from ..annualising import days_in
-from ..panels import NAME_RETURNS
+from ..panels import NAME_RETURNS, TRADED_VALUES
 from ..performance import name_figures
 from ..performance.name_figures import DAILY, RELATIVE
+from ..reports.context import FUND
 from ..reports.rolling import window_ends
-from ..reports.statistics import RUN_PREDATES, TOO_SHORT, Unavailable
+from ..reports.statistics import NO_DATA_STORE, RUN_PREDATES, TOO_SHORT, Unavailable
+from ..risk.liquidity import BOOKS, LiquidityAnalytics
 from .category import Category, Day
 from .forms import PERIODS
 from .groupings import FREQUENCIES
+from .shape import ALL
 
 DAILY_STEP, MONTH_END = "daily", "month_end"
 
@@ -45,7 +54,7 @@ class InstrumentLevel(Category):
 
     name = "instrument"
     statistics = ("member_risk_return", "style_positions")
-    extras = name_figures.FIGURES
+    extras = (*name_figures.FIGURES, "average_weight", "days_to_sell", "traded_value")
 
     def member_risk_return(self,
                            *,
@@ -155,6 +164,82 @@ class InstrumentLevel(Category):
         return self._figure("residual_risk", names, start, end, by, rolling, step, frequency,
                             against)
 
+    def average_weight(self,
+                       *,
+                       of: str = FUND,
+                       names: Names = None,
+                       start: Day = None,
+                       end: Day = None) -> Any:
+        """Each name's mean daily weight in the fund, its index, optimised
+        index or benchmark (``of``), or each (``of="all"``, a column a
+        portfolio), over the window: 0 on the days it was not held. The
+        daily weights themselves are the result's.
+
+        Raises:
+            ValueError: If the run kept no weights for that portfolio.
+        """
+        # BN-453.
+        context = self._analytics._context_for(start=start, end=end)
+        days = context.performance.returns.index
+        books = list(BOOKS) if of == ALL else [of]
+        found = {}
+
+        for book in books:
+            weights = context.run.tables.get(BOOKS[book]) if book in BOOKS else None
+
+            if weights is None or weights.empty:
+                if of == ALL:
+                    continue
+                raise ValueError(f"The run kept no weights for {book!r}.")
+
+            held = weights.loc[(weights.index >= days[0]) & (weights.index <= days[-1])]
+            found[book] = held.fillna(0.0).mean()
+
+        table = pd.DataFrame(found).fillna(0.0)
+        table = _picked(table.T, names).T if names is not None else table
+
+        return table[of] if of != ALL else table
+
+    def days_to_sell(self,
+                     *,
+                     of: str = FUND,
+                     names: Names = None,
+                     as_of: Day = None) -> Any:
+        """Each holding's value, its average daily traded value and the days
+        it would take to sell at the participation rate the liquidity
+        options set, slowest first, at the last rebalance or month end, or
+        the last on or before ``as_of``; infinite for a name with no traded
+        value."""
+        liquidity = _liquidity(self._analytics._context)
+        dates = _liquidity_dates(liquidity)
+        at = as_of_position(pd.DatetimeIndex(dates),
+                            pd.Timestamp(as_of) if as_of is not None else dates[-1])
+
+        if at is None:
+            raise ValueError(f"The run kept no liquidity on or before {as_of}.")
+
+        found = liquidity.days_to_sell(dates[at], of)
+        found = _picked(found.T, names).T if names is not None else found
+        found.attrs = {"date": dates[at]}
+
+        return found
+
+    def traded_value(self,
+                     *,
+                     names: Names = None,
+                     start: Day = None,
+                     end: Day = None) -> Any:
+        """Each name's average daily value traded on its market, at each
+        rebalance and month end the run kept, dates by names."""
+        context = self._analytics._context_for(start=start, end=end)
+        liquidity = _liquidity(context)
+        _liquidity_dates(liquidity)
+        traded = liquidity.traded_values()
+        days = context.performance.returns.index
+        found = traded.loc[(traded.index >= days[0]) & (traded.index <= days[-1])]
+
+        return _picked(found, names) if names is not None else found
+
     def _figure(self,
                 figure: str,
                 names: Names,
@@ -215,6 +300,31 @@ def _name_returns(context: Any) -> pd.DataFrame:
     found: pd.DataFrame = tables[NAME_RETURNS]
 
     return found.loc[(found.index >= days[0]) & (found.index <= days[-1])]
+
+
+def _liquidity(context: Any) -> LiquidityAnalytics:
+    """The run's liquidity under the analysis's options: measured from the
+    data store when it is loaded, else from the traded values the run
+    kept."""
+    options = context.options.liquidity
+
+    return LiquidityAnalytics(context.run, context.source, participation=options.participation,
+                              lookback_days=options.lookback_days)
+
+
+def _liquidity_dates(liquidity: LiquidityAnalytics) -> list[pd.Timestamp]:
+    """The dates the run kept traded values on, or `Unavailable`."""
+    try:
+        dates: list[pd.Timestamp] = liquidity.dates()
+    except KeyError as error:
+        code = RUN_PREDATES if TRADED_VALUES in str(error) else NO_DATA_STORE
+
+        raise Unavailable(code) from error
+
+    if not dates:
+        raise Unavailable(TOO_SHORT)
+
+    return dates
 
 
 def _picked(returns: pd.DataFrame,

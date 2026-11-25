@@ -164,5 +164,63 @@ class TestTheStatisticsANameAtATime:
     def test_its_methods(self,
                          instrument):
         assert set(instrument.extras) == {"total_return", "volatility", "max_drawdown", "beta",
-                                          "correlation", "tracking_error", "residual_risk"}
+                                          "correlation", "tracking_error", "residual_risk",
+                                          "average_weight", "days_to_sell", "traded_value"}
         assert repr(instrument).startswith("InstrumentLevel(member_risk_return, style_positions")
+
+
+class TestWeightsAndLiquidity:
+    """BN-453: test_liquidity_analytics' fund of two names worked out by
+    hand, read back from its data as a stored run is."""
+
+    @pytest.fixture(scope="class")
+    def data(self):
+        from beacon.analysis.data import RunData
+        from test_backtest_flows import run
+
+        return RunData.from_result(run(capital=2e8))
+
+    @pytest.fixture(scope="class")
+    def names(self,
+              data):
+        from beacon.analysis.analytics import Analytics
+
+        return Analytics(data).instrument
+
+    def test_average_weights(self,
+                             data,
+                             names):
+        from beacon.analysis.panels import FUND_WEIGHTS
+
+        weights = data.tables[FUND_WEIGHTS]
+        days = data.returns.index
+        held = weights.loc[(weights.index >= days[0]) & (weights.index <= days[-1])]
+
+        pd.testing.assert_series_equal(names.average_weight(), held.fillna(0.0).mean(),
+                                       check_names=False)
+        assert "fund" in names.average_weight(of="all").columns
+
+    def test_a_portfolio_it_kept_no_weights_for(self,
+                                               names):
+        with pytest.raises(ValueError, match="no weights for 'benchmark'"):
+            names.average_weight(of="benchmark")
+
+    def test_days_to_sell(self,
+                          data,
+                          names):
+        from beacon.analysis.risk.liquidity import LiquidityAnalytics
+
+        liquidity = LiquidityAnalytics(data)
+        dates = liquidity.dates()
+
+        pd.testing.assert_frame_equal(names.days_to_sell(), liquidity.days_to_sell(dates[-1]))
+        assert names.days_to_sell(as_of=dates[0]).attrs["date"] == dates[0]
+        assert list(names.days_to_sell(names=["GROW"]).index) == ["GROW"]
+
+    def test_traded_value(self,
+                          data,
+                          names):
+        from beacon.analysis.risk.liquidity import LiquidityAnalytics
+
+        pd.testing.assert_frame_equal(names.traded_value(),
+                                      LiquidityAnalytics(data).traded_values())
