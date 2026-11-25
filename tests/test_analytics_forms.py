@@ -64,7 +64,7 @@ class TestTheCatalogueSaysWhatEachTakes:
 
     def test_a_portfolio_s_figure_takes_of_and_a_relative_one_against(self):
         assert CATALOGUE["total_return"].forms == ("of", "start", "end", "by", "trailing",
-                                                   "rolling", "step")
+                                                   "rolling", "step", "grid")
         assert "of" not in CATALOGUE["tracking_error"].forms
         assert "against" in CATALOGUE["tracking_error"].forms
         assert "of" not in CATALOGUE["money_weighted_return"].forms

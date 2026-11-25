@@ -12,6 +12,7 @@ over the whole run; keywords combine:
     tracking_error(against="benchmark", start="2024-01-01")
     holdings_count(as_of="2024-06-28")
     sharpe_ratio(by="month", annualise=False)
+    costs(by="reason")                   # a table's own groups (`groupings`)
 
 Each statistic takes the keywords its catalogue entry lists (`forms`); any
 other is refused, naming the ones it takes. Only one of ``by``,
@@ -37,6 +38,8 @@ from ..reports.catalogue.forms import (
     BY_BOOK_TABLES,
     COMPARATOR,
     END,
+    GRID,
+    GROUPINGS,
     OF,
     ROLLING,
     START,
@@ -47,6 +50,7 @@ from ..reports.context import FUND, Context
 from ..reports.options import DAILY, MONTH_END, RollingOptions
 from ..reports.rolling import rolling as rolled
 from ..reports.statistics import FIGURES, StatisticSpec, Unavailable, figures_of
+from . import groupings
 from .shape import ALL, number, of_figures, of_row, of_table, plain
 
 # The calendar periods `by` takes, and the frequency each is grouped by.
@@ -105,6 +109,12 @@ def value(statistic: StatisticSpec,
     tracked = _tracked(statistic, form.get(AGAINST))
     window = {"start": form.get(START), "end": form.get(END), "tracked": tracked,
               "annualise": _annualise(form)}
+
+    if form.get(GRID):
+        return groupings.grid(form, context_for(**window))
+
+    if BY in form and statistic.id in GROUPINGS:
+        return groupings.grouped(statistic, form, context_for(**window))
 
     if BY in form:
         return _by_period(statistic, form, context_for, window)

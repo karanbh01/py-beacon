@@ -261,10 +261,15 @@ class RiskCategory(Category):
         specific."""
         return self._get("expected_risk", as_of=as_of)
 
-    def risk_contributions(self) -> Any:
+    def risk_contributions(self,
+                           *,
+                           by: str | None = None) -> Any:
         """Each name's marginal contribution, contribution and share of
-        expected risk at the last rebalance."""
-        return self._get("risk_contributions")
+        expected risk at the last rebalance.
+
+        ``by`` a grouping field of the names, such as ``"sector"``, adds
+        them up by the group each name was in that day."""
+        return self._get("risk_contributions", by=by)
 
     def measured_contributions(self,
                                *,
@@ -305,10 +310,14 @@ class RiskCategory(Category):
 
     def herfindahl(self,
                    *,
+                   by: str | None = None,
                    as_of: Day = None) -> Any:
         """Herfindahl of weights, its normalised form, and the effective
-        number of holdings, at each rebalance."""
-        return self._get("herfindahl", as_of=as_of)
+        number of holdings, at each rebalance.
+
+        ``by="month"``, ``"quarter"`` or ``"year"`` gives each period's mean
+        of the daily figures."""
+        return self._get("herfindahl", by=by, as_of=as_of)
 
     def top_weights(self,
                     *,

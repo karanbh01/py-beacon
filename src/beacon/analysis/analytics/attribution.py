@@ -45,11 +45,15 @@ class AttributionCategory(Category):
     def brinson(self,
                 *,
                 start: Day = None,
-                end: Day = None) -> Any:
+                end: Day = None,
+                by: str | None = None) -> Any:
         """Allocation, selection and interaction by group, cash its own
         group, and each group's selection and interaction by name, linked
-        over the run."""
-        return self._get("brinson", start=start, end=end)
+        over the run.
+
+        ``by="month"``, ``"quarter"`` or ``"year"`` gives the effects over
+        each period, linked within it, a row a period."""
+        return self._get("brinson", start=start, end=end, by=by)
 
     def currency_attribution(self,
                              *,

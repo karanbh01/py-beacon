@@ -42,10 +42,15 @@ class PerformanceCategory(Category):
                      by: str | None = None,
                      trailing: Windows = None,
                      rolling: int | str | None = None,
-                     step: str | None = None) -> Any:
-        """The fund's compounded return over the window."""
+                     step: str | None = None,
+                     grid: bool | None = None) -> Any:
+        """The fund's compounded return over the window.
+
+        ``by="month", grid=True`` gives the months as a calendar grid, a
+        row a year with the year's return, of the fund, a comparator, or
+        the fund less its tracked comparator (``of="active"``)."""
         return self._get("total_return", of=of, start=start, end=end, by=by, trailing=trailing,
-                         rolling=rolling, step=step)
+                         rolling=rolling, step=step, grid=grid)
 
     def annualised_return(self,
                           *,

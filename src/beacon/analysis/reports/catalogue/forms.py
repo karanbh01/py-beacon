@@ -6,23 +6,26 @@ given in (`result.analytics`):
 - ``of``: the portfolio measured, for figures given a portfolio each and
   tables with a column each;
 - ``start`` and ``end``: the window, for a figure of a window of returns;
-- ``by``: calendar periods;
+- ``by``: calendar periods, or the groups a table is split by, such as a
+  trade's reason (`GROUPINGS`);
 - ``trailing``: windows ending on the last day;
 - ``rolling`` (and ``step``): a rolling window, for a statistic that rolls;
 - ``against``: the comparator, for a relative figure;
 - ``as_of``: one day, for a statistic that runs through time;
 - ``annualise``: whether an annualised figure is given over any window
   (True), per day (False), or only over a window long enough for it (None,
-  `beacon.analysis.annualising`).
+  `beacon.analysis.annualising`);
+- ``grid``: the monthly returns as a calendar grid, years by months.
 """
 # BN-434 (Karan, 2026-11-24). The sets are the formats each statistic was
 # given in when the 0.11.0 result API was agreed.
 from ...annualising import ANNUALISED
 from ..statistics import FIGURES, StatisticSpec
 
-OF, START, END, BY, TRAILING, ROLLING, STEP, AGAINST, AS_OF, ANNUALISE = (
-    "of", "start", "end", "by", "trailing", "rolling", "step", "against", "as_of", "annualise")
-KEYWORDS = (OF, START, END, BY, TRAILING, ROLLING, STEP, AGAINST, AS_OF, ANNUALISE)
+OF, START, END, BY, TRAILING, ROLLING, STEP, AGAINST, AS_OF, ANNUALISE, GRID = (
+    "of", "start", "end", "by", "trailing", "rolling", "step", "against", "as_of", "annualise",
+    "grid")
+KEYWORDS = (OF, START, END, BY, TRAILING, ROLLING, STEP, AGAINST, AS_OF, ANNUALISE, GRID)
 
 BOOK, COMPARATOR = "book", "comparator"
 
@@ -78,6 +81,22 @@ BY_BOOK_TABLES = _ids("holdings_count characteristics factor_exposures")
 # Figures given for the fund alone, never its index or benchmark.
 FUND_ONLY = _ids("money_weighted_return")
 
+# BN-446: tables split by groups of their own rather than by windowing the
+# run, and what ``by`` takes for each. A grouping field of the run's names
+# (`FIELD`), such as ``"sector"``, is any the run kept.
+FIELD = "field"
+GROUPINGS: dict[str, tuple[str, ...]] = {
+    "costs": ("reason", "year"),
+    "trade_counts": ("reason",),
+    "dealing_costs": ("kind", "year"),
+    "brinson": ("month", "quarter", "year"),
+    "herfindahl": ("month", "quarter", "year"),
+    "risk_contributions": (FIELD,),
+}
+
+# Statistics given as a calendar grid too.
+GRIDDED = _ids("total_return")
+
 
 def forms_of(statistic: StatisticSpec) -> tuple[str, ...]:
     """The keywords *statistic* takes, in `KEYWORDS`'s order."""
@@ -92,7 +111,7 @@ def forms_of(statistic: StatisticSpec) -> tuple[str, ...]:
     if statistic.id in WINDOW:
         found.update((START, END))
 
-    if statistic.id in PERIODS:
+    if statistic.id in PERIODS or statistic.id in GROUPINGS:
         found.add(BY)
 
     if statistic.id in TRAILING_WINDOWS:
@@ -110,5 +129,8 @@ def forms_of(statistic: StatisticSpec) -> tuple[str, ...]:
     # BN-465.
     if statistic.id in ANNUALISED:
         found.add(ANNUALISE)
+
+    if statistic.id in GRIDDED:
+        found.add(GRID)
 
     return tuple(keyword for keyword in KEYWORDS if keyword in found)

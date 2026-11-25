@@ -35,11 +35,16 @@ class FlowsCategory(Category):
         received."""
         return self._get("flow_costs", as_of=as_of)
 
-    def dealing_costs(self) -> Any:
+    def dealing_costs(self,
+                      *,
+                      by: str | None = None) -> Any:
         """Each subscription or redemption: trading caused, what dealers
         paid in, net cost to the fund and in bp, and for an ETF the AP's
-        cost."""
-        return self._get("dealing_costs")
+        cost.
+
+        ``by="kind"`` adds them up by kind of flow over the run, and
+        ``by="year"`` by year and kind."""
+        return self._get("dealing_costs", by=by)
 
     def class_costs(self,
                     *,
