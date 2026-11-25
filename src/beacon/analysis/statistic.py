@@ -164,6 +164,7 @@ class Statistic(StrEnum):
     HERFINDAHL = "herfindahl"
     TOP_WEIGHTS = "top_weights"
     CONCENTRATION_CURVE = "concentration_curve"
+    CRISIS_CONCENTRATION = "crisis_concentration"
     GINI_AND_ENTROPY = "gini_and_entropy"
     CONCENTRATION_BY_RISK = "concentration_by_risk"
     ABSORPTION_RATIO = "absorption_ratio"

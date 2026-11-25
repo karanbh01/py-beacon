@@ -51,7 +51,7 @@ WINDOW = _ids("""
     class_costs etf_premium futures_trading futures_basis futures_basis_risk factor_betas
     value_at_risk expected_shortfall measured_contributions concentration_by_outcome
     contribution active_attribution brinson currency_attribution factor_attribution
-    implementation_breakdown""")
+    implementation_breakdown crisis_concentration""")
 
 # Figures given in each calendar period.
 PERIODS = _ids("""

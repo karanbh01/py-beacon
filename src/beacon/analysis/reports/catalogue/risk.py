@@ -14,8 +14,10 @@ from typing import Any
 import pandas as pd
 
 from ....exceptions import CalculationError
+from ...performance.crises import NAMED_CRISES
 from ...risk.var import ACTIVE
 from ..context import FUND, Context
+from ..options import NAMED
 from ..statistics import (
     FIGURES,
     MODERATE,
@@ -147,6 +149,16 @@ def _by_weight(columns: list[str],
     return compute
 
 
+def _in_crises(context: Context) -> pd.DataFrame:
+    """The concentration inside each of the run's crises and on the calm
+    days."""
+    named = NAMED_CRISES if context.options.crises.episodes == NAMED else None
+
+    return context.concentration.in_crises(market=context.market(),
+                                           threshold=context.options.crises.threshold,
+                                           named=named)
+
+
 def _curve(context: Context) -> Summarised:
     day = _last(context.concentration.rebalances())
 
@@ -241,6 +253,11 @@ def statistics() -> list[StatisticSpec]:
         stat("concentration_curve", "Concentration curve", CONCENTRATION, TABLE, "Names "
              "largest first at the last rebalance: each one's weight, the cumulative weight "
              "to it, and how the top k's concentration changes as each is added.", _curve),
+        # BN-449.
+        stat("crisis_concentration", "Concentration in crises", CONCENTRATION, TABLE,
+             "The mean daily concentration figures inside each crisis, and on the calm days "
+             "outside all of them.", _in_crises,
+             settings=("crises.market", "crises.threshold", "crises.episodes")),
         stat("gini_and_entropy", "Gini and entropy", CONCENTRATION, TABLE, "Gini coefficient "
              "from the Lorenz curve, and entropy with its effective number, at each "
              "rebalance.", _by_weight(["gini", "entropy", "entropy_effective_number"],

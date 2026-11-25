@@ -36,7 +36,8 @@ PLACED = {
         factor_betas expected_risk forecast_check bias_test risk_contributions
         measured_contributions
         diversification_ratio average_correlation concentration_by_risk absorption_ratio
-        herfindahl top_weights concentration_curve gini_and_entropy concentration_by_outcome
+        herfindahl top_weights concentration_curve crisis_concentration gini_and_entropy
+        concentration_by_outcome
         drift days_to_sell""",
     RELATIVE: """
         tracking_difference tracking_error information_ratio information_ratio_t

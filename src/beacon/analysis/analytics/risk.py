@@ -35,7 +35,8 @@ class RiskCategory(Category):
                   "measured_contributions",
                   "diversification_ratio", "average_correlation",
                   "concentration_by_risk", "absorption_ratio", "herfindahl",
-                  "top_weights", "concentration_curve", "gini_and_entropy",
+                  "top_weights", "concentration_curve", "crisis_concentration",
+                  "gini_and_entropy",
                   "concentration_by_outcome", "drift", "days_to_sell")
 
     # -- volatility and drawdown ----------------------------------------------
@@ -359,6 +360,14 @@ class RiskCategory(Category):
         cumulative weight to it, and how the top k's concentration changes
         as each is added."""
         return self._get("concentration_curve")
+
+    def crisis_concentration(self,
+                             *,
+                             start: Day = None,
+                             end: Day = None) -> Any:
+        """The mean daily concentration figures inside each crisis, and on
+        the calm days outside all of them."""
+        return self._get("crisis_concentration", start=start, end=end)
 
     def gini_and_entropy(self,
                          *,
