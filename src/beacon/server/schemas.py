@@ -4075,23 +4075,47 @@ class AssetView(BaseModel):
                     "time. Carried alongside `weight_history`, which stays the "
                     "applied series.")
     rebalances_held: int
-    total_return: float = Field(
-        description="The name's return over the run, in the index's currency.")
-    index_return: float
-    excess_return: float = Field(
-        description="`total_return` less `index_return`, both in the index's "
-                    "currency.")
-    tracking_error: float
-    correlation: float
-    beta: float
-    observations: int
+    total_return: float | None = Field(
+        default=None,
+        description="The name's total return over the run's analysis window, "
+                    "dividends and corporate actions included, in the "
+                    "portfolio's currency, as `GET /strategies/{strategy_id}/"
+                    "instrument` gives it. Null with `figures_unavailable` when "
+                    "the run cannot give it.")
+    index_return: float | None = Field(
+        default=None,
+        description="The comparator's total return over the same window.")
+    excess_return: float | None = Field(
+        default=None,
+        description="`total_return` less the comparator's return over the days the name "
+                    "has a return: `index_return` for a name held throughout.")
+    tracking_error: float | None = Field(
+        default=None,
+        description="Against the comparator, on the returns `basis` names.")
+    correlation: float | None = Field(default=None, description="With the comparator.")
+    beta: float | None = Field(default=None, description="Against the comparator.")
+    observations: int = Field(
+        default=0,
+        description="How many of the name's returns the figures are measured on.")
+    against: str | None = Field(
+        default=None,
+        description="The comparator the figures are measured against: the one the run "
+                    "tracks.")
+    basis: str | None = Field(
+        default=None,
+        description="The returns the figures are measured on: 'daily'.")
+    start: str | None = Field(default=None, description="The window's first day.")
+    end: str | None = Field(default=None, description="The window's last day.")
+    figures_unavailable: str | None = Field(
+        default=None,
+        description="Why a figure is null, when one is: the run predates the names' "
+                    "returns being kept, say, or never held the name.")
     price: SeriesPayload = Field(
         description="The name's close, in its own currency.")
     currency: str | None = Field(
         default=None,
-        description="The currency `total_return`, `excess_return`, "
-                    "`tracking_error`, `correlation` and `beta` are measured "
-                    "in: the index's.")
+        description="The currency `total_return`, `index_return` and "
+                    "`excess_return` are measured in: the portfolio's.")
     price_currency: str | None = Field(
         default=None,
         description="The currency `price` is in: the name's own, from its "

@@ -32,6 +32,7 @@ from ..errors import FindingsError
 from ..holding_reference import ReferenceFieldsQuery, holding_reference
 from ..holdings import HOLDINGS_KEY, build_holdings
 from ..holdings_schemas import HoldingsView
+from ..instrument import asset_figures, stored_analytics
 from ..jobs import JobRegistry
 from ..market_caps import (
     FREE_FLOAT_MARKET_CAP,
@@ -563,13 +564,19 @@ def build_strategy_runs_router() -> APIRouter:
               strategy_id: Identifier,
               identifier: str) -> AssetView:
         strategy = _strategy(request, strategy_id)
-        document = _index_of(request, strategy)
+        fetcher = _data_fetcher(request)
+        records: DocumentStore = request.app.state.backtest_record_store
+        # BN-454: the run's own analytics, not measured here.
+        figures = (asset_figures(stored_analytics(records.panels_directory(strategy_id),
+                                                  fetcher), identifier)
+                   if records.exists(strategy_id)
+                   else {"figures_unavailable": "The run's tables were not kept."})
 
         return build_asset_view(strategy_id,
                                 strategy.index_id,
                                 identifier,
                                 _latest_run(request, strategy_id),
-                                _data_fetcher(request),
-                                document.currency)
+                                fetcher,
+                                figures)
 
     return router

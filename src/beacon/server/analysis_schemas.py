@@ -222,6 +222,35 @@ class ColumnarTable(BaseModel):
         default_factory=dict, description="The decimals each number column is rounded to.")
 
 
+class InstrumentColumn(BaseModel):
+    """One column of the per-name table."""
+    name: str = Field(description="As it is keyed; a weight column's names its portfolio, "
+                                  "such as 'weight/fund'.")
+    label: str = Field(description="As it is shown.")
+    unit: str | None = Field(description="What it is measured in: 'fraction', 'ratio', "
+                                         "'count', 'days' or 'date'; null for a yes or no.")
+
+
+class InstrumentTable(BaseModel):
+    """Response of `GET /strategies/{strategy_id}/instrument`: every per-name
+    figure of the latest run, a row for each name any portfolio held over
+    the window, as `result.analytics.instrument.table()` gives it."""
+    basis: str = Field(description="The returns the figures are measured on: 'daily', "
+                                   "'weekly' or 'monthly'.")
+    against: str | None = Field(description="The comparator the relative figures are "
+                                            "measured against; null when none was given.")
+    currency: str = Field(description="The currency the names' returns are in: the "
+                                      "portfolio's.")
+    start: str | None = Field(description="The window's first day, YYYY-MM-DD.")
+    end: str | None = Field(description="The window's last day, YYYY-MM-DD.")
+    columns: list[InstrumentColumn] = Field(description="Each column, in order.")
+    names: list[str] = Field(description="Each row's name, in order.")
+    data: list[list[Any]] = Field(description="A row a name, a value a column, in "
+                                              "`columns`' order; null where it has none.")
+    unavailable: dict[str, str] = Field(description="Each column asked for that the run "
+                                                    "cannot give, and why.")
+
+
 class StatisticSpec(BaseModel):
     """One statistic, as the catalogue lists it."""
     id: str = Field(description="What requests and stored choices name it by.")

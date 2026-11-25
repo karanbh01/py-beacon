@@ -73,7 +73,7 @@ SELF_EVIDENT_FIELDS = {"index_id", "name"}
 # case that made BN-181 worth filing: a NEW field shipping silent, where two
 # components can hold different meanings for it indefinitely and the divergence
 # surfaces only when behaviour changes underneath both.
-SILENT_FIELD_CEILING = 167
+SILENT_FIELD_CEILING = 162
 
 # The date- and time-shaped fields BN-181 described, written out rather than
 # derived so that losing one is a failure rather than a number that still adds

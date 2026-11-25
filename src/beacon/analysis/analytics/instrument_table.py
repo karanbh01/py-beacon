@@ -9,9 +9,11 @@ the window: `instrument.table()`.
 Its columns, in order (`COLUMNS`):
 
 - ``first_held`` and ``last_held``, the first and last day over the window
-  any portfolio held it, and ``in_index_at_end``, whether the index held it
-  on the window's last day;
-- ``total_return``, ``annualised_return`` (the mean return times the periods
+  any portfolio held it, ``in_index_at_end``, whether the index held it on
+  the window's last day, and ``observations``, the returns it has over the
+  window on the basis measured;
+- ``total_return``, against the comparator ``excess_return``,
+  ``annualised_return`` (the mean return times the periods
   a year, as the efficient frontier measures it, blank for a name with
   returns over less than a year), ``volatility``, and against the comparator
   ``beta``, ``correlation``, ``tracking_error`` and ``residual_risk``, on
@@ -25,7 +27,8 @@ Its columns, in order (`COLUMNS`):
 - ``days_to_sell``, at the last rebalance or month end.
 
 ``columns`` picks some, a weight column by its name alone for every
-portfolio's. A column the run cannot give is left out, and ``attrs`` say why
+portfolio's. `columns_of` gives each column's label and unit. A column the
+run cannot give is left out, and ``attrs`` say why
 under ``unavailable``, beside the ``basis``, the comparator (``against``),
 the ``currency`` the returns are in and the window's ``start`` and ``end``.
 """
@@ -36,15 +39,34 @@ from typing import Any
 
 import pandas as pd
 
-from ..reports.statistics import Unavailable
+from ...catalogue import COUNT, DATE, DAYS, FRACTION, RATIO
+from ..performance.name_figures import BASES, DAILY
+from ..reports.statistics import Column, Unavailable
 from ..risk.liquidity import BOOKS
 from .shape import ALL
 
 HELD = ("first_held", "last_held", "in_index_at_end")
-FIGURES = ("total_return", "annualised_return", "volatility", "beta", "correlation",
-           "tracking_error", "residual_risk")
+OBSERVATIONS = "observations"
+FIGURES = ("total_return", "excess_return", "annualised_return", "volatility", "beta",
+           "correlation", "tracking_error", "residual_risk")
 WEIGHTS = ("weight", "average_weight")
-COLUMNS = (*HELD, *FIGURES, *WEIGHTS, "contribution", "risk_contribution", "days_to_sell")
+COLUMNS = (*HELD, OBSERVATIONS, *FIGURES, *WEIGHTS, "contribution", "risk_contribution",
+           "days_to_sell")
+
+# Each column's label and unit; a weight column's is its kind's.
+LABELS = {"first_held": ("First held", DATE), "last_held": ("Last held", DATE),
+          "in_index_at_end": ("In the index at the end", None),
+          OBSERVATIONS: ("Returns measured", COUNT),
+          "total_return": ("Total return", FRACTION),
+          "excess_return": ("Excess return", FRACTION),
+          "annualised_return": ("Annualised return", FRACTION),
+          "volatility": ("Volatility", FRACTION), "beta": ("Beta", RATIO),
+          "correlation": ("Correlation", RATIO), "tracking_error": ("Tracking error", FRACTION),
+          "residual_risk": ("Residual risk", FRACTION), "weight": ("Weight", FRACTION),
+          "average_weight": ("Average weight", FRACTION),
+          "contribution": ("Contribution to return", FRACTION),
+          "risk_contribution": ("Contribution to risk", FRACTION),
+          "days_to_sell": ("Days to sell", DAYS)}
 OWN = ("total_return", "annualised_return", "volatility")
 
 
@@ -58,8 +80,13 @@ def per_name(instrument: Any,
     """The table `instrument.table()` gives.
 
     Raises:
-        ValueError: If a column is not one of `COLUMNS`.
+        ValueError: If a column is not one of `COLUMNS`, or *frequency*
+            is not daily, weekly or monthly.
     """
+    if frequency != DAILY and frequency not in BASES:
+        raise ValueError(f"frequency is {DAILY!r}, {', '.join(map(repr, BASES))}; "
+                         f"not {frequency!r}.")
+
     wanted = list(COLUMNS) if columns is None else _checked(columns)
     window = {"start": start, "end": end}
     context = instrument._analytics._context_for(**window)
@@ -99,6 +126,19 @@ def per_name(instrument: Any,
     return table
 
 
+def columns_of(table: pd.DataFrame) -> list[Column]:
+    """The label and unit of each of *table*'s columns, in its order: a
+    weight column's label names its portfolio."""
+    found = []
+
+    for name in table.columns:
+        kind, _, book = str(name).partition("/")
+        label, unit = LABELS[kind]
+        found.append(Column(str(name), f"{label} ({book})" if book else label, unit))
+
+    return found
+
+
 def _checked(columns: Sequence[str]) -> list[str]:
     unknown = [column for column in columns
                if column not in COLUMNS and column.split("/")[0] not in WEIGHTS]
@@ -120,6 +160,9 @@ def _part(instrument: Any,
         keywords = {**window, "frequency": frequency, **({"against": against} if relative else {})}
 
         return lambda: getattr(instrument, column)(**keywords)
+
+    if column == OBSERVATIONS:
+        return lambda: instrument._observations(window, frequency)
 
     kind, _, book = column.partition("/")
 
@@ -230,4 +273,4 @@ def _picked(table: pd.DataFrame,
     return table.loc[wanted]
 
 
-__all__ = ["COLUMNS", "per_name"]
+__all__ = ["COLUMNS", "LABELS", "columns_of", "per_name"]

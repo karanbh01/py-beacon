@@ -79,6 +79,11 @@ class TestEachIsTheFormulaOnTheName:
         assert instrument.tracking_error()[NAME] == pytest.approx(
             formulas.tracking_error(ours - theirs, 252), rel=1e-9)
         assert instrument.residual_risk()[NAME] == pytest.approx(residual, rel=1e-9)
+        assert instrument.excess_return()[NAME] == pytest.approx(
+            formulas.compounded_return(ours) - formulas.compounded_return(theirs), rel=1e-9)
+        assert instrument.excess_return(rolling=63).iloc[-1][NAME] == pytest.approx(
+            formulas.compounded_return(ours.iloc[-63:])
+            - formulas.compounded_return(theirs.iloc[-63:]), rel=1e-9)
 
     def test_its_annualised_return_is_the_mean_a_year(self,
                                                       instrument,
@@ -193,7 +198,7 @@ class TestTheStatisticsANameAtATime:
     def test_its_methods(self,
                          instrument):
         assert set(instrument.extras) == {"total_return", "annualised_return", "volatility",
-                                          "max_drawdown", "beta",
+                                          "max_drawdown", "excess_return", "beta",
                                           "correlation", "tracking_error", "residual_risk",
                                           "average_weight", "days_to_sell", "traded_value",
                                           "table"}

@@ -371,6 +371,21 @@ class TestAssetView:
                                          payload):
         assert len(payload["price"]["data"]) > 300
 
+    def test_its_figures_are_the_run_s_analytics(self,
+                                                 client,
+                                                 payload):
+        table = client.get(f"/strategies/{INDEX_ID}/instrument", headers=auth(),
+                           params={"names": ["AAA"]}).json()
+        row = dict(zip([column["name"] for column in table["columns"]], table["data"][0],
+                       strict=True))
+
+        assert payload["total_return"] == pytest.approx(row["total_return"], rel=1e-12)
+        assert payload["beta"] == pytest.approx(row["beta"], rel=1e-12)
+        assert payload["observations"] == row["observations"]
+        assert (payload["basis"], payload["against"]) == ("daily", "index")
+        assert payload["currency"] == table["currency"] == "USD"
+        assert payload["figures_unavailable"] is None
+
     def test_a_name_the_index_never_held_is_a_404(self,
                                                   client):
         response = client.get(f"/strategies/{INDEX_ID}/assets/NOT_HELD", headers=auth())
@@ -581,7 +596,7 @@ class TestErrorPaths:
             build_asset_view(INDEX_ID, INDEX_ID, "AAA",
                              client.app.state.jobs.latest_result(
                                  f"backtest:{INDEX_ID}"),
-                             empty)
+                             empty, {})
 
     def test_drift_is_null_when_prices_are_unavailable(self,
                                                        client):

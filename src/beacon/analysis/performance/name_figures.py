@@ -10,7 +10,9 @@ A name is measured over the days it has a return, and against a comparator
 over the days both have. Figures are measured as the fund's are
 (`formulas`): the total return compounded, the annualised return the mean
 return times the periods a year (as the efficient frontier measures it,
-`beacon.analysis.performance.members`), the volatility and tracking error
+`beacon.analysis.performance.members`), the excess return the name's
+compounded return less the comparator's over the same days, the volatility
+and tracking error
 the standard deviation scaled by the square root of the periods a year, the
 beta the covariance over the comparator's variance, and the residual risk
 the regression's residuals' spread with two degrees of freedom spent.
@@ -30,7 +32,7 @@ DAILY, WEEKLY, MONTHLY = "daily", "weekly", "monthly"
 BASES = {WEEKLY: ("W-FRI", 52), MONTHLY: ("ME", 12)}
 
 OWN = ("total_return", "annualised_return", "volatility", "max_drawdown")
-RELATIVE = ("beta", "correlation", "tracking_error", "residual_risk")
+RELATIVE = ("excess_return", "beta", "correlation", "tracking_error", "residual_risk")
 FIGURES = (*OWN, *RELATIVE)
 
 
@@ -162,6 +164,10 @@ def _relative(name: str,
                               index=returns.index, columns=returns.columns)
     count = both.sum()
 
+    if name == "excess_return":
+        return _total_return(ours, periods_per_year) - _total_return(comparator,
+                                                                      periods_per_year)
+
     if name == "tracking_error":
         return (ours - comparator).std() * np.sqrt(periods_per_year)
 
@@ -179,6 +185,12 @@ def _rolling_relative(name: str,
                       window: int,
                       periods_per_year: int) -> pd.DataFrame:
     """A figure of each name against *theirs* over each full window."""
+    if name == "excess_return":
+        grown = np.log1p(returns).rolling(window, min_periods=window).sum()
+        theirs_grown = np.log1p(theirs).rolling(window, min_periods=window).sum()
+
+        return np.expm1(grown).sub(np.expm1(theirs_grown), axis=0)
+
     if name == "tracking_error":
         active = returns.sub(theirs, axis=0)
 

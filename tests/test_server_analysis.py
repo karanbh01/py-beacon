@@ -3,7 +3,8 @@
 
 The catalogue of what an analysis can be asked for; a strategy backtested
 with an analysis, whose block the job answers with and the strategy serves
-later; its trades whole, by column and as Arrow; requests refused; and large
+later; its trades whole, by column and as Arrow; its per-name table;
+requests refused; and large
 responses compressed only for a client on another machine.
 """
 import gzip
@@ -198,6 +199,54 @@ class TestTheTrades:
                                            client):
         assert client.get("/strategies/analysed/tables/secrets",
                           headers=auth()).status_code == 404
+
+
+class TestThePerNameTable:
+    """BN-454: `result.analytics.instrument.table()` of the stored run."""
+
+    @pytest.fixture(scope="class")
+    def analytics(self,
+                  client):
+        from beacon.analysis.analytics import Analytics
+
+        folder = client.app.state.backtest_record_store.panels_directory("analysed")
+
+        return Analytics(RunData.from_record(folder))
+
+    def test_each_column_with_its_label_and_unit(self,
+                                                 client,
+                                                 analytics):
+        table = client.get("/strategies/analysed/instrument", headers=auth()).json()
+        units = {column["name"]: column["unit"] for column in table["columns"]}
+        kept = analytics.instrument.table()
+
+        assert table["names"] == list(kept.index)
+        assert units["first_held"] == "date" and units["beta"] == "ratio"
+        assert units["weight/fund"] == "fraction" and units["observations"] == "count"
+        assert (table["basis"], table["against"], table["currency"]) == ("daily", "index",
+                                                                         "USD")
+        assert table["start"] == kept.attrs["start"].strftime("%Y-%m-%d")
+
+    def test_its_values_are_the_analytics(self,
+                                          client,
+                                          analytics):
+        table = client.get("/strategies/analysed/instrument", headers=auth(),
+                           params={"columns": ["annualised_return", "weight"],
+                                   "frequency": "weekly"}).json()
+        kept = analytics.instrument.table(columns=["annualised_return", "weight"],
+                                          frequency="weekly")
+        found = dict(zip(table["names"], (row[0] for row in table["data"]), strict=True))
+
+        assert [column["name"] for column in table["columns"]] == list(kept.columns)
+        assert found == pytest.approx(kept["annualised_return"].to_dict(), rel=1e-12)
+
+    def test_what_it_refuses(self,
+                             client):
+        assert client.get("/strategies/analysed/instrument", headers=auth(),
+                          params={"columns": ["alpha"]}).status_code == 422
+        assert client.get("/strategies/analysed/instrument", headers=auth(),
+                          params={"frequency": "hourly"}).status_code == 422
+        assert client.get("/strategies/unrun/instrument", headers=auth()).status_code == 404
 
 
 class TestRefusals:

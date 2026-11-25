@@ -40,7 +40,6 @@ import pandas as pd
 
 from ..analysis.attribution.schedule import attribute_schedule
 from ..analysis.performance.levels import compared
-from ..analysis.relative import relative_metrics
 from ..data.fetcher import DataFetcher
 from ..data.prices import currencies_of
 from ..exceptions import DataNotFoundError
@@ -183,12 +182,13 @@ def build_asset_view(strategy_id: str,
                      identifier: str,
                      run: dict[str, Any],
                      fetcher: DataFetcher,
-                     currency: str | None = None) -> AssetView:
-    """One constituent: its weight history and how it fared against the index.
+                     figures: dict[str, Any]) -> AssetView:
+    """One constituent: its weight history, its prices, and *figures*, how it
+    fared against the comparator, as the run's analytics give them
+    (`beacon.server.instrument.asset_figures`).
 
-    The comparison with the index is made in *currency*, the index's; the
-    price series returned stays in the name's own currency, as a price chart
-    should.
+    The price series returned stays in the name's own currency, as a price
+    chart should.
     """
     snapshots = snapshots_from(run)
 
@@ -212,16 +212,8 @@ def build_asset_view(strategy_id: str,
     if frame.empty or "CLOSE" not in frame.columns:
         raise DataNotFoundError(f"prices for '{identifier}'", source="MarketData")
 
-    level = SeriesPayload.model_validate(run["level"])
-    index_level = pd.Series(level.data,
-                            index=pd.to_datetime(level.index)).astype(float)
-
-    # Compared in the index's money: a name's return in its own currency
-    # against an index's in another is not a like-for-like excess (BN-253).
-    comparable = (fetcher.fetch_prices([identifier], currency=currency)
-                  .get(identifier, frame["CLOSE"]))
-    metrics = relative_metrics(comparable, index_level)
-
+    # BN-454: the figures are the run's analytics, on its own daily total
+    # returns in the portfolio's currency, not measured here from prices.
     return AssetView(
         strategy_id=strategy_id,
         index_id=index_id,
@@ -229,15 +221,8 @@ def build_asset_view(strategy_id: str,
         weight_history=history,
         raw_weight_history=raw_history,
         rebalances_held=len(history),
-        total_return=metrics.total_return,
-        index_return=metrics.benchmark_return,
-        excess_return=metrics.excess_return,
-        tracking_error=metrics.tracking_error,
-        correlation=metrics.correlation,
-        beta=metrics.beta,
-        observations=metrics.observations,
+        **figures,
         price=SeriesPayload.from_series(frame["CLOSE"]),
-        currency=currency.upper() if currency else None,
         price_currency=currencies_of(fetcher, [identifier], "")[identifier] or None)
 
 

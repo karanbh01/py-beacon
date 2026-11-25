@@ -227,6 +227,16 @@ one axis, and `GET /strategies/runs` lists every strategy's latest saved run,
 newest first. A strategy's weights view takes `benchmark`, an index to
 measure tracking error against, which is calculated on its own.
 
+`GET /strategies/{id}/instrument` gives the latest run's figures a name at a
+time, as `result.analytics.instrument.table()` does: a row for each name any
+portfolio held over the window, with when it was held, its return and risk,
+its figures against the comparator, its weights, its contributions to return
+and risk and its days to sell, each column with its label and unit.
+`columns`, `names`, `start`, `end`, `against` and `frequency` (`daily`,
+`weekly` or `monthly`) pick what it measures. A name's figures in
+`/assets/{identifier}` are its row of the same table, so the two always agree
+with each other and with the run's analysis.
+
 ## An index on its own
 
 `GET /indices/{id}/level` calculates a stored index alone, with no portfolio,

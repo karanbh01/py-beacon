@@ -130,6 +130,22 @@ class InstrumentLevel(Category):
         end each month end unless ``step`` says otherwise."""
         return self._figure("max_drawdown", names, start, end, by, rolling, step, frequency)
 
+    def excess_return(self,
+                      *,
+                      names: Names = None,
+                      start: Day = None,
+                      end: Day = None,
+                      by: str | None = None,
+                      rolling: int | str | None = None,
+                      step: str | None = None,
+                      against: str | None = None,
+                      frequency: str = DAILY) -> Any:
+        """Each name's compounded return less the comparator's, over the
+        days the name has a return."""
+        # BN-454: Drilldown's, worked out here rather than by the server.
+        return self._figure("excess_return", names, start, end, by, rolling, step, frequency,
+                            against)
+
     def beta(self,
              *,
              names: Names = None,
@@ -278,6 +294,17 @@ class InstrumentLevel(Category):
         some; one the run cannot give is left out, and ``attrs`` say why."""
         # BN-454.
         return per_name(self, columns, names, start, end, against, frequency)
+
+    def _observations(self,
+                      window: dict[str, Any],
+                      frequency: str) -> pd.Series:
+        """How many returns each name has over *window* on the basis
+        *frequency* names."""
+        context = self._analytics._context_for(**window)
+        returns, _, _ = name_figures.on_basis(_name_returns(context), None, frequency,
+                                              context.performance.periods_per_year)
+
+        return returns.notna().sum().rename("observations")
 
     def _figure(self,
                 figure: str,

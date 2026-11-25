@@ -6,8 +6,9 @@ JSON or as Arrow.
 """
 # BN-398/BN-400.
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Query, Request, Response, status
 
 from ...analysis.data import RunData
 from ...exceptions import DataNotFoundError
@@ -33,15 +34,29 @@ from ..analysis_schemas import (
     AnalyticsRerun,
     AnalyticsView,
     ColumnarTable,
+    InstrumentTable,
     SavedAnalyses,
     SavedAnalysis,
     SavedAnalysisView,
 )
+from ..instrument import instrument_table, stored_analytics
 from ..jobs import JobRegistry
 from ..market_inputs import warnings_of
 from ..schemas import AnalyticsJobStatus, Identifier
 from ..store import DocumentStore
-from .strategy_runs import RECORD_SOURCE, _strategy
+from .strategy_runs import RECORD_SOURCE, EndQuery, StartQuery, _strategy
+
+ColumnsQuery = Annotated[list[str] | None, Query(
+    description="The columns wanted, every one when left out; a weight column by its kind "
+                "alone ('weight') for every portfolio's.")]
+NamesQuery = Annotated[list[str] | None, Query(
+    description="The names wanted, every one held over the window when left out.")]
+AgainstQuery = Annotated[str | None, Query(
+    description="The comparator the relative figures are measured against: 'index', "
+                "'optimised' or 'benchmark'; the one the run tracks when left out.")]
+FrequencyQuery = Annotated[str, Query(
+    description="The returns measured on: 'daily', or 'weekly' or 'monthly' compounded from "
+                "them; weekly is the efficient frontier's.")]
 
 NOT_COMPUTED_REASON = ("The run was made without an analysis, or before py-beacon 0.10.0; "
                        "rerun its analytics to have one.")
@@ -111,6 +126,33 @@ def build_analysis_router() -> APIRouter:
             return Response(content=arrow(name, found), media_type=ARROW)
 
         return ColumnarTable.model_validate(columnar(name, found))
+
+    @router.get("/strategies/{strategy_id}/instrument", response_model=InstrumentTable)
+    def instrument(request: Request,
+                   strategy_id: Identifier,
+                   columns: ColumnsQuery = None,
+                   names: NamesQuery = None,
+                   start: StartQuery = None,
+                   end: EndQuery = None,
+                   against: AgainstQuery = None,
+                   frequency: FrequencyQuery = "daily") -> InstrumentTable:
+        """Every per-name figure of the strategy's latest run in one table,
+        a row for each name any portfolio held over the window: when it was
+        held, its return and risk, against the comparator, its weights, its
+        contributions to return and risk and its days to sell, each column
+        with its label and unit. A column the run cannot give is left out,
+        and named under `unavailable` with why.
+
+        Raises:
+            DataNotFoundError: Until the strategy has been backtested.
+            InvalidArgumentError: For a column, name, comparator or
+                frequency refused.
+        """
+        # BN-454.
+        analytics = stored_analytics(_run_folder(request, strategy_id), current_data(request))
+
+        return InstrumentTable.model_validate(instrument_table(analytics, columns, names, start,
+                                                               end, against, frequency))
 
     # async, as the backtest's is: the registry schedules the job on the
     # running event loop.
