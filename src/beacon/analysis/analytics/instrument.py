@@ -8,6 +8,7 @@ A run's analytics a name at a time: `result.analytics.instrument`.
     instrument.total_return(by="year")              # a row a year, a column a name
     instrument.tracking_error(rolling="1Y")         # dates by names
     instrument.volatility(frequency="weekly")
+    instrument.annualised_return(frequency="weekly")  # as the efficient frontier measures it
     instrument.average_weight(of="all")             # a row a name, a column a portfolio
     instrument.days_to_sell()                       # at the last rebalance or month end
 
@@ -16,7 +17,10 @@ or its index held, in the portfolio's currency, over the analysis window
 (`start`, `end`), as `beacon.analysis.performance.name_figures` measures
 them. ``frequency`` compounds them into weeks or months first. Every result
 says what it was measured on in ``attrs``: its ``basis`` (``daily``,
-``weekly`` or ``monthly``) and, against a comparator, ``against``.
+``weekly`` or ``monthly``) and, against a comparator, ``against``. An
+annualised return is blank for a name with returns over less than the
+shortest window an annualised rate is given over
+(`beacon.analysis.annualising`), as the fund's is.
 
 The weights each portfolio gave each name, the days each holding would take
 to sell, and the value each name traded are here too, a row a name.
@@ -29,7 +33,7 @@ from typing import Any
 import pandas as pd
 
 from ...data.base import as_of_position
-from ..annualising import days_in
+from ..annualising import days_in, long_enough
 from ..panels import NAME_RETURNS, TRADED_VALUES
 from ..performance import name_figures
 from ..performance.name_figures import DAILY, RELATIVE
@@ -82,6 +86,24 @@ class InstrumentLevel(Category):
                      frequency: str = DAILY) -> Any:
         """Each name's compounded return over the window."""
         return self._figure("total_return", names, start, end, by, rolling, step, frequency)
+
+    def annualised_return(self,
+                          *,
+                          names: Names = None,
+                          start: Day = None,
+                          end: Day = None,
+                          by: str | None = None,
+                          rolling: int | str | None = None,
+                          step: str | None = None,
+                          frequency: str = DAILY,
+                          annualise: bool | None = None) -> Any:
+        """Each name's mean return times the periods a year, as the
+        efficient frontier measures it: blank for a name with too few
+        returns to annualise, unless ``annualise=True``; the mean return a
+        period with ``annualise=False``."""
+        # BN-454 (Karan, 2026-11-25).
+        return self._figure("annualised_return", names, start, end, by, rolling, step,
+                            frequency, annualise=annualise)
 
     def volatility(self,
                    *,
@@ -266,7 +288,8 @@ class InstrumentLevel(Category):
                 rolling: int | str | None,
                 step: str | None,
                 frequency: str,
-                against: str | None = None) -> Any:
+                against: str | None = None,
+                annualise: bool | None = None) -> Any:
         """Figure *figure* of each name in the form the keywords ask for.
 
         Raises:
@@ -282,20 +305,23 @@ class InstrumentLevel(Category):
         if step is not None and rolling is None:
             raise ValueError("step goes with rolling.")
 
-        context = self._analytics._context_for(start=start, end=end)
+        context = self._analytics._context_for(start=start, end=end, annualise=annualise)
         returns = _picked(_name_returns(context), names)
         comparator = None if figure not in RELATIVE else context.require(
             against or context.require_tracked())
         theirs = None if comparator is None else context.book(comparator).returns
         returns, theirs, periods = name_figures.on_basis(returns, theirs, frequency,
                                                          context.performance.periods_per_year)
+        periods = 1 if annualise is False else periods
+        span = context.performance.annualising[0] if figure == "annualised_return" else None
 
         if by is not None:
-            found: Any = _by_period(figure, returns, theirs, by, periods)
+            found: Any = _by_period(figure, returns, theirs, by, periods, span)
         elif rolling is not None:
-            found = _rolling(figure, returns, theirs, rolling, step, periods)
+            found = _rolling(figure, returns, theirs, rolling, step, periods, span)
         else:
             found = name_figures.figure(figure, returns, theirs, periods).rename(figure)
+            found = found.where(_enough(returns.notna().sum(), span, periods))
 
         found.attrs = {"basis": frequency, **({"against": comparator} if comparator else {})}
 
@@ -360,11 +386,23 @@ def _picked(returns: pd.DataFrame,
     return returns[wanted]
 
 
+def _enough(counts: pd.Series | pd.DataFrame,
+            span: str | None,
+            periods: int) -> pd.Series | pd.DataFrame:
+    """Whether each count of returns is enough to annualise over: always
+    when *span* is None, as for a figure not annualised."""
+    if span is None:
+        return counts >= 0
+
+    return counts.map(lambda count: long_enough(int(count), span, periods))
+
+
 def _by_period(figure: str,
                returns: pd.DataFrame,
                theirs: pd.Series | None,
                by: str,
-               periods: int) -> pd.DataFrame:
+               periods: int,
+               span: str | None) -> pd.DataFrame:
     """*figure* of each name in each calendar period, a row a period."""
     if by not in PERIODS:
         raise ValueError(f"by is one of {', '.join(PERIODS)}, got {by!r}.")
@@ -374,8 +412,10 @@ def _by_period(figure: str,
                                        None if theirs is None else theirs[labels == label],
                                        periods)
             for label in pd.unique(labels)}
+    found = pd.DataFrame.from_dict(rows, orient="index").rename_axis("period")
+    counts = returns.notna().groupby(labels).sum().reindex(found.index)
 
-    return pd.DataFrame.from_dict(rows, orient="index").rename_axis("period")
+    return found.where(_enough(counts, span, periods))
 
 
 def _rolling(figure: str,
@@ -383,8 +423,10 @@ def _rolling(figure: str,
              theirs: pd.Series | None,
              rolling: int | str,
              step: str | None,
-             periods: int) -> pd.DataFrame:
-    """*figure* of each name over each trailing window, dates by names."""
+             periods: int,
+             span: str | None) -> pd.DataFrame:
+    """*figure* of each name over each trailing window, dates by names: blank
+    when the window is too short to annualise *figure* over."""
     window = days_in(rolling, periods) if isinstance(rolling, str) else rolling
 
     if isinstance(window, bool) or not isinstance(window, int) or window < 2:
@@ -399,6 +441,9 @@ def _rolling(figure: str,
     ends = (window_ends(pd.DatetimeIndex(returns.index), window, MONTH_END)
             if step == MONTH_END else None)
     found = name_figures.rolled(figure, returns, theirs, window, periods, ends)
+
+    if span is not None and not long_enough(window, span, periods):
+        found = found.iloc[:0]
 
     return found.dropna(how="all").rename_axis("DATE")
 

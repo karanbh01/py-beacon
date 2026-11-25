@@ -1,15 +1,22 @@
 # src/beacon/analysis/analytics/instrument_table.py
 """
-Every per-name figure in one table, a row a name: `instrument.table()`.
+Every per-name figure in one table, a row a name held by any portfolio over
+the window: `instrument.table()`.
 
     instrument.table()                                    # every column
     instrument.table(columns=["total_return", "beta", "weight"], against="benchmark")
 
 Its columns, in order (`COLUMNS`):
 
-- ``total_return``, ``volatility``, and against the comparator ``beta``,
-  ``correlation``, ``tracking_error`` and ``residual_risk``, on the basis
-  ``frequency`` names (daily unless given);
+- ``first_held`` and ``last_held``, the first and last day over the window
+  any portfolio held it, and ``in_index_at_end``, whether the index held it
+  on the window's last day;
+- ``total_return``, ``annualised_return`` (the mean return times the periods
+  a year, as the efficient frontier measures it, blank for a name with
+  returns over less than a year), ``volatility``, and against the comparator
+  ``beta``, ``correlation``, ``tracking_error`` and ``residual_risk``, on
+  the basis ``frequency`` names (daily unless given; weekly as the frontier
+  measures them);
 - ``weight/<portfolio>``, the latest weight in each portfolio over the
   window, and ``average_weight/<portfolio>``, its mean daily weight;
 - ``contribution``, its contribution to the fund's return
@@ -19,7 +26,8 @@ Its columns, in order (`COLUMNS`):
 
 ``columns`` picks some, a weight column by its name alone for every
 portfolio's. A column the run cannot give is left out, and ``attrs`` say why
-under ``unavailable``, beside the ``basis`` and the comparator (``against``).
+under ``unavailable``, beside the ``basis``, the comparator (``against``),
+the ``currency`` the returns are in and the window's ``start`` and ``end``.
 """
 # BN-454 (Karan, 2026-11-24): one table, so Drilldown and the risk-return
 # cloud read the same numbers (beacon-ui, 2026-11-24).
@@ -32,10 +40,12 @@ from ..reports.statistics import Unavailable
 from ..risk.liquidity import BOOKS
 from .shape import ALL
 
-FIGURES = ("total_return", "volatility", "beta", "correlation", "tracking_error",
-           "residual_risk")
+HELD = ("first_held", "last_held", "in_index_at_end")
+FIGURES = ("total_return", "annualised_return", "volatility", "beta", "correlation",
+           "tracking_error", "residual_risk")
 WEIGHTS = ("weight", "average_weight")
-COLUMNS = (*FIGURES, *WEIGHTS, "contribution", "risk_contribution", "days_to_sell")
+COLUMNS = (*HELD, *FIGURES, *WEIGHTS, "contribution", "risk_contribution", "days_to_sell")
+OWN = ("total_return", "annualised_return", "volatility")
 
 
 def per_name(instrument: Any,
@@ -52,11 +62,18 @@ def per_name(instrument: Any,
     """
     wanted = list(COLUMNS) if columns is None else _checked(columns)
     window = {"start": start, "end": end}
+    context = instrument._analytics._context_for(**window)
+    days = context.performance.returns.index
+    held = _held(context, days)
     parts: dict[str, pd.Series] = {}
     unavailable: dict[str, str] = {}
     comparator = None
 
     for column in wanted:
+        if column in HELD:
+            parts[column] = held[column]
+            continue
+
         work = _part(instrument, column, window, against, frequency)
 
         try:
@@ -70,10 +87,13 @@ def per_name(instrument: Any,
 
         parts.update(_named(column, found))
 
-    table = pd.DataFrame(parts)
+    table = pd.DataFrame(parts).reindex(held.index if len(held) else None)
     table.index.name = "name"
     table = _picked(table, names)
     table.attrs = {"basis": frequency, **({"against": comparator} if comparator else {}),
+                   "currency": context.run.currency,
+                   "start": days[0] if len(days) else None,
+                   "end": days[-1] if len(days) else None,
                    "unavailable": unavailable}
 
     return table
@@ -96,7 +116,7 @@ def _part(instrument: Any,
           frequency: str) -> Callable[[], Any]:
     """What works column *column* out."""
     if column in FIGURES:
-        relative = column not in ("total_return", "volatility")
+        relative = column not in OWN
         keywords = {**window, "frequency": frequency, **({"against": against} if relative else {})}
 
         return lambda: getattr(instrument, column)(**keywords)
@@ -117,6 +137,36 @@ def _part(instrument: Any,
         return lambda: instrument._analytics._value("risk_contributions", {})["contribution"]
 
     return lambda: instrument.days_to_sell()["days"]
+
+
+def _held(context: Any,
+          days: pd.DatetimeIndex) -> pd.DataFrame:
+    """The names any portfolio held over *days*, a row each, with the first
+    and last day held and whether the index held it on the last day; no
+    rows when the run kept no weights."""
+    held: list[pd.DataFrame] = []
+
+    for table_name in BOOKS.values():
+        weights = context.run.tables.get(table_name)
+
+        if weights is not None and not weights.empty and len(days):
+            held.append(weights.loc[(weights.index >= days[0]) & (weights.index <= days[-1])]
+                        .fillna(0.0) > 0.0)
+
+    if not held:
+        return pd.DataFrame(columns=list(HELD))
+
+    any_held = pd.concat(held).groupby(level=0).max()
+    any_held = any_held.loc[:, any_held.any()]
+    dates = any_held.index.to_series()
+    index = context.run.tables.get(BOOKS["index"])
+    at_end = (index.loc[index.index <= days[-1]].iloc[-1].fillna(0.0) > 0.0
+              if index is not None and not index.empty else pd.Series(dtype=bool))
+
+    return pd.DataFrame({
+        "first_held": {name: dates[column].iloc[0] for name, column in any_held.items()},
+        "last_held": {name: dates[column].iloc[-1] for name, column in any_held.items()},
+        "in_index_at_end": at_end.reindex(any_held.columns, fill_value=False)})
 
 
 def _named(column: str,

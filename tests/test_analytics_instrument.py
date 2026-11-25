@@ -80,6 +80,35 @@ class TestEachIsTheFormulaOnTheName:
             formulas.tracking_error(ours - theirs, 252), rel=1e-9)
         assert instrument.residual_risk()[NAME] == pytest.approx(residual, rel=1e-9)
 
+    def test_its_annualised_return_is_the_mean_a_year(self,
+                                                      instrument,
+                                                      mine):
+        ours, _ = mine
+
+        assert instrument.annualised_return()[NAME] == pytest.approx(ours.mean() * 252,
+                                                                     rel=1e-12)
+
+    def test_weekly_it_is_the_frontier_s(self,
+                                         instrument):
+        members = instrument.member_risk_return().set_index("name")
+
+        assert instrument.annualised_return(frequency="weekly")[NAME] == pytest.approx(
+            members.loc[NAME, "return"], rel=1e-12)
+
+    def test_under_a_year_it_is_blank_unless_asked_for(self,
+                                                       instrument,
+                                                       mine):
+        ours, _ = mine
+        half = ours[ours.index >= "2024-07-01"]
+
+        assert instrument.annualised_return(start="2024-07-01").isna().all()
+        assert instrument.annualised_return(start="2024-07-01", annualise=True)[NAME] == (
+            pytest.approx(half.mean() * 252, rel=1e-12))
+        assert instrument.annualised_return(start="2024-07-01", annualise=False)[NAME] == (
+            pytest.approx(half.mean(), rel=1e-12))
+        assert instrument.annualised_return(by="quarter").isna().all().all()
+        assert instrument.annualised_return(rolling="3M").empty
+
     def test_it_says_its_basis(self,
                                instrument):
         assert instrument.volatility().attrs == {"basis": "daily"}
@@ -163,7 +192,8 @@ class TestTheStatisticsANameAtATime:
 
     def test_its_methods(self,
                          instrument):
-        assert set(instrument.extras) == {"total_return", "volatility", "max_drawdown", "beta",
+        assert set(instrument.extras) == {"total_return", "annualised_return", "volatility",
+                                          "max_drawdown", "beta",
                                           "correlation", "tracking_error", "residual_risk",
                                           "average_weight", "days_to_sell", "traded_value",
                                           "table"}
@@ -249,7 +279,22 @@ class TestThePerNameTable:
         attrs = instrument.table().attrs
 
         assert attrs["basis"] == "daily" and attrs["against"] == "index"
+        assert attrs["currency"] == "USD"
+        assert (attrs["start"], attrs["end"]) == (pd.Timestamp("2024-01-02"),
+                                                  pd.Timestamp("2024-12-31"))
         assert "risk_contribution" in attrs["unavailable"]
+
+    def test_a_row_for_each_name_held_with_when(self,
+                                                result,
+                                                instrument):
+        table = instrument.table(start="2024-07-01")
+        held = result.run_data.tables["fund_weights"]
+
+        assert set(table.index) == set(held.columns[held.fillna(0.0).gt(0.0).any()])
+        assert (table["first_held"] == pd.Timestamp("2024-07-01")).all()
+        assert (table["last_held"] == pd.Timestamp("2024-12-31")).all()
+        assert table["in_index_at_end"].all()
+        assert table["annualised_return"].isna().all()
 
     def test_some_columns_and_names(self,
                                     instrument):

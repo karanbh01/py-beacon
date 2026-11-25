@@ -8,7 +8,9 @@ names' returns, a column a name:
 
 A name is measured over the days it has a return, and against a comparator
 over the days both have. Figures are measured as the fund's are
-(`formulas`): the total return compounded, the volatility and tracking error
+(`formulas`): the total return compounded, the annualised return the mean
+return times the periods a year (as the efficient frontier measures it,
+`beacon.analysis.performance.members`), the volatility and tracking error
 the standard deviation scaled by the square root of the periods a year, the
 beta the covariance over the comparator's variance, and the residual risk
 the regression's residuals' spread with two degrees of freedom spent.
@@ -27,7 +29,7 @@ from .formulas import NEGLIGIBLE_SPREAD
 DAILY, WEEKLY, MONTHLY = "daily", "weekly", "monthly"
 BASES = {WEEKLY: ("W-FRI", 52), MONTHLY: ("ME", 12)}
 
-OWN = ("total_return", "volatility", "max_drawdown")
+OWN = ("total_return", "annualised_return", "volatility", "max_drawdown")
 RELATIVE = ("beta", "correlation", "tracking_error", "residual_risk")
 FIGURES = (*OWN, *RELATIVE)
 
@@ -103,6 +105,9 @@ def rolled(name: str,
     if name == "total_return":
         return np.expm1(np.log1p(returns).rolling(window, min_periods=window).sum())
 
+    if name == "annualised_return":
+        return returns.rolling(window, min_periods=window).mean() * periods_per_year
+
     if name == "volatility":
         return returns.rolling(window, min_periods=window).std() * np.sqrt(periods_per_year)
 
@@ -116,6 +121,13 @@ def rolled(name: str,
 def _total_return(returns: pd.DataFrame,
                   periods_per_year: int) -> pd.Series:
     return (1.0 + returns).prod(min_count=1) - 1.0
+
+
+def _annualised_return(returns: pd.DataFrame,
+                       periods_per_year: int) -> pd.Series:
+    # BN-454: the mean, not the compounded rate, so a name's dot sits on the
+    # frontier's scale.
+    return returns.mean() * periods_per_year
 
 
 def _volatility(returns: pd.DataFrame,
@@ -135,7 +147,8 @@ def _max_drawdown(returns: pd.DataFrame,
 
 
 _OWN: dict[str, Callable[[pd.DataFrame, int], pd.Series]] = {
-    "total_return": _total_return, "volatility": _volatility, "max_drawdown": _max_drawdown}
+    "total_return": _total_return, "annualised_return": _annualised_return,
+    "volatility": _volatility, "max_drawdown": _max_drawdown}
 
 
 def _relative(name: str,
