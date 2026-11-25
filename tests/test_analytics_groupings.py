@@ -80,6 +80,39 @@ class TestTrading:
             portfolio.trading.costs(by="month")
 
 
+class TestTheCashBand:
+    """BN-450: test_cash_management's fund whose cash earns enough to leave
+    its band."""
+
+    @pytest.fixture(scope="class")
+    def banded(self):
+        from test_cash_management import banded
+
+        return banded(0.03)
+
+    def test_over_the_run(self,
+                          banded):
+        found = banded.analytics.portfolio.trading.cash_band()
+
+        assert found.equals(_calculator(banded).cash_band_summary())
+        assert found.loc["all", "events"] > 0
+
+    def test_each_month_and_year(self,
+                                 banded):
+        trading = banded.analytics.portfolio.trading
+
+        assert trading.cash_band(by="month").equals(_calculator(banded).cash_band_calendar("M"))
+        assert trading.cash_band(by="year").equals(_calculator(banded).cash_band_calendar("Y"))
+
+    def test_none_without_a_band(self,
+                                 portfolio):
+        with pytest.raises(Unavailable, match="cash in a band"):
+            portfolio.trading.cash_band()
+
+        with pytest.raises(Unavailable, match="cash in a band"):
+            portfolio.trading.cash_band(by="year")
+
+
 class TestFlows:
     def test_dealing_costs_by_kind_and_year(self):
         from beacon.backtest import DatedFlows

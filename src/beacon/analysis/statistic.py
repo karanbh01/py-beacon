@@ -117,6 +117,7 @@ class Statistic(StrEnum):
 
     # Cash and flows
     CASH_BAND_EVENTS = "cash_band_events"
+    CASH_BAND = "cash_band"
     CASH_TRADING = "cash_trading"
     AUM = "aum"
     NET_FLOWS = "net_flows"

@@ -10,9 +10,11 @@ from typing import Any
 
 import pandas as pd
 
+from ...panels import CASH_BAND_EVENTS
 from ..context import FUND, Context
 from ..statistics import (
     FIGURES,
+    NO_CASH_BAND,
     NO_FLOWS,
     NO_FUTURES,
     NO_GROUPING,
@@ -54,6 +56,18 @@ CHARACTERISTIC_COLUMNS = tuple(Column(f"{book}/{figure}", f"{name} {label}", uni
                                for figure, (label, unit) in CHARACTERISTICS.items())
 DISTRIBUTION_COLUMNS = (Column("names", "Names", "count"), Column("days", "Days", "count"),
                         Column("share", "Share of days", "fraction"))
+
+
+def banded(read: Callable[[Context], Any]) -> Callable[[Context], Any]:
+    """*read*, or `Unavailable` when the run's cash left no band."""
+    # BN-450.
+    def compute(context: Context) -> Any:
+        if context.run.tables.get(CASH_BAND_EVENTS) is None:
+            raise Unavailable(NO_CASH_BAND)
+
+        return read(context)
+
+    return compute
 
 
 def needs(code: str,
@@ -185,6 +199,9 @@ def statistics() -> list[StatisticSpec]:
         table("cash_band_events", "Cash band events", CASH, "Each time the cash left its "
               "band: raise or spend-down, cash before and after, gap closed, cost.",
               lambda context: context.portfolio.cash_band_events()),
+        table("cash_band", "Cash band", CASH, "The raises and spend-downs: how many, what "
+              "they traded and cost, and how close they brought the cash to its target.",
+              banded(lambda context: context.portfolio.cash_band_summary())),
         table("cash_trading", "Cash trading by reason", CASH, "Every trade made to raise or "
               "spend cash, by what it was for.",
               lambda context: frame(context.portfolio.cash_trading())),

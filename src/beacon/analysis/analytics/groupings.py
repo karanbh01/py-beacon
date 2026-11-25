@@ -5,6 +5,7 @@ calendar periods every window statistic takes:
 
     trading.costs(by="reason")                 # a row a reason trades were made
     trading.trade_counts(by="reason")
+    trading.cash_band(by="month")              # each month's raises, spend-downs and cost
     flows.dealing_costs(by="year")             # a row a year and kind of flow
     attribution.brinson(by="month")            # the effects each month, linked within it
     risk.herfindahl(by="year")                 # each year's mean daily figures
@@ -21,6 +22,7 @@ import pandas as pd
 
 from ..performance.tables import DIFFERENCE
 from ..reports.catalogue.forms import BY, FIELD, GROUPINGS, OF
+from ..reports.catalogue.portfolio import banded
 from ..reports.context import FUND, Context
 from ..reports.statistics import NO_FLOWS, NO_GROUPING, StatisticSpec, Unavailable
 from .shape import ALL
@@ -134,6 +136,13 @@ def _risk_contributions(context: Context,
     return found
 
 
+def _cash_band(context: Context,
+               group: str) -> pd.DataFrame:
+    calendar = banded(lambda found: found.portfolio.cash_band_calendar(FREQUENCIES[group]))
+
+    return calendar(context)
+
+
 # Each statistic's split, given the group (or, for a field, its column name).
 CALCULATIONS: dict[str, Callable[[Context, str], Any]] = {
     "costs": _costs,
@@ -142,6 +151,7 @@ CALCULATIONS: dict[str, Callable[[Context, str], Any]] = {
     "brinson": _brinson,
     "herfindahl": _herfindahl,
     "risk_contributions": _risk_contributions,
+    "cash_band": _cash_band,
 }
 
 

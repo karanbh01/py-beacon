@@ -49,7 +49,7 @@ PLACED = {
         group_exposures style_box style_classification""",
     TRADING: """
         one_way_turnover two_way_turnover trade_counts costs cost_per_traded cash_trading
-        cash_band_events""",
+        cash_band cash_band_events""",
     FLOWS: "net_flows flow_costs dealing_costs class_costs aum",
     INCOME: "income_yields dividend_growth",
     VEHICLE: "etf_premium futures_trading futures_basis futures_basis_risk",

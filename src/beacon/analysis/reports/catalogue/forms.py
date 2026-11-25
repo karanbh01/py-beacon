@@ -94,6 +94,7 @@ GROUPINGS: dict[str, tuple[str, ...]] = {
     "brinson": ("month", "quarter", "year"),
     "herfindahl": ("month", "quarter", "year"),
     "risk_contributions": (FIELD,),
+    "cash_band": ("month", "year"),
 }
 
 # Statistics given as a calendar grid too.

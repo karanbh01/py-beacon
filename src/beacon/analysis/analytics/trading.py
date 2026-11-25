@@ -20,7 +20,7 @@ class TradingCategory(Category):
 
     name = "trading"
     statistics = ("one_way_turnover", "two_way_turnover", "trade_counts", "costs",
-                  "cost_per_traded", "cash_trading")
+                  "cost_per_traded", "cash_trading", "cash_band")
 
     # -- turnover and costs ---------------------------------------------------
 
@@ -74,3 +74,14 @@ class TradingCategory(Category):
     def cash_trading(self) -> Any:
         """Every trade made to raise or spend cash, by what it was for."""
         return self._get("cash_trading")
+
+    def cash_band(self,
+                  *,
+                  by: str | None = None) -> Any:
+        """The raises and spend-downs of a fund that keeps its cash in a band:
+        how many, what they traded and cost, and how close they brought the
+        cash to its target.
+
+        ``by="month"`` or ``"year"`` gives how many of each every period had,
+        and their cost."""
+        return self._get("cash_band", by=by)
