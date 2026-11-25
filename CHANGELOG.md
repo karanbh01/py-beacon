@@ -8,6 +8,10 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-25
+
+More of a run's analysis: the main figures over each trailing window, how many names a run held, its weights by sector and country, a style box, a risk rating on a UCITS factsheet's scale, every name's risk and return with the efficient frontier through them, a histogram of returns, and each crisis's path and recovery. Earnings and sales growth join a run's characteristics, and synthetic stores generate revenue. Existing figures are unchanged; `characteristics` and `crisis_returns` gain columns.
+
 ### Added
 
 - The main figures over each trailing window, the `trailing_statistics` statistic and `PerformanceAnalytics.trailing_statistics()` (`beacon.analysis.performance.trailing_statistics`). Over the windows `trailing_returns` gives (1, 3 and 6 months, 1, 3, 5 and 10 years, month, quarter and year to date, and since inception), it gives the total and annualised return, volatility, maximum drawdown and Sharpe ratio of the fund, its index and its benchmark, and the fund's tracking difference and tracking error against each. It is a row a window and figure, with columns `period`, `statistic`, `unit`, `fund`, `index` and `benchmark`. Each figure is worked out as the whole run's is, on the window's days. The annualised return is given only beyond a year, and the Sharpe ratio not over a window shorter than six months (1M, 3M, MTD, QTD and YTD). A comparator's figures against the fund are given only when the two cover the same days.
