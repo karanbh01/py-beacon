@@ -23,5 +23,12 @@ class Category:
                  analytics: Any):
         self._analytics = analytics
 
+    def _get(self,
+             statistic_id: str,
+             **form: Any) -> Any:
+        """Statistic *statistic_id* in the form *form*'s keywords ask for;
+        those left as None are not given."""
+        return self._analytics._value(statistic_id, form)
+
     def __repr__(self) -> str:
         return f"{type(self).__name__}({', '.join(self.statistics)})"

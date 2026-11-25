@@ -17,8 +17,11 @@ from typing import Any
 
 from ...data.fetcher import DataFetcher
 from ..data import RunData
+from ..reports.catalogue import CATALOGUE
 from ..reports.context import Context
+from ..reports.options import RollingOptions
 from ..request import AnalysisRequest, analyse_run
+from .forms import value, windowed
 from .portfolio import PortfolioLevel
 
 
@@ -54,6 +57,7 @@ class Analytics:
         self._block = block
         self._timings = dict(timings or {})
         self._given_context = context
+        self._contexts: dict[tuple[Any, ...], Context] = {}
 
     @classmethod
     def of_result(cls,
@@ -112,6 +116,27 @@ class Analytics:
 
         return Context(self.run_data, request.options, self._source, request.factors,
                        self._folder)
+
+    def _value(self,
+               statistic_id: str,
+               form: dict[str, Any]) -> Any:
+        """Statistic *statistic_id* in the form its keywords *form* ask for
+        (`beacon.analysis.analytics.forms`)."""
+        return value(CATALOGUE[statistic_id], form, self._context_for)
+
+    def _context_for(self,
+                     start: Any = None,
+                     end: Any = None,
+                     tracked: str | None = None,
+                     rolling: RollingOptions | None = None) -> Context:
+        """The context over a window, tracking a comparator or rolling a
+        window, built once for each."""
+        key = (start and str(start), end and str(end), tracked, rolling)
+
+        if key not in self._contexts:
+            self._contexts[key] = windowed(self._context, start, end, tracked, rolling)
+
+        return self._contexts[key]
 
     def __repr__(self) -> str:
         return "Analytics(portfolio)"

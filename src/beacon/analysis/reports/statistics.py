@@ -125,6 +125,8 @@ class StatisticSpec:
         signed: The names of its figures that are returns or differences,
             whose sign says better or worse: the last part of a figure's,
             a column's or a summary figure's name; ``*`` for every number.
+        forms: The keywords its analytic takes, which pick the form it is
+            given in (`beacon.analysis.reports.catalogue.forms`).
     """
     id: str
     label: str
@@ -141,6 +143,7 @@ class StatisticSpec:
     figure_names: tuple[str, ...] = ("book",)
     roll: Callable[[Any], pd.DataFrame] | None = None
     signed: tuple[str, ...] = ()
+    forms: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

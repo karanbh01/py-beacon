@@ -12,6 +12,7 @@ from dataclasses import replace
 from ...performance.crises import AFTER_MONTHS
 from ..statistics import Catalogue
 from . import attribution, performance, portfolio, rating, relative, risk, risk_return, style
+from .forms import forms_of
 
 EVERY = ("*",)
 CONTRIBUTIONS = ("contribution", "total_return", "residual", "cap_drag", "cost_drag")
@@ -42,7 +43,8 @@ SIGNED = {
     "efficient_frontier": ("return",),
 }
 
-CATALOGUE = Catalogue({statistic.id: replace(statistic, signed=SIGNED.get(statistic.id, ()))
+CATALOGUE = Catalogue({statistic.id: replace(statistic, signed=SIGNED.get(statistic.id, ()),
+                                              forms=forms_of(statistic))
                        for module in (performance, rating, risk_return, relative, portfolio,
                                       style, risk, attribution)
                        for statistic in module.statistics()})

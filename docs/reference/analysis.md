@@ -19,6 +19,10 @@ A run's performance, portfolio, risk and attribution analytics, and the older he
 
 ::: beacon.analysis.analytics.category
 
+::: beacon.analysis.analytics.forms
+
+::: beacon.analysis.reports.catalogue.forms
+
 ## A run's data
 
 Everything a run's analysis reads, from a finished run or a stored one, read back exactly as it was written.
