@@ -18,6 +18,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `result.analytics.portfolio.holdings`: what each portfolio held, a method a statistic: `holdings_count()`, `holdings_range()`, `holdings_distribution()`, `characteristics()`, `group_weights()`, `group_exposures()`, `style_box()` and `style_classification()`. The daily weights are not repeated: they stay on `result.portfolio`.
 - `result.analytics.portfolio.trading`: turnover, trades and their costs, a method a statistic: `one_way_turnover()`, `two_way_turnover()`, `trade_counts()`, `costs()`, `cost_per_traded()` and `cash_trading()`.
 - `result.analytics.portfolio.flows`: money arriving and leaving and what dealing in it cost, a method a statistic: `net_flows()`, `flow_costs()`, `dealing_costs()` and `class_costs()`. The assets under management are not repeated: they stay on the result, and reports still show `aum`.
+- `result.analytics.portfolio.income`: `income_yields()`, the yields the fund paid out and earned through the run, and `dividend_growth()`, its dividends each year and how they grew.
 
 ### Changed
 
