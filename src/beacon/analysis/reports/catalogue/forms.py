@@ -45,7 +45,8 @@ WINDOW = _ids("""
     probabilistic_sharpe_ratio deflated_sharpe_ratio lo_sharpe_ratio risk_distribution
     member_risk_return portfolio_risk_return efficient_frontier tracking_difference
     tracking_error information_ratio information_ratio_t annualised_relative_return beta
-    correlation alpha r_squared residual_risk treynor_ratio capture batting_average
+    correlation alpha r_squared residual_risk treynor_ratio capture up_capture down_capture
+    batting_average
     downside_tracking_error rolling_outcomes crisis_summary regimes holdings_range
     holdings_distribution one_way_turnover two_way_turnover trade_counts costs cost_per_traded
     class_costs etf_premium futures_trading futures_basis futures_basis_risk factor_betas
@@ -63,7 +64,7 @@ PERIODS = _ids("""
 TRAILING_WINDOWS = _ids("""
     total_return annualised_return volatility max_drawdown sharpe_ratio tracking_difference
     tracking_error beta downside_deviation downside_tracking_error tail_ratio skew
-    excess_kurtosis""")
+    excess_kurtosis up_capture down_capture""")
 
 # Tables with a row each day or rebalance.
 THROUGH_TIME = _ids("""

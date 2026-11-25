@@ -213,7 +213,7 @@ is blank over a window too short for it (below). The figures that take
 `trailing` are the total and annualised return, volatility, maximum drawdown,
 downside deviation, skew, excess kurtosis, tail ratio, Sharpe ratio, and
 against a comparator the tracking difference, tracking error, downside
-tracking error and beta. Every analysis holds two such tables
+tracking error, beta and up and down capture. Every analysis holds two such tables
 (`beacon.analysis.statistic_tables`): its `summary`, the main figures over
 every window, and `risk`, the risk figures over the last 1, 3 and 5 years and
 since inception.

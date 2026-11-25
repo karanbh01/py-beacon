@@ -16,8 +16,8 @@ portfolio over each trailing window, and ``risk``, their risk over the last
 1, 3 and 5 years and since inception.
 """
 # BN-467 (Karan, 2026-11-25), in place of trailing_statistics. Agreed with
-# beacon-ui for its Summary; the risk table follows its Risk view, less the
-# capture ratios, which give three figures each.
+# beacon-ui for its Summary; the risk table follows its Risk view, with up
+# and down capture as a statistic each.
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -105,7 +105,7 @@ SUMMARY = StatisticTable(statistics=("total_return", "annualised_return", "volat
 # The risk of every portfolio over the longer windows.
 RISK = StatisticTable(statistics=("volatility", "max_drawdown", "downside_deviation", "skew",
                                   "excess_kurtosis", "tail_ratio", "beta",
-                                  "downside_tracking_error"),
+                                  "downside_tracking_error", "up_capture", "down_capture"),
                       trailing=("1Y", "3Y", "5Y", INCEPTION), of="all")
 DEFAULT = {"summary": SUMMARY, "risk": RISK}
 

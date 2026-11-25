@@ -26,7 +26,8 @@ class RelativeCategory(Category):
     statistics = ("tracking_difference", "tracking_error", "information_ratio",
                   "information_ratio_t", "annualised_relative_return", "beta",
                   "correlation", "alpha", "r_squared", "residual_risk",
-                  "treynor_ratio", "capture", "batting_average",
+                  "treynor_ratio", "capture", "up_capture", "down_capture",
+                  "batting_average",
                   "downside_tracking_error", "relative_drawdowns")
     extras = ("active_share", "ex_ante_tracking_error")
 
@@ -184,6 +185,32 @@ class RelativeCategory(Category):
         months) over the comparator's."""
         return self._get("capture", start=start, end=end, rolling=rolling, step=step,
                          against=against)
+
+    def up_capture(self,
+                   *,
+                   start: Day = None,
+                   end: Day = None,
+                   trailing: Windows = None,
+                   rolling: int | str | None = None,
+                   step: str | None = None,
+                   against: str | None = None) -> Any:
+        """The fund's mean return in the comparator's up months over the
+        comparator's."""
+        return self._get("up_capture", start=start, end=end, trailing=trailing,
+                         rolling=rolling, step=step, against=against)
+
+    def down_capture(self,
+                     *,
+                     start: Day = None,
+                     end: Day = None,
+                     trailing: Windows = None,
+                     rolling: int | str | None = None,
+                     step: str | None = None,
+                     against: str | None = None) -> Any:
+        """The fund's mean return in the comparator's down months over the
+        comparator's."""
+        return self._get("down_capture", start=start, end=end, trailing=trailing,
+                         rolling=rolling, step=step, against=against)
 
     def batting_average(self,
                         *,

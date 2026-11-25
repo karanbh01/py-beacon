@@ -105,6 +105,10 @@ class TestTheRiskTable:
             portfolio.relative.beta(against="benchmark"))
         assert risk.loc[("downside_deviation", "inception"), "fund"] == pytest.approx(
             portfolio.risk.downside_deviation(trailing=["inception"])["inception"])
+        assert risk.loc[("up_capture", "inception"), "index"] == pytest.approx(
+            portfolio.relative.capture()["up"])
+        assert risk.loc[("down_capture", "inception"), "index"] == pytest.approx(
+            portfolio.relative.down_capture())
 
     def test_windows_longer_than_the_run_are_blank(self,
                                                    block):

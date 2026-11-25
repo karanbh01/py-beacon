@@ -64,6 +64,15 @@ def _regression(name: str) -> Any:
     return read
 
 
+def _capture(name: str) -> Any:
+    """Up or down capture, of the one call that gives both."""
+    def read(relative: RelativeAnalytics,
+             context: Context) -> Any:
+        return memo(relative, "capture", relative.capture)[name]
+
+    return read
+
+
 def _alpha(relative: RelativeAnalytics,
            context: Context) -> dict[str, Any]:
     return {"alpha": _regression("alpha")(relative, context),
@@ -168,6 +177,13 @@ def statistics() -> list[StatisticSpec]:
                  "comparator's up months (and down months) over the comparator's.",
                  lambda found, context: found.capture(), unit="ratio",
                  names=("comparator", "field")),
+        # BN-467 (Karan, 2026-11-25): each of capture's figures alone too, so a
+        # statistic table can hold them.
+        relative("up_capture", "Up capture", "The fund's mean return in the comparator's "
+                 "up months over the comparator's.", _capture("up"), unit="ratio"),
+        relative("down_capture", "Down capture", "The fund's mean return in the "
+                 "comparator's down months over the comparator's.", _capture("down"),
+                 unit="ratio"),
         relative("batting_average", "Batting average", "The share of months the fund beat "
                  "the comparator.", lambda found, context: found.batting_average()),
         relative("downside_tracking_error", "Downside tracking error", "Tracking error "

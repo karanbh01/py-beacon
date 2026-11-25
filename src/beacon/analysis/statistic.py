@@ -85,6 +85,8 @@ class Statistic(StrEnum):
     RESIDUAL_RISK = "residual_risk"
     TREYNOR_RATIO = "treynor_ratio"
     CAPTURE = "capture"
+    UP_CAPTURE = "up_capture"
+    DOWN_CAPTURE = "down_capture"
     BATTING_AVERAGE = "batting_average"
     DOWNSIDE_TRACKING_ERROR = "downside_tracking_error"
     RELATIVE_DRAWDOWNS = "relative_drawdowns"

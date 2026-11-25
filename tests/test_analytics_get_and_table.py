@@ -105,6 +105,20 @@ class TestTable:
         assert found.loc["sharpe_ratio", "value"] == (
             analytics.portfolio.performance.sharpe_ratio())
 
+    def test_up_and_down_capture_each_alone(self,
+                                            analytics):
+        relative = analytics.portfolio.relative
+        found = analytics.table(["up_capture", "down_capture"], trailing=["6M", "inception"],
+                                against="benchmark")
+
+        assert relative.up_capture(against="benchmark") == pytest.approx(
+            relative.capture(against="benchmark")["up"])
+        assert relative.down_capture() == pytest.approx(relative.capture()["down"])
+        assert found.loc["down_capture", "inception"] == pytest.approx(
+            relative.down_capture(against="benchmark"))
+        assert found.loc["up_capture", "6M"] == pytest.approx(
+            relative.up_capture(trailing=["6M"], against="benchmark")["6M"])
+
     def test_a_statistic_of_several_figures_is_refused(self,
                                                        analytics):
         with pytest.raises(ValueError, match="value_at_risk gives more than one"):

@@ -42,8 +42,8 @@ PLACED = {
     RELATIVE: """
         tracking_difference tracking_error information_ratio information_ratio_t
         annualised_relative_return beta correlation alpha r_squared residual_risk treynor_ratio
-        capture batting_average downside_tracking_error relative_drawdowns
-        tracking_difference_by_year""",
+        capture up_capture down_capture batting_average downside_tracking_error
+        relative_drawdowns tracking_difference_by_year""",
     HOLDINGS: """
         holdings_count holdings_range holdings_distribution characteristics group_weights
         group_exposures style_box style_classification""",
