@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from beacon.analysis.analytics.shape import plain
+from beacon.analysis.placement import DROPPED, FOLDED, PART_OF
 from beacon.analysis.reports.catalogue import CATALOGUE
 from beacon.analysis.reports.context import Context
 from beacon.analysis.reports.statistics import FIGURES, Unavailable
@@ -18,7 +19,7 @@ from beacon.analysis.request import AnalysisRequest, analyse
 from beacon.backtest import Backtest
 
 # The categories wired so far, each with the statistics it gives.
-WIRED = ["performance"]
+WIRED = ["performance", "risk"]
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +79,14 @@ class TestItsMethods:
 
         assert methods == {*found.statistics, *found.extras}
 
+    def test_it_gives_the_statistics_placed_in_it(self,
+                                                  result,
+                                                  name):
+        placed = {statistic_id for statistic_id, part in PART_OF.items()
+                  if part == name and statistic_id not in {*FOLDED, *DROPPED}}
+
+        assert set(category(result, name).statistics) == placed
+
     def test_each_takes_the_keywords_its_statistic_does(self,
                                                         result,
                                                         name):
@@ -112,7 +121,7 @@ def test_each_gives_what_the_run_s_analysis_gives(result,
 
         if spec.kind != FIGURES:
             today = plain(spec.compute(context))
-            found = method()
+            found = method(of="all") if "of" in spec.forms else method()
             same = found.equals(today) if hasattr(found, "equals") else found == today
             assert same, statistic_id
             continue

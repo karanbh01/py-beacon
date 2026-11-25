@@ -14,9 +14,9 @@ import pandas as pd
 import pytest
 
 from beacon.analysis.performance.analytics import PerformanceAnalytics
-from beacon.analysis.placement import PARTS
 from beacon.analysis.performance.relative_analytics import RelativeAnalytics
 from beacon.analysis.performance.settings import AnalysisSettings
+from beacon.analysis.placement import PARTS
 from beacon.analysis.reports.catalogue import CATALOGUE, CATEGORIES
 from beacon.analysis.reports.context import Context
 from beacon.analysis.reports.definitions import CORE, EXTENDED, REPORTS, VIEWS

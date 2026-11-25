@@ -58,3 +58,13 @@ PLACED = {
 }
 
 PART_OF = {statistic_id: part for part, ids in PLACED.items() for statistic_id in ids.split()}
+
+# Statistics given as a form of another's analytic, with the call that gives
+# them; their ids stay, for the reports.
+FOLDED = {"trailing_returns": "performance.total_return(trailing=[...])",
+          "period_returns": 'performance.total_return(by="month")',
+          "tracking_difference_by_year": 'relative.tracking_difference(by="year")',
+          "trailing_statistics": "analytics.table([...], trailing=[...])"}
+
+# Statistics not repeated as an analytic, being what the result records.
+DROPPED = {"aum": "result.fund.aum", "cash_band_events": "result.fund.cash_band.events"}
