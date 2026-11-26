@@ -176,7 +176,8 @@ def build_analysis_router() -> APIRouter:
         tracking error, the fund's holding of it and the days to sell it, the
         risk model's exposures of it and its returns' betas to the factors,
         its place in the style box and its key data; each corporate action
-        on it and each trade in it; and one list of what happened to it.
+        on it and each trade in it; one list of what happened to it; and at
+        each rebalance, how far it was from failing each eligibility rule.
         A part the run cannot give is left out, and named under
         `unavailable` with why.
 

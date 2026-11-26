@@ -168,6 +168,50 @@ def rebalance_weights(result: BacktestResult) -> pd.DataFrame:
     return frame
 
 
+# BN-474: how far each name was from failing each rule at each rebalance.
+MARGIN_COLUMNS = ("IDENTIFIER", "RULE", "RULE_NAME", "QUANTITY", "VALUE", "COMPARISON",
+                  "THRESHOLD", "PASSED")
+
+
+def selection_margins(result: BacktestResult) -> pd.DataFrame:
+    """Each threshold each eligibility rule tested each name against, at
+    each of the target index's rebalances (`beacon.index.margins`).
+
+    Returns:
+        pd.DataFrame: Indexed by the rebalance date (``DATE``), a row a name
+        a rule a threshold: the name, the rule's position (``RULE``, from 1)
+        and type (``RULE_NAME``), what was measured (``QUANTITY``) and the
+        name's value (``VALUE``), the comparison, the threshold, and whether
+        the name passed it. A name has rows only for the rules it reached:
+        one removed by a rule is not tested by those after it. Empty for a
+        run whose index kept no selections, or whose rules measure nothing.
+    """
+    book = result.index.target if result.index is not None else None
+    selections = getattr(getattr(book, "source", None), "selections", None) or {}
+    columns: dict[str, list[object]] = {column: [] for column in ("DATE", *MARGIN_COLUMNS)}
+
+    for date, summary in sorted(selections.items()):
+        names = {step.position: step.rule_name for step in summary.steps}
+
+        for position, measured in summary.measures.items():
+            for name, measures in measured.items():
+                for measure in measures:
+                    for column, value in zip(columns, (
+                            date, name, position, names.get(position, ""), measure.quantity,
+                            measure.value, measure.comparison, measure.threshold,
+                            measure.passed), strict=True):
+                        columns[column].append(value)
+
+    frame = pd.DataFrame({column: values for column, values in columns.items()
+                          if column != "DATE"}, columns=list(MARGIN_COLUMNS))
+    frame = frame.astype({"IDENTIFIER": str, "RULE": "int64", "RULE_NAME": str,
+                          "QUANTITY": str, "VALUE": float, "COMPARISON": str,
+                          "THRESHOLD": float, "PASSED": bool})
+    frame.index = pd.DatetimeIndex(columns["DATE"], name="DATE")
+
+    return frame
+
+
 def daily_cash(result: BacktestResult) -> pd.DataFrame:
     """Where the run's cash went, and what it was owed and charged, by day.
 

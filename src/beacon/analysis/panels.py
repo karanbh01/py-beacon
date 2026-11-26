@@ -27,7 +27,13 @@ from typing import Any
 
 import pandas as pd
 
-from ..backtest.breakdown import daily_cash, daily_costs, rebalance_weights, trades
+from ..backtest.breakdown import (
+    daily_cash,
+    daily_costs,
+    rebalance_weights,
+    selection_margins,
+    trades,
+)
 from ..backtest.futures import futures_trades_frame
 from ..backtest.result import BacktestResult
 from ..data.prices import PRICE_COLUMN, converted
@@ -83,6 +89,7 @@ TRADED_VALUES = "traded_values"
 TRADES = "trades"
 # What each rebalance's implementation did to each name (BN-468).
 REBALANCE_WEIGHTS = "rebalance_weights"
+SELECTION_MARGINS = "selection_margins"
 
 # An ETF's quotes on the exchange each day (BN-385).
 MARKET = "market"
@@ -135,6 +142,9 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
       each name: its target, screened and traded-to weights, its cap and
       the screen that removed it, as
       `beacon.backtest.breakdown.rebalance_weights` gives them.
+    - ``selection_margins``: each threshold each eligibility rule tested
+      each name against at each rebalance, the name's value and whether it
+      passed, as `beacon.backtest.breakdown.selection_margins` gives them.
     - ``costs``: what the run cost each day, by kind, as
       `beacon.backtest.breakdown.daily_costs` gives it.
     - ``cash``: its cash, income, fees and flows each day, as
@@ -166,7 +176,8 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
     """
     weights = result.portfolio.weights
     panels = {FUND_WEIGHTS: weights, COSTS: daily_costs(result), CASH: daily_cash(result),
-              TRADES: trades(result), REBALANCE_WEIGHTS: rebalance_weights(result)}
+              TRADES: trades(result), REBALANCE_WEIGHTS: rebalance_weights(result),
+              SELECTION_MARGINS: selection_margins(result)}
 
     if not result.market.empty:
         panels[MARKET] = result.market.rename(columns=str)

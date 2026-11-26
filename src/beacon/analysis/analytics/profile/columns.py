@@ -1,6 +1,6 @@
 # src/beacon/analysis/analytics/profile/columns.py
 """The names, labels and units of the columns of a name's profile."""
-# BN-468..BN-473.
+# BN-468..BN-474.
 import pandas as pd
 from pandas.api.types import is_bool_dtype, is_numeric_dtype
 
@@ -33,12 +33,18 @@ LABELS = {"target": "Target", "screened": "After the screens", "weight": "Traded
           "free_float": "Free float", "type": "Type", "amount": "Amount or ratio",
           "side": "Side", "quantity": "Shares", "price": "Price", "notional": "Notional",
           "cost": "Cost", "impact": "Market impact", "reason": "Reason", "tags": "Tags",
-          "event": "Event", "detail": "Detail"}
+          "event": "Event", "detail": "Detail", "rule": "Rule", "rule_name": "Rule type",
+          "measure": "Measured", "measured": "Value", "comparison": "Comparison",
+          "threshold": "Threshold", "margin": "Margin", "passed": "Passed"}
 UNITS = {"value": MONEY, "traded_value": MONEY, "days_to_sell": DAYS, "observations": COUNT,
          "market_cap": MONEY, "size_position": None, "style_position": None, "amount": None,
-         "quantity": None, "price": MONEY, "notional": MONEY, "cost": MONEY, "impact": MONEY}
+         "quantity": None, "price": MONEY, "notional": MONEY, "cost": MONEY, "impact": MONEY,
+         "rule": None, "measured": None, "threshold": None}
 # The labels of a column of codes, by code.
-CODES = {"event": EVENT_LABELS}
+CODES = {"event": EVENT_LABELS,
+         "comparison": {"gt": "Above", "ge": "At least", "lt": "Below", "le": "At most",
+                        "eq": "Equal to", "ne": "Not equal to", "in": "One of",
+                        "between": "Between"}}
 
 # A factor's columns, named by the factor after the prefix.
 FACTOR_COLUMNS = {"exposure/": "{}", "beta/": "{} beta", "t_stat/": "{} t-statistic"}

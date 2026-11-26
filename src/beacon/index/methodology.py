@@ -25,6 +25,7 @@ from ..data.fetcher import DataFetcher
 from ..data.free_float import require_free_float
 from ..exceptions import CalculationError
 from .context import IndexContext
+from .margins import Assessment, Measure
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,9 @@ logger = logging.getLogger(__name__)
 _PRICE_COLUMN = "CLOSE"
 _VOLUME_COLUMN = "VOLUME"
 _SHARES_COLUMN = "SHARES_OUTSTANDING"
+
+# What the rules here measure, as their margins name it (BN-474).
+MARKET_CAP, AVERAGE_VOLUME, AVERAGE_VALUE = "market_cap", "avg_daily_volume", "avg_daily_value"
 _FREE_FLOAT_COLUMN = "FREE_FLOAT"
 
 
@@ -214,6 +218,43 @@ class EligibilityRuleBase(ABC):
             True if the asset is eligible, False otherwise.
         """
 
+    def assess(self,
+               asset: Asset,
+               current_date: pd.Timestamp,
+               market_data_provider: DataFetcher,
+               context: IndexContext | None = None) -> Assessment:
+        """Whether *asset* is eligible, as `is_eligible` says, with each
+        threshold it was tested against (`beacon.index.margins`).
+
+        Selection asks this rather than `is_eligible`, so a run keeps how
+        far each name was from failing each rule. The rules shipped here
+        report what they measured. A rule that measures nothing, or a
+        subclass of one that changes `is_eligible` alone, reports its
+        answer alone, as `is_eligible` gives it.
+        """
+        # BN-474: _assessed is the shipped rules' measuring; it speaks for a
+        # rule only while is_eligible is the one written beside it.
+        ancestry = type(self).__mro__
+        measuring = next(at for at, cls in enumerate(ancestry) if "_assessed" in vars(cls))
+        answering = next(at for at, cls in enumerate(ancestry) if "is_eligible" in vars(cls))
+
+        if answering >= measuring:
+            found = self._assessed(asset, current_date, market_data_provider, context)
+
+            if found is not None:
+                return found
+
+        return Assessment(self.is_eligible(asset, current_date, market_data_provider, context))
+
+    def _assessed(self,
+                  asset: Asset,
+                  current_date: pd.Timestamp,
+                  market_data_provider: DataFetcher,
+                  context: IndexContext | None = None) -> Assessment | None:
+        """What the rule measured to answer for *asset*; None for a rule
+        that measures nothing."""
+        return None
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(rule_name='{self.rule_name}')"
 
@@ -321,7 +362,21 @@ class MarketCapRule(EligibilityRuleBase):
                     current_date: pd.Timestamp,
                     market_data_provider: DataFetcher,
                     context: IndexContext | None = None) -> bool:
-        """Whether *asset*'s market cap at the resolved session clears the bounds.
+        """Whether *asset*'s market cap at the resolved session clears the
+        bounds.
+
+        Raises:
+            CalculationError: As `assess` does.
+        """
+        return self._assessed(asset, current_date, market_data_provider, context).eligible
+
+    def _assessed(self,
+                  asset: Asset,
+                  current_date: pd.Timestamp,
+                  market_data_provider: DataFetcher,
+                  context: IndexContext | None = None) -> Assessment:
+        """Whether *asset*'s market cap at the resolved session clears the
+        bounds, with the cap tested against each bound set.
 
         Raises:
             CalculationError: If *asset* is not an equity, if *current_date*
@@ -344,7 +399,7 @@ class MarketCapRule(EligibilityRuleBase):
             logger.warning(
                 f"MarketCapRule: Could not fetch price for {equity.ticker} "
                 f"on {date_str}.")
-            return False
+            return Assessment(False, self._measures(None))
 
         # Read on the same session as the price, so the cap is one coherent
         # observation rather than a current share count against an older close.
@@ -355,7 +410,7 @@ class MarketCapRule(EligibilityRuleBase):
             logger.warning(
                 f"MarketCapRule: Could not fetch valid shares outstanding for "
                 f"{equity.ticker} on {date_str}.")
-            return False
+            return Assessment(False, self._measures(None))
 
         market_cap = current_price * shares_outstanding
 
@@ -364,21 +419,27 @@ class MarketCapRule(EligibilityRuleBase):
             market_cap *= _rate_into(self.rule_name, equity, context.currency,
                                      session, market_data_provider)
 
-        if self.min_market_cap is not None and market_cap < self.min_market_cap:
-            logger.debug(
-                f"MarketCapRule: {equity.ticker} (MCap: {market_cap:.2f}) below "
-                f"min_market_cap {self.min_market_cap:.2f}")
-            return False
+        measures = self._measures(float(market_cap))
+        eligible = all(measure.passed for measure in measures)
+        logger.debug(f"MarketCapRule: {equity.ticker} (MCap: {market_cap:.2f}) "
+                     f"{'is' if eligible else 'is not'} eligible.")
 
-        if self.max_market_cap is not None and market_cap > self.max_market_cap:
-            logger.debug(
-                f"MarketCapRule: {equity.ticker} (MCap: {market_cap:.2f}) above "
-                f"max_market_cap {self.max_market_cap:.2f}")
-            return False
+        return Assessment(eligible, measures)
 
-        logger.debug(f"MarketCapRule: {equity.ticker} (MCap: {market_cap:.2f}) is eligible.")
+    def _measures(self,
+                  market_cap: float | None) -> tuple[Measure, ...]:
+        """The cap against each bound set; failing each when there is none."""
+        found = []
 
-        return True
+        if self.min_market_cap is not None:
+            found.append(Measure(MARKET_CAP, market_cap, "ge", float(self.min_market_cap),
+                                 market_cap is not None and market_cap >= self.min_market_cap))
+
+        if self.max_market_cap is not None:
+            found.append(Measure(MARKET_CAP, market_cap, "le", float(self.max_market_cap),
+                                 market_cap is not None and market_cap <= self.max_market_cap))
+
+        return tuple(found)
 
 
 @register(SELECTION, "Liquidity",
@@ -467,6 +528,20 @@ class LiquidityRule(EligibilityRuleBase):
             CalculationError: If *asset* is not an equity, so there is no
                 ticker to read volume against.
         """
+        return self._assessed(asset, current_date, market_data_provider, context).eligible
+
+    def _assessed(self,
+                  asset: Asset,
+                  current_date: pd.Timestamp,
+                  market_data_provider: DataFetcher,
+                  context: IndexContext | None = None) -> Assessment:
+        """Whether *asset*'s traded volume and value over the lookback
+        qualify, with each average tested against its minimum: the volume's
+        first, and the value's only when the volume passed.
+
+        Raises:
+            CalculationError: As `is_eligible` does.
+        """
         # Errors propagate since BN-182; the equity requirement is BN-185.
         equity = require_equity(asset, self.rule_name,
                                 "be assessed for liquidity")
@@ -483,7 +558,7 @@ class LiquidityRule(EligibilityRuleBase):
             logger.warning(
                 f"LiquidityRule: Insufficient historical price data for "
                 f"{equity.ticker} for period ending {end_lookback}.")
-            return False
+            return Assessment(False, self._unmeasured())
 
         # Ensure we have data up to current_date or shortly before
         # (single-identifier market data is indexed by date).
@@ -495,19 +570,24 @@ class LiquidityRule(EligibilityRuleBase):
                 f"LiquidityRule: Not enough trading days "
                 f"({price_df.shape[0]}/{self.lookback_days}) for {equity.ticker} "
                 f"for ADV calc.")
-            return False
+            return Assessment(False, self._unmeasured())
+
+        measures: list[Measure] = []
 
         if self.min_avg_daily_volume is not None:
             if (_VOLUME_COLUMN not in price_df.columns
                     or price_df[_VOLUME_COLUMN].isnull().all()):
                 logger.warning(f"LiquidityRule: Volume data missing for {equity.ticker}.")
-                return False
-            avg_daily_volume = price_df[_VOLUME_COLUMN].mean()
+                return Assessment(False, self._unmeasured())
+            avg_daily_volume = float(price_df[_VOLUME_COLUMN].mean())
+            measures.append(Measure(AVERAGE_VOLUME, avg_daily_volume, "ge",
+                                    float(self.min_avg_daily_volume),
+                                    avg_daily_volume >= self.min_avg_daily_volume))
             if avg_daily_volume < self.min_avg_daily_volume:
                 logger.debug(
                     f"LiquidityRule: {equity.ticker} (ADV: {avg_daily_volume:.0f}) below "
                     f"min volume {self.min_avg_daily_volume:.0f}")
-                return False
+                return Assessment(False, tuple(measures))
 
         if self.min_avg_daily_value is not None:
             if (_PRICE_COLUMN not in price_df.columns
@@ -517,7 +597,7 @@ class LiquidityRule(EligibilityRuleBase):
                 logger.warning(
                     f"LiquidityRule: Price or Volume data missing for ADTV "
                     f"calculation for {equity.ticker}.")
-                return False
+                return Assessment(False, (*measures, self._value_unmeasured()))
             traded = price_df[_PRICE_COLUMN] * price_df[_VOLUME_COLUMN]
 
             # BN-253: into the index's money before it meets a bound stated in
@@ -528,16 +608,36 @@ class LiquidityRule(EligibilityRuleBase):
                                               traded.index, current_date,
                                               market_data_provider)
 
-            avg_daily_value = traded.mean()
+            avg_daily_value = float(traded.mean())
+            measures.append(Measure(AVERAGE_VALUE, avg_daily_value, "ge",
+                                    float(self.min_avg_daily_value),
+                                    avg_daily_value >= self.min_avg_daily_value))
             if avg_daily_value < self.min_avg_daily_value:
                 logger.debug(
                     f"LiquidityRule: {equity.ticker} (ADTV: {avg_daily_value:.2f}) below "
                     f"min value {self.min_avg_daily_value:.2f}")
-                return False
+                return Assessment(False, tuple(measures))
 
         logger.debug(f"LiquidityRule: {equity.ticker} is eligible.")
 
-        return True
+        return Assessment(True, tuple(measures))
+
+    def _unmeasured(self) -> tuple[Measure, ...]:
+        """Each minimum set, failed for want of the data to measure it."""
+        found = []
+
+        if self.min_avg_daily_volume is not None:
+            found.append(Measure(AVERAGE_VOLUME, None, "ge", float(self.min_avg_daily_volume),
+                                 False))
+
+        if self.min_avg_daily_value is not None:
+            found.append(self._value_unmeasured())
+
+        return tuple(found)
+
+    def _value_unmeasured(self) -> Measure:
+        """The value's minimum, failed for want of the data to measure it."""
+        return Measure(AVERAGE_VALUE, None, "ge", float(self.min_avg_daily_value or 0.0), False)
 
     def _rates(self,
                equity: Equity,

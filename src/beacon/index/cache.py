@@ -41,6 +41,7 @@ from ..assumptions import ModellingAssumptions
 from ..catalogue import CONSTRAINT, SELECTION, WEIGHTING, classes, parameters_of
 from ..data import store
 from ..data.fetcher import DataFetcher
+from .calculation import selection_record
 from .capping import CapReport
 from .derived import AnyIndexDefinition, OptimisedIndexDefinition
 from .result import _DAILY_WEIGHT_DTYPES, IndexResult, PriceGap
@@ -56,9 +57,12 @@ LEVELS_FILE = "levels.parquet"
 DIVISOR_FILE = "divisor.parquet"
 DAILY_WEIGHTS_FILE = "daily_weights.parquet"
 SNAPSHOTS_FILE = "snapshots.json"
+# BN-474: each rebalance's selection, its funnel in the snapshots and what
+# its rules measured here. An entry written before it is a miss.
+SELECTIONS_FILE = "selection_measures.parquet"
 
 # The panels an entry holds, for the manifest's size table and for pruning.
-DATA_FILES = (LEVELS_FILE, DIVISOR_FILE, DAILY_WEIGHTS_FILE, SNAPSHOTS_FILE)
+DATA_FILES = (LEVELS_FILE, DIVISOR_FILE, DAILY_WEIGHTS_FILE, SNAPSHOTS_FILE, SELECTIONS_FILE)
 
 # Total size the cache may occupy before the least-recently-used entries are
 # evicted. Pruned on every put, in the spirit of the job registry's retention.
@@ -446,7 +450,9 @@ def _read_entry(entry: Path) -> IndexResult:
                              priced_from=pd.Timestamp(gap["priced_from"]))
                     for gap in snapshots.get("price_gaps", [])],
         currency=snapshots.get("currency"),
-        modelling_assumptions=_assumptions(snapshots.get("modelling_assumptions")))
+        modelling_assumptions=_assumptions(snapshots.get("modelling_assumptions")),
+        selections=selection_record.decoded(snapshots["selections"],
+                                            store._read_frame(entry / SELECTIONS_FILE)))
 
 
 # -- the cache ---------------------------------------------------------------
@@ -573,7 +579,10 @@ class IndexResultCache:
         _write_series(result.index_levels, _LEVEL_COLUMN, staging / LEVELS_FILE)
         _write_series(result.divisor_history, _DIVISOR_COLUMN, staging / DIVISOR_FILE)
         store._write_frame(result.daily_weights, staging / DAILY_WEIGHTS_FILE)
-        _write_json(staging / SNAPSHOTS_FILE, _snapshots_payload(result))
+        selections, measures = selection_record.encoded(result.selections)
+        store._write_frame(measures, staging / SELECTIONS_FILE)
+        _write_json(staging / SNAPSHOTS_FILE, {**_snapshots_payload(result),
+                                               "selections": selections})
 
         sizes = {name: (staging / name).stat().st_size for name in DATA_FILES}
 

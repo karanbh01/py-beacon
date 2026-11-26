@@ -273,8 +273,13 @@ action on it in the window, dated by its ex-date, with its type and amount.
 `trades` has a row for each trade in it: its side, shares, price, notional,
 cost and market impact, and why it was made. `events` is one dated list of
 what happened to it: added to or removed from the fund and the index,
-capped, screened out and its corporate actions, the `event` column's
-`labels` naming each kind. `start`, `end` and `against` pick what it
+capped, screened out, its corporate actions and each rebalance it came close
+to failing a rule (within the analysis options' `selection.near_miss`), the
+`event` column's `labels` naming each kind. `selection` has a row for each
+threshold each eligibility rule tested it against at each rebalance: what
+was measured, its value, the threshold, its margin (how far it was from
+failing, as a share of the threshold, positive when it passed) and whether it
+passed. `start`, `end` and `against` pick what it
 measures. A part the run cannot give, such as the rebalances of
 a run kept before they were, is named under `unavailable` with why.
 

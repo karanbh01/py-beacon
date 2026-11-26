@@ -8,6 +8,7 @@ import pandas as pd
 from ...panels import ACTIONS, REBALANCE_WEIGHTS, TRADES
 from ...reports.context import FUND
 from ...reports.statistics import RUN_PREDATES, Unavailable
+from .selection import near_misses, selection
 
 IDENTIFIER = "IDENTIFIER"
 # An event: its date, kind, detail and amount.
@@ -17,15 +18,17 @@ TRADE_COLUMNS = {"SIDE": "side", "QUANTITY": "quantity", "PRICE": "price", "VALU
 
 ADDED, REMOVED = "added_to_{}", "removed_from_{}"
 CAPPED, SCREENED_OUT, CORPORATE_ACTION = "capped", "screened_out", "corporate_action"
+NEAR_MISS = "near_miss"
 # The portfolios whose holding of a name is an event, and the order a day's
 # events are listed in.
 HOLDERS = (FUND, "index")
-ORDER = (*(ADDED.format(book) for book in HOLDERS), CAPPED, SCREENED_OUT,
+ORDER = (*(ADDED.format(book) for book in HOLDERS), CAPPED, NEAR_MISS, SCREENED_OUT,
          *(REMOVED.format(book) for book in HOLDERS), CORPORATE_ACTION)
 EVENT_LABELS = {ADDED.format(FUND): "Added to the fund",
                 REMOVED.format(FUND): "Sold out of the fund",
                 ADDED.format("index"): "Added to the index",
                 REMOVED.format("index"): "Removed from the index", CAPPED: "Capped",
+                NEAR_MISS: "Came close to failing a rule",
                 SCREENED_OUT: "Screened out", CORPORATE_ACTION: "Corporate action"}
 
 
@@ -60,12 +63,15 @@ def trades(name: str,
 def events(name: str,
            tables: dict[str, pd.DataFrame],
            days: pd.DatetimeIndex,
-           portfolios: dict[str, pd.DataFrame]) -> pd.DataFrame:
+           portfolios: dict[str, pd.DataFrame],
+           near_miss: float) -> pd.DataFrame:
     """What happened to *name* over *days*, oldest first: each day the fund
-    or the index began or stopped holding it, each rebalance that capped it
-    or screened it out, and each corporate action on it; a row an event,
-    with its ``event``, a ``detail`` (the screen, the action's type) and an
-    ``amount`` (the weight capped to, the action's amount)."""
+    or the index began or stopped holding it, each rebalance that capped it,
+    that it passed a rule with a margin under *near_miss*, or that screened
+    it out, and each corporate action on it; a row an event, with its
+    ``event``, a ``detail`` (the screen, the rule and what it measured, the
+    action's type) and an ``amount`` (the weight capped to, the margin, the
+    action's amount)."""
     rows: list[Event] = []
 
     for book in HOLDERS:
@@ -73,6 +79,7 @@ def events(name: str,
             rows += _holding(name, book, portfolios[book])
 
     rows += _rebalances(name, tables.get(REBALANCE_WEIGHTS))
+    rows += _near_misses(name, tables, days, near_miss)
     rows += _actions(name, tables.get(ACTIONS))
     found = pd.DataFrame(rows, columns=["DATE", "event", "detail", "amount"])
     found = found.loc[(found["DATE"] >= days[0]) & (found["DATE"] <= days[-1])]
@@ -114,6 +121,23 @@ def _rebalances(name: str,
 
     return rows + [(day, SCREENED_OUT, str(screen), None)
                    for day, screen in mine["REMOVED"].dropna().items()]
+
+
+def _near_misses(name: str,
+                 tables: dict[str, pd.DataFrame],
+                 days: pd.DatetimeIndex,
+                 within: float) -> list[Event]:
+    """Each rebalance *name* passed a rule with a margin under *within*;
+    none for a run kept before its margins were."""
+    try:
+        close = near_misses(selection(name, tables, days), within)
+    except Unavailable:
+        return []
+
+    return [(pd.Timestamp(day), NEAR_MISS, f"{rule}: {quantity}", float(found))
+            for day, rule, quantity, found in zip(close.index, close["rule_name"],
+                                                  close["measure"], close["margin"],
+                                                  strict=True)]
 
 
 def _actions(name: str,

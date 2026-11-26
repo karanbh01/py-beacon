@@ -82,6 +82,10 @@ FREE_FLOAT_FIELD = "free_float"
 # endpoint, so a cap comparison is not a currency comparison.
 BASE_CURRENCY = "USD"
 
+# One comparison as evaluated: the field's path, its value, the comparison,
+# what it was compared with and the answer.
+Compared = tuple[str, Any, str, Any, bool]
+
 CLOSE = "CLOSE"
 SHARES = "SHARES_OUTSTANDING"
 FREE_FLOAT = "FREE_FLOAT"
@@ -107,7 +111,8 @@ def resolve(expression: Expression,
             fetcher: DataFetcher,
             on_missing: bool = False,
             max_age_days: int | None = MAX_AGE_DAYS,
-            currency: str = BASE_CURRENCY) -> bool:
+            currency: str = BASE_CURRENCY,
+            measured: list[Compared] | None = None) -> bool:
     """Whether an instrument passes an expression on a date.
 
     Args:
@@ -120,24 +125,28 @@ def resolve(expression: Expression,
         currency: The currency money fields (`market_cap`,
             `free_float_market_cap`) are compared in. An index passes its
             own; USD otherwise.
+        measured: When given, each comparison evaluated is added to it, in
+            order, as (field path, value, comparison, threshold, answer).
+            A group stops at its first deciding answer, so a comparison
+            after it is not evaluated and not added.
 
     Returns:
         bool: The answer for this instrument on this date.
     """
     if isinstance(expression, _Group):
         answers = (resolve(operand, identifier, date, fetcher, on_missing,
-                           max_age_days, currency)
+                           max_age_days, currency, measured)
                    for operand in expression.operands)
 
         return all(answers) if expression.node == ALL else any(answers)
 
     if isinstance(expression, Not):
         return not resolve(expression.operand, identifier, date, fetcher,
-                           on_missing, max_age_days, currency)
+                           on_missing, max_age_days, currency, measured)
 
     if isinstance(expression, Comparison):
         return _compare(expression, identifier, date, fetcher, on_missing,
-                        max_age_days, currency)
+                        max_age_days, currency, measured)
 
     # A bare `Field` is not a question. Reaching here means an expression was
     # built but never compared, which is a mistake worth surfacing rather than
@@ -156,7 +165,8 @@ def _compare(comparison: Comparison,
              fetcher: DataFetcher,
              on_missing: bool,
              max_age_days: int | None,
-             currency: str = BASE_CURRENCY) -> bool:
+             currency: str = BASE_CURRENCY,
+             measured: list[Compared] | None = None) -> bool:
     """One comparison."""
     value = value_of(comparison.field, identifier, date, fetcher,
                      max_age_days, currency)
@@ -165,10 +175,16 @@ def _compare(comparison: Comparison,
         logger.debug("%s has no %s knowable on %s; treated as %s.",
                      identifier, comparison.field.path,
                      date.strftime("%Y-%m-%d"), on_missing)
+        answer = on_missing
+    else:
+        answer = bool(OPERATIONS[comparison.comparison](value, comparison.value))
 
-        return on_missing
+    # BN-474: what was tested, for the margin a run keeps.
+    if measured is not None:
+        measured.append((comparison.field.path, value, comparison.comparison,
+                         comparison.value, answer))
 
-    return bool(OPERATIONS[comparison.comparison](value, comparison.value))
+    return answer
 
 
 def value_of(field: Field,

@@ -42,6 +42,7 @@ from ..data.features import MAX_AGE_DAYS
 from ..data.fetcher import DataFetcher
 from ..exceptions import InvalidRuleError
 from .context import IndexContext
+from .margins import Assessment, Measure, number
 from .methodology import EligibilityRuleBase
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,16 @@ class FeatureRule(EligibilityRuleBase):
         The date is the rebalance date, and it is passed straight through to
         the point-in-time accessor. A value published after it is invisible.
         """
+        return self._assessed(asset, current_date, market_data_provider, context).eligible
+
+    def _assessed(self,
+                  asset: Asset,
+                  current_date: pd.Timestamp,
+                  market_data_provider: DataFetcher,
+                  context: IndexContext | None = None) -> Assessment:
+        """Whether the asset passes, as `is_eligible` says, with its value
+        tested against the threshold."""
+        # BN-474.
         value = market_data_provider.fetch_feature(
             asset.asset_id, self.field, current_date,
             self.feature_type, self.max_age_days)
@@ -163,10 +174,12 @@ class FeatureRule(EligibilityRuleBase):
             logger.debug("FeatureRule: %s has no %s knowable on %s; %sd.",
                          asset.asset_id, self.field,
                          current_date.strftime("%Y-%m-%d"), self.on_missing)
+            passed = self.on_missing == INCLUDE
+        else:
+            passed = bool(COMPARISONS[self.comparison](value, self.threshold))
 
-            return self.on_missing == INCLUDE
-
-        return bool(COMPARISONS[self.comparison](value, self.threshold))
+        return Assessment(passed, (Measure(self.field, number(value), self.comparison,
+                                           number(self.threshold), passed),))
 
     def __repr__(self) -> str:
         scope = f", type={self.feature_type!r}" if self.feature_type else ""

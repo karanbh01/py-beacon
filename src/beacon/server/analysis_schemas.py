@@ -286,8 +286,9 @@ class InstrumentProfile(BaseModel):
                     "period, dated by its last day; 'risk', 'liquidity', "
                     "'factor_exposures', 'factor_betas', 'style' and 'key_data', a row a "
                     "rebalance; 'corporate_actions', a row an action, dated by its "
-                    "ex-date; 'trades', a row a trade; and 'events', a row an event. A days "
-                    "to sell is null where the name has no traded value.")
+                    "ex-date; 'trades', a row a trade; 'events', a row an event; and "
+                    "'selection', a row a rebalance a rule a threshold. A days to sell is "
+                    "null where the name has no traded value.")
     unavailable: dict[str, str] = Field(description="Each part the run cannot give, and why.")
 
 

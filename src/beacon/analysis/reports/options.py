@@ -193,6 +193,19 @@ class AttributionOptions:
 
 
 @dataclass(frozen=True)
+class SelectionOptions:
+    """How a name's selection is read.
+
+    Attributes:
+        near_miss: The margin, as a share of the threshold, under which a
+            name that passed an eligibility rule came close to failing it,
+            and is listed among its events.
+    """
+    # BN-474 (Karan, 2026-11-26).
+    near_miss: float = 0.1
+
+
+@dataclass(frozen=True)
 class ExposuresOptions:
     """Where the fund's latest weights by sector and by country are read
     from.
@@ -217,6 +230,7 @@ class AnalysisOptions:
     risk_model: RiskModelOptions = field(default_factory=RiskModelOptions)
     liquidity: LiquidityOptions = field(default_factory=LiquidityOptions)
     attribution: AttributionOptions = field(default_factory=AttributionOptions)
+    selection: SelectionOptions = field(default_factory=SelectionOptions)
     exposures: ExposuresOptions = field(default_factory=ExposuresOptions)
     style: StyleSettings = field(default_factory=StyleSettings)
     risk_rating: RiskRatingSettings = field(default_factory=RiskRatingSettings)
@@ -377,6 +391,12 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
                              "up.", choices=LINKINGS,
                              choice_labels={WINDOW: "As a share of the window",
                                             PERIOD: "Each period on its own"}),
+    }),
+    "selection": ("Selection", {
+        "near_miss": Described("Near miss within", "The margin, as a share of the threshold, "
+                               "under which a name that passed an eligibility rule came close "
+                               "to failing it, and is listed among its events.",
+                               unit="fraction", suggestions=(0.05, 0.1, 0.2), minimum=0.0),
     }),
     "exposures": ("Exposures", {
         "sector_field": Described("Sector from", "The reference field each name's sector is "

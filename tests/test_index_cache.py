@@ -424,6 +424,31 @@ class TestRoundTrip:
         assert all(isinstance(date, pd.Timestamp)
                    for date in reloaded.weight_snapshots)
 
+    def test_each_selection_and_what_its_rules_measured(self,
+                                                        cache,
+                                                        disk_fetcher,
+                                                        result):
+        """BN-474: a run served from the cache keeps its funnel and its
+        margins, which it lost before."""
+        reloaded = self.cached(cache, disk_fetcher, result)
+
+        assert result.selections and any(summary.measures
+                                         for summary in result.selections.values())
+        assert reloaded.selections == result.selections
+
+    def test_an_entry_written_before_selections_were_is_a_miss(self,
+                                                              cache,
+                                                              disk_fetcher,
+                                                              result):
+        key = the_key(disk_fetcher)
+        cache.put(key, result, key_parts(build_definition(), disk_fetcher, START, END))
+        path = cache.entry_path(key) / "snapshots.json"
+        older = json.loads(path.read_text(encoding="utf-8"))
+        del older["selections"]
+        path.write_text(json.dumps(older), encoding="utf-8")
+
+        assert cache.get(key) is None
+
     def test_the_manifest_keeps_the_key_parts_in_the_clear(self,
                                                            cache,
                                                            disk_fetcher,
@@ -441,7 +466,8 @@ class TestRoundTrip:
         assert manifest["key_parts"] == parts
         assert manifest["created_at"] and manifest["last_used"]
         assert set(manifest["sizes"]) == {"levels.parquet", "divisor.parquet",
-                                          "daily_weights.parquet", "snapshots.json"}
+                                          "daily_weights.parquet", "snapshots.json",
+                                          "selection_measures.parquet"}
 
     def test_an_unknown_key_is_a_miss(self,
                                       cache):

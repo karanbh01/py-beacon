@@ -44,6 +44,7 @@ from .panels import (
     NAME_RETURNS,
     REBALANCE_WEIGHTS,
     REFERENCE,
+    SELECTION_MARGINS,
     TRADED_VALUES,
     TRADES,
     WEIGHT_TABLES,
@@ -95,7 +96,7 @@ DERIVED = frozenset({NAME_RETURNS, *WEIGHT_TABLES})
 
 # The tables every run keeps, which a record without them says it lacks.
 EXPECTED = (FUND_WEIGHTS, NAME_RETURNS, COSTS, CASH, INDEX_WEIGHTS, REFERENCE,
-            CHARACTERISTICS, TRADED_VALUES, TRADES, REBALANCE_WEIGHTS)
+            CHARACTERISTICS, TRADED_VALUES, TRADES, REBALANCE_WEIGHTS, SELECTION_MARGINS)
 
 _OLDER = ("kept before py-beacon 0.10.0, which did not keep it; run the backtest "
           "again to have it")

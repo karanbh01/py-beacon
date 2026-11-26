@@ -52,9 +52,10 @@ from ..data.fetcher import DataFetcher
 from ..exceptions import ExpressionError, InvalidRuleError
 from ..expressions.core import Expression, fields_in, from_dict
 from ..expressions.namespaces import market_columns_for
-from ..expressions.resolve import BASE_CURRENCY, resolve
+from ..expressions.resolve import BASE_CURRENCY, Compared, resolve
 from .context import IndexContext
 from .feature_rules import EXCLUDE, INCLUDE, ON_MISSING
+from .margins import Assessment, Measure, number
 from .methodology import EligibilityRuleBase
 
 logger = logging.getLogger(__name__)
@@ -167,12 +168,31 @@ class ExpressionRule(EligibilityRuleBase):
         fields are compared in the index's currency, as `MarketCapRule`'s
         bounds are; used outside an index, in USD.
         """
-        return resolve(self._tree, asset.asset_id, current_date,
-                       market_data_provider,
-                       on_missing=self.on_missing == INCLUDE,
-                       max_age_days=self.max_age_days,
-                       currency=(context.currency if context is not None
-                                 else BASE_CURRENCY))
+        return self._assessed(asset, current_date, market_data_provider, context).eligible
+
+    def _assessed(self,
+                  asset: Asset,
+                  current_date: pd.Timestamp,
+                  market_data_provider: DataFetcher,
+                  context: IndexContext | None = None) -> Assessment:
+        """Whether the asset passes, as `is_eligible` says, with each
+        comparison of the expression it evaluated, by its field's path; a
+        group stops at its first deciding answer, so the comparisons after
+        it are not measured."""
+        # BN-474 (Karan, 2026-11-26): each comparison measured.
+        measured: list[Compared] = []
+        eligible = resolve(self._tree, asset.asset_id, current_date,
+                           market_data_provider,
+                           on_missing=self.on_missing == INCLUDE,
+                           max_age_days=self.max_age_days,
+                           currency=(context.currency if context is not None
+                                     else BASE_CURRENCY),
+                           measured=measured)
+
+        return Assessment(eligible, tuple(Measure(path, number(value), comparison,
+                                                  number(threshold), answer)
+                                          for path, value, comparison, threshold, answer
+                                          in measured))
 
     def __repr__(self) -> str:
         return f"ExpressionRule({self._tree!r})"

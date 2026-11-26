@@ -15,6 +15,7 @@ One name over a run: `result.analytics.instrument.profile(name)`.
     profile.corporate_actions          # a row an action
     profile.trades                     # a row a trade
     profile.events                     # a row an event
+    profile.selection                  # a row a rebalance a rule a threshold
 
 Each part is a dated table over the analysis window the profile was asked
 for (``start``, ``end``), worked out the first time it is asked for.
@@ -112,8 +113,21 @@ fund or the index began or stopped holding it (``added_to_fund``,
 ``removed_from_fund``, ``added_to_index``, ``removed_from_index``), each
 rebalance that capped it (``capped``, ``amount`` the weight it was capped to)
 or screened it out (``screened_out``, ``detail`` the screen), and each
-corporate action on it (``corporate_action``, its type and amount), a day's
-in that order. The column's labels name each kind.
+corporate action on it (``corporate_action``, its type and amount), and each
+rebalance it passed a rule with a margin under the selection options'
+``near_miss`` (``near_miss``, ``detail`` the rule and what it measured,
+``amount`` the margin), a day's in a fixed order. The column's labels name
+each kind.
+
+``selection`` has a row for each threshold each eligibility rule tested the
+name against at each rebalance in the window: the rule's position and type
+(``rule``, ``rule_name``), what it measured (``measure``), the name's value
+(``measured``),
+the comparison, the threshold, the ``margin`` (`beacon.index.margins`: how
+far it was from failing, as a share of the threshold, positive when it
+passed) and whether it ``passed``. A name has no rows for a rule it did not
+reach, having been removed before it, and a run kept before its margins were
+gives the part as unavailable.
 
 A stored run's risk and exposures are read from what its analysis kept for
 the same factors and risk model (`beacon.analysis.risk.risk_store`);
@@ -133,7 +147,7 @@ from ...panels import NAME_RETURNS, REFERENCE
 from ...reports.statistics import TOO_SHORT, Unavailable
 from ...risk.liquidity import BOOKS
 from ..groupings import FREQUENCIES
-from . import characteristics, contribution, factors, risk, trading, weights
+from . import characteristics, contribution, factors, risk, selection, trading, weights
 from .columns import ACTIVE, LABELS, columns_of
 from .risk import liquidity_dates, liquidity_of
 
@@ -144,7 +158,7 @@ class Profile:
 
     parts = ("rebalance_weights", "daily_weights", "attribution", "risk", "liquidity",
              "factor_exposures", "factor_betas", "style", "key_data", "corporate_actions",
-             "trades", "events")
+             "trades", "events", "selection")
 
     def __init__(self,
                  name: str,
@@ -315,7 +329,18 @@ class Profile:
         to and removed from the fund and the index, capped, screened out
         and its corporate actions."""
         return trading.events(self.name, self._context.run.tables, self.days(),
-                              self.portfolios())
+                              self.portfolios(), self._context.options.selection.near_miss)
+
+    @cached_property
+    def selection(self) -> pd.DataFrame:
+        """At each rebalance: each threshold each eligibility rule tested
+        the name against, its value, its margin and whether it passed.
+
+        Raises:
+            Unavailable: If the run was kept before its margins were.
+        """
+        # BN-474.
+        return selection.selection(self.name, self._context.run.tables, self.days())
 
     def comparator(self) -> str | None:
         """The comparator active figures are measured against: the one

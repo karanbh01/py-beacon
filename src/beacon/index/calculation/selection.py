@@ -43,12 +43,17 @@ import pandas as pd
 from ...asset.base import Asset
 from ...data.fetcher import DataFetcher
 from ..context import IndexContext
+from ..margins import Measure
 from ..methodology import EligibilityRuleBase
 
 logger = logging.getLogger(__name__)
 
 # The rung representing the universe before any rule has been applied.
 UNIVERSE_POSITION = 0
+
+# Each rule's measures of each name it tested, by rule position then name
+# (BN-474).
+Measures = dict[int, dict[str, tuple[Measure, ...]]]
 
 # The rung a stale-price exclusion is recorded at (BN-211). Negative so it
 # cannot collide with a rule's 1-based position, and so a consumer that maps
@@ -103,11 +108,14 @@ class SelectionSummary:
         universe: The universe's identifiers, in order.
         steps: One entry per rung, the universe first.
         exclusions: Identifier to the position of the rung that removed it.
+        measures: For each rule, by position, each name it tested and the
+            thresholds it tested it against (`beacon.index.margins`).
     """
     # BN-326: what a strategy's holdings workflow shows at a past rebalance.
     universe: list[str]
     steps: list[SelectionStep]
     exclusions: dict[str, int] = field(default_factory=dict)
+    measures: Measures = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -125,16 +133,21 @@ class SelectionResult:
             and no name can be blamed on two rules. That single-owner property
             is what makes the funnel answer "why is this name missing" rather
             than only "how many are left".
+        measures: For each rule, by position, each name it tested and the
+            thresholds it tested it against; a rule that reports none has
+            no entry, and a name a rule did not see (removed before it) none
+            under it.
     """
     survivors: list[Asset]
     steps: list[SelectionStep]
     exclusions: dict[str, int] = field(default_factory=dict)
+    measures: Measures = field(default_factory=dict)
 
     def summary(self,
                 universe: list[str]) -> SelectionSummary:
         """This selection's provenance, over *universe*'s identifiers."""
         return SelectionSummary(universe=list(universe), steps=list(self.steps),
-                                exclusions=dict(self.exclusions))
+                                exclusions=dict(self.exclusions), measures=dict(self.measures))
 
     @property
     def survivor_ids(self) -> list[str]:
@@ -219,12 +232,17 @@ def select_with_provenance(universe: list[Asset],
             current_date.date(), len(stale),
             data_fetcher.max_price_staleness_days)
 
+    measures: Measures = {}
+
     for position, rule in enumerate(rules, start=1):
-        surviving, removed = _apply_rule(rule, surviving, current_date,
-                                        data_fetcher, context)
+        surviving, removed, measured = _apply_rule(rule, surviving, current_date,
+                                                   data_fetcher, context)
 
         for asset_id in removed:
             exclusions[asset_id] = position
+
+        if measured:
+            measures[position] = measured
 
         steps.append(SelectionStep(position=position,
                                    rule_name=rule.rule_name,
@@ -234,15 +252,19 @@ def select_with_provenance(universe: list[Asset],
     for asset in surviving:
         logger.debug(f"Asset {asset.asset_id} passed all eligibility rules.")
 
-    return SelectionResult(survivors=surviving, steps=steps, exclusions=exclusions)
+    return SelectionResult(survivors=surviving, steps=steps, exclusions=exclusions,
+                           measures=measures)
 
 
 def _apply_rule(rule: EligibilityRuleBase,
                 candidates: list[Asset],
                 current_date: pd.Timestamp,
                 data_fetcher: DataFetcher,
-                context: IndexContext | None = None) -> tuple[list[Asset], list[str]]:
-    """Split candidates into those that pass a rule and those that do not.
+                context: IndexContext | None = None) -> tuple[list[Asset], list[str],
+                                                              dict[str, tuple[Measure, ...]]]:
+    """Split candidates into those that pass a rule and those that do not,
+    with what the rule measured of each (BN-474: `assess`, which gives the
+    answer `is_eligible` would).
 
     A rule that raises is left to raise (BN-182). This used to catch every
     exception and record the asset as excluded, which spelled "the rule
@@ -261,12 +283,18 @@ def _apply_rule(rule: EligibilityRuleBase,
 
     kept: list[Asset] = []
     removed: list[str] = []
+    measured: dict[str, tuple[Measure, ...]] = {}
 
     for asset in candidates:
-        if rule.is_eligible(asset, current_date, data_fetcher, context):
+        assessment = rule.assess(asset, current_date, data_fetcher, context)
+
+        if assessment.measures:
+            measured[asset.asset_id] = assessment.measures
+
+        if assessment.eligible:
             kept.append(asset)
         else:
             logger.debug(f"Asset {asset.asset_id} failed eligibility rule: {rule.rule_name}")
             removed.append(asset.asset_id)
 
-    return kept, removed
+    return kept, removed, measured
