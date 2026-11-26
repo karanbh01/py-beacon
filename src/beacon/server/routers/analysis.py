@@ -162,24 +162,29 @@ def build_analysis_router() -> APIRouter:
                 identifier: str,
                 start: StartQuery = None,
                 end: EndQuery = None,
-                against: AgainstQuery = None) -> InstrumentProfile:
+                against: AgainstQuery = None,
+                by: Annotated[str, Query(description="The periods its contribution is given "
+                                         "by: 'month', 'quarter' or 'year'.")] = "quarter"
+                ) -> InstrumentProfile:
         """One name over the strategy's latest run, a dated table a part: at
         each rebalance, its weight at each implementation stage, any cap or
-        screen applied to it and each comparator's weight in it; and each
-        day, the fund's and each comparator's weight in it and the fund's
-        active weight. A part the run cannot give is left out, and named
-        under `unavailable` with why.
+        screen applied to it and each comparator's weight in it; each day,
+        the fund's and each comparator's weight in it and the fund's active
+        weight; and each period, its contribution and active contribution
+        and each's total to date, linked as the run's analysis options say.
+        A part the run cannot give is left out, and named under
+        `unavailable` with why.
 
         Raises:
             DataNotFoundError: Until the strategy has been backtested.
             InvalidArgumentError: For a name no portfolio held, or a
-                comparator refused.
+                comparator or period refused.
         """
-        # BN-468.
+        # BN-468; BN-469 added by.
         analytics = stored_analytics(_run_folder(request, strategy_id), current_data(request))
 
         return InstrumentProfile.model_validate(instrument_profile(analytics, identifier, start,
-                                                                   end, against))
+                                                                   end, against, by))
 
     # async, as the backtest's is: the registry schedules the job on the
     # running event loop.

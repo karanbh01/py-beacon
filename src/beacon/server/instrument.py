@@ -102,19 +102,20 @@ def instrument_profile(analytics: Analytics,
                        identifier: str,
                        start: str | None,
                        end: str | None,
-                       against: str | None) -> dict[str, Any]:
+                       against: str | None,
+                       by: str = "quarter") -> dict[str, Any]:
     """`instrument.profile()` as the API gives it: each part a dated table,
     with each column's label and unit, and each part the run cannot give
     named with why.
 
     Raises:
         InvalidArgumentError: If no portfolio held *identifier*, or the
-            comparator is refused.
+            comparator or *by* is refused.
     """
-    # BN-468.
+    # BN-468; BN-469 added by.
     try:
         profile = analytics.instrument.profile(identifier, start=start, end=end,
-                                               against=against)
+                                               against=against, by=by)
     except (ValueError, Unavailable) as error:
         raise InvalidArgumentError(f"The profile asked for cannot be given: "
                                    f"{getattr(error, 'reason', None) or error}") from error
@@ -143,6 +144,7 @@ def instrument_profile(analytics: Analytics,
             "end": _day(days[-1]) if len(days) else None,
             "against": (profile.daily_weights.attrs.get("against")
                         if "daily_weights" in parts else None),
+            "by": by, "linking": analytics._context.options.attribution.linking,
             "parts": parts, "unavailable": unavailable}
 
 

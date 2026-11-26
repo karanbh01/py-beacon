@@ -80,14 +80,47 @@ class Attribution:
         contributions add up to the fund's compounded return less
         *against*'s."""
         ours, theirs = aligned(self.run.returns, self._levels(against))
-        fund, comparator = self.weights(FUND), self.weights(against)
-        names = sorted(set(fund.columns) | set(comparator.columns))
-        days = fund.index
-        active = (fund.reindex(columns=names, fill_value=0.0)
-                  - comparator.reindex(index=days, method="ffill")
-                  .reindex(columns=names).fillna(0.0))
 
-        return self._attributed(ours, active, field, start, end, theirs)
+        return self._attributed(ours, self._book_weights(against), field, start, end, theirs)
+
+    def by_day(self,
+               name: str,
+               against: str | None = None,
+               start: str | pd.Timestamp | None = None,
+               end: str | pd.Timestamp | None = None) -> pd.DataFrame:
+        """Each day `contribution` (or, *against* a comparator, `active`)
+        links over the window, unlinked: *name*'s contribution that day
+        (``contribution``), the fund's return (``fund``) and the
+        comparator's (``comparator``)."""
+        # BN-469: one name's days, so a profile can link them by period
+        # without attributing every name.
+        ours, theirs = self._paired(against)
+        weights = self._book_weights(against)
+        name_returns = self._name_returns()
+        returns = _window(ours.dropna(), start, end)
+        common = (returns.index.intersection(name_returns.index).intersection(weights.index)
+                  .sort_values())
+        names = sorted(set(weights.columns) & set(name_returns.columns))
+
+        # The days attribute() keeps: each after the first (whose weight at
+        # the close before is not in the window) that any name has a return.
+        # The weights have no blanks, so no other day is dropped.
+        kept = name_returns[names].reindex(common).notna().any(axis=1).to_numpy(copy=True)
+        kept[:1] = False
+        days = common[kept]
+
+        found = pd.DataFrame({FUND: returns.reindex(days)}, index=days)
+        found["contribution"] = 0.0
+
+        if name in names:
+            held = weights[name].reindex(common).shift(1)
+            earned = held * name_returns[name].reindex(common)
+            found["contribution"] = earned.reindex(days).fillna(0.0)
+
+        if theirs is not None:
+            found["comparator"] = theirs.reindex(days)
+
+        return found
 
     def brinson(self,
                 field: str,

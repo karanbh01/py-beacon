@@ -270,9 +270,16 @@ class InstrumentProfile(BaseModel):
     end: str | None = Field(description="The window's last day, YYYY-MM-DD.")
     against: str | None = Field(description="The comparator the active weight is measured "
                                             "against; null when there is none.")
+    by: str = Field(description="The periods 'attribution' has a row for: 'month', "
+                                "'quarter' or 'year'.")
+    linking: str = Field(description="How 'attribution' links each period's contribution, "
+                                     "as the run's analysis options say: 'window', as its "
+                                     "share of the whole window's, so the periods add up to "
+                                     "it, or 'period', each period on its own.")
     parts: dict[str, ProfileTable] = Field(
         description="Each part the run can give, by name: 'rebalance_weights', a row a "
-                    "rebalance, and 'daily_weights', a row a day.")
+                    "rebalance; 'daily_weights', a row a day; and 'attribution', a row a "
+                    "period, dated by its last day.")
     unavailable: dict[str, str] = Field(description="Each part the run cannot give, and why.")
 
 

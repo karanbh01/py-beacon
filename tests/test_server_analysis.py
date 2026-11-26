@@ -279,9 +279,30 @@ class TestAName_sProfile:
         assert found["parts"]["rebalance_weights"]["columns"][0] == {
             "name": "target", "label": "Target", "unit": "fraction"}
 
+    def test_its_contribution_by_period(self,
+                                        client,
+                                        analytics):
+        # BN-469.
+        name = analytics.instrument.table().index[0]
+        found = client.get(f"/strategies/analysed/instrument/{name}?by=month",
+                           headers=auth()).json()
+        kept = analytics.instrument.profile(name, by="month").attribution
+        part = found["parts"]["attribution"]
+
+        assert (found["by"], found["linking"]) == ("month", "window")
+        assert part["dates"] == [date.strftime("%Y-%m-%d") for date in kept.index]
+        assert [row[0] for row in part["data"]] == pytest.approx(
+            kept["contribution"].tolist(), rel=1e-12)
+        assert part["columns"][0] == {"name": "contribution", "label": "Contribution",
+                                      "unit": "fraction"}
+
     def test_what_it_refuses(self,
                              client):
         assert client.get("/strategies/analysed/instrument/NOPE",
+                          headers=auth()).status_code == 422
+        name = client.get("/strategies/analysed/instrument",
+                          headers=auth()).json()["names"][0]
+        assert client.get(f"/strategies/analysed/instrument/{name}?by=week",
                           headers=auth()).status_code == 422
         assert client.get("/strategies/unrun/instrument/NOPE", headers=auth()).status_code == 404
 

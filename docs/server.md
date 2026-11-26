@@ -244,9 +244,16 @@ a rebalance: the strategy's weight in the name before the implementation,
 after its screens and what the trades aimed at, the weight a cap cut it to
 and the screen that removed it, and each comparator's weight that day.
 `daily_weights` has a row a day: the fund's weight as it drifted, each
-comparator's and the fund's active weight. `start`, `end` and `against` pick
-what it measures. A part the run cannot give, such as the rebalances of a run
-kept before they were, is named under `unavailable` with why.
+comparator's and the fund's active weight. `attribution` has a row a month,
+quarter or year (`by`, a quarter by default), dated by its last day: the
+name's contribution to the fund's return and its active contribution, and
+each's total to date. `linking` says how the periods are linked, as the run's
+analysis options' `attribution.linking` sets it: `window`, each period its
+share of the whole window's contribution, so the periods add up to it; or
+`period`, each period on its own, so it agrees with the per-name table over
+that period alone and the periods do not add up. `start`, `end` and `against`
+pick what it measures. A part the run cannot give, such as the rebalances of
+a run kept before they were, is named under `unavailable` with why.
 
 ## An index on its own
 

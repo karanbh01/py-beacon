@@ -26,6 +26,10 @@ INDEX, BENCHMARK, OPTIMISED = "index", "benchmark", "optimised"
 
 MARKET_FALLS, NAMED = "market", "named"
 
+# How a contribution over each period is linked (BN-469, Karan 2026-11-26).
+WINDOW, PERIOD = "window", "period"
+LINKINGS = (WINDOW, PERIOD)
+
 
 @dataclass(frozen=True)
 class RollingOptions:
@@ -170,9 +174,22 @@ class AttributionOptions:
         grouping: The reference field names are grouped by.
         frequency: The periods attribution is also given by: ``Y``, ``Q``
             or ``M``.
+        linking: How a contribution over each period is linked: ``window``,
+            as its share of the whole window's return, so the periods add up
+            to the window's contribution; or ``period``, each period on its
+            own, as the window from the last day before it to its own last
+            day would give it.
+
+    Raises:
+        ValueError: If *linking* is neither.
     """
     grouping: str = "SECTOR"
     frequency: str = "Y"
+    linking: str = WINDOW
+
+    def __post_init__(self) -> None:
+        if self.linking not in LINKINGS:
+            raise ValueError(f"Unknown linking {self.linking!r}. Known: {', '.join(LINKINGS)}.")
 
 
 @dataclass(frozen=True)
@@ -352,6 +369,14 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
         "frequency": Described("Periods", "The periods attribution is also given by.",
                                choices=("Y", "Q", "M"),
                                choice_labels={"Y": "Years", "Q": "Quarters", "M": "Months"}),
+        "linking": Described("Periods linked", "How a contribution over each period, such as "
+                             "a name's each quarter, is linked: as its share of the whole "
+                             "window's return, so the periods add up to the window's "
+                             "contribution, or each period on its own, so each is the "
+                             "contribution over that period alone and the periods do not add "
+                             "up.", choices=LINKINGS,
+                             choice_labels={WINDOW: "As a share of the window",
+                                            PERIOD: "Each period on its own"}),
     }),
     "exposures": ("Exposures", {
         "sector_field": Described("Sector from", "The reference field each name's sector is "

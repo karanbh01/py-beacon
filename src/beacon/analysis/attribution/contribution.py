@@ -199,6 +199,20 @@ def link_contributions(contributions: pd.DataFrame,
     if contributions.empty:
         return pd.Series(dtype=float)
 
+    scaled = contributions.mul(linking_factors(period_returns, comparator), axis=0)
+
+    return scaled.sum(axis=0)
+
+
+def linking_factors(period_returns: pd.Series,
+                    comparator: pd.Series | None = None) -> pd.Series:
+    """What `link_contributions` scales each period's contributions by: the
+    period's Carino factor over the whole's, or with *comparator* the
+    active factors.
+
+    Raises:
+        CalculationError: If any period return is -100% or worse.
+    """
     total = float((1.0 + period_returns).prod() - 1.0)
 
     if comparator is None:
@@ -211,9 +225,7 @@ def link_contributions(contributions: pd.DataFrame,
                             index=period_returns.index)
         total_factor = active_carino(total, float((1.0 + theirs).prod() - 1.0))
 
-    scaled = contributions.mul(factors / total_factor, axis=0)
-
-    return scaled.sum(axis=0)
+    return factors / total_factor
 
 
 def drifted_weights(snapshots: dict[pd.Timestamp, dict[str, float]],

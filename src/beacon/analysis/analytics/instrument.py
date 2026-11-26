@@ -296,17 +296,20 @@ class InstrumentLevel(Category):
                 *,
                 start: Day = None,
                 end: Day = None,
-                against: str | None = None) -> Profile:
+                against: str | None = None,
+                by: str = "quarter") -> Profile:
         """One name over the run, a dated table a part
         (`beacon.analysis.analytics.profile`): how each rebalance weighted
-        it and how its weight drifted each day, against the comparator
-        given as ``against`` or the one the analysis tracks.
+        it, how its weight drifted each day and what it contributed each
+        month, quarter or year (``by``), against the comparator given as
+        ``against`` or the one the analysis tracks.
 
         Raises:
-            ValueError: If no portfolio of the run held *name*.
+            ValueError: If no portfolio of the run held *name*, or *by* is
+                not ``month``, ``quarter`` or ``year``.
         """
-        # BN-468.
-        return Profile(name, self._analytics._context_for(start=start, end=end), against)
+        # BN-468; BN-469 added by.
+        return Profile(name, self._analytics._context_for(start=start, end=end), against, by)
 
     def _observations(self,
                       window: dict[str, Any],
