@@ -73,7 +73,7 @@ def holdings_document(result: BacktestResult,
                             "screened": step.screened, "weights": step.weights,
                             "removed": step.removed, "capped": step.capped,
                             "cash_weight": step.cash_weight}
-                           for step in result.rebalance_steps],
+                           for step in result.trading.steps],
         "units": {name: [[str(day.date()), float(units)] for day, units in changes.items()]
                   for name, changes in quantities.items()},
         "nav": SeriesPayload.from_series(result.portfolio.nav).model_dump(),

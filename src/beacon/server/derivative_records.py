@@ -25,28 +25,30 @@ def derivative_payloads(result: BacktestResult,
 
     # BN-356: not a derivative, but like the swap a part of the NAV the
     # portfolio does not hold.
-    if (result.dividends_receivable != 0.0).any():
-        payloads["dividends_receivable"] = _on(result.dividends_receivable, days)
+    fund = result.fund
 
-    if not result.swap_value.empty:
+    if (fund.dividends.receivable != 0.0).any():
+        payloads["dividends_receivable"] = _on(fund.dividends.receivable, days)
+
+    if fund.swap is not None and not fund.swap.value.empty:
         payloads.update(
-            swap_value=_on(result.swap_value, days),
-            counterparty_exposure=_on(result.counterparty_exposure, days),
+            swap_value=_on(fund.swap.value, days),
+            counterparty_exposure=_on(fund.swap.counterparty_exposure, days),
             swap_resets=[SwapResetPayload(date=str(reset.date.date()), settled=reset.settled,
                                           reason=reset.reason, notional=reset.notional)
-                         for reset in result.swap_resets])
+                         for reset in fund.swap.resets])
 
-    if not result.futures_notional.empty:
+    if fund.futures is not None and not fund.futures.notional.empty:
         payloads.update(
-            futures_notional=_on(result.futures_notional, days),
-            futures_exposure=_on(result.futures_exposure, days),
+            futures_notional=_on(fund.futures.notional, days),
+            futures_exposure=_on(fund.futures.exposure, days),
             futures_rolls=[FuturesRollPayload(date=str(roll.date.date()),
                                               expiry=str(roll.expiry.date()),
                                               contracts=roll.contracts, price=roll.price,
                                               multiplier=roll.multiplier,
                                               notional=roll.notional, cost=roll.cost,
                                               dividend_yield=roll.dividend_yield)
-                           for roll in result.futures_rolls])
+                           for roll in fund.futures.rolls])
 
     return payloads
 

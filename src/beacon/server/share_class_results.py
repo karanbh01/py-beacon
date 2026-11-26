@@ -58,7 +58,7 @@ def share_class_payloads(result: BacktestResult,
         index_currency: The index's currency.
         fetcher: The data the exchange and short rates are read from.
     """
-    if not result.share_classes:
+    if not result.fund.share_classes:
         return {}
 
     assumptions = result.modelling_assumptions
@@ -70,11 +70,11 @@ def share_class_payloads(result: BacktestResult,
                          _benchmark(book, ratios.get(book.name, 1.0), index_levels,
                                     index_currency, fetcher, cash_rate),
                          periods or DEFAULT_PERIODS_PER_YEAR)
-                for book in result.share_classes.values()]
-    hedged = not result.hedge_value.empty
+                for book in result.fund.share_classes.values()]
+    hedging = result.fund.hedging
 
     return {"share_classes": payloads,
-            "hedge_value": (_series(result.hedge_value, days) if hedged else None)}
+            "hedge_value": (_series(hedging.value, days) if hedging is not None else None)}
 
 
 def _benchmark(book: ShareClassBook,

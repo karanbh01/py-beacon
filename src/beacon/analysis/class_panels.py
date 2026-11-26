@@ -27,12 +27,12 @@ HEDGE_COLUMNS = ("CLASS", "REASON", "NOTIONAL", "RATE", "SPOT", "EXPIRY", "SETTL
 
 def class_tables(result: BacktestResult) -> dict[str, pd.DataFrame]:
     """The three tables, by name; none for a run without share classes."""
-    if not result.share_classes:
+    if not result.fund.share_classes:
         return {}
 
     days, flows, hedges = [], [], []
 
-    for name, book in result.share_classes.items():
+    for name, book in result.fund.share_classes.items():
         frame = pd.DataFrame({"NET_ASSETS": book.net_assets,
                               "BOOK_NET_ASSETS": book.book_net_assets,
                               "UNITS": book.units, "NAV_PER_UNIT": book.nav_per_unit,

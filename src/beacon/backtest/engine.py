@@ -748,7 +748,8 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             swap_resets=list(self._swap_resets),
             futures_notional=pd.Series(self._futures_notional, dtype=float),
             futures_rolls=list(self._futures_rolls),
-            cash_band_events=band_events_frame(self._band_events),
+            cash_band_events=(band_events_frame(self._band_events)
+                              if self.implementation.cash_band is not None else None),
             futures_trades=list(self._futures_trades),
             futures_days=futures_days_frame(self._futures_days),
             hedge_value=pd.Series(self._hedge_history, dtype=float),

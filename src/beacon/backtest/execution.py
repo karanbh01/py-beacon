@@ -31,10 +31,10 @@ or an order is spread evenly over a number of days, or both. Whatever cannot
 trade on the rebalance day is a working order, traded on the following
 sessions under the same limit. A new rebalance replaces any order still
 working. A replaced order, or one still working when the run ends, is
-recorded in `result.unfilled` with the reason ``"execution limit"``.
+recorded in `result.trading.unfilled` with the reason ``"execution limit"``.
 
 A target name with no price on the rebalance day is recorded in
-`result.unfilled` with the reason ``"no price"``.
+`result.trading.unfilled` with the reason ``"no price"``.
 """
 # BN-266, phase 4 of decisions/0006, and the sizing and unpriceable-target
 # halves of BN-252. The trade generation moved here from engine.py.
@@ -52,14 +52,14 @@ from ..portfolio.base import (
 )
 from .costs import ExecutionLimit, WorkingOrder
 from .implementation import Implementation
-from .result import (
+from .rules import BacktestModifier
+from .screens import ScreenContext
+from .trading_record import (
     CASH_SHORT,
     EXECUTION_LIMIT,
     NO_PRICE,
     UnfilledOrder,
 )
-from .rules import BacktestModifier
-from .screens import ScreenContext
 
 logger = logging.getLogger(__name__)
 

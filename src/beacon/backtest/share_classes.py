@@ -33,7 +33,7 @@ returns carry the currency's moves. A hedged class (`hedged=True`) carries a
 currency forward that takes those moves out, and earns or pays the interest
 rate differential instead (see `beacon.backtest.hedging`).
 
-`result.share_classes` holds each class's book. The result's own NAV and
+`result.fund.share_classes` holds each class's book. The result's own NAV and
 metrics are the whole fund's.
 """
 # BN-279 (#292). Decided with Karan on 2026-10-12: the engine models the

@@ -13,4 +13,8 @@ Simulating a portfolio that trades to an index's target weights: the `Backtest` 
 
 What a run cost each day, by kind (fixed trading costs, market impact, futures rolls and creation fees), and where its cash went: balances, cash that moved, and what was charged or owed without cash moving.
 
+::: beacon.backtest.fund_record
+
+::: beacon.backtest.trading_record
+
 ::: beacon.backtest.breakdown

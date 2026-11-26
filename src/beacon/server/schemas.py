@@ -907,7 +907,7 @@ class BacktestResultSummary(BaseModel):
                    rebalance_pricing=rebalance_pricing_payloads(result),
                    metrics=metrics,
                    settings=settings,
-                   currency=result.currency,
+                   currency=result.fund.currency,
                    run_at=datetime.now(UTC).isoformat())
 
 
@@ -920,7 +920,7 @@ def unfilled_payloads(result: BacktestResult) -> list[UnfilledOrderPayload]:
                                  price=_finite(order.price),
                                  shortfall_value=_finite(order.shortfall_value),
                                  reason=order.reason)
-            for order in result.unfilled]
+            for order in result.trading.unfilled]
 
 
 def _finite(value: float) -> float | None:
@@ -937,14 +937,14 @@ def price_gap_payloads(result: BacktestResult) -> list[PriceGapPayload]:
     return [PriceGapPayload(date=str(gap.date.date()),
                             asset_id=gap.asset_id,
                             priced_from=str(gap.priced_from.date()))
-            for gap in result.price_gaps]
+            for gap in result.trading.price_gaps]
 
 
 def rebalance_pricing_payloads(result: BacktestResult) -> list[RebalancePricingPayload]:
     """The session each rebalance priced from, for either payload."""
     return [RebalancePricingPayload(date=str(row.date.date()),
                                     priced_from=str(row.priced_from.date()))
-            for row in result.rebalance_pricing]
+            for row in result.trading.pricing]
 
 
 def _portfolio_payload(portfolio: Any,

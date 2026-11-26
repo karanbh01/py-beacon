@@ -179,14 +179,15 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
               TRADES: trades(result), REBALANCE_WEIGHTS: rebalance_weights(result),
               SELECTION_MARGINS: selection_margins(result)}
 
-    if not result.market.empty:
-        panels[MARKET] = result.market.rename(columns=str)
-    if not result.cash_band_events.empty:
-        panels[CASH_BAND_EVENTS] = result.cash_band_events
+    fund = result.fund
+    if fund.etf is not None:
+        panels[MARKET] = fund.etf.market.rename(columns=str)
+    if fund.cash_band is not None:
+        panels[CASH_BAND_EVENTS] = fund.cash_band.events
     panels.update(class_tables(result))
-    if result.futures_trades:
-        panels[FUTURES_TRADES] = futures_trades_frame(result.futures_trades)
-        panels[FUTURES_DAYS] = result.futures_days
+    if fund.futures is not None and fund.futures.trades:
+        panels[FUTURES_TRADES] = futures_trades_frame(fund.futures.trades)
+        panels[FUTURES_DAYS] = fund.futures.days
     comparators = {INDEX_WEIGHTS: result.index.target, OPTIMISED_WEIGHTS: result.index.optimised,
                    BENCHMARK_WEIGHTS: result.benchmark}
 
@@ -207,12 +208,12 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
 
     closes = market[PRICE_COLUMN].rename(columns=str)
     panels[CLOSES] = closes
-    panels.update(market_inputs(source, closes, result.currency))
+    panels.update(market_inputs(source, closes, result.fund.currency))
 
     # A table that cannot be built is left out rather than failing the run
     # it would have been kept with; its analysis then says what is missing.
     try:
-        panels[NAME_RETURNS] = name_returns_from(panels, result.currency, days)
+        panels[NAME_RETURNS] = name_returns_from(panels, result.fund.currency, days)
     except (CalculationError, DataNotFoundError) as error:
         logger.warning("The run's name returns were not kept: %s", error)
 
@@ -220,13 +221,13 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
 
     try:
         panels[CHARACTERISTICS] = characteristics_snapshots(source, names, dates,
-                                                            result.currency, market)
+                                                            result.fund.currency, market)
     except (CalculationError, DataNotFoundError) as error:
         logger.warning("The run's characteristics were not kept: %s", error)
 
     try:
         panels[TRADED_VALUES] = traded_value_snapshots(source, names, liquidity_dates(result),
-                                                       result.currency, market)
+                                                       result.fund.currency, market)
     except (CalculationError, DataNotFoundError) as error:
         logger.warning("The run's traded values were not kept: %s", error)
 
@@ -281,7 +282,7 @@ def weights_inputs(result: BacktestResult,
     days, its names and the cells that differ from what was recorded."""
     kept: dict[str, pd.DataFrame] = {}
     closes = tables[CLOSES].ffill()
-    currency = result.currency
+    currency = result.fund.currency
     stored = StoredSource(tables[CURRENCIES], tables[RATES], tables[ACTIONS], currency)
     weights = result.portfolio.weights
 

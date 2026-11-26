@@ -37,7 +37,7 @@ GROUPING_FIELDS = ("SECTOR", "GICS_INDUSTRY_GROUP", "GICS_INDUSTRY", "SUB_INDUST
 def rebalance_dates(result: BacktestResult) -> list[pd.Timestamp]:
     """Every day the fund or its index rebalanced, within the run, sorted."""
     days = result.portfolio.nav.index
-    dates = {pd.Timestamp(row.date) for row in result.rebalance_pricing}
+    dates = {pd.Timestamp(row.date) for row in result.trading.pricing}
     books = [result.index.target, result.index.optimised, result.benchmark]
 
     for book in books:

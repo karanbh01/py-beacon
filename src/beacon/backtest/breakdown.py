@@ -75,7 +75,10 @@ def daily_costs(result: BacktestResult) -> pd.DataFrame:
         where nothing of a kind happened.
     """
     trades = result.portfolio.transactions
-    between = [trade for trade in result.futures_trades if trade.kind != ROLL]
+    futures = result.fund.futures
+    rolls = futures.rolls if futures is not None else []
+    between = [trade for trade in (futures.trades if futures is not None else [])
+               if trade.kind != ROLL]
     costs = pd.Series([trade.transaction_cost for trade in trades], dtype=float)
     impact = pd.Series([trade.impact_cost for trade in trades], dtype=float)
     trade_days = [trade.transaction_date for trade in trades]
@@ -83,12 +86,11 @@ def daily_costs(result: BacktestResult) -> pd.DataFrame:
     columns = {
         FIXED: _by_day(trade_days, costs - impact),
         IMPACT: _by_day(trade_days, impact),
-        FUTURES_ROLLS: _by_day([roll.date for roll in result.futures_rolls],
-                               [roll.cost for roll in result.futures_rolls]),
+        FUTURES_ROLLS: _by_day([roll.date for roll in rolls], [roll.cost for roll in rolls]),
         FUTURES_TRADING: _by_day([trade.date for trade in between],
                                  [trade.cost for trade in between]),
-        CREATION_FEES: _by_day([flow.date for flow in result.flows],
-                               [flow.adjustment for flow in result.flows]),
+        CREATION_FEES: _by_day([flow.date for flow in result.fund.flows],
+                               [flow.adjustment for flow in result.fund.flows]),
     }
 
     return _table(result, columns)
@@ -152,7 +154,7 @@ def rebalance_weights(result: BacktestResult) -> pd.DataFrame:
     """
     rows = []
 
-    for step in result.rebalance_steps:
+    for step in result.trading.steps:
         names = dict.fromkeys([*step.target, *step.screened, *step.weights, *step.removed,
                                *step.capped])
 
@@ -253,15 +255,19 @@ def daily_cash(result: BacktestResult) -> pd.DataFrame:
         moved = [flow for flow in flows if flow.kind == kind]
         columns[name] = _by_day([flow.date for flow in moved], [flow.amount for flow in moved])
 
-    entitled = result.dividends_entitled
+    entitled = result.fund.dividends.entitled
     columns["dividends_gross"] = _by_day(list(entitled.index), entitled["GROSS"])
     columns["withholding_tax"] = _by_day(list(entitled.index), entitled["WITHHELD"])
-    columns["flows_dealt"] = _by_day([flow.date for flow in result.flows],
-                                     [flow.amount for flow in result.flows])
+    columns["flows_dealt"] = _by_day([flow.date for flow in result.fund.flows],
+                                     [flow.amount for flow in result.fund.flows])
 
     table = _table(result, columns)
-    balances = {"cash": result.portfolio.cash, "dividends_receivable": result.dividends_receivable,
-                "fees_payable": result.fees_payable, "futures_exposure": result.futures_notional}
+    futures = result.fund.futures
+    balances = {"cash": result.portfolio.cash,
+                "dividends_receivable": result.fund.dividends.receivable,
+                "fees_payable": result.fund.fees.payable,
+                "futures_exposure": (futures.notional if futures is not None
+                                     else pd.Series(dtype=float))}
 
     for name, series in balances.items():
         table[name] = _balance(series, days)

@@ -8,7 +8,7 @@ A fund product: what it is called, what it holds and how it is held.
 
     result = fund.backtest(end="2024-12-31", initial_capital={"Acc": 6e7, "Dist": 4e7},
                            data_provider=fetcher)
-    result.share_classes["Dist"].nav_per_unit
+    result.fund.share_classes["Dist"].nav_per_unit
 
 A `Fund` is a record of a real product, as a prospectus describes one: a
 name, a currency, its share classes and documents, with one strategy (what
@@ -20,7 +20,7 @@ its strategy, so a saved product and a what-if run are the same computation.
 
 Each share class has its own management fee and distribution policy, and all
 of them share one pool of assets: `fund.backtest` runs the fund once with
-every class, each with its own capital and flows, and `result.share_classes`
+every class, each with its own capital and flows, and `result.fund.share_classes`
 holds each class's book (see `beacon.backtest.share_classes`).
 """
 # BN-268, phase 6 of decisions/0006. Until BN-279 (#292) a backtest ran one

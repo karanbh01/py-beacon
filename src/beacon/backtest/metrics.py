@@ -18,85 +18,24 @@ from ..assumptions import DEFAULT_PERIODS_PER_YEAR, ModellingAssumptions
 from ..exceptions import CalculationError
 from ..portfolio.base import Portfolio
 from ..portfolio.cash_flows import DISTRIBUTION, REDEMPTION, SUBSCRIPTION
-from ..strategy.active import ActiveStep
 from .books import IndexBooks
-from .flows import FlowRecord
+from .fund_record import FundRecord
+from .trading_record import TradingRecord
 
 
 class MetricsMixin:
     """Returns, risk and tracking for a backtest's result."""
 
-    # The result's fields, which BacktestResult declares.
+    # The result's data, which BacktestResult holds (BN-459/BN-460).
     portfolio: Portfolio
     index: IndexBooks
     modelling_assumptions: ModellingAssumptions | None
-    flows: list[FlowRecord]
-    units: pd.Series
-    fees_payable: pd.Series
-    launch_price: float
-    market: pd.DataFrame
-    swap_value: pd.Series
-    hedge_value: pd.Series
-    dividends_receivable: pd.Series
-    active: list[ActiveStep]
-    currency: str
+    fund: FundRecord
+    trading: TradingRecord
 
-    @property
-    def trading_nav(self) -> pd.Series:
-        """Provided by BacktestResult; declared so this one type-checks."""
-        raise NotImplementedError
-
-    @property
-    def aum(self) -> pd.Series:
-        """The fund's assets under management each simulated day: the
-        trading NAV, which flows move as well as the market."""
-        return self.trading_nav
-
-    @property
-    def units_outstanding(self) -> pd.Series:
-        """Units outstanding at the end of each simulated day."""
-        return self._units_on(self.trading_nav.index)
-
-    @property
-    def nav_per_unit(self) -> pd.Series:
-        """NAV per unit each simulated day: the performance of a unit held
-        throughout, whatever money arrived or left. A day with no units
-        outstanding carries the last NAV per unit."""
-        nav = self.trading_nav
-        units = self._units_on(nav.index)
-        per_unit = (nav / units).where(units > 0.0)
-
-        return per_unit.ffill().fillna(self.launch_price)
-
-    def _net_nav(self) -> pd.Series:
-        """The portfolio's NAV less the fee owed each day, plus the dividends
-        owed, a synthetic fund's swap and hedged share classes' forwards."""
-        nav = self.portfolio.nav
-
-        if nav.empty:
-            return nav
-
-        if not self.fees_payable.empty:
-            nav = nav - self.fees_payable.reindex(nav.index).ffill().fillna(0.0)
-
-        if not self.swap_value.empty:
-            nav = nav + self.swap_value.reindex(nav.index).ffill().fillna(0.0)
-
-        if not self.hedge_value.empty:
-            nav = nav + self.hedge_value.reindex(nav.index).ffill().fillna(0.0)
-
-        if not self.dividends_receivable.empty:
-            nav = nav + self.dividends_receivable.reindex(nav.index).ffill().fillna(0.0)
-
-        return nav
-
-    def _units_on(self,
-                  dates: pd.Index) -> pd.Series:
-        """Units outstanding on *dates*, carried forward."""
-        if self.units.empty:
-            return pd.Series(1.0, index=dates)
-
-        return self.units.reindex(dates).ffill().fillna(self.units.iloc[0])
+    def _market(self) -> pd.DataFrame:
+        """An ETF's quotes; empty for another vehicle."""
+        return self.fund.etf.market if self.fund.etf is not None else pd.DataFrame()
 
     def get_returns(self) -> pd.Series:
         """The portfolio's daily returns.
@@ -113,12 +52,12 @@ class MetricsMixin:
         Returns:
             pd.Series: Returns by date, one per simulated day.
         """
-        nav = self.trading_nav
+        nav = self.fund.trading_nav
 
         if nav.empty:
             return pd.Series(dtype=float)
 
-        if self.flows:
+        if self.fund.flows:
             return self._unit_returns()
 
         paid = self._paid_out().reindex(nav.index, fill_value=0.0)
@@ -136,20 +75,20 @@ class MetricsMixin:
 
     def _unit_returns(self) -> pd.Series:
         """Daily returns of NAV per unit, with cash paid out added back."""
-        nav = self.trading_nav
-        units = self._units_on(nav.index)
+        nav = self.fund.trading_nav
+        units = self.fund.units_on(nav.index)
         paid = self._paid_out().reindex(nav.index, fill_value=0.0)
-        per_unit = self.nav_per_unit
+        per_unit = self.fund.nav_per_unit
         total = ((nav + paid) / units).where(units > 0.0).fillna(per_unit)
         before = per_unit.shift(1)
-        before.iloc[0] = self.launch_price
+        before.iloc[0] = self.fund.launch_price
 
         return (total / before - 1.0).astype(float)
 
     def performance_levels(self) -> pd.Series:
         """The run's performance as a level series: the trading NAV, or with
         flows the NAV per unit, which they do not move."""
-        return self.nav_per_unit if self.flows else self.trading_nav
+        return self.fund.nav_per_unit if self.fund.flows else self.fund.trading_nav
 
     def money_weighted_return(self) -> float | None:
         """The annual internal rate of return of the investors' money.
@@ -175,7 +114,7 @@ class MetricsMixin:
         """The investors' cash flows, dated, from their side: the initial
         capital, every subscription, redemption and distribution, and the
         final NAV. Empty with no NAV."""
-        nav = self.trading_nav
+        nav = self.fund.trading_nav
 
         if nav.empty:
             return pd.Series(dtype=float)
@@ -209,10 +148,10 @@ class MetricsMixin:
         """The NAV as total return, and what it started from: the NAV and the
         initial capital; the capital grown by the returns, when cash was
         paid out; or, with flows, a unit grown from its launch price."""
-        nav = self.trading_nav
+        nav = self.fund.trading_nav
 
-        if self.flows and not nav.empty:
-            launch = self.launch_price
+        if self.fund.flows and not nav.empty:
+            launch = self.fund.launch_price
 
             return launch * (1.0 + self.get_returns()).cumprod(), launch
 
@@ -331,10 +270,10 @@ class MetricsMixin:
         # with too.
         result: dict[str, float | None] = self._analytics().summary()
 
-        if not self.market.empty:
+        if not self._market().empty:
             result.update(self.market_summary())
 
-        if self.active:
+        if self.trading.active:
             result.update(self._active_figures())
 
         return result
@@ -346,7 +285,7 @@ class MetricsMixin:
 
     def active_share(self) -> pd.Series:
         """An active strategy's active share at each rebalance."""
-        return pd.Series({step.date: step.active_share for step in self.active},
+        return pd.Series({step.date: step.active_share for step in (self.trading.active or [])},
                          dtype=float)
 
     def active_summary(self) -> dict[str, float | None]:
@@ -370,9 +309,9 @@ class MetricsMixin:
         average ex-ante tracking error, as its summary gives them."""
         return {"information_ratio": self.information_ratio(),
                 "average_active_share": float(np.mean([step.active_share
-                                                       for step in self.active])),
+                                                       for step in (self.trading.active or [])])),
                 "average_ex_ante_tracking_error": float(np.mean(
-                    [step.tracking_error for step in self.active]))}
+                    [step.tracking_error for step in (self.trading.active or [])]))}
 
     def active_attribution(self) -> AttributionResult:
         """Which names produced the active return: each name's active weight
@@ -397,7 +336,7 @@ class MetricsMixin:
                           - index.reindex(columns=names, fill_value=0.0))
         prices = self.portfolio.source.fetch_prices(
             names, str(held.index[0].date()), str(held.index[-1].date()),
-            currency=self.currency) if self.portfolio.source is not None else None
+            currency=self.fund.currency) if self.portfolio.source is not None else None
 
         if prices is None or prices.empty:
             raise CalculationError("Attribution", "no prices to measure the "
@@ -417,17 +356,17 @@ class MetricsMixin:
         """An exchange investor's return on an ETF: bought at the ask on the
         first day and sold at the bid on the last. None for another vehicle.
         Cash the fund paid out is not included."""
-        if self.market.empty:
+        if self._market().empty:
             return None
 
-        return formulas.market_return(float(self.market["ask"].iloc[0]),
-                                      float(self.market["bid"].iloc[-1]))
+        return formulas.market_return(float(self._market()["ask"].iloc[0]),
+                                      float(self._market()["bid"].iloc[-1]))
 
     def market_summary(self) -> dict[str, float | None]:
         """An ETF's trading on the exchange: the investor's return at market
         prices, the average premium and spread, and the share of days at a
         premium."""
-        market = self.market
+        market = self._market()
 
         return {"market_return": self.market_return(),
                 "average_premium": float(market["premium"].mean()),

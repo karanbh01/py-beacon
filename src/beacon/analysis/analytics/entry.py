@@ -81,8 +81,9 @@ class Analytics:
         return cls(lambda: result.run_data, result.analysis_request,
                    getattr(result, "_data_fetcher", None), block=result.analysis_block,
                    timings=result.analysis_timings,
-                   context=result.__dict__.get("_analysis_context"), active=result.active,
-                   replication=result.replication)
+                   context=result.__dict__.get("_analysis_context"),
+                   active=result.trading.active or [],
+                   replication=result.trading.replication or [])
 
     @cached_property
     def run_data(self) -> RunData:

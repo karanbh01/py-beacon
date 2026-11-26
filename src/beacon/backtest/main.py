@@ -397,8 +397,8 @@ class Backtest:
         result = engine.run(lambda day, days, date: report(
             SIMULATION_START + (1.0 - SIMULATION_START) * day / days,
             f"Simulating {date:%Y-%m-%d}, day {day:,} of {days:,}"))
-        result.replication = replication
-        result.active = active
+        result.trading.replication = replication or None
+        result.trading.active = active or None
 
         # BN-397/BN-398: the analysis asked for, its analytics block worked
         # out now, a progress message as each part starts.

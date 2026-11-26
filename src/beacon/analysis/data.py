@@ -159,17 +159,17 @@ class RunData:
         time any is asked for."""
         books = {INDEX: result.index.target, OPTIMISED: result.index.optimised,
                  BENCHMARK: result.benchmark}
-        nav = result.trading_nav
+        nav = result.fund.trading_nav
         # Built when first asked for (BN-371): a backtest's summary reads a
         # run's data without its tables, which take seconds at 6,000 names.
         tables = _Built(partial(run_panels, result))
         performance, start = result._performance_nav()
         rate_window, ratio_window = result._annualising()
 
-        return cls(currency=result.currency,
+        return cls(currency=result.fund.currency,
                    returns=result.get_returns(),
                    nav=nav,
-                   units=result.units.reindex(nav.index),
+                   units=result.fund.units.reindex(nav.index),
                    initial_capital=float(result.portfolio.initial_capital),
                    periods_per_year=result._periods_per_year(),
                    risk_free_rate=result._risk_free_rate(),
@@ -179,7 +179,7 @@ class RunData:
                    missing=_Lacking(tables),
                    performance=performance,
                    performance_start=float(start),
-                   investor_flows=result._investor_flows() if result.flows else None,
+                   investor_flows=result._investor_flows() if result.fund.flows else None,
                    min_annualised_rate_window=rate_window,
                    min_annualised_ratio_window=ratio_window)
 

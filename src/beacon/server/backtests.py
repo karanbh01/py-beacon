@@ -84,16 +84,16 @@ def _drawdown(level: pd.Series) -> pd.Series:
 def _performance_from_start(result: BacktestResult) -> pd.Series:
     """The performance series with its opening point: with flows a unit at
     its launch price on the eve, otherwise the NAV from the capital."""
-    if not result.flows:
+    if not result.fund.flows:
         return _nav_from_capital(result)
 
     eve = result.portfolio.inception
-    per_unit = result.nav_per_unit
+    per_unit = result.fund.nav_per_unit
 
     if eve is None or per_unit.empty:
         return per_unit
 
-    return pd.concat([pd.Series({eve: result.launch_price}), per_unit])
+    return pd.concat([pd.Series({eve: result.fund.launch_price}), per_unit])
 
 
 def _nav_from_capital(result: BacktestResult) -> pd.Series:
@@ -102,7 +102,7 @@ def _nav_from_capital(result: BacktestResult) -> pd.Series:
     same point, so every series here agrees with them."""
     nav = result.portfolio.nav
 
-    return nav if len(nav) > len(result.trading_nav) else result.trading_nav
+    return nav if len(nav) > len(result.fund.trading_nav) else result.fund.trading_nav
 
 
 def assemble_result(result: BacktestResult,
@@ -140,7 +140,7 @@ def assemble_result(result: BacktestResult,
 
     return BacktestRunResult(
         level=SeriesPayload.from_series(level),
-        currency=result.currency,
+        currency=result.fund.currency,
         returns=SeriesPayload.from_series(returns),
         drawdown=SeriesPayload.from_series(_drawdown(from_capital).iloc[opening:]),
         annual_returns=annual_returns(from_capital),
@@ -148,7 +148,7 @@ def assemble_result(result: BacktestResult,
         metrics=metrics_from(result.summary()),
         benchmark=benchmark,
         rebalances=rebalance_snapshots(index_result, cap),
-        total_costs=result.total_costs,
+        total_costs=result.trading.total_costs,
         initial_capital=result.portfolio.initial_capital,
         price_gaps=price_gap_payloads(result),
         rebalance_pricing=rebalance_pricing_payloads(result),
@@ -335,7 +335,7 @@ def build_backtest_job(strategy: StrategyDocument,
             # run's comparisons.
             benchmark_levels = (benchmark.index_levels if isinstance(benchmark, IndexResult)
                                 else benchmark)
-            comparison = compare_against_benchmark(backtest.trading_nav, request.benchmark,
+            comparison = compare_against_benchmark(backtest.fund.trading_nav, request.benchmark,
                                                    benchmark_levels)
 
         report(0.9, "Assembling results.")
@@ -418,35 +418,35 @@ def strategy_and_vehicle_payloads(result: BacktestResult) -> dict[str, Any]:
     """What a strategy, flows, a vehicle and the implementation's stages add
     to the run payload; each empty or null when unused."""
     payloads: dict[str, Any] = {
-        "flows": flow_payloads(result.flows),
-        "fees_paid": result.fees_paid,
+        "flows": flow_payloads(result.fund.flows),
+        "fees_paid": result.fund.fees.paid,
         "replication": [ReplicationPayload(date=str(step.date.date()),
                                            holdings=step.holdings,
                                            tracking_error=step.tracking_error,
                                            unmeasured=list(step.unmeasured),
                                            weights=step.weights)
-                        for step in result.replication],
+                        for step in result.trading.replication or []],
         "active": [ActiveStepPayload(date=str(step.date.date()),
                                      tracking_error=step.tracking_error,
                                      active_share=step.active_share,
                                      weights=step.weights,
                                      risk_contributions=step.risk_contributions,
                                      exposures=step.exposures)
-                   for step in result.active],
+                   for step in result.trading.active or []],
         "rebalance_steps": [RebalanceStepPayload(date=str(step.date.date()),
                                                  removed=step.removed,
                                                  capped=step.capped,
                                                  cash_weight=step.cash_weight)
-                            for step in result.rebalance_steps],
+                            for step in result.trading.steps],
         "unfilled": unfilled_payloads(result),
     }
 
-    if result.flows:
-        payloads["nav_per_unit"] = SeriesPayload.from_series(result.nav_per_unit)
-        payloads["units"] = SeriesPayload.from_series(result.units_outstanding)
+    if result.fund.flows:
+        payloads["nav_per_unit"] = SeriesPayload.from_series(result.fund.nav_per_unit)
+        payloads["units"] = SeriesPayload.from_series(result.fund.units_outstanding)
 
-    if not result.market.empty:
-        market = result.market
+    if result.fund.etf is not None:
+        market = result.fund.etf.market
         payloads["market"] = MarketPayload(
             **{column: SeriesPayload.from_series(market[column])
                for column in ("market_price", "premium", "spread", "bid", "ask")})

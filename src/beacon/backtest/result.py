@@ -49,7 +49,8 @@ the units never change and the metrics are computed exactly as before.
 # The day-zero row is decision 11 of the backtester redesign; deriving metrics
 # from `trading_nav` keeps every number computed before the redesign
 # identical after it.
-from dataclasses import dataclass, field
+import warnings
+from collections.abc import Callable
 from typing import Any, Union
 
 import pandas as pd
@@ -60,87 +61,34 @@ from ..data.fetcher import DataFetcher
 from ..index.result import IndexResult, PriceGap
 from ..plot.base import PlotAccessor
 from ..portfolio.base import Portfolio
-from ..portfolio.cash_flows import FEE
 from ..strategy.active import ActiveStep
 from ..strategy.tracking import ReplicationStep
 from .analytics_access import AnalyticsMixin
 from .asset_view import BacktestAssetView
 from .books import Book, IndexBooks
+from .cash_band import band_events_frame
+from .etf import quotes_frame
 from .flows import FlowRecord
-from .futures import FuturesRoll, FuturesTrade
+from .fund_record import fund_record
+from .futures import FuturesRoll, FuturesTrade, futures_days_frame
 from .implementation import RebalanceStep
 from .metrics import MetricsMixin
 from .share_classes import ShareClassBook
 from .swap import SwapReset
-
-# Why an order went unfilled (BN-252, BN-266).
-CASH_SHORT = "cash"
-NO_PRICE = "no price"
-EXECUTION_LIMIT = "execution limit"
-
-
-@dataclass(frozen=True)
-class UnfilledOrder:
-    """An order the simulation could not execute in full.
-
-    Recorded on the result rather than only logged: a partially filled
-    rebalance leaves the portfolio off its target weights, and a caller
-    comparing tracking error against expectations needs to know that happened
-    rather than reading it as a modelling result.
-
-    Attributes:
-        date: The rebalance date.
-        asset_id: Asset that could not be fully traded.
-        requested_quantity: Quantity the rebalance asked for; 0.0 when the
-            name could not be priced to size an order.
-        filled_quantity: Quantity actually traded; 0.0 when nothing was.
-        price: Execution price used; NaN when there was none.
-        shortfall_value: Notional value that went unfilled; for a name with
-            no price, the value the rebalance aimed to hold. NaN for an order
-            an execution limit left unfinished.
-        reason: Why: ``"cash"`` (not enough to buy it all), ``"no price"``
-            (the name could not be priced on the day) or
-            ``"execution limit"`` (still working when the next rebalance
-            replaced it or the run ended).
-    """
-    date: pd.Timestamp
-    asset_id: str
-    requested_quantity: float
-    filled_quantity: float
-    price: float
-    shortfall_value: float
-    reason: str = CASH_SHORT
-
-
-# RebalancePricing is BN-183. PriceGap, also BN-183, moved to the index
-# layer with BN-251, when the index started recording gaps too.
-@dataclass(frozen=True)
-class RebalancePricing:
-    """What one rebalance priced from.
-
-    A rebalance scheduled on a day the market was shut still trades: it prices
-    from the session in force through the closure. Recording both dates lets a
-    reader tell that case apart from an ordinary rebalance. `date` and
-    `priced_from` are equal for the ordinary rebalance, which is what makes an
-    unequal pair worth reading.
-
-    Attributes:
-        date: The rebalance date from the weight schedule.
-        priced_from: The session its prices were read from.
-    """
-    date: pd.Timestamp
-    priced_from: pd.Timestamp
-
+from .trading_record import (
+    RebalancePricing,
+    TradingRecord,
+    UnfilledOrder,
+)
 
 # What `against()` accepts: anything carrying a daily level series.
 Comparable = Union["BacktestResult", Book, IndexResult, pd.Series]
 
 
-@dataclass
 class BacktestResult(MetricsMixin, AnalyticsMixin):
     """The record of one backtest run.
 
-    Args:
+    Attributes:
         portfolio: The books (positions, weights, cash, NAV, transactions),
             kept whole and frozen by the engine on completion.
         index: The run's calculated indices, as an :class:`IndexBooks`
@@ -149,181 +97,84 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
             `index.optimised` the solved calculation when one exists, and
             `index.tracked` the book the engine traded toward.
         benchmark: The benchmark of record, when one was given to the engine.
-        unfilled: Buys the simulation could not execute in full. Empty for a
-            run where every rebalance leg filled, so a non-empty list is
-            itself the signal that the portfolio drifted off target for a
-            reason other than price movement.
-        price_gaps: Days a name had no bar on a session its calendar says was
-            open, and was therefore marked at a carried-forward price.
-            Empty for a run with complete data. A market holiday is not a
-            gap, since nothing is missing on a day nothing traded.
-        rebalance_pricing: What each rebalance priced from, in date order.
-            `date` and `priced_from` differ only where the schedule landed on
-            a day the market was shut, so the run can state which session its
-            trades were struck at rather than leaving it inferable.
-        rebalance_steps: What the screening and redistribution stages did at
-            each rebalance: the target, the names removed and by what, and
-            the weights traded to.
-        currency: The book's currency, which the NAV, costs and holdings'
-            values are in.
+        fund: The vehicle's recorded data (`beacon.backtest.fund_record`):
+            its NAV, units, fees, flows, dividends and share classes, and
+            its ETF quotes, swap, futures, cash band and hedging, each None
+            when the run's vehicle lacks it.
+        trading: What the engine did at each rebalance
+            (`beacon.backtest.trading_record`): its steps, pricing, unfilled
+            orders and price gaps, and a replication's or an active
+            strategy's choices.
         modelling_assumptions: What the run assumed, every field resolved.
             None for a result built by hand, which the summary then measures
             with a zero risk-free rate over 252 periods a year.
-        flows: Each day's flow as dealt: the amount, and the units created or
-            cancelled at that day's NAV per unit. Empty without flows.
-        units: Units outstanding at the end of each day, from the eve of the
-            first trading day.
-        fees_payable: The management fee owed and not yet paid at the end of
-            each day, which the NAV is net of.
-        launch_price: NAV per unit at launch.
-        market: For an ETF, each day's quote on the exchange: NAV per share,
-            premium, spread, market price, bid and ask, and the arbitrage
-            band. Empty for any other vehicle.
-        replication: For an index held through `IndexTracking`, what the
-            replication did at each rebalance: the weights, the holdings and
-            the ex-ante tracking error. Empty otherwise.
-        active: For an `ActiveStrategy`, what it did at each rebalance: the
-            weights, the benchmark's, the ex-ante tracking error, the active
-            share and the scores. Empty otherwise.
-        swap_value: For a synthetic fund, its swap's value at the end of each
-            day: owed to the fund when positive, by it when negative. The NAV
-            includes it. Empty for any other fund.
-        swap_resets: For a synthetic fund, each reset of its swap: the day,
-            the value settled, why, and the notional it was reset to.
-        futures_notional: For a fund holding index futures (futures-based, or
-            equitising its cash buffer), the exposure they carried at the end
-            of each day. Their profit and loss is already in the cash. Empty
-            for any other fund.
-        futures_rolls: Each roll of those futures to the next contract: the
-            day, the new expiry, the notional, the cost and the dividend
-            yield it was priced with.
-        futures_trades: Each trade of those futures: opened, rolled or
-            resized, the contracts before, after and traded, the price, the
-            notional traded and the cost.
-        futures_days: Each day the futures were held: the contracts, their
-            price, their fair value, the level of the index they are on and
-            of the fund's own, the assumed mispricing and their expiry. Empty
-            for any other fund.
-        cash_band_events: For a fund with a cash band, each time its cash
-            left the band and was brought back, by date: whether it was a
-            raise or a spend-down, the cash's share of the fund before and
-            after, the target and the band, the value traded, its cost and
-            the number of trades. Empty otherwise.
-        hedge_value: For a fund with currency-hedged share classes, the
-            value of their open forwards at the end of each day, in the
-            book's currency. The NAV includes it. Empty otherwise.
-        dividends_receivable: The dividends the book is owed at the end of
-            each day: gone ex and not yet paid, at the day's exchange rates
-            and net of withholding tax. The NAV includes it, as a fund's
-            accounts do; nothing is bought with it until it is paid.
-        dividends_entitled: What the book became owed on each day a holding
-            went ex: ``GROSS``, the dividends before tax, and ``WITHHELD``,
-            the tax withheld from them, at that day's exchange rates. Only
-            days with a dividend have a row.
-        share_classes: For a fund run with share classes, each class's book
-            by name: its net assets, units, NAV per unit, fees, distributions
-            and flows. The result's own NAV and metrics are the whole fund's.
-            Empty otherwise.
+
+    The engine builds it from what it kept; built by hand, every keyword
+    but *portfolio* may be left out. The flat names the fund's and the
+    engine's data had before 0.11.0 (``nav_per_unit``, ``rebalance_steps``,
+    ...) still read them, warning, until 0.12.0.
     """
+    # BN-459/BN-460 (Karan, 2026-11-24): the data under fund and trading; a
+    # class rather than a dataclass so the flat names can warn.
 
     #: Charts for this result. A descriptor that resolves on first
     #: access, so matplotlib is imported only when something is drawn.
     plot = PlotAccessor("BacktestPlots")
-    portfolio: Portfolio
-    index: IndexBooks = field(default_factory=IndexBooks)
-    benchmark: Book | None = None
-    unfilled: list[UnfilledOrder] = field(default_factory=list)
-    price_gaps: list[PriceGap] = field(default_factory=list)
-    rebalance_pricing: list[RebalancePricing] = field(default_factory=list)
-    rebalance_steps: list[RebalanceStep] = field(default_factory=list)
-    currency: str = "USD"
-    modelling_assumptions: ModellingAssumptions | None = None
-    flows: list[FlowRecord] = field(default_factory=list)
-    units: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
-    fees_payable: pd.Series = field(
-        default_factory=lambda: pd.Series(dtype=float))
-    launch_price: float = 1.0
-    market: pd.DataFrame = field(default_factory=pd.DataFrame)
-    replication: list[ReplicationStep] = field(default_factory=list)
-    active: list[ActiveStep] = field(default_factory=list)
-    swap_value: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
-    swap_resets: list[SwapReset] = field(default_factory=list)
-    futures_notional: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
-    futures_rolls: list[FuturesRoll] = field(default_factory=list)
-    cash_band_events: pd.DataFrame = field(default_factory=pd.DataFrame)
-    futures_trades: list[FuturesTrade] = field(default_factory=list)
-    futures_days: pd.DataFrame = field(default_factory=pd.DataFrame)
-    hedge_value: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
-    dividends_receivable: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
-    dividends_entitled: pd.DataFrame = field(
-        default_factory=lambda: pd.DataFrame(columns=["GROSS", "WITHHELD"], dtype=float))
-    share_classes: dict[str, ShareClassBook] = field(default_factory=dict)
-    # BN-397/BN-398: what the run was asked to analyse, its analytics block,
-    # and how long each part took.
-    analysis_request: Any = None
-    analysis_timings: dict[str, float] = field(default_factory=dict)
-    analysis_block: dict[str, Any] | None = None
-    _data_fetcher: DataFetcher | None = field(default=None, repr=False,
-                                              compare=False)
 
-    @property
-    def trading_nav(self) -> pd.Series:
-        """NAV over the simulated days, with the day-zero row excluded.
-
-        The portfolio's own `nav` opens with initial capital on the eve of
-        the first trading day, the record of what the run started with.
-        Every *metric* derives from this series instead: the eve row is a
-        starting fact, not a day the simulation traded. Net of the management
-        fee owed and not yet paid, when the run had a vehicle charging one.
-        """
-        nav = self._net_nav()
-
-        if (self.portfolio.inception is not None and not nav.empty
-                and nav.index[0] == self.portfolio.inception):
-            return nav.iloc[1:]
-
-        return nav
-
-    @property
-    def counterparty_exposure(self) -> pd.Series:
-        """For a synthetic fund, what it would lose if its swap counterparty
-        failed, as a share of NAV at the end of each day: the swap's value
-        when owed to the fund, otherwise zero. Empty for any other fund."""
-        if self.swap_value.empty:
-            return pd.Series(dtype=float)
-
-        nav = self.trading_nav
-
-        return (self.swap_value.clip(lower=0.0).reindex(nav.index).fillna(0.0)
-                / nav).rename("counterparty_exposure")
-
-    @property
-    def futures_exposure(self) -> pd.Series:
-        """For a fund holding index futures, the exposure they carried as a
-        share of NAV at the end of each day. Empty for any other fund."""
-        if self.futures_notional.empty:
-            return pd.Series(dtype=float)
-
-        nav = self.trading_nav
-
-        return (self.futures_notional.reindex(nav.index).fillna(0.0)
-                / nav).rename("futures_exposure")
-
-    @property
-    def fees_paid(self) -> float:
-        """The management fees paid out of the book over the run."""
-        return -sum(flow.amount for flow in self.portfolio.cash_flows if flow.kind == FEE)
-
-    @property
-    def total_costs(self) -> float:
-        """The transaction costs paid over the run, in its currency."""
-        return float(sum(transaction.transaction_cost
-                         for transaction in self.portfolio.transactions))
-
-    @property
-    def total_unfilled_value(self) -> float:
-        """Total notional that went unfilled across the run."""
-        return float(sum(order.shortfall_value for order in self.unfilled))
+    def __init__(self,
+                 portfolio: Portfolio,
+                 index: IndexBooks | None = None,
+                 benchmark: Book | None = None,
+                 unfilled: list[UnfilledOrder] | None = None,
+                 price_gaps: list[PriceGap] | None = None,
+                 rebalance_pricing: list[RebalancePricing] | None = None,
+                 rebalance_steps: list[RebalanceStep] | None = None,
+                 currency: str = "USD",
+                 modelling_assumptions: ModellingAssumptions | None = None,
+                 flows: list[FlowRecord] | None = None,
+                 units: pd.Series | None = None,
+                 fees_payable: pd.Series | None = None,
+                 launch_price: float = 1.0,
+                 market: pd.DataFrame | None = None,
+                 replication: list[ReplicationStep] | None = None,
+                 active: list[ActiveStep] | None = None,
+                 swap_value: pd.Series | None = None,
+                 swap_resets: list[SwapReset] | None = None,
+                 futures_notional: pd.Series | None = None,
+                 futures_rolls: list[FuturesRoll] | None = None,
+                 cash_band_events: pd.DataFrame | None = None,
+                 futures_trades: list[FuturesTrade] | None = None,
+                 futures_days: pd.DataFrame | None = None,
+                 hedge_value: pd.Series | None = None,
+                 dividends_receivable: pd.Series | None = None,
+                 dividends_entitled: pd.DataFrame | None = None,
+                 share_classes: dict[str, ShareClassBook] | None = None,
+                 analysis_request: Any = None,
+                 analysis_timings: dict[str, float] | None = None,
+                 analysis_block: dict[str, Any] | None = None):
+        self.portfolio = portfolio
+        self.index = index if index is not None else IndexBooks()
+        self.benchmark = benchmark
+        self.modelling_assumptions = modelling_assumptions
+        self.fund = fund_record(
+            portfolio, currency, launch_price, _series(units), list(flows or []),
+            _series(fees_payable), _series(dividends_receivable),
+            (dividends_entitled if dividends_entitled is not None
+             else pd.DataFrame(columns=["GROSS", "WITHHELD"], dtype=float)),
+            dict(share_classes or {}), _frame(market), _series(swap_value),
+            list(swap_resets or []), _series(futures_notional), list(futures_trades or []),
+            list(futures_rolls or []), _frame(futures_days), cash_band_events,
+            _series(hedge_value))
+        self.trading = TradingRecord(portfolio, list(rebalance_steps or []),
+                                     list(rebalance_pricing or []), list(unfilled or []),
+                                     list(price_gaps or []), list(replication or []) or None,
+                                     list(active or []) or None)
+        # BN-397/BN-398: what the run was asked to analyse, its analytics
+        # block, and how long each part took.
+        self.analysis_request = analysis_request
+        self.analysis_timings = dict(analysis_timings or {})
+        self.analysis_block = analysis_block
+        self._data_fetcher: DataFetcher | None = None
 
     def with_data(self,
                   data_fetcher: DataFetcher) -> 'BacktestResult':
@@ -386,7 +237,7 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
         return relative_metrics(self.performance_levels(), _levels_of(other))
 
     def __repr__(self) -> str:
-        n_dates = len(self.trading_nav)
+        n_dates = len(self.fund.trading_nav)
         n_txns = len(self.portfolio.transactions)
         bound = self._data_fetcher is not None
         return (
@@ -414,3 +265,94 @@ def _levels_of(other: Comparable) -> pd.Series:
     raise TypeError(
         f"Cannot compare against {type(other).__name__}; expected a "
         f"BacktestResult, Book, IndexResult or level series.")
+
+
+def _series(found: pd.Series | None) -> pd.Series:
+    return found if found is not None else pd.Series(dtype=float)
+
+
+def _frame(found: pd.DataFrame | None) -> pd.DataFrame:
+    return found if found is not None else pd.DataFrame()
+
+
+def _empty_series() -> pd.Series:
+    return pd.Series(dtype=float)
+
+
+# BN-459/BN-460: each flat name before 0.11.0, where it moved, and how to read
+# it there, as it read before (empty where the vehicle lacks the part).
+MOVED: dict[str, tuple[str, Callable[[BacktestResult], Any]]] = {
+    "nav_per_unit": ("fund.nav_per_unit", lambda result: result.fund.nav_per_unit),
+    "trading_nav": ("fund.trading_nav", lambda result: result.fund.trading_nav),
+    "aum": ("fund.aum", lambda result: result.fund.aum),
+    "units": ("fund.units", lambda result: result.fund.units),
+    "units_outstanding": ("fund.units_outstanding",
+                          lambda result: result.fund.units_outstanding),
+    "launch_price": ("fund.launch_price", lambda result: result.fund.launch_price),
+    "currency": ("fund.currency", lambda result: result.fund.currency),
+    "fees_payable": ("fund.fees.payable", lambda result: result.fund.fees.payable),
+    "fees_paid": ("fund.fees.paid", lambda result: result.fund.fees.paid),
+    "flows": ("fund.flows", lambda result: result.fund.flows),
+    "dividends_receivable": ("fund.dividends.receivable",
+                             lambda result: result.fund.dividends.receivable),
+    "dividends_entitled": ("fund.dividends.entitled",
+                           lambda result: result.fund.dividends.entitled),
+    "share_classes": ("fund.share_classes", lambda result: result.fund.share_classes),
+    "market": ("fund.etf.market", lambda result: (
+        result.fund.etf.market if result.fund.etf is not None else quotes_frame([]))),
+    "swap_value": ("fund.swap.value", lambda result: (
+        result.fund.swap.value if result.fund.swap is not None else _empty_series())),
+    "swap_resets": ("fund.swap.resets", lambda result: (
+        result.fund.swap.resets if result.fund.swap is not None else [])),
+    "counterparty_exposure": ("fund.swap.counterparty_exposure", lambda result: (
+        result.fund.swap.counterparty_exposure if result.fund.swap is not None
+        else _empty_series())),
+    "futures_notional": ("fund.futures.notional", lambda result: (
+        result.fund.futures.notional if result.fund.futures is not None
+        else _empty_series())),
+    "futures_exposure": ("fund.futures.exposure", lambda result: (
+        result.fund.futures.exposure if result.fund.futures is not None
+        else _empty_series())),
+    "futures_trades": ("fund.futures.trades", lambda result: (
+        result.fund.futures.trades if result.fund.futures is not None else [])),
+    "futures_rolls": ("fund.futures.rolls", lambda result: (
+        result.fund.futures.rolls if result.fund.futures is not None else [])),
+    "futures_days": ("fund.futures.days", lambda result: (
+        result.fund.futures.days if result.fund.futures is not None
+        else futures_days_frame({}))),
+    "cash_band_events": ("fund.cash_band.events", lambda result: (
+        result.fund.cash_band.events if result.fund.cash_band is not None
+        else band_events_frame([]))),
+    "hedge_value": ("fund.hedging.value", lambda result: (
+        result.fund.hedging.value if result.fund.hedging is not None else _empty_series())),
+    "rebalance_steps": ("trading.steps", lambda result: result.trading.steps),
+    "rebalance_pricing": ("trading.pricing", lambda result: result.trading.pricing),
+    "unfilled": ("trading.unfilled", lambda result: result.trading.unfilled),
+    "total_unfilled_value": ("trading.unfilled_value",
+                             lambda result: result.trading.unfilled_value),
+    "price_gaps": ("trading.price_gaps", lambda result: result.trading.price_gaps),
+    "total_costs": ("trading.total_costs", lambda result: result.trading.total_costs),
+    "replication": ("trading.replication", lambda result: result.trading.replication or []),
+    "active": ("trading.active", lambda result: result.trading.active or []),
+}
+
+
+def _moved(name: str,
+           path: str,
+           read: Callable[[BacktestResult], Any]) -> property:
+    """A flat name that reads its new home, warning."""
+    def get(self: BacktestResult) -> Any:
+        warnings.warn(f"BacktestResult.{name} is deprecated and will be removed in 0.12.0; "
+                      f"use result.{path}.", DeprecationWarning, stacklevel=2)
+
+        return read(self)
+
+    return property(get, doc=f"Deprecated: `result.{path}`.")
+
+
+for _name, (_path, _read) in MOVED.items():
+    setattr(BacktestResult, _name, _moved(_name, _path, _read))
+
+
+__all__ = ["MOVED", "BacktestResult", "Book", "Comparable", "IndexBooks", "PriceGap",
+           "RebalancePricing", "UnfilledOrder"]

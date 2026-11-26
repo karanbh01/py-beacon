@@ -37,7 +37,7 @@ diversification, risk parity, factor tilts) needs no signal.
 Rebalances fall on the first session of each period (``"MONTHLY"`` by
 default). Each records the weights, the benchmark's, the ex-ante tracking
 error, the active share, each holding's share of the risk and anything the
-construction reports in `result.active`.
+construction reports in `result.trading.active`.
 """
 # BN-280, phase 7 of decisions/0006. Karan asked for flexibility: both
 # constructions then, and more in BN-281, which moved them to their own
