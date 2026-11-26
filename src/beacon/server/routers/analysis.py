@@ -173,7 +173,8 @@ def build_analysis_router() -> APIRouter:
         weight; each period, its contribution and active contribution and
         each's total to date, linked as the run's analysis options say; and
         at each rebalance, its share of the fund's expected volatility and
-        tracking error, and the fund's holding of it and the days to sell it.
+        tracking error, the fund's holding of it and the days to sell it, the
+        risk model's exposures of it and its returns' betas to the factors.
         A part the run cannot give is left out, and named under
         `unavailable` with why.
 

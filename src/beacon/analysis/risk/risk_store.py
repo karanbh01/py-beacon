@@ -1,24 +1,30 @@
 # src/beacon/analysis/risk/risk_store.py
 """
-Each name's share of a run's expected risk at each rebalance, kept beside
-the run, so a name's profile reads it rather than fitting the risk model at
-every rebalance again.
+Each name's expected risk and its risk model exposures at each rebalance,
+kept beside the run, so a name's profile reads them rather than fitting the
+risk model at every rebalance again.
 
-    name_risk(over_time)                     # worked out
-    keep(table, factors, settings, folder)   # after working it out
-    restore(factors, settings, folder)       # before, on a stored run
+    rebalance_risk(over_time)                 # worked out
+    keep(tables, factors, settings, folder)   # after working them out
+    restore(factors, settings, folder)        # before, on a stored run
 
-The table has a row for each name each portfolio held at each rebalance with
-the returns before it its model needs: the name's contribution to the fund's
+Each table has a row for each name at each rebalance with the returns before
+it its model needs. ``name_risk`` has the name's contribution to the fund's
 expected volatility and its share of it (``contribution/fund``,
 ``share/fund``), and to the fund's expected tracking error against each
 comparator the run kept weights for, from its active weight
 (``contribution/index``, ``share/index``, ...), each as
-`RiskOverTime.contributions` gives it. It is kept keyed by the factors and the
-risk model's settings, so a run asked about another model works it out again.
+`RiskOverTime.contributions` gives it, for each name a portfolio held.
+``name_exposures`` has the model's exposure of each name it covers to each
+factor, the market's first (``exposure/market``, ``exposure/value``, ...), and
+in a global model the country, sector and currency it put the name in
+(``country``, ``sector``, ``currency``, blank for a name in the portfolio's
+own currency). They are kept keyed by the factors and the risk model's
+settings, so a run asked about another model works them out again.
 """
 # BN-470 (Karan, 2026-11-26): kept with the run, as the factor work is
 # (BN-399), so Drilldown does not wait for a model fit at every rebalance.
+# BN-471 added the exposures.
 import hashlib
 import json
 from dataclasses import asdict
@@ -27,6 +33,8 @@ from typing import Any
 
 import pandas as pd
 
+from ...risk.model import FactorRiskModel
+from ...risk.model.global_fit import COUNTRY, CURRENCY, SECTOR
 from ...strategy.factors import Factor
 from ..panels import read_manifest, read_panels, write_panels
 from . import factor_store
@@ -35,22 +43,24 @@ from .model import RiskModelSettings
 
 FOLDER = "risk"
 KEY_FILE = "risk.json"
-VERSION = 1
+VERSION = 2
 
-TABLE = "name_risk"
+TABLE, EXPOSURES = "name_risk", "name_exposures"
+TABLES = (TABLE, EXPOSURES)
 IDENTIFIER, DATE = "IDENTIFIER", "DATE"
 CONTRIBUTION, SHARE = "contribution", "share"
+EXPOSURE = "exposure/"
+GROUPS = (COUNTRY, SECTOR, CURRENCY)
 
 
-def name_risk(over_time: RiskOverTime) -> pd.DataFrame:
-    """Each name's contribution to and share of the fund's expected
-    volatility, and of its expected tracking error against each comparator,
-    at each rebalance its model can be fitted for; long, a row a name a
-    rebalance."""
+def rebalance_risk(over_time: RiskOverTime) -> dict[str, pd.DataFrame]:
+    """Each name's expected risk (``name_risk``) and its model's exposures
+    (``name_exposures``) at each rebalance its model can be fitted for;
+    long, a row a name a rebalance."""
     books = [book for book, table_name in BOOKS.items()
              if (table := over_time.run.tables.get(table_name)) is not None and not table.empty]
     comparators = [book for book in books if book != "fund"]
-    pieces = []
+    risks, exposures = [], []
 
     for day in over_time.dates():
         found = {"fund": over_time.contributions(day)}
@@ -60,9 +70,38 @@ def name_risk(over_time: RiskOverTime) -> pd.DataFrame:
 
         columns = {f"{part}/{book}": table[part] for book, table in found.items()
                    for part in (CONTRIBUTION, SHARE)}
-        rows = pd.DataFrame(columns).rename_axis(IDENTIFIER).reset_index()
-        pieces.append(rows.assign(**{DATE: day}))
+        risks.append(_dated(pd.DataFrame(columns), day))
+        model = over_time.models.at(day)
+        assert isinstance(model, FactorRiskModel)
+        exposures.append(_dated(grouped_exposures(model.exposures), day))
 
+    return {TABLE: _long(risks), EXPOSURES: _long(exposures)}
+
+
+def grouped_exposures(loadings: pd.DataFrame) -> pd.DataFrame:
+    """A model's exposures, a column a factor, with each kind of group's
+    columns read as the group each name is in."""
+    grouped = {kind: [column for column in loadings.columns
+                      if str(column).startswith(f"{kind}:")] for kind in GROUPS}
+    found = loadings.drop(columns=[column for columns in grouped.values()
+                                   for column in columns]).add_prefix(EXPOSURE)
+
+    for kind, columns in grouped.items():
+        if columns:
+            dummies = loadings[columns]
+            chosen = dummies.idxmax(axis=1).str.slice(len(kind) + 1).astype(object)
+            found[kind] = chosen.where(dummies.max(axis=1) > 0.0, None)
+
+    return found
+
+
+def _dated(table: pd.DataFrame,
+           day: pd.Timestamp) -> pd.DataFrame:
+    return table.rename_axis(IDENTIFIER).reset_index().assign(**{DATE: day})
+
+
+def _long(pieces: list[pd.DataFrame]) -> pd.DataFrame:
+    """The rebalances' rows in one table, dated."""
     if not pieces:
         return pd.DataFrame(columns=[IDENTIFIER], index=pd.DatetimeIndex([], name=DATE))
 
@@ -88,18 +127,18 @@ def fingerprint(factors: list[Factor],
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def keep(table: pd.DataFrame,
+def keep(tables: dict[str, pd.DataFrame],
          factors: list[Factor],
          settings: RiskModelSettings,
          folder: Path) -> bool:
-    """Keep *table* under *folder*; False, keeping nothing, when the factors
-    cannot be keyed or it is empty."""
+    """Keep *tables* under *folder*; False, keeping nothing, when the
+    factors cannot be keyed or no rebalance's model was fitted."""
     key = fingerprint(factors, settings)
 
-    if key is None or table.empty:
+    if key is None or tables[TABLE].empty:
         return False
 
-    write_panels(folder / FOLDER, {TABLE: table})
+    write_panels(folder / FOLDER, tables)
     (folder / FOLDER / KEY_FILE).write_text(json.dumps({"key": key}), encoding="utf-8")
 
     return True
@@ -107,9 +146,9 @@ def keep(table: pd.DataFrame,
 
 def restore(factors: list[Factor],
             settings: RiskModelSettings,
-            folder: Path) -> pd.DataFrame | None:
-    """The table kept under *folder* for these factors and settings; None
-    when none was."""
+            folder: Path) -> dict[str, pd.DataFrame] | None:
+    """The tables kept under *folder* for these factors and settings; None
+    when none were."""
     key = fingerprint(factors, settings)
     path = folder / FOLDER / KEY_FILE
 
@@ -121,10 +160,12 @@ def restore(factors: list[Factor],
     if kept.get("key") != key:
         return None
 
-    table = read_panels(folder / FOLDER, [TABLE])[TABLE]
-    table[IDENTIFIER] = table[IDENTIFIER].astype(str)
+    tables = read_panels(folder / FOLDER, TABLES)
 
-    return table
+    for table in tables.values():
+        table[IDENTIFIER] = table[IDENTIFIER].astype(str)
+
+    return tables
 
 
-__all__ = ["fingerprint", "keep", "name_risk", "restore"]
+__all__ = ["fingerprint", "grouped_exposures", "keep", "rebalance_risk", "restore"]

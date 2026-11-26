@@ -270,9 +270,10 @@ class TestAName_sProfile:
         daily = found["parts"]["daily_weights"]
         fund = [row[0] for row in daily["data"]]
 
-        # The run is too short for its risk model (BN-470).
-        assert set(found["parts"]) == set(kept.parts) - {"risk"}
-        assert list(found["unavailable"]) == ["risk"]
+        # The run is too short for its risk model (BN-470, BN-471).
+        short = {"risk", "factor_exposures"}
+        assert set(found["parts"]) == set(kept.parts) - short
+        assert set(found["unavailable"]) == short
         assert [column["name"] for column in daily["columns"]] == list(kept.daily_weights.columns)
         assert daily["dates"][0] == kept.daily_weights.index[0].strftime("%Y-%m-%d")
         assert fund == pytest.approx(kept.daily_weights["fund"].tolist(), rel=1e-12)

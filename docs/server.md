@@ -258,7 +258,14 @@ the risk model fitted that day; a stored run's are read from what its
 analysis kept, so no model is fitted again. `liquidity` has a row a
 rebalance: the fund's holding of the name, the name's average daily traded
 value and the days the holding would take to sell, null where the name has
-no traded value. `start`, `end` and `against` pick what it measures. A part the run cannot give, such as the rebalances of
+no traded value. `factor_exposures` has a row a rebalance, what the name
+is: the risk model's exposure of it to each factor that day and, in a global
+model, the country, sector and currency it put it in. `factor_betas` has a row
+a rebalance, how the name has behaved: its returns regressed on the factor
+returns over the rolling window before it, each beta with its t-statistic,
+and the regression's R-squared. A name's betas are much noisier than a
+portfolio's, which the t-statistics show. `start`, `end` and `against` pick
+what it measures. A part the run cannot give, such as the rebalances of
 a run kept before they were, is named under `unavailable` with why.
 
 ## An index on its own

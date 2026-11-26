@@ -262,7 +262,7 @@ class Context:
         # BN-470: when the analysis fitted the risk model, the rebalances it
         # did not fit are fitted here, so a name's profile never waits.
         if "risk_over_time" in self.__dict__ and self.risk_over_time.models.estimated():
-            kept = risk_store.keep(self.name_risk, self._factors(),
+            kept = risk_store.keep(self.rebalance_risk, self._factors(),
                                    self.options.risk_model.settings(), folder) or kept
 
         return kept
@@ -278,11 +278,10 @@ class Context:
         return RiskOverTime(self.factor_analytics, settings=self.options.risk_model.settings())
 
     @cached_property
-    def name_risk(self) -> pd.DataFrame:
-        """Each name's contribution to and share of the fund's expected
-        volatility, and of its expected tracking error against each
-        comparator, at each rebalance (`beacon.analysis.risk.risk_store`):
-        as kept with a stored run for this risk model, else worked out."""
+    def rebalance_risk(self) -> dict[str, pd.DataFrame]:
+        """Each name's expected risk and its risk model's exposures at each
+        rebalance (`beacon.analysis.risk.risk_store`): as kept with a stored
+        run for this risk model, else worked out."""
         settings = self.options.risk_model.settings()
 
         if self.folder is not None:
@@ -291,7 +290,19 @@ class Context:
             if kept is not None:
                 return kept
 
-        return risk_store.name_risk(self.risk_over_time)
+        return risk_store.rebalance_risk(self.risk_over_time)
+
+    @property
+    def name_risk(self) -> pd.DataFrame:
+        """Each name's contribution to and share of the fund's expected
+        volatility, and of its expected tracking error against each
+        comparator, at each rebalance."""
+        return self.rebalance_risk[risk_store.TABLE]
+
+    @property
+    def name_exposures(self) -> pd.DataFrame:
+        """The risk model's exposures of each name at each rebalance."""
+        return self.rebalance_risk[risk_store.EXPOSURES]
 
     def _factors(self) -> list[Factor]:
         """The factors the analysis measures, as its factor work is keyed."""

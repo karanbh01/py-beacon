@@ -96,11 +96,11 @@ class TestKeptWithTheRun:
                analytics,
                tmp_path_factory):
         folder = tmp_path_factory.mktemp("risk")
-        table = analytics._context.name_risk
+        tables = analytics._context.rebalance_risk
 
         # Kept as for the default factors: the fixture's read a function,
         # which is never kept.
-        assert risk_store.keep(table, default_factors(), OPTIONS.risk_model.settings(), folder)
+        assert risk_store.keep(tables, default_factors(), OPTIONS.risk_model.settings(), folder)
 
         return folder
 
@@ -125,7 +125,7 @@ class TestKeptWithTheRun:
     def test_factors_read_from_a_function_are_never_kept(self,
                                                          analytics,
                                                          tmp_path):
-        assert not risk_store.keep(analytics._context.name_risk, factors(),
+        assert not risk_store.keep(analytics._context.rebalance_risk, factors(),
                                    OPTIONS.risk_model.settings(), tmp_path)
 
     def test_the_analysis_keeps_it_only_when_it_fitted_the_model(self,
