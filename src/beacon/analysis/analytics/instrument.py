@@ -23,7 +23,10 @@ shortest window an annualised rate is given over
 (`beacon.analysis.annualising`), as the fund's is.
 
 The weights each portfolio gave each name, the days each holding would take
-to sell, and the value each name traded are here too, a row a name.
+to sell, and the value each name traded are here too, a row a name; and one
+name over the run, its profile:
+
+    instrument.profile("AAPL").daily_weights
 """
 # BN-452 (Karan, 2026-11-24). BN-461 (Karan, 2026-11-25): member_risk_return
 # is removed; its figures are table(frequency="weekly")'s.
@@ -45,6 +48,7 @@ from .category import Category, Day
 from .forms import PERIODS
 from .groupings import FREQUENCIES
 from .instrument_table import per_name
+from .profile import Profile
 from .shape import ALL
 
 DAILY_STEP, MONTH_END = "daily", "month_end"
@@ -59,7 +63,8 @@ class InstrumentLevel(Category):
 
     name = "instrument"
     statistics = ("style_positions",)
-    extras = (*name_figures.FIGURES, "average_weight", "days_to_sell", "traded_value", "table")
+    extras = (*name_figures.FIGURES, "average_weight", "days_to_sell", "traded_value", "table",
+              "profile")
 
     def style_positions(self) -> Any:
         """Where each name held sits by size and style, from 0 to 3 on each,
@@ -285,6 +290,23 @@ class InstrumentLevel(Category):
         some; one the run cannot give is left out, and ``attrs`` say why."""
         # BN-454.
         return per_name(self, columns, names, start, end, against, frequency)
+
+    def profile(self,
+                name: str,
+                *,
+                start: Day = None,
+                end: Day = None,
+                against: str | None = None) -> Profile:
+        """One name over the run, a dated table a part
+        (`beacon.analysis.analytics.profile`): how each rebalance weighted
+        it and how its weight drifted each day, against the comparator
+        given as ``against`` or the one the analysis tracks.
+
+        Raises:
+            ValueError: If no portfolio of the run held *name*.
+        """
+        # BN-468.
+        return Profile(name, self._analytics._context_for(start=start, end=end), against)
 
     def _observations(self,
                       window: dict[str, Any],

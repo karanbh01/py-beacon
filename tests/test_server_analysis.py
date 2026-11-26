@@ -3,9 +3,9 @@
 
 The catalogue of what an analysis can be asked for; a strategy backtested
 with an analysis, whose block the job answers with and the strategy serves
-later; its trades whole, by column and as Arrow; its per-name table;
-requests refused; and large
-responses compressed only for a client on another machine.
+later; its trades whole, by column and as Arrow; its per-name table and a
+name's profile; requests refused; and large responses compressed only for a
+client on another machine.
 """
 import gzip
 import io
@@ -247,6 +247,43 @@ class TestThePerNameTable:
         assert client.get("/strategies/analysed/instrument", headers=auth(),
                           params={"frequency": "hourly"}).status_code == 422
         assert client.get("/strategies/unrun/instrument", headers=auth()).status_code == 404
+
+
+class TestAName_sProfile:
+    """BN-468: `result.analytics.instrument.profile()` of the stored run."""
+
+    @pytest.fixture(scope="class")
+    def analytics(self,
+                  client):
+        from beacon.analysis.analytics import Analytics
+
+        folder = client.app.state.backtest_record_store.panels_directory("analysed")
+
+        return Analytics(RunData.from_record(folder))
+
+    def test_each_part_as_the_library_gives_it(self,
+                                               client,
+                                               analytics):
+        name = analytics.instrument.table().index[0]
+        found = client.get(f"/strategies/analysed/instrument/{name}", headers=auth()).json()
+        kept = analytics.instrument.profile(name)
+        daily = found["parts"]["daily_weights"]
+        fund = [row[0] for row in daily["data"]]
+
+        assert set(found["parts"]) == set(kept.parts) and found["unavailable"] == {}
+        assert [column["name"] for column in daily["columns"]] == list(kept.daily_weights.columns)
+        assert daily["dates"][0] == kept.daily_weights.index[0].strftime("%Y-%m-%d")
+        assert fund == pytest.approx(kept.daily_weights["fund"].tolist(), rel=1e-12)
+        assert (found["identifier"], found["currency"], found["against"]) == (name, "USD",
+                                                                              "index")
+        assert found["parts"]["rebalance_weights"]["columns"][0] == {
+            "name": "target", "label": "Target", "unit": "fraction"}
+
+    def test_what_it_refuses(self,
+                             client):
+        assert client.get("/strategies/analysed/instrument/NOPE",
+                          headers=auth()).status_code == 422
+        assert client.get("/strategies/unrun/instrument/NOPE", headers=auth()).status_code == 404
 
 
 class TestRefusals:

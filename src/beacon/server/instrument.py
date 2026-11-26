@@ -1,12 +1,13 @@
 # src/beacon/server/instrument.py
 """
 A strategy's latest run's analytics a name at a time, as the server gives
-them: the per-name table (`GET /strategies/{id}/instrument`) and the figures
-Drilldown shows for one name (`GET /strategies/{id}/assets/{identifier}`).
+them: the per-name table (`GET /strategies/{id}/instrument`), the figures
+Drilldown shows for one name (`GET /strategies/{id}/assets/{identifier}`) and
+a name's profile over the run (`GET /strategies/{id}/instrument/{identifier}`).
 
-Both read `result.analytics.instrument` on the stored run, under the options
+Each reads `result.analytics.instrument` on the stored run, under the options
 its own analysis was made with, so the server works nothing out itself and
-both agree with the run's analysis.
+each agrees with the run's analysis.
 """
 # BN-454 (Karan, 2026-11-25): Drilldown reads the analytics suite, as the
 # risk-return cloud does.
@@ -17,6 +18,7 @@ from typing import Any
 import pandas as pd
 
 from ..analysis.analytics import Analytics
+from ..analysis.analytics import profile as profiles
 from ..analysis.analytics.instrument_table import columns_of
 from ..analysis.data import RunData
 from ..analysis.reports.statistics import Unavailable
@@ -96,6 +98,54 @@ def asset_figures(analytics: Analytics,
                                              in table.attrs["unavailable"].items()) or None}
 
 
+def instrument_profile(analytics: Analytics,
+                       identifier: str,
+                       start: str | None,
+                       end: str | None,
+                       against: str | None) -> dict[str, Any]:
+    """`instrument.profile()` as the API gives it: each part a dated table,
+    with each column's label and unit, and each part the run cannot give
+    named with why.
+
+    Raises:
+        InvalidArgumentError: If no portfolio held *identifier*, or the
+            comparator is refused.
+    """
+    # BN-468.
+    try:
+        profile = analytics.instrument.profile(identifier, start=start, end=end,
+                                               against=against)
+    except (ValueError, Unavailable) as error:
+        raise InvalidArgumentError(f"The profile asked for cannot be given: "
+                                   f"{getattr(error, 'reason', None) or error}") from error
+
+    parts: dict[str, Any] = {}
+    unavailable: dict[str, str] = {}
+
+    for part in profile.parts:
+        try:
+            table = getattr(profile, part)
+        except Unavailable as error:
+            unavailable[part] = error.reason
+            continue
+
+        parts[part] = {"columns": [{"name": column.name, "label": column.label,
+                                    "unit": column.unit}
+                                   for column in profiles.columns_of(table)],
+                       "dates": [_day(date) for date in table.index],
+                       "data": [[_plain(value) for value in row]
+                                for row in table.itertuples(index=False)]}
+
+    days = analytics._context_for(start=start, end=end).performance.returns.index
+
+    return {"identifier": identifier, "currency": analytics.run_data.currency,
+            "start": _day(days[0]) if len(days) else None,
+            "end": _day(days[-1]) if len(days) else None,
+            "against": (profile.daily_weights.attrs.get("against")
+                        if "daily_weights" in parts else None),
+            "parts": parts, "unavailable": unavailable}
+
+
 def _stored_request(folder: Path) -> AnalysisRequest | None:
     """The request the run's own analysis was made with, as far as its
     options go; None when it was made without one."""
@@ -127,4 +177,5 @@ def _plain(value: Any) -> Any:
     return value
 
 
-__all__ = ["ASSET_COLUMNS", "asset_figures", "instrument_table", "stored_analytics"]
+__all__ = ["ASSET_COLUMNS", "asset_figures", "instrument_profile", "instrument_table",
+           "stored_analytics"]

@@ -198,7 +198,7 @@ class TestTheStatisticsANameAtATime:
                                           "max_drawdown", "excess_return", "beta",
                                           "correlation", "tracking_error", "residual_risk",
                                           "average_weight", "days_to_sell", "traded_value",
-                                          "table"}
+                                          "table", "profile"}
         assert repr(instrument).startswith("InstrumentLevel(style_positions")
 
 

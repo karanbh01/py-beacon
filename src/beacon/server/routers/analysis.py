@@ -34,12 +34,13 @@ from ..analysis_schemas import (
     AnalyticsRerun,
     AnalyticsView,
     ColumnarTable,
+    InstrumentProfile,
     InstrumentTable,
     SavedAnalyses,
     SavedAnalysis,
     SavedAnalysisView,
 )
-from ..instrument import instrument_table, stored_analytics
+from ..instrument import instrument_profile, instrument_table, stored_analytics
 from ..jobs import JobRegistry
 from ..market_inputs import warnings_of
 from ..schemas import AnalyticsJobStatus, Identifier
@@ -153,6 +154,32 @@ def build_analysis_router() -> APIRouter:
 
         return InstrumentTable.model_validate(instrument_table(analytics, columns, names, start,
                                                                end, against, frequency))
+
+    @router.get("/strategies/{strategy_id}/instrument/{identifier}",
+                response_model=InstrumentProfile)
+    def profile(request: Request,
+                strategy_id: Identifier,
+                identifier: str,
+                start: StartQuery = None,
+                end: EndQuery = None,
+                against: AgainstQuery = None) -> InstrumentProfile:
+        """One name over the strategy's latest run, a dated table a part: at
+        each rebalance, its weight at each implementation stage, any cap or
+        screen applied to it and each comparator's weight in it; and each
+        day, the fund's and each comparator's weight in it and the fund's
+        active weight. A part the run cannot give is left out, and named
+        under `unavailable` with why.
+
+        Raises:
+            DataNotFoundError: Until the strategy has been backtested.
+            InvalidArgumentError: For a name no portfolio held, or a
+                comparator refused.
+        """
+        # BN-468.
+        analytics = stored_analytics(_run_folder(request, strategy_id), current_data(request))
+
+        return InstrumentProfile.model_validate(instrument_profile(analytics, identifier, start,
+                                                                   end, against))
 
     # async, as the backtest's is: the registry schedules the job on the
     # running event loop.

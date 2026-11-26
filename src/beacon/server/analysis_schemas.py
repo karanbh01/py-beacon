@@ -251,6 +251,31 @@ class InstrumentTable(BaseModel):
                                                     "cannot give, and why.")
 
 
+class ProfileTable(BaseModel):
+    """One part of a name's profile: a dated table."""
+    columns: list[InstrumentColumn] = Field(description="Each column, in order; a text "
+                                                        "column's unit is null.")
+    dates: list[str] = Field(description="Each row's date, YYYY-MM-DD, in order.")
+    data: list[list[Any]] = Field(description="A row a date, a value a column, in "
+                                              "`columns`' order; null where it has none.")
+
+
+class InstrumentProfile(BaseModel):
+    """Response of `GET /strategies/{strategy_id}/instrument/{identifier}`:
+    one name over the latest run, as `result.analytics.instrument.profile()`
+    gives it."""
+    identifier: str = Field(description="The name.")
+    currency: str = Field(description="The portfolio's currency.")
+    start: str | None = Field(description="The window's first day, YYYY-MM-DD.")
+    end: str | None = Field(description="The window's last day, YYYY-MM-DD.")
+    against: str | None = Field(description="The comparator the active weight is measured "
+                                            "against; null when there is none.")
+    parts: dict[str, ProfileTable] = Field(
+        description="Each part the run can give, by name: 'rebalance_weights', a row a "
+                    "rebalance, and 'daily_weights', a row a day.")
+    unavailable: dict[str, str] = Field(description="Each part the run cannot give, and why.")
+
+
 class StatisticSpec(BaseModel):
     """One statistic, as the catalogue lists it."""
     id: str = Field(description="What requests and stored choices name it by.")

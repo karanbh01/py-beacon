@@ -237,6 +237,17 @@ and risk and its days to sell, each column with its label and unit.
 `/assets/{identifier}` are its row of the same table, so the two always agree
 with each other and with the run's analysis.
 
+`GET /strategies/{id}/instrument/{identifier}` gives one name's profile over
+the latest run, as `result.analytics.instrument.profile()` does, each part a
+dated table with each column's label and unit. `rebalance_weights` has a row
+a rebalance: the strategy's weight in the name before the implementation,
+after its screens and what the trades aimed at, the weight a cap cut it to
+and the screen that removed it, and each comparator's weight that day.
+`daily_weights` has a row a day: the fund's weight as it drifted, each
+comparator's and the fund's active weight. `start`, `end` and `against` pick
+what it measures. A part the run cannot give, such as the rebalances of a run
+kept before they were, is named under `unavailable` with why.
+
 ## An index on its own
 
 `GET /indices/{id}/level` calculates a stored index alone, with no portfolio,

@@ -133,6 +133,41 @@ def trades(result: BacktestResult) -> pd.DataFrame:
     return frame
 
 
+# BN-468: each rebalance's stages, kept with the run so a name's profile can
+# be read back from a stored one, as Holdings Detail reads the record's.
+REBALANCE_COLUMNS = ("IDENTIFIER", "TARGET", "SCREENED", "WEIGHT", "CAPPED", "REMOVED")
+
+
+def rebalance_weights(result: BacktestResult) -> pd.DataFrame:
+    """What each rebalance's implementation did to each name, a row for
+    every name any of its stages saw.
+
+    Returns:
+        pd.DataFrame: Indexed by the rebalance date (``DATE``), with the
+        name, the strategy's weight in it before any stage (``TARGET``),
+        after the screens and redistribution (``SCREENED``) and what the
+        trades aimed at (``WEIGHT``), each 0 for a name the stage did not
+        hold; the weight it was cut to when a cap cut it (``CAPPED``, else
+        blank); and the screen that took it out (``REMOVED``, else blank).
+    """
+    rows = []
+
+    for step in result.rebalance_steps:
+        names = dict.fromkeys([*step.target, *step.screened, *step.weights, *step.removed,
+                               *step.capped])
+
+        rows += [(step.date, name, step.target.get(name, 0.0), step.screened.get(name, 0.0),
+                  step.weights.get(name, 0.0), step.capped.get(name), step.removed.get(name))
+                 for name in names]
+
+    frame = pd.DataFrame([row[1:] for row in rows], columns=list(REBALANCE_COLUMNS))
+    frame = frame.astype({"IDENTIFIER": str, "TARGET": float, "SCREENED": float,
+                          "WEIGHT": float, "CAPPED": float, "REMOVED": object})
+    frame.index = pd.DatetimeIndex([row[0] for row in rows], name="DATE")
+
+    return frame
+
+
 def daily_cash(result: BacktestResult) -> pd.DataFrame:
     """Where the run's cash went, and what it was owed and charged, by day.
 
