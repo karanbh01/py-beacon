@@ -14,7 +14,7 @@ from ..data.fetcher import DataFetcher
 class AnalyticsMixin:
     """The result's analytics, mixed into BacktestResult."""
 
-    analysis_request: Any
+    _analysis_request: Any
     _data_fetcher: DataFetcher | None
 
     def _kept(self,
@@ -30,7 +30,7 @@ class AnalyticsMixin:
         return kept[name]
 
     @property
-    def run_data(self) -> Any:
+    def _run_data(self) -> Any:
         """The run as `beacon.analysis.RunData`, which every analysis reads."""
         from ..analysis.data import RunData  # noqa: PLC0415
 
@@ -48,15 +48,15 @@ class AnalyticsMixin:
         return self._kept("analytics", lambda: Analytics.of_result(self))
 
     @property
-    def portfolio_analytics(self) -> Any:
+    def _portfolio_analytics(self) -> Any:
         """The run's portfolio figures (`beacon.analysis.performance.portfolio
         .PortfolioAnalytics`)."""
         from ..analysis.performance.portfolio import PortfolioAnalytics  # noqa: PLC0415
 
-        return self._kept("portfolio_analytics", lambda: PortfolioAnalytics(self.run_data))
+        return self._kept("portfolio_analytics", lambda: PortfolioAnalytics(self._run_data))
 
     @property
-    def risk(self) -> Any:
+    def _risk(self) -> Any:
         """The run's risk (`beacon.analysis.risk.analytics.RiskAnalytics`),
         with the window, risk model and liquidity choices of the analysis the
         run was asked for, or the defaults.
@@ -71,24 +71,24 @@ class AnalyticsMixin:
         if source is None:
             raise ValueError("The run kept no data source, which its risk is measured from.")
 
-        request = self.analysis_request
+        request = self._analysis_request
 
         if request is None:
-            return self._kept("risk", lambda: RiskAnalytics(self.run_data, source))
+            return self._kept("risk", lambda: RiskAnalytics(self._run_data, source))
 
         # The risk model and liquidity choices of the analysis asked for, as
         # its reports use them (BN-421).
         options = request.options
 
         return self._kept("risk", lambda: RiskAnalytics(
-            self.run_data, source, request.factors, request.settings,
+            self._run_data, source, request.factors, request.settings,
             risk_model=options.risk_model.settings(),
             participation=options.liquidity.participation,
             lookback_days=options.liquidity.lookback_days))
 
     @property
-    def attribution(self) -> Any:
+    def _attribution(self) -> Any:
         """The run's attribution (`beacon.analysis.attribution.Attribution`)."""
         from ..analysis.attribution.analytics import Attribution  # noqa: PLC0415
 
-        return self._kept("attribution", lambda: Attribution(self.run_data))
+        return self._kept("attribution", lambda: Attribution(self._run_data))

@@ -167,7 +167,7 @@ class RunData:
         rate_window, ratio_window = result._annualising()
 
         return cls(currency=result.fund.currency,
-                   returns=result.get_returns(),
+                   returns=result._returns(),
                    nav=nav,
                    units=result.fund.units.reindex(nav.index),
                    initial_capital=float(result.portfolio.initial_capital),

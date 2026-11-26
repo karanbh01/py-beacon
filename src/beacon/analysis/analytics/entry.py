@@ -78,9 +78,9 @@ class Analytics:
     def of_result(cls,
                   result: Any) -> "Analytics":
         """The analytics of a finished backtest, `result`."""
-        return cls(lambda: result.run_data, result.analysis_request,
-                   getattr(result, "_data_fetcher", None), block=result.analysis_block,
-                   timings=result.analysis_timings,
+        return cls(lambda: result._run_data, result._analysis_request,
+                   getattr(result, "_data_fetcher", None), block=result._analysis_block,
+                   timings=result._analysis_timings,
                    context=result.__dict__.get("_analysis_context"),
                    active=result.trading.active or [],
                    replication=result.trading.replication or [])

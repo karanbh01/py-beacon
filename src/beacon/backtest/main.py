@@ -402,13 +402,13 @@ class Backtest:
 
         # BN-397/BN-398: the analysis asked for, its analytics block worked
         # out now, a progress message as each part starts.
-        result.analysis_request = analysis
+        result._analysis_request = analysis
 
         if analysis is not None:
             report(1.0, "Analysing the run")
-            result.analysis_block = analyse(result, analysis,
+            result._analysis_block = analyse(result, analysis,
                                             lambda message: report(1.0, message))
-            result.analysis_timings = dict(result.analysis_block["timings"])
+            result._analysis_timings = dict(result._analysis_block["timings"])
 
         return result
 

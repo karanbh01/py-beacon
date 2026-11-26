@@ -29,7 +29,7 @@ class MetricsMixin:
     # The result's data, which BacktestResult holds (BN-459/BN-460).
     portfolio: Portfolio
     index: IndexBooks
-    modelling_assumptions: ModellingAssumptions | None
+    assumptions: ModellingAssumptions | None
     fund: FundRecord
     trading: TradingRecord
 
@@ -37,7 +37,7 @@ class MetricsMixin:
         """An ETF's quotes; empty for another vehicle."""
         return self.fund.etf.market if self.fund.etf is not None else pd.DataFrame()
 
-    def get_returns(self) -> pd.Series:
+    def _returns(self) -> pd.Series:
         """The portfolio's daily returns.
 
         The first runs from the initial capital to the first day's close, so
@@ -85,12 +85,12 @@ class MetricsMixin:
 
         return (total / before - 1.0).astype(float)
 
-    def performance_levels(self) -> pd.Series:
+    def _performance_levels(self) -> pd.Series:
         """The run's performance as a level series: the trading NAV, or with
         flows the NAV per unit, which they do not move."""
         return self.fund.nav_per_unit if self.fund.flows else self.fund.trading_nav
 
-    def money_weighted_return(self) -> float | None:
+    def _money_weighted_return(self) -> float | None:
         """The annual internal rate of return of the investors' money.
 
         Counts the initial capital, every subscription and redemption, any
@@ -153,16 +153,16 @@ class MetricsMixin:
         if self.fund.flows and not nav.empty:
             launch = self.fund.launch_price
 
-            return launch * (1.0 + self.get_returns()).cumprod(), launch
+            return launch * (1.0 + self._returns()).cumprod(), launch
 
         initial = self.portfolio.initial_capital
 
         if self._paid_out().empty or nav.empty:
             return nav, initial
 
-        return initial * (1.0 + self.get_returns()).cumprod(), initial
+        return initial * (1.0 + self._returns()).cumprod(), initial
 
-    def get_annual_returns(self) -> pd.Series:
+    def _annual_returns(self) -> pd.Series:
         """The portfolio's calendar-year returns.
 
         Each year runs from the previous year's last close, and the first from
@@ -172,7 +172,7 @@ class MetricsMixin:
         Returns:
             pd.Series: Return by calendar year, indexed by the year as an int.
         """
-        returns = self.get_returns()
+        returns = self._returns()
 
         if returns.empty:
             return pd.Series(dtype=float)
@@ -184,14 +184,14 @@ class MetricsMixin:
 
     def _periods_per_year(self) -> int:
         """The run's annualisation factor."""
-        assumptions = self.modelling_assumptions
+        assumptions = self.assumptions
         periods = assumptions.periods_per_year if assumptions else None
 
         return periods or DEFAULT_PERIODS_PER_YEAR
 
     def _risk_free_rate(self) -> float:
         """The rate the run's Sharpe ratio is measured against."""
-        assumptions = self.modelling_assumptions
+        assumptions = self.assumptions
         rate = assumptions.risk_free_rate if assumptions else None
 
         return rate or 0.0
@@ -199,7 +199,7 @@ class MetricsMixin:
     def _annualising(self) -> tuple[str, str]:
         """The shortest windows the run's annualised rates and ratios are
         given over (`beacon.analysis.annualising`)."""
-        assumptions = self.modelling_assumptions or ModellingAssumptions()
+        assumptions = self.assumptions or ModellingAssumptions()
         resolved = assumptions.with_defaults()
 
         return (str(resolved.min_annualised_rate_window),
@@ -214,7 +214,7 @@ class MetricsMixin:
 
         return PerformanceAnalytics(RunData.from_result(self))  # type: ignore[arg-type]
 
-    def get_tracking_error(self) -> float | None:
+    def _tracking_error(self) -> float | None:
         """Calculate annualised tracking error against the tracked index.
 
         Tracking error is the standard deviation of the difference between
@@ -231,7 +231,7 @@ class MetricsMixin:
         """
         return self._analytics().tracking_error()  # type: ignore[no-any-return]
 
-    def get_tracking_difference(self) -> float | None:
+    def _tracking_difference(self) -> float | None:
         """Calculate cumulative tracking difference against the tracked index.
 
         Tracking difference is the portfolio's cumulative return, from its
@@ -271,19 +271,19 @@ class MetricsMixin:
         result: dict[str, float | None] = self._analytics().summary()
 
         if not self._market().empty:
-            result.update(self.market_summary())
+            result.update(self._market_summary())
 
         if self.trading.active:
             result.update(self._active_figures())
 
         return result
 
-    def information_ratio(self) -> float | None:
+    def _information_ratio(self) -> float | None:
         """Annualised active return over annualised tracking error, against
         the tracked index. None without an index, or with no active risk."""
         return self._analytics().information_ratio()  # type: ignore[no-any-return]
 
-    def active_share(self) -> pd.Series:
+    def _active_share(self) -> pd.Series:
         """An active strategy's active share at each rebalance."""
         return pd.Series({step.date: step.active_share for step in (self.trading.active or [])},
                          dtype=float)
@@ -307,13 +307,13 @@ class MetricsMixin:
     def _active_figures(self) -> dict[str, float | None]:
         """An active strategy's information ratio, average active share and
         average ex-ante tracking error, as its summary gives them."""
-        return {"information_ratio": self.information_ratio(),
+        return {"information_ratio": self._information_ratio(),
                 "average_active_share": float(np.mean([step.active_share
                                                        for step in (self.trading.active or [])])),
                 "average_ex_ante_tracking_error": float(np.mean(
                     [step.tracking_error for step in (self.trading.active or [])]))}
 
-    def active_attribution(self) -> AttributionResult:
+    def _active_attribution(self) -> AttributionResult:
         """Which names produced the active return: each name's active weight
         (the portfolio's less the index's, as both drift) times its return,
         linked over the run so they add up to the portfolio's compounded
@@ -342,7 +342,7 @@ class MetricsMixin:
             raise CalculationError("Attribution", "no prices to measure the "
                                    "names' returns with.")
 
-        ours = self.get_returns().dropna()
+        ours = self._returns().dropna()
         theirs = formulas.returns_from_start(tracked.levels).dropna()
         days = ours.index.intersection(theirs.index)
 
@@ -352,7 +352,7 @@ class MetricsMixin:
                          prices.ffill().pct_change(fill_method=None),
                          comparator=theirs.loc[days])
 
-    def market_return(self) -> float | None:
+    def _market_return(self) -> float | None:
         """An exchange investor's return on an ETF: bought at the ask on the
         first day and sold at the bid on the last. None for another vehicle.
         Cash the fund paid out is not included."""
@@ -362,13 +362,13 @@ class MetricsMixin:
         return formulas.market_return(float(self._market()["ask"].iloc[0]),
                                       float(self._market()["bid"].iloc[-1]))
 
-    def market_summary(self) -> dict[str, float | None]:
+    def _market_summary(self) -> dict[str, float | None]:
         """An ETF's trading on the exchange: the investor's return at market
         prices, the average premium and spread, and the share of days at a
         premium."""
         market = self._market()
 
-        return {"market_return": self.market_return(),
+        return {"market_return": self._market_return(),
                 "average_premium": float(market["premium"].mean()),
                 "average_spread": float(market["spread"].mean()),
                 "days_at_premium": float((market["premium"] > 0).mean())}

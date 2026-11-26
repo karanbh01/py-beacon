@@ -7,6 +7,7 @@ The runs are test_strategy_futures' eight-name index held physically and
 through futures, test_strategy_synthetic's synthetic fund, test_backtest_flows'
 two names with a cash band and as an ETF.
 """
+import re
 import warnings
 
 import pandas as pd
@@ -131,9 +132,10 @@ class TestTheFlatNamesWarn:
         for result in (plain, futures):
             path, read = MOVED[name]
 
-            with pytest.warns(DeprecationWarning, match=rf"BacktestResult\.{name} is deprecated "
-                                                        rf"and will be removed in 0.12.0; "
-                                                        rf"use result\.{path}\."):
+            expected = (f"BacktestResult.{name} is deprecated and will be removed in 0.12.0; "
+                        f"use result.{path}.")
+
+            with pytest.warns(DeprecationWarning, match=re.escape(expected)):
                 found = getattr(result, name)
 
             assert same(found, read(result))

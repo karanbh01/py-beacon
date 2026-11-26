@@ -133,7 +133,7 @@ def assemble_result(result: BacktestResult,
     # carries the cost of the opening trades.
     # With flows the performance is a unit's, so a flow is not drawn as a gain
     # (BN-267); without, it is the NAV, as it always was.
-    level = rebased(result.performance_levels())
+    level = rebased(result._performance_levels())
     from_capital = rebased(_performance_from_start(result))
     opening = len(from_capital) - len(level)
     returns = daily_returns(from_capital)
@@ -313,8 +313,8 @@ def build_backtest_job(strategy: StrategyDocument,
                     "index_id": document.id,
                     **settings.resolved, "start": start, "end": end,
                     "modelling_assumptions": (
-            backtest.modelling_assumptions.as_dict()
-            if backtest.modelling_assumptions is not None
+            backtest.assumptions.as_dict()
+            if backtest.assumptions is not None
             else settings.resolved["modelling_assumptions"])}
 
         # The calculation the run tracked, still needed for the payload's
@@ -392,8 +392,9 @@ def build_backtest_job(strategy: StrategyDocument,
 
         # BN-398: the analysis in the payload, and beside the run's tables,
         # read by strategy.
-        if backtest.analysis_block is not None:
-            block = with_tables(backtest.analysis_block, strategy.id, backtest.run_data.tables)
+        if backtest._analysis_block is not None:
+            block = with_tables(backtest._analysis_block, strategy.id,
+                                backtest._run_data.tables)
             payload.analytics = AnalyticsBlock.model_validate(block)
 
             if record_store is not None:

@@ -290,7 +290,7 @@ class BacktestPlots(ChartMethods):
         """
         # A unit's NAV when money flowed, so a flow is not drawn as a gain
         # (BN-267); the NAV itself otherwise.
-        levels = _rebase(_series(self._result.performance_levels())).rename("Level")
+        levels = _rebase(_series(self._result._performance_levels())).rename("Level")
         drawdown = (levels / levels.cummax() - 1.0).rename("Drawdown")
 
         return _Performance([[Line(levels, reference=100.0, label_last=True, ylabel="Level",
@@ -363,7 +363,7 @@ class BacktestPlots(ChartMethods):
         """
         # BN-259: each year ran from its own first close, so every year after
         # the first lost its first day's return.
-        returns = self._result.get_annual_returns().astype(float)
+        returns = self._result._annual_returns().astype(float)
         returns.index = [str(year) for year in returns.index]
 
         return Column(returns.rename("Return"), percent=True, ylabel="Return",
@@ -371,7 +371,7 @@ class BacktestPlots(ChartMethods):
                       subtitle=_given(subtitle, "The portfolio's return in each calendar year"),
                       notes=_given(notes, sentences(
                           provenance(self._result, "backtest",
-                                     _series(self._result.performance_levels()).index),
+                                     _series(self._result._performance_levels()).index),
                           "Each year runs from the previous year's close, and "
                           "the first from the initial capital.")),
                       style=style)

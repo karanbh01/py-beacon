@@ -105,9 +105,12 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
             (`beacon.backtest.trading_record`): its steps, pricing, unfilled
             orders and price gaps, and a replication's or an active
             strategy's choices.
-        modelling_assumptions: What the run assumed, every field resolved.
-            None for a result built by hand, which the summary then measures
-            with a zero risk-free rate over 252 periods a year.
+        assumptions: What the run assumed, every field resolved. None for a
+            result built by hand, which the summary then measures with a
+            zero risk-free rate over 252 periods a year.
+        analytics: Every calculation on the run
+            (`beacon.analysis.analytics.Analytics`), and the analysis it was
+            asked for.
 
     The engine builds it from what it kept; built by hand, every keyword
     but *portfolio* may be left out. The flat names the fund's and the
@@ -155,7 +158,7 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
         self.portfolio = portfolio
         self.index = index if index is not None else IndexBooks()
         self.benchmark = benchmark
-        self.modelling_assumptions = modelling_assumptions
+        self.assumptions = modelling_assumptions
         self.fund = fund_record(
             portfolio, currency, launch_price, _series(units), list(flows or []),
             _series(fees_payable), _series(dividends_receivable),
@@ -171,9 +174,9 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
                                      list(active or []) or None)
         # BN-397/BN-398: what the run was asked to analyse, its analytics
         # block, and how long each part took.
-        self.analysis_request = analysis_request
-        self.analysis_timings = dict(analysis_timings or {})
-        self.analysis_block = analysis_block
+        self._analysis_request = analysis_request
+        self._analysis_timings = dict(analysis_timings or {})
+        self._analysis_block = analysis_block
         self._data_fetcher: DataFetcher | None = None
 
     def with_data(self,
@@ -234,7 +237,7 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
             correlation over the common window, as `analysis.relative`
             computes them.
         """
-        return relative_metrics(self.performance_levels(), _levels_of(other))
+        return relative_metrics(self._performance_levels(), _levels_of(other))
 
     def __repr__(self) -> str:
         n_dates = len(self.fund.trading_nav)
@@ -251,7 +254,7 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
 def _levels_of(other: Comparable) -> pd.Series:
     """The level series a comparator carries, whichever kind it is."""
     if isinstance(other, BacktestResult):
-        return other.performance_levels()
+        return other._performance_levels()
 
     if isinstance(other, Book):
         return other.levels
@@ -334,6 +337,38 @@ MOVED: dict[str, tuple[str, Callable[[BacktestResult], Any]]] = {
     "total_costs": ("trading.total_costs", lambda result: result.trading.total_costs),
     "replication": ("trading.replication", lambda result: result.trading.replication or []),
     "active": ("trading.active", lambda result: result.trading.active or []),
+    # BN-461.
+    "modelling_assumptions": ("assumptions", lambda result: result.assumptions),
+    "analysis_request": ("analytics.request", lambda result: result._analysis_request),
+    "analysis_timings": ("analytics.timings", lambda result: result._analysis_timings),
+    "analysis_block": ("analytics.to_dict()", lambda result: result._analysis_block),
+    "run_data": ("analytics.run_data", lambda result: result._run_data),
+    "portfolio_analytics": ("analytics.portfolio",
+                            lambda result: result._portfolio_analytics),
+    "risk": ("analytics.portfolio.risk", lambda result: result._risk),
+    "attribution": ("analytics.portfolio.attribution", lambda result: result._attribution),
+}
+
+# BN-461: each method before 0.11.0, where it moved, and the method that
+# still gives what it gave.
+MOVED_METHODS: dict[str, tuple[str, str]] = {
+    "get_returns": ("analytics.portfolio.performance.returns()", "_returns"),
+    "get_annual_returns": ("analytics.portfolio.performance.total_return(by=\"year\")",
+                           "_annual_returns"),
+    "get_tracking_error": ("analytics.portfolio.relative.tracking_error()", "_tracking_error"),
+    "get_tracking_difference": ("analytics.portfolio.relative.tracking_difference()",
+                                "_tracking_difference"),
+    "information_ratio": ("analytics.portfolio.relative.information_ratio()",
+                          "_information_ratio"),
+    "money_weighted_return": ("analytics.portfolio.performance.money_weighted_return()",
+                              "_money_weighted_return"),
+    "active_share": ("analytics.portfolio.relative.active_share()", "_active_share"),
+    "active_attribution": ("analytics.portfolio.attribution.active_attribution()",
+                           "_active_attribution"),
+    "market_return": ("analytics.portfolio.vehicle.market_return()", "_market_return"),
+    "market_summary": ("analytics.portfolio.vehicle.market_summary()", "_market_summary"),
+    "performance_levels": ("fund.nav_per_unit, or fund.trading_nav without flows",
+                           "_performance_levels"),
 }
 
 
@@ -350,9 +385,28 @@ def _moved(name: str,
     return property(get, doc=f"Deprecated: `result.{path}`.")
 
 
+def _moved_method(name: str,
+                  path: str,
+                  private: str) -> Callable[[BacktestResult], Any]:
+    """A method before 0.11.0 that gives what it gave, warning."""
+    def method(self: BacktestResult) -> Any:
+        warnings.warn(f"BacktestResult.{name}() is deprecated and will be removed in 0.12.0; "
+                      f"use result.{path}.", DeprecationWarning, stacklevel=2)
+
+        return getattr(self, private)()
+
+    method.__name__ = name
+    method.__doc__ = f"Deprecated: `result.{path}`."
+
+    return method
+
+
 for _name, (_path, _read) in MOVED.items():
     setattr(BacktestResult, _name, _moved(_name, _path, _read))
 
+for _name, (_path, _private) in MOVED_METHODS.items():
+    setattr(BacktestResult, _name, _moved_method(_name, _path, _private))
 
-__all__ = ["MOVED", "BacktestResult", "Book", "Comparable", "IndexBooks", "PriceGap",
-           "RebalancePricing", "UnfilledOrder"]
+
+__all__ = ["MOVED", "MOVED_METHODS", "BacktestResult", "Book", "Comparable", "IndexBooks",
+           "PriceGap", "RebalancePricing", "UnfilledOrder"]

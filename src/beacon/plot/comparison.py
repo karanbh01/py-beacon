@@ -36,7 +36,7 @@ def _level_of(result: Any) -> pd.Series:
     """The level series a result carries, whichever kind it is: a
     backtest's performance (per unit when money flowed), or an index's
     levels."""
-    performance = getattr(result, "performance_levels", None)
+    performance = getattr(result, "_performance_levels", None)
 
     if callable(performance):
         return pd.Series(performance()).astype(float)

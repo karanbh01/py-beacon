@@ -209,7 +209,7 @@ def analyse(result: Any,
     """
     from .reports.context import Context  # noqa: PLC0415
 
-    run = result.run_data
+    run = result._run_data
     context = Context(run, request.options, getattr(result, "_data_fetcher", None),
                       request.factors)
     # Kept with the result, so whoever stores the run can keep its factor

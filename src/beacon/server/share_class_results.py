@@ -61,7 +61,7 @@ def share_class_payloads(result: BacktestResult,
     if not result.fund.share_classes:
         return {}
 
-    assumptions = result.modelling_assumptions
+    assumptions = result.assumptions
     periods = (assumptions.periods_per_year if assumptions is not None else None)
     cash_rate = assumptions.cash_rate if assumptions is not None else None
     ratios = {share_class.name: share_class.hedge_ratio for share_class in share_classes}
