@@ -264,8 +264,13 @@ model, the country, sector and currency it put it in. `factor_betas` has a row
 a rebalance, how the name has behaved: its returns regressed on the factor
 returns over the rolling window before it, each beta with its t-statistic,
 and the regression's R-squared. A name's betas are much noisier than a
-portfolio's, which the t-statistics show. `start`, `end` and `against` pick
-what it measures. A part the run cannot give, such as the rebalances of
+portfolio's, which the t-statistics show. `style` has a row a rebalance: the
+name's place in the style box, by position and by cell, and whether it moved
+cell. `key_data` has a row a rebalance: the reference fields the run kept
+for it, its market cap and its average daily traded value, and with the data
+store loaded its name and free float. `corporate_actions` has a row for each
+action on it in the window, dated by its ex-date, with its type and amount.
+`start`, `end` and `against` pick what it measures. A part the run cannot give, such as the rebalances of
 a run kept before they were, is named under `unavailable` with why.
 
 ## An index on its own

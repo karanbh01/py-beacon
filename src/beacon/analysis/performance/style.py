@@ -182,23 +182,23 @@ def style_box(positions: pd.DataFrame,
     """Each portfolio's weight in each of the nine cells, over its placed
     names: a row a cell, ``size`` and ``style``, then a column a portfolio,
     each summing to 1 (blank for a portfolio that holds none)."""
-    cells = pd.DataFrame([(size, style) for size in SIZES for style in STYLES],
-                         columns=["size", "style"])
-    size_cells = np.array(SIZES, dtype=object)[_cell(positions["size"])]
-    style_cells = np.array(STYLES, dtype=object)[_cell(positions["style"])]
+    box = pd.DataFrame([(size, style) for size in SIZES for style in STYLES],
+                       columns=["size", "style"])
+    size_cells = np.array(SIZES, dtype=object)[cells(positions["size"])]
+    style_cells = np.array(STYLES, dtype=object)[cells(positions["style"])]
 
     for book in books:
         shares = _shares(positions, book)
 
         if shares is None:
-            cells[book] = None
+            box[book] = None
             continue
 
         found = pd.Series(shares).groupby([size_cells, style_cells]).sum()
-        cells[book] = [float(found.get((size, style), 0.0))
-                       for size, style in zip(cells["size"], cells["style"], strict=True)]
+        box[book] = [float(found.get((size, style), 0.0))
+                     for size, style in zip(box["size"], box["style"], strict=True)]
 
-    return cells
+    return box
 
 
 def style_classification(positions: pd.DataFrame,
@@ -216,8 +216,8 @@ def style_classification(positions: pd.DataFrame,
 
         size = float(np.dot(shares, positions["size"].to_numpy(dtype=float)))
         style = float(np.dot(shares, positions["style"].to_numpy(dtype=float)))
-        rows.append({"book": book, "size": SIZES[_cell(pd.Series([size]))[0]],
-                     "style": STYLES[_cell(pd.Series([style]))[0]],
+        rows.append({"book": book, "size": SIZES[cells(pd.Series([size]))[0]],
+                     "style": STYLES[cells(pd.Series([style]))[0]],
                      "size_centre": size, "style_centre": style})
 
     return pd.DataFrame(rows, columns=["book", "size", "style", "size_centre", "style_centre"])
@@ -260,7 +260,7 @@ def _style_positions(scores: pd.Series,
     """Each name's style score as a cap-weighted percentile among the
     universe's names in its size band, times 3: the cap below its score and
     half the cap level with it, over the band's."""
-    bands = pd.Series(_cell(size.fillna(BLEND)), index=size.index)
+    bands = pd.Series(cells(size.fillna(BLEND)), index=size.index)
     ranked = pd.DataFrame({"score": scores, "cap": caps, "band": bands}).reindex(universe)
     ranked = ranked.dropna(subset=["score", "cap"])
     ranked = ranked[ranked["cap"] > 0]
@@ -286,7 +286,7 @@ def _style_positions(scores: pd.Series,
     return found
 
 
-def _cell(positions: pd.Series) -> np.ndarray:
+def cells(positions: pd.Series) -> np.ndarray:
     """Each position's cell, 0 to 2: its floor, with anything past either end
     in the end cell."""
     found: np.ndarray = np.clip(np.floor(positions.to_numpy(dtype=float)), 0, 2).astype(int)

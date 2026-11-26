@@ -2,6 +2,7 @@
 """The names, labels and units of the columns of a name's profile."""
 # BN-468..BN-471.
 import pandas as pd
+from pandas.api.types import is_bool_dtype, is_numeric_dtype
 
 from ....catalogue import COUNT, DAYS, FRACTION, MONEY, RATIO
 from ...reports.statistics import Column
@@ -25,27 +26,41 @@ LABELS = {"target": "Target", "screened": "After the screens", "weight": "Traded
           "tracking_error_share": "Share of tracking error", "value": "Holding",
           "traded_value": "Average daily traded value", "days_to_sell": "Days to sell",
           COUNTRY: "Country", SECTOR: "Sector", CURRENCY: "Currency",
-          "r_squared": "R-squared", "observations": "Observations"}
-UNITS = {"value": MONEY, "traded_value": MONEY, "days_to_sell": DAYS, "observations": COUNT}
-TEXT = (REMOVED, COUNTRY, SECTOR, CURRENCY)
+          "r_squared": "R-squared", "observations": "Observations",
+          "size_position": "Size position", "style_position": "Style position", "size": "Size",
+          "style": "Style", "moved": "Moved box", "name": "Name", "market_cap": "Market cap",
+          "free_float": "Free float", "type": "Type", "amount": "Amount or ratio"}
+UNITS = {"value": MONEY, "traded_value": MONEY, "days_to_sell": DAYS, "observations": COUNT,
+         "market_cap": MONEY, "size_position": None, "style_position": None, "amount": None}
 
 # A factor's columns, named by the factor after the prefix.
 FACTOR_COLUMNS = {"exposure/": "{}", "beta/": "{} beta", "t_stat/": "{} t-statistic"}
 
 
 def columns_of(table: pd.DataFrame) -> list[Column]:
-    """The label and unit of each of a part's columns, in its order."""
-    return [_column(str(name)) for name in table.columns]
+    """The label and unit of each of a part's columns, in its order: a
+    text or yes-or-no column has none, and a reference field the run kept
+    is labelled from its name."""
+    return [_column(str(name), is_numeric_dtype(dtype) and not is_bool_dtype(dtype))
+            for name, dtype in table.dtypes.items()]
 
 
-def _column(name: str) -> Column:
+def _column(name: str,
+            numeric: bool) -> Column:
     for prefix, label in FACTOR_COLUMNS.items():
         if name.startswith(prefix):
-            factor = name[len(prefix):].replace("_", " ")
+            return Column(name, label.format(_titled(name[len(prefix):])), RATIO)
 
-            return Column(name, label.format(factor[:1].upper() + factor[1:]), RATIO)
+    label = LABELS.get(name) or _titled(name)
 
-    return Column(name, LABELS[name], None if name in TEXT else UNITS.get(name, FRACTION))
+    return Column(name, label, UNITS.get(name, FRACTION) if numeric else None)
+
+
+def _titled(name: str) -> str:
+    """*name* as a label: ``country_domicile`` as ``Country domicile``."""
+    words = name.replace("_", " ")
+
+    return words[:1].upper() + words[1:]
 
 
 __all__ = ["ACTIVE", "LABELS", "columns_of"]

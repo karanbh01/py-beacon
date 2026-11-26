@@ -76,14 +76,15 @@ def _work_out(context: Context) -> tuple[pd.DataFrame, dict[str, float | None]]:
     taken = dates[as_of_position(dates, last) or 0]
     snapshot = snapshots.loc[[taken]].set_index("IDENTIFIER")
     snapshot.index = snapshot.index.astype(str)
-    held = {book: (None if found is None else _on(found, last)) for book, found in weights.items()}
+    held = {book: (None if found is None else weights_on(found, last))
+            for book, found in weights.items()}
     positions = style.style_positions(snapshot, held, context.options.style,
-                                      _usd_rate(context, taken))
+                                      usd_rate(context, taken))
 
     return positions, style.coverage(positions, held)
 
 
-def _on(weights: pd.DataFrame,
+def weights_on(weights: pd.DataFrame,
         day: pd.Timestamp) -> pd.Series:
     """A portfolio's weights on *day*, or its latest before it."""
     position = as_of_position(weights.index, day)
@@ -93,7 +94,7 @@ def _on(weights: pd.DataFrame,
     return row
 
 
-def _usd_rate(context: Context,
+def usd_rate(context: Context,
               day: pd.Timestamp) -> float:
     """A US dollar in the run's currency on *day*: 1 for a dollar run, else
     the rate the run kept, else the data store's."""

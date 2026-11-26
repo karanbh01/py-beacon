@@ -10,6 +10,9 @@ One name over a run: `result.analytics.instrument.profile(name)`.
     profile.liquidity                  # a row a rebalance
     profile.factor_exposures           # a row a rebalance
     profile.factor_betas               # a row a rebalance
+    profile.style                      # a row a rebalance
+    profile.key_data                   # a row a rebalance
+    profile.corporate_actions          # a row an action
 
 Each part is a dated table over the analysis window the profile was asked
 for (``start``, ``end``), worked out the first time it is asked for.
@@ -76,6 +79,26 @@ window, each factor's beta and t-statistic (``beta/market``,
 A single name's betas are much noisier than a portfolio's; the t-statistics
 say how much. Its ``attrs`` say the window.
 
+``style`` has a row for each rebalance the run kept the names'
+characteristics on: where the name sat in the style box
+(`beacon.analysis.performance.style`), by position from 0 to 3 on each axis
+(``size_position``, ``style_position``) and by cell (``size``: large, mid or
+small; ``style``: value, blend or growth), as `instrument.style_positions()`
+places the names held on the run's last day, and whether its cell differs
+from the one before (``moved``); blank where no portfolio held it or it had
+no market cap.
+
+``key_data`` has a row for each rebalance: the reference fields the run kept
+for the name (its currency and exchange, and the sector, country and others
+it grouped by), its market cap (``market_cap``) and average daily traded
+value (``traded_value``) in the portfolio's currency, and, with the data
+store loaded, its name (``name``) and free-float factor (``free_float``).
+
+``corporate_actions`` has a row for each corporate action on the name with
+its ex-date in the window, as the run applied it: its ``type`` (a dividend,
+a split, ...) and its ``amount``, a dividend per share in the name's own
+currency or a split's ratio.
+
 A stored run's risk and exposures are read from what its analysis kept for
 the same factors and risk model (`beacon.analysis.risk.risk_store`);
 otherwise the model is fitted at every rebalance, and the factor betas read
@@ -94,7 +117,7 @@ from ...panels import NAME_RETURNS, REFERENCE
 from ...reports.statistics import TOO_SHORT, Unavailable
 from ...risk.liquidity import BOOKS
 from ..groupings import FREQUENCIES
-from . import contribution, factors, risk, weights
+from . import characteristics, contribution, factors, risk, weights
 from .columns import ACTIVE, LABELS, columns_of
 from .risk import liquidity_dates, liquidity_of
 
@@ -104,7 +127,7 @@ class Profile:
     asked for."""
 
     parts = ("rebalance_weights", "daily_weights", "attribution", "risk", "liquidity",
-             "factor_exposures", "factor_betas")
+             "factor_exposures", "factor_betas", "style", "key_data", "corporate_actions")
 
     def __init__(self,
                  name: str,
@@ -225,6 +248,39 @@ class Profile:
         return factors.factor_betas(self.name, mine, factor_returns, within,
                                     context.options.rolling.window, context.run.risk_free_rate,
                                     context.run.periods_per_year)
+
+    @cached_property
+    def style(self) -> pd.DataFrame:
+        """At each rebalance: where the name sat in the style box, and
+        whether it moved cell.
+
+        Raises:
+            Unavailable: If the run was kept before its characteristics
+                were.
+        """
+        # BN-472.
+        return characteristics.style_positions(self.name, self._whole, self.days())
+
+    @cached_property
+    def key_data(self) -> pd.DataFrame:
+        """At each rebalance: the name's reference fields, market cap and
+        traded value, and with the data store its name and free float.
+
+        Raises:
+            Unavailable: If the run kept no reference.
+        """
+        return characteristics.key_data(self.name, self._whole, self.days())
+
+    @cached_property
+    def corporate_actions(self) -> pd.DataFrame:
+        """Each corporate action on the name over the window, as the run
+        applied it.
+
+        Raises:
+            Unavailable: If the run was kept before its actions were.
+        """
+        return characteristics.corporate_actions(self.name, self._context.run.tables,
+                                                 self.days())
 
     def comparator(self) -> str | None:
         """The comparator active figures are measured against: the one
