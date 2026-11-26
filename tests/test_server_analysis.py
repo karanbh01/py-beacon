@@ -280,9 +280,11 @@ class TestAName_sProfile:
         assert (found["identifier"], found["currency"], found["against"]) == (name, "USD",
                                                                               "index")
         assert found["parts"]["rebalance_weights"]["columns"][0] == {
-            "name": "target", "label": "Target", "unit": "fraction"}
+            "name": "target", "label": "Target", "unit": "fraction", "labels": None}
         assert found["parts"]["liquidity"]["columns"][0] == {
-            "name": "value", "label": "Holding", "unit": "money"}
+            "name": "value", "label": "Holding", "unit": "money", "labels": None}
+        # BN-473: a column of codes says what each means.
+        assert found["parts"]["events"]["columns"][0]["labels"]["capped"] == "Capped"
 
     def test_its_contribution_by_period(self,
                                         client,
@@ -299,7 +301,7 @@ class TestAName_sProfile:
         assert [row[0] for row in part["data"]] == pytest.approx(
             kept["contribution"].tolist(), rel=1e-12)
         assert part["columns"][0] == {"name": "contribution", "label": "Contribution",
-                                      "unit": "fraction"}
+                                      "unit": "fraction", "labels": None}
 
     def test_what_it_refuses(self,
                              client):

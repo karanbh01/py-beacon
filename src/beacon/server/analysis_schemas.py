@@ -228,7 +228,11 @@ class InstrumentColumn(BaseModel):
                                   "such as 'weight/fund'.")
     label: str = Field(description="As it is shown.")
     unit: str | None = Field(description="What it is measured in: 'fraction', 'ratio', "
-                                         "'count', 'days' or 'date'; null for a yes or no.")
+                                         "'count', 'days', 'money' (the portfolio's "
+                                         "currency) or 'date'; null for text or a yes or "
+                                         "no.")
+    labels: dict[str, str] | None = Field(default=None, description="For a column of codes, "
+                                                                    "the label of each code.")
 
 
 class InstrumentTable(BaseModel):
@@ -281,8 +285,9 @@ class InstrumentProfile(BaseModel):
                     "rebalance; 'daily_weights', a row a day; 'attribution', a row a "
                     "period, dated by its last day; 'risk', 'liquidity', "
                     "'factor_exposures', 'factor_betas', 'style' and 'key_data', a row a "
-                    "rebalance; and 'corporate_actions', a row an action, dated by its "
-                    "ex-date. A days to sell is null where the name has no traded value.")
+                    "rebalance; 'corporate_actions', a row an action, dated by its "
+                    "ex-date; 'trades', a row a trade; and 'events', a row an event. A days "
+                    "to sell is null where the name has no traded value.")
     unavailable: dict[str, str] = Field(description="Each part the run cannot give, and why.")
 
 

@@ -13,6 +13,8 @@ One name over a run: `result.analytics.instrument.profile(name)`.
     profile.style                      # a row a rebalance
     profile.key_data                   # a row a rebalance
     profile.corporate_actions          # a row an action
+    profile.trades                     # a row a trade
+    profile.events                     # a row an event
 
 Each part is a dated table over the analysis window the profile was asked
 for (``start``, ``end``), worked out the first time it is asked for.
@@ -99,6 +101,20 @@ its ex-date in the window, as the run applied it: its ``type`` (a dividend,
 a split, ...) and its ``amount``, a dividend per share in the name's own
 currency or a split's ratio.
 
+``trades`` has a row for each trade in the name over the window, in the
+order made: its ``side``, ``quantity`` (shares), ``price``, ``notional``,
+``cost`` and ``impact`` in the portfolio's currency, and why it was made
+(``reason``: a rebalance, drift, a flow, a corporate action, ...) and its
+``tags``.
+
+``events`` has one dated list of what happened to the name: each day the
+fund or the index began or stopped holding it (``added_to_fund``,
+``removed_from_fund``, ``added_to_index``, ``removed_from_index``), each
+rebalance that capped it (``capped``, ``amount`` the weight it was capped to)
+or screened it out (``screened_out``, ``detail`` the screen), and each
+corporate action on it (``corporate_action``, its type and amount), a day's
+in that order. The column's labels name each kind.
+
 A stored run's risk and exposures are read from what its analysis kept for
 the same factors and risk model (`beacon.analysis.risk.risk_store`);
 otherwise the model is fitted at every rebalance, and the factor betas read
@@ -117,7 +133,7 @@ from ...panels import NAME_RETURNS, REFERENCE
 from ...reports.statistics import TOO_SHORT, Unavailable
 from ...risk.liquidity import BOOKS
 from ..groupings import FREQUENCIES
-from . import characteristics, contribution, factors, risk, weights
+from . import characteristics, contribution, factors, risk, trading, weights
 from .columns import ACTIVE, LABELS, columns_of
 from .risk import liquidity_dates, liquidity_of
 
@@ -127,7 +143,8 @@ class Profile:
     asked for."""
 
     parts = ("rebalance_weights", "daily_weights", "attribution", "risk", "liquidity",
-             "factor_exposures", "factor_betas", "style", "key_data", "corporate_actions")
+             "factor_exposures", "factor_betas", "style", "key_data", "corporate_actions",
+             "trades", "events")
 
     def __init__(self,
                  name: str,
@@ -281,6 +298,24 @@ class Profile:
         """
         return characteristics.corporate_actions(self.name, self._context.run.tables,
                                                  self.days())
+
+    @cached_property
+    def trades(self) -> pd.DataFrame:
+        """Every trade in the name over the window, and why it was made.
+
+        Raises:
+            Unavailable: If the run was kept before its trades were.
+        """
+        # BN-473.
+        return trading.trades(self.name, self._context.run.tables, self.days())
+
+    @cached_property
+    def events(self) -> pd.DataFrame:
+        """What happened to the name over the window, oldest first: added
+        to and removed from the fund and the index, capped, screened out
+        and its corporate actions."""
+        return trading.events(self.name, self._context.run.tables, self.days(),
+                              self.portfolios())
 
     def comparator(self) -> str | None:
         """The comparator active figures are measured against: the one

@@ -131,7 +131,7 @@ def instrument_profile(analytics: Analytics,
             continue
 
         parts[part] = {"columns": [{"name": column.name, "label": column.label,
-                                    "unit": column.unit}
+                                    "unit": column.unit, "labels": column.labels}
                                    for column in profiles.columns_of(table)],
                        "dates": [_day(date) for date in table.index],
                        "data": [[_plain(value) for value in row]

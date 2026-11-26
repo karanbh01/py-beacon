@@ -1,11 +1,12 @@
 # src/beacon/analysis/analytics/profile/columns.py
 """The names, labels and units of the columns of a name's profile."""
-# BN-468..BN-471.
+# BN-468..BN-473.
 import pandas as pd
 from pandas.api.types import is_bool_dtype, is_numeric_dtype
 
 from ....catalogue import COUNT, DAYS, FRACTION, MONEY, RATIO
 from ...reports.statistics import Column
+from .trading import EVENT_LABELS
 
 ACTIVE = "active"
 REMOVED = "removed"
@@ -29,9 +30,15 @@ LABELS = {"target": "Target", "screened": "After the screens", "weight": "Traded
           "r_squared": "R-squared", "observations": "Observations",
           "size_position": "Size position", "style_position": "Style position", "size": "Size",
           "style": "Style", "moved": "Moved box", "name": "Name", "market_cap": "Market cap",
-          "free_float": "Free float", "type": "Type", "amount": "Amount or ratio"}
+          "free_float": "Free float", "type": "Type", "amount": "Amount or ratio",
+          "side": "Side", "quantity": "Shares", "price": "Price", "notional": "Notional",
+          "cost": "Cost", "impact": "Market impact", "reason": "Reason", "tags": "Tags",
+          "event": "Event", "detail": "Detail"}
 UNITS = {"value": MONEY, "traded_value": MONEY, "days_to_sell": DAYS, "observations": COUNT,
-         "market_cap": MONEY, "size_position": None, "style_position": None, "amount": None}
+         "market_cap": MONEY, "size_position": None, "style_position": None, "amount": None,
+         "quantity": None, "price": MONEY, "notional": MONEY, "cost": MONEY, "impact": MONEY}
+# The labels of a column of codes, by code.
+CODES = {"event": EVENT_LABELS}
 
 # A factor's columns, named by the factor after the prefix.
 FACTOR_COLUMNS = {"exposure/": "{}", "beta/": "{} beta", "t_stat/": "{} t-statistic"}
@@ -53,7 +60,8 @@ def _column(name: str,
 
     label = LABELS.get(name) or _titled(name)
 
-    return Column(name, label, UNITS.get(name, FRACTION) if numeric else None)
+    return Column(name, label, UNITS.get(name, FRACTION) if numeric else None,
+                  labels=CODES.get(name))
 
 
 def _titled(name: str) -> str:

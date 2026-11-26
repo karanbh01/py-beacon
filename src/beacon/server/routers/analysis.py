@@ -175,8 +175,8 @@ def build_analysis_router() -> APIRouter:
         at each rebalance, its share of the fund's expected volatility and
         tracking error, the fund's holding of it and the days to sell it, the
         risk model's exposures of it and its returns' betas to the factors,
-        its place in the style box and its key data; and each corporate
-        action on it.
+        its place in the style box and its key data; each corporate action
+        on it and each trade in it; and one list of what happened to it.
         A part the run cannot give is left out, and named under
         `unavailable` with why.
 

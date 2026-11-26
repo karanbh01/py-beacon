@@ -173,7 +173,7 @@ class TestItsParts:
         assert columns["capped"].label == LABELS["capped"]
         assert Profile.parts == ("rebalance_weights", "daily_weights", "attribution", "risk",
                                  "liquidity", "factor_exposures", "factor_betas", "style",
-                                 "key_data", "corporate_actions")
+                                 "key_data", "corporate_actions", "trades", "events")
         assert repr(profile).startswith("Profile('N0': rebalance_weights, daily_weights")
 
     def test_a_stored_run_s_is_the_same(self,

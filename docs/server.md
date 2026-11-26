@@ -270,7 +270,12 @@ cell. `key_data` has a row a rebalance: the reference fields the run kept
 for it, its market cap and its average daily traded value, and with the data
 store loaded its name and free float. `corporate_actions` has a row for each
 action on it in the window, dated by its ex-date, with its type and amount.
-`start`, `end` and `against` pick what it measures. A part the run cannot give, such as the rebalances of
+`trades` has a row for each trade in it: its side, shares, price, notional,
+cost and market impact, and why it was made. `events` is one dated list of
+what happened to it: added to or removed from the fund and the index,
+capped, screened out and its corporate actions, the `event` column's
+`labels` naming each kind. `start`, `end` and `against` pick what it
+measures. A part the run cannot give, such as the rebalances of
 a run kept before they were, is named under `unavailable` with why.
 
 ## An index on its own
