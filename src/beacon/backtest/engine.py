@@ -25,7 +25,7 @@ from ..portfolio.base import TradeInstruction as TradeInstruction  # noqa: PLC04
 from ..strategy.futures import IndexFutures
 from ..strategy.synthetic import SwapTerms
 from .accounting import AccountingMixin
-from .books import benchmark_book, index_books
+from .books import benchmark_record, index_records
 from .cash_band import CashBandEvent, CashBandMixin, band_events_frame
 from .costs import WorkingOrder
 from .dividends import (
@@ -731,8 +731,8 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
         # process-level source moves later.
         return BacktestResult(
             portfolio=portfolio,
-            index=index_books(self.index_result, self.target_index),
-            benchmark=benchmark_book(self.benchmark),
+            index=index_records(self.index_result, self.target_index),
+            benchmark=benchmark_record(self.benchmark),
             unfilled=unfilled,
             price_gaps=list(self._price_gaps),
             rebalance_pricing=list(self._rebalance_pricing),

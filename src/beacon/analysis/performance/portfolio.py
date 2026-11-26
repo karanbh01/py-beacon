@@ -18,6 +18,7 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 
+from ..._renamed import renamed_keyword, renamed_names
 from ...data.base import as_of_position
 from ..class_panels import CLASS_DAYS, CLASS_FLOWS, CLASS_HEDGES
 from ..data import BENCHMARK, INDEX, RunData
@@ -39,7 +40,7 @@ from . import cash_management, costs, dealing, fund_figures, futures_figures, tr
 
 # The books, by name, and the tables their daily weights are in.
 FUND = "fund"
-BOOKS = {FUND: FUND_WEIGHTS, INDEX: INDEX_WEIGHTS, BENCHMARK: BENCHMARK_WEIGHTS}
+PORTFOLIOS = {FUND: FUND_WEIGHTS, INDEX: INDEX_WEIGHTS, BENCHMARK: BENCHMARK_WEIGHTS}
 
 # The group of a name with none recorded.
 UNKNOWN = "Unknown"
@@ -66,19 +67,21 @@ class PortfolioAnalytics:
         self.run = run
         self._groups: dict[str, dict[pd.Timestamp, pd.Series]] = {}
 
+    @renamed_keyword("book", "of")
     def weights(self,
-                book: str = FUND) -> pd.DataFrame | None:
+                of: str = FUND) -> pd.DataFrame | None:
         """A book's daily weights, dates by name: ``fund``, ``index`` or
         ``benchmark``; None for a book the run did not keep weights for (a
         benchmark given as a level series holds no names)."""
-        table = BOOKS[book]
+        table = PORTFOLIOS[of]
 
         return self.run.tables.get(table)
 
+    @renamed_keyword("book", "of")
     def holdings_count(self,
-                       book: str = FUND) -> pd.Series | None:
+                       of: str = FUND) -> pd.Series | None:
         """How many names a book held each day."""
-        weights = self.weights(book)
+        weights = self.weights(of)
 
         return None if weights is None else (weights.fillna(0.0) > 0).sum(axis=1)
 
@@ -91,7 +94,7 @@ class PortfolioAnalytics:
         # between them leaves the count until the next.
         found: dict[str, object] = {"measure": [LEAST, MOST, LATEST]}
 
-        for book in BOOKS:
+        for book in PORTFOLIOS:
             counts = self.holdings_count(book)
             found[book] = ([None] * 3 if counts is None or counts.empty
                            else [int(counts.min()), int(counts.max()), int(counts.iloc[-1])])
@@ -113,16 +116,17 @@ class PortfolioAnalytics:
         return pd.DataFrame({"names": days.index.astype(int), "days": days.to_numpy(dtype=int),
                              "share": days.to_numpy(dtype=float) / float(days.sum())})
 
+    @renamed_keyword("book", "of")
     def group_weights(self,
                       field: str,
-                      book: str = FUND) -> pd.DataFrame | None:
+                      of: str = FUND) -> pd.DataFrame | None:
         """A book's weight in each group of *field* each day, dates by
         group, the groups sorted; None for a book without weights.
 
         Raises:
             KeyError: If the run kept no reference data, or none for *field*.
         """
-        weights = self.weights(book)
+        weights = self.weights(of)
 
         if weights is None:
             return None
@@ -176,7 +180,7 @@ class PortfolioAnalytics:
 
         for grouping, field in fields.items():
             try:
-                latest = {book: self._latest_groups(field, book) for book in BOOKS}
+                latest = {book: self._latest_groups(field, book) for book in PORTFOLIOS}
             except KeyError:
                 continue
 
@@ -189,12 +193,12 @@ class PortfolioAnalytics:
         if not kept:
             raise KeyError(f"No reference data for {', '.join(fields.values())}.")
 
-        return pd.DataFrame(rows, columns=["grouping", "group", *BOOKS])
+        return pd.DataFrame(rows, columns=["grouping", "group", *PORTFOLIOS])
 
     def _latest_groups(self,
                        field: str,
                        book: str) -> pd.Series | None:
-        """*book*'s weight in each group of *field* on the fund's last day,
+        """*of*'s weight in each group of *field* on the fund's last day,
         the fund's with its cash; None for a book without weights."""
         held = self.group_weights(field, book)
 
@@ -288,7 +292,7 @@ class PortfolioAnalytics:
         sales growth of the fund, its index and its benchmark (when it holds
         names) at each rebalance: a row a rebalance, columns by book and
         figure."""
-        books = {name: weights for name in BOOKS
+        books = {name: weights for name in PORTFOLIOS
                  if (weights := self.weights(name)) is not None}
 
         return fund_figures.characteristics_over_time(self.run.tables[CHARACTERISTICS], books)
@@ -453,3 +457,6 @@ def _exposure_order(latest: Mapping[str, pd.Series | None]) -> list[str]:
     ordered = sorted(rest, key=lambda group: (-weight(index, group), -weight(fund, group), group))
 
     return [*ordered, *last]
+
+# BN-462: the name before 0.11.0.
+__getattr__ = renamed_names(__name__, {"BOOKS": ("PORTFOLIOS", PORTFOLIOS)})

@@ -271,7 +271,7 @@ class TestIndexResultIntegration:
         engine = BacktestEngine(str(DATES[0].date()), str(DATES[-1].date()),
                                 10000.0, dp, index_result=idx)
         result = engine.run()
-        # The result holds a Book over the index, not the raw IndexResult:
+        # The result holds a PortfolioRecord over the index, not the raw IndexResult:
         # every comparator answers through the same levels/weights spelling,
         # and the source stays reachable for snapshot-era access. Since
         # BN-164 the calculation lands in the container's target slot.

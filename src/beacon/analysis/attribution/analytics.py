@@ -21,6 +21,7 @@ the residual, reported with every result and never folded into a name.
 # BN-393.
 import pandas as pd
 
+from ..._renamed import renamed_keyword, renamed_names
 from ..data import BENCHMARK, INDEX, OPTIMISED, RunData
 from ..panels import (
     BENCHMARK_WEIGHTS,
@@ -41,7 +42,7 @@ from .effects import EffectsResult, linked_effects
 from .groups import by_group, memberships
 
 FUND = "fund"
-BOOKS = {FUND: FUND_WEIGHTS, INDEX: INDEX_WEIGHTS, OPTIMISED: OPTIMISED_WEIGHTS,
+PORTFOLIOS = {FUND: FUND_WEIGHTS, INDEX: INDEX_WEIGHTS, OPTIMISED: OPTIMISED_WEIGHTS,
          BENCHMARK: BENCHMARK_WEIGHTS}
 
 
@@ -56,8 +57,9 @@ class Attribution:
                  run: RunData):
         self.run = run
 
+    @renamed_keyword("book", "of")
     def contribution(self,
-                     book: str = FUND,
+                     of: str = FUND,
                      field: str | None = None,
                      start: str | pd.Timestamp | None = None,
                      end: str | pd.Timestamp | None = None) -> AttributionResult:
@@ -65,8 +67,8 @@ class Attribution:
         book's return (``fund``, ``index``, ``optimised`` or ``benchmark``)
         over the window,
         the whole run by default."""
-        weights = self.weights(book)
-        returns = self._returns(book)
+        weights = self.weights(of)
+        returns = self._returns(of)
 
         return self._attributed(returns, weights, field, start, end)
 
@@ -265,8 +267,9 @@ class Attribution:
 
         return aligned(self.run.returns, self._levels(against))
 
+    @renamed_keyword("book", "of")
     def weights(self,
-                book: str = FUND) -> pd.DataFrame:
+                of: str = FUND) -> pd.DataFrame:
         """A book's daily weights, by name: ``fund``, ``index``,
         ``optimised`` or ``benchmark``.
 
@@ -274,13 +277,13 @@ class Attribution:
             KeyError: If the book is none of those, or the run kept no
                 weights for it.
         """
-        if book not in BOOKS:
-            raise KeyError(f"Unknown book {book!r}. Known: {', '.join(BOOKS)}.")
+        if of not in PORTFOLIOS:
+            raise KeyError(f"Unknown book {of!r}. Known: {', '.join(PORTFOLIOS)}.")
 
-        table = self.run.tables.get(BOOKS[book])
+        table = self.run.tables.get(PORTFOLIOS[of])
 
         if table is None or table.empty:
-            raise KeyError(f"The run kept no weights for its {book}.")
+            raise KeyError(f"The run kept no weights for its {of}.")
 
         table = table.sort_index().fillna(0.0)
         table.columns = table.columns.astype(str)
@@ -350,3 +353,6 @@ def _window(series: pd.Series,
         series = series[series.index <= pd.Timestamp(end)]
 
     return series
+
+# BN-462: the name before 0.11.0.
+__getattr__ = renamed_names(__name__, {"BOOKS": ("PORTFOLIOS", PORTFOLIOS)})

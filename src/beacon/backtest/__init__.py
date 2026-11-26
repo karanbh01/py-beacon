@@ -20,9 +20,11 @@ may be held at each rebalance, its caps (`OwnershipCap`, `LiquidityCap`,
 `WeightCap`) and `MinimumPosition` how much of each, and its redistribution
 rule where the weight of the rest goes. Each rebalance's stages are recorded as a `RebalanceStep`.
 """
+from .._renamed import renamed_names
 from ..index.result import PriceGap
 from ..portfolio.base import TradeInstruction
 from .asset_view import BacktestAssetView
+from .books import IndexRecords, PortfolioRecord
 from .capacity import (
     CapacityCap,
     LiquidityCap,
@@ -50,6 +52,7 @@ from .flows import (
     PeriodicFlows,
     RandomFlows,
 )
+from .fund_record import FundRecord
 from .futures import FuturesRoll
 from .implementation import Implementation, RebalanceStep
 from .limits import Act1940Limits, DiversificationLimit, UcitsLimits
@@ -78,8 +81,9 @@ from .screens import (
     ScreenContext,
     ThresholdScreen,
 )
-from .share_classes import ShareClass, ShareClassBook
+from .share_classes import ShareClass, ShareClassRecord
 from .swap import SwapReset
+from .trading_record import TradingRecord
 from .vehicle import Vehicle
 
 __all__ = [
@@ -105,8 +109,10 @@ __all__ = [
     "FlowContext",
     "FlowRecord",
     "Flows",
+    "FundRecord",
     "FuturesRoll",
     "Implementation",
+    "IndexRecords",
     "LiquidityCap",
     "LiquidityScreen",
     "ListingAgeScreen",
@@ -117,6 +123,7 @@ __all__ = [
     "OwnershipCap",
     "PerformanceChasingFlows",
     "PeriodicFlows",
+    "PortfolioRecord",
     "Preset",
     "PriceGap",
     "Pricing",
@@ -127,12 +134,13 @@ __all__ = [
     "Screen",
     "ScreenContext",
     "ShareClass",
-    "ShareClassBook",
+    "ShareClassRecord",
     "SinglePricing",
     "SwapReset",
     "SwingPricing",
     "ThresholdScreen",
     "TradeInstruction",
+    "TradingRecord",
     "UcitsLimits",
     "UnfilledOrder",
     "Vehicle",
@@ -145,3 +153,6 @@ __all__ = [
     "us_etf",
     "us_mutual_fund",
 ]
+
+# BN-462: the name before 0.11.0.
+__getattr__ = renamed_names(__name__, {"ShareClassBook": ("ShareClassRecord", ShareClassRecord)})

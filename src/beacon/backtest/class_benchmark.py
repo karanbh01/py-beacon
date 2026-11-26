@@ -39,7 +39,7 @@ from ..analysis.performance import formulas
 from ..assumptions import DEFAULT_PERIODS_PER_YEAR
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
-from .share_classes import ShareClassBook
+from .share_classes import ShareClassRecord
 
 # Money-market days in a year for a currency whose day count the data does not
 # give: the class hedge's own default.
@@ -82,7 +82,7 @@ def index_in_class_currency(levels: pd.Series,
                    cash_rate)
 
 
-def class_tracking(book: ShareClassBook,
+def class_tracking(book: ShareClassRecord,
                    benchmark: pd.Series,
                    periods_per_year: int = DEFAULT_PERIODS_PER_YEAR) -> dict[str, float | None]:
     """A class's total return, and its tracking against its benchmark.

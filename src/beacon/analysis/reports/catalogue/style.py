@@ -12,7 +12,7 @@ import pandas as pd
 from ....data.base import as_of_position
 from ...panels import CHARACTERISTICS, RATES
 from ...performance import style
-from ...performance.portfolio import BOOKS, FUND
+from ...performance.portfolio import FUND, PORTFOLIOS
 from ..context import Context
 from ..statistics import (
     NO_DOLLAR_RATE,
@@ -65,7 +65,7 @@ def _work_out(context: Context) -> tuple[pd.DataFrame, dict[str, float | None]]:
         raise Unavailable(RUN_PREDATES)
 
     snapshots = tables[CHARACTERISTICS]
-    weights = {book: context.portfolio.weights(book) for book in BOOKS}
+    weights = {book: context.portfolio.weights(book) for book in PORTFOLIOS}
     fund = weights[FUND]
 
     if fund is None or fund.empty or snapshots.empty:
@@ -127,11 +127,11 @@ def _positions(context: Context) -> pd.DataFrame:
 def _box(context: Context) -> Summarised:
     positions, covered = _placed(context)
 
-    return Summarised(style.style_box(positions, tuple(BOOKS)), {"coverage": covered})
+    return Summarised(style.style_box(positions, tuple(PORTFOLIOS)), {"coverage": covered})
 
 
 def _classification(context: Context) -> pd.DataFrame:
-    return style.style_classification(_placed(context)[0], tuple(BOOKS))
+    return style.style_classification(_placed(context)[0], tuple(PORTFOLIOS))
 
 
 def statistics() -> list[StatisticSpec]:

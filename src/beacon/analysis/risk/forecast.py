@@ -23,6 +23,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..._renamed import renamed_keyword
 from ..data import RunData
 from ..performance.comparisons import aligned
 
@@ -33,26 +34,28 @@ COLUMNS = ("days", "expected_volatility", "realised_volatility", "volatility_rat
            "expected_tracking_error", "realised_tracking_error", "tracking_error_ratio")
 
 
+@renamed_keyword("book", "of")
 def book_returns(run: RunData,
-                 book: str) -> pd.Series:
+                 of: str) -> pd.Series:
     """A book's daily returns: the fund's, or a comparator's from its levels."""
-    if book == FUND:
+    if of == FUND:
         return run.returns.dropna().astype(float)
 
-    if book not in run.comparators:
-        raise KeyError(f"The run has no {book}: it has "
+    if of not in run.comparators:
+        raise KeyError(f"The run has no {of}: it has "
                        f"{', '.join(run.comparators) or 'no comparators'}.")
 
-    _, theirs = aligned(run.returns, run.comparators[book])
+    _, theirs = aligned(run.returns, run.comparators[of])
 
     return theirs.dropna().astype(float)
 
 
+@renamed_keyword("book", "of")
 def active_returns(run: RunData,
-                   book: str,
+                   of: str,
                    against: str) -> pd.Series:
     """A book's daily returns less *against*'s, on the days both have."""
-    ours, theirs = book_returns(run, book), book_returns(run, against)
+    ours, theirs = book_returns(run, of), book_returns(run, against)
     days = ours.index.intersection(theirs.index)
 
     return ours.loc[days] - theirs.loc[days]

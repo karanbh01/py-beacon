@@ -27,7 +27,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from beacon.backtest.result import BacktestResult, Book, IndexBooks
+from beacon.backtest.result import BacktestResult, IndexRecords, PortfolioRecord
 from beacon.exceptions import CalculationError
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Portfolio
@@ -822,7 +822,7 @@ def _run_with_a_tracked_index() -> BacktestResult:
                         weight_snapshots={})
 
     return BacktestResult(portfolio=portfolio,
-                          index=IndexBooks(target=Book.from_index(index)))
+                          index=IndexRecords(target=PortfolioRecord.from_index(index)))
 
 
 class TestTheMetricsMirrorIsPinned:
@@ -856,7 +856,7 @@ class TestTheMetricsMirrorIsPinned:
         """Which is what makes the tracking pair — and only that pair —
         legitimately absent, rather than a break in the mirror."""
         result = _run_with_a_tracked_index()
-        result.index = IndexBooks()
+        result.index = IndexRecords()
 
         assert set(result.summary()) == SUMMARY_HEADLINE_METRICS | SUMMARY_EVERY_RUN_METRICS
 

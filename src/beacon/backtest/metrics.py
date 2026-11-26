@@ -18,7 +18,7 @@ from ..assumptions import DEFAULT_PERIODS_PER_YEAR, ModellingAssumptions
 from ..exceptions import CalculationError
 from ..portfolio.base import Portfolio
 from ..portfolio.cash_flows import DISTRIBUTION, REDEMPTION, SUBSCRIPTION
-from .books import IndexBooks
+from .books import IndexRecords
 from .fund_record import FundRecord
 from .trading_record import TradingRecord
 
@@ -28,7 +28,7 @@ class MetricsMixin:
 
     # The result's data, which BacktestResult holds (BN-459/BN-460).
     portfolio: Portfolio
-    index: IndexBooks
+    index: IndexRecords
     assumptions: ModellingAssumptions | None
     fund: FundRecord
     trading: TradingRecord

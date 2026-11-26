@@ -42,7 +42,7 @@ import pandas as pd
 from ...catalogue import COUNT, DATE, DAYS, FRACTION, RATIO
 from ..performance.name_figures import BASES, DAILY
 from ..reports.statistics import Column, Unavailable
-from ..risk.liquidity import BOOKS
+from ..risk.liquidity import PORTFOLIOS
 from .shape import ALL
 
 HELD = ("first_held", "last_held", "in_index_at_end")
@@ -189,7 +189,7 @@ def _held(context: Any,
     rows when the run kept no weights."""
     held: list[pd.DataFrame] = []
 
-    for table_name in BOOKS.values():
+    for table_name in PORTFOLIOS.values():
         weights = context.run.tables.get(table_name)
 
         if weights is not None and not weights.empty and len(days):
@@ -202,7 +202,7 @@ def _held(context: Any,
     any_held = pd.concat(held).groupby(level=0).max()
     any_held = any_held.loc[:, any_held.any()]
     dates = any_held.index.to_series()
-    index = context.run.tables.get(BOOKS["index"])
+    index = context.run.tables.get(PORTFOLIOS["index"])
     at_end = (index.loc[index.index <= days[-1]].iloc[-1].fillna(0.0) > 0.0
               if index is not None and not index.empty else pd.Series(dtype=bool))
 
@@ -233,11 +233,11 @@ def _latest_weights(instrument: Any,
     """Each name's weight in each portfolio on the window's last day."""
     context = instrument._analytics._context_for(**window)
     last = context.performance.returns.index[-1]
-    books = list(BOOKS) if of == ALL else [of]
+    books = list(PORTFOLIOS) if of == ALL else [of]
     found = {}
 
     for book in books:
-        weights = context.run.tables.get(BOOKS[book]) if book in BOOKS else None
+        weights = context.run.tables.get(PORTFOLIOS[book]) if book in PORTFOLIOS else None
 
         if weights is None or weights.empty:
             if of == ALL:

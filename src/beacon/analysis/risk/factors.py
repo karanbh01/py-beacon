@@ -40,6 +40,7 @@ import numpy as np
 import pandas as pd
 from numpy.lib.stride_tricks import sliding_window_view
 
+from ..._renamed import renamed_keyword
 from ...backtest.histories import history
 from ...data.base import as_of_position
 from ...data.fetcher import DataFetcher
@@ -222,25 +223,28 @@ class FactorAnalytics:
 
         return self._returns
 
+    @renamed_keyword("book", "of")
     def regression(self,
-                   book: str = FUND) -> FactorRegression:
+                   of: str = FUND) -> FactorRegression:
         """The book's returns (``fund``, a comparator's name such as
         ``index``, or ``active``) regressed on the factor returns over the
         whole run."""
-        target, factors = self._paired(book)
+        target, factors = self._paired(of)
 
         return regressed(target, factors, self.run.periods_per_year)
 
+    @renamed_keyword("book", "of")
     def rolling_betas(self,
-                      book: str = FUND,
+                      of: str = FUND,
                       window: int = 252) -> pd.DataFrame:
         """Each factor's beta over the *window* days to each day."""
-        target, factors = self._paired(book)
+        target, factors = self._paired(of)
 
         return rolling_fits(target, factors, window)
 
+    @renamed_keyword("book", "of")
     def holdings_exposures(self,
-                           book: str = FUND,
+                           of: str = FUND,
                            daily: bool = False) -> pd.DataFrame:
         """A book's exposure to each factor (``fund``, ``index`` or
         ``benchmark``): at each rebalance, or each day when *daily*.
@@ -248,10 +252,10 @@ class FactorAnalytics:
         Raises:
             KeyError: If the run kept no weights for the book.
         """
-        weights = PortfolioAnalytics(self.run).weights(book)
+        weights = PortfolioAnalytics(self.run).weights(of)
 
         if weights is None or weights.empty:
-            raise KeyError(f"The run kept no weights for its {book}.")
+            raise KeyError(f"The run kept no weights for its {of}.")
 
         weights = weights.sort_index().fillna(0.0)
         rebalances = pd.DatetimeIndex(self.dates)

@@ -32,6 +32,7 @@ from statistics import NormalDist
 
 import pandas as pd
 
+from ..._renamed import renamed_keyword
 from ..data import RunData
 from ..performance import formulas
 from ..performance.analytics import PerformanceAnalytics
@@ -156,33 +157,35 @@ class RiskOfLoss:
 
         return [*found, ACTIVE] if "index" in self.run.comparators else found
 
+    @renamed_keyword("book", "of")
     def returns_of(self,
-                   book: str = FUND) -> pd.Series:
+                   of: str = FUND) -> pd.Series:
         """A book's daily returns over the window: ``fund``, a comparator by
         name, or ``active`` (the fund's less its index's).
 
         Raises:
             KeyError: If the run has no such book.
         """
-        if book == FUND:
+        if of == FUND:
             return self.returns
 
-        name = "index" if book == ACTIVE else book
+        name = "index" if of == ACTIVE else of
 
         if name not in self.run.comparators:
-            raise KeyError(f"The run has no {book}. Known: {', '.join(self.books())}.")
+            raise KeyError(f"The run has no {of}. Known: {', '.join(self.books())}.")
 
         ours, theirs = aligned(self.returns, self.run.comparators[name], self._before)
 
-        return ours - theirs if book == ACTIVE else theirs
+        return ours - theirs if of == ACTIVE else theirs
 
+    @renamed_keyword("book", "of")
     def table(self,
-              book: str = FUND,
+              of: str = FUND,
               levels: Sequence[float] = LEVELS,
               horizons: Sequence[int] = HORIZONS) -> pd.DataFrame:
         """The book's value at risk and expected shortfall, every method,
         level and horizon."""
-        return risk_of_loss(self.returns_of(book), levels, horizons)
+        return risk_of_loss(self.returns_of(of), levels, horizons)
 
     def stress_windows(self,
                        market: str | pd.Series | None = None,

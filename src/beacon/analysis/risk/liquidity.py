@@ -24,6 +24,7 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
+from ..._renamed import renamed_keyword, renamed_names
 from ...data.base import as_of_position
 from ...data.fetcher import DataFetcher
 from ..data import RunData
@@ -36,7 +37,7 @@ from ..panels import (
 )
 from ..snapshots import IDENTIFIER, TRADED_VALUE, traded_value_snapshots
 
-BOOKS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "optimised": OPTIMISED_WEIGHTS,
+PORTFOLIOS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "optimised": OPTIMISED_WEIGHTS,
          "benchmark": BENCHMARK_WEIGHTS}
 PARTICIPATION = 0.2
 LOOKBACK_DAYS = 20
@@ -85,7 +86,7 @@ class LiquidityAnalytics:
             if self.source is None:
                 long = self.run.tables[TRADED_VALUES]
             else:
-                names = sorted({str(name) for book in BOOKS.values()
+                names = sorted({str(name) for book in PORTFOLIOS.values()
                                 if (table := self.run.tables.get(book)) is not None
                                 for name in table.columns})
                 long = traded_value_snapshots(self.source, names, self.dates(),
@@ -99,13 +100,14 @@ class LiquidityAnalytics:
 
         return self._traded
 
+    @renamed_keyword("book", "of")
     def days_to_sell(self,
                      date: str | pd.Timestamp,
-                     book: str = "fund") -> pd.DataFrame:
+                     of: str = "fund") -> pd.DataFrame:
         """Each holding's value, average daily traded value and days to sell
         on *date*, slowest first; infinite for a name with no traded value."""
         day = pd.Timestamp(date)
-        values = self._values(day, book)
+        values = self._values(day, of)
         traded = self._traded_on(day).reindex(values.index)
         rate = self.participation * traded
         days = (values / rate.where(rate > 0.0)).fillna(np.inf)
@@ -113,8 +115,9 @@ class LiquidityAnalytics:
 
         return table.sort_values("days", ascending=False)
 
+    @renamed_keyword("book", "of")
     def profile(self,
-                book: str = "fund",
+                of: str = "fund",
                 horizons: Sequence[int] = HORIZONS) -> pd.DataFrame:
         """At each date: the share of the book sellable within each horizon,
         the days to sell all of it but the names with no traded value, the
@@ -122,7 +125,7 @@ class LiquidityAnalytics:
         rows = {}
 
         for day in self.dates():
-            table = self.days_to_sell(day, book)
+            table = self.days_to_sell(day, of)
             total = float(table["value"].sum())
 
             if total <= 0.0:
@@ -145,7 +148,7 @@ class LiquidityAnalytics:
                 day: pd.Timestamp,
                 book: str) -> pd.Series:
         """The book's holdings' values on *day*, at the fund's net assets."""
-        weights = self.run.tables.get(BOOKS[book])
+        weights = self.run.tables.get(PORTFOLIOS[book])
 
         if weights is None or weights.empty:
             raise KeyError(f"The run kept no weights for its {book}.")
@@ -174,3 +177,6 @@ class LiquidityAnalytics:
         row.index = row.index.astype(str)
 
         return row
+
+# BN-462: the name before 0.11.0.
+__getattr__ = renamed_names(__name__, {"BOOKS": ("PORTFOLIOS", PORTFOLIOS)})

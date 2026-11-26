@@ -9,7 +9,7 @@ import pandas as pd
 
 from ...panels import ACTIONS, CHARACTERISTICS, REFERENCE, TRADED_VALUES
 from ...performance import style
-from ...performance.portfolio import BOOKS
+from ...performance.portfolio import PORTFOLIOS
 from ...reports.catalogue.style import usd_rate, weights_on
 from ...reports.statistics import RUN_PREDATES, TOO_SHORT, Unavailable
 
@@ -36,7 +36,7 @@ def style_positions(name: str,
 
     snapshots = tables[CHARACTERISTICS]
     dates = _within(snapshots.index, days)
-    weights = {book: context.portfolio.weights(book) for book in BOOKS}
+    weights = {book: context.portfolio.weights(book) for book in PORTFOLIOS}
     rows = {}
 
     for day in dates:

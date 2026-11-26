@@ -31,6 +31,7 @@ from dataclasses import replace
 import numpy as np
 import pandas as pd
 
+from ..._renamed import renamed_keyword, renamed_names
 from ...data.base import as_of_position
 from ...risk.model import FactorRiskModel
 from ..panels import (
@@ -45,7 +46,7 @@ from . import forecast
 from .factors import FactorAnalytics
 from .model import FACTOR, RebalanceRiskModels, RiskModelSettings
 
-BOOKS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "optimised": OPTIMISED_WEIGHTS,
+PORTFOLIOS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "optimised": OPTIMISED_WEIGHTS,
          "benchmark": BENCHMARK_WEIGHTS}
 OTHER = "other"
 
@@ -89,14 +90,15 @@ class RiskOverTime:
         """The rebalances with enough returns before them for their model."""
         return [day for day in self.models.dates if self.models.has_history(day)]
 
+    @renamed_keyword("book", "of")
     def weights(self,
                 date: pd.Timestamp,
-                book: str = "fund") -> pd.Series:
+                of: str = "fund") -> pd.Series:
         """A book's weights at the close of *date*, by name."""
-        table = self.run.tables.get(BOOKS[book])
+        table = self.run.tables.get(PORTFOLIOS[of])
 
         if table is None or table.empty:
-            raise KeyError(f"The run kept no weights for its {book}.")
+            raise KeyError(f"The run kept no weights for its {of}.")
 
         at = as_of_position(table.index, date)
         row = table.iloc[at].fillna(0.0) if at is not None else pd.Series(dtype=float)
@@ -104,9 +106,10 @@ class RiskOverTime:
 
         return row[row != 0.0]
 
+    @renamed_keyword("book", "of")
     def contributions(self,
                       date: str | pd.Timestamp,
-                      book: str = "fund",
+                      of: str = "fund",
                       against: str | None = None) -> pd.DataFrame:
         """Each name's weight, marginal contribution, contribution and share
         of the book's expected volatility (or, *against* a comparator, of its
@@ -115,13 +118,13 @@ class RiskOverTime:
         weights, and its shares are given as 0."""
         day = pd.Timestamp(date)
         model = self._model(day)
-        weights = self._vector(model, day, book, against)
+        weights = self._vector(model, day, of, against)
         moved = _covariance_times(model, weights)
         sigma = _volatility(weights, moved)
         marginal = moved / sigma if sigma > 0.0 else moved * 0.0
         contribution = weights * marginal
         shared = sigma > 0.0 and (against is None or sigma > NEGLIGIBLE_ACTIVE
-                                  * self._book_volatility(model, day, book))
+                                  * self._book_volatility(model, day, of))
         table = pd.DataFrame({"weight": weights, "marginal": marginal,
                               "contribution": contribution,
                               "share": contribution / sigma if shared else 0.0},
@@ -129,23 +132,25 @@ class RiskOverTime:
 
         return table[table["weight"] != 0.0].sort_values("contribution", ascending=False)
 
+    @renamed_keyword("book", "of")
     def group_contributions(self,
                             date: str | pd.Timestamp,
                             field: str,
-                            book: str = "fund",
+                            of: str = "fund",
                             against: str | None = None) -> pd.DataFrame:
         """The contributions added up by the group each name was in on the
         day, by the grouping field *field*."""
         day = pd.Timestamp(date)
-        table = self.contributions(day, book, against)
+        table = self.contributions(day, of, against)
         groups = self._groups(day, field).reindex(table.index).fillna("Unknown")
 
         return (table[["weight", "contribution", "share"]].groupby(groups).sum()
                 .sort_values("contribution", ascending=False))
 
+    @renamed_keyword("book", "of")
     def expected(self,
                  date: str | pd.Timestamp,
-                 book: str = "fund",
+                 of: str = "fund",
                  against: str = "index") -> dict[str, float]:
         """The book's expected risk at the rebalance on *date*: its
         volatility, split into factor and specific; its tracking error
@@ -153,53 +158,56 @@ class RiskOverTime:
         average correlation; and the share of its weight the model covers."""
         day = pd.Timestamp(date)
         model = self._model(day)
-        weights = self._vector(model, day, book, None)
-        held = self.weights(day, book)
+        weights = self._vector(model, day, of, None)
+        held = self.weights(day, of)
         found = _split(model, weights, "")
-        found.update(_split(model, self._vector(model, day, book, against), "tracking_"))
+        found.update(_split(model, self._vector(model, day, of, against), "tracking_"))
         found.update(_diversification(model, weights))
         found["covered_weight"] = float(weights.sum() / held.sum()) if held.sum() else 0.0
 
         return found
 
+    @renamed_keyword("book", "of")
     def summary(self,
-                book: str = "fund",
+                of: str = "fund",
                 against: str = "index") -> pd.DataFrame:
         """`expected` at every rebalance with a year of returns before it."""
-        rows = {day: self.expected(day, book, against) for day in self.dates()}
+        rows = {day: self.expected(day, of, against) for day in self.dates()}
 
         return pd.DataFrame.from_dict(rows, orient="index", columns=list(SUMMARY))
 
+    @renamed_keyword("book", "of")
     def forecast_check(self,
-                       book: str = "fund",
+                       of: str = "fund",
                        against: str | None = "index") -> pd.DataFrame:
         """Each rebalance's expected volatility, and tracking error against
         *against* (none when None), beside the ones measured over the days
         until the next rebalance, and the measured over the expected: see
         `beacon.analysis.risk.forecast`."""
-        expected = self._forecasts(book, against)
-        returns = forecast.book_returns(self.run, book)
-        active = forecast.active_returns(self.run, book, against) if against else None
+        expected = self._forecasts(of, against)
+        returns = forecast.book_returns(self.run, of)
+        active = forecast.active_returns(self.run, of, against) if against else None
 
         return forecast.forecast_check(expected, returns, active, self.run.periods_per_year)
 
+    @renamed_keyword("book", "of")
     def bias_statistics(self,
-                        book: str = "fund",
+                        of: str = "fund",
                         against: str | None = "index") -> dict[str, float | None]:
         """The bias statistic of the expected volatility, and of the
         expected tracking error against *against*: the standard deviation of
         the daily returns over the forecast in force, 1 when the forecasts
         were right on average. See `beacon.analysis.risk.forecast`."""
-        expected = self._forecasts(book, against)
+        expected = self._forecasts(of, against)
         year = self.run.periods_per_year
         figures = pd.DataFrame.from_dict(expected, orient="index")
         found = {"volatility": forecast.bias_statistic(
             figures.get("volatility", pd.Series(dtype=float)),
-            forecast.book_returns(self.run, book), year)}
+            forecast.book_returns(self.run, of), year)}
 
         if against:
             found["tracking_error"] = forecast.bias_statistic(
-                figures["tracking_error"], forecast.active_returns(self.run, book, against),
+                figures["tracking_error"], forecast.active_returns(self.run, of, against),
                 year)
 
         return found
@@ -384,3 +392,6 @@ def _diversification(model: FactorRiskModel,
     return {"diversification_ratio": weighted / sigma if sigma > 0.0 else 0.0,
             "average_correlation": ((total - alone) / (weighted ** 2 - alone)
                                     if weighted ** 2 - alone > 0.0 else 0.0)}
+
+# BN-462: the name before 0.11.0.
+__getattr__ = renamed_names(__name__, {"BOOKS": ("PORTFOLIOS", PORTFOLIOS)})

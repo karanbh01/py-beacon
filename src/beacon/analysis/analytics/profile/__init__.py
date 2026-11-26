@@ -145,7 +145,7 @@ import pandas as pd
 from ....exceptions import CalculationError
 from ...panels import NAME_RETURNS, REFERENCE
 from ...reports.statistics import TOO_SHORT, Unavailable
-from ...risk.liquidity import BOOKS
+from ...risk.liquidity import PORTFOLIOS
 from ..groupings import FREQUENCIES
 from . import characteristics, contribution, factors, risk, selection, trading, weights
 from .columns import ACTIVE, LABELS, columns_of
@@ -370,7 +370,7 @@ class Profile:
     def portfolios(self) -> dict[str, pd.DataFrame]:
         """Each portfolio's daily weights the run kept, by portfolio."""
         tables = self._context.run.tables
-        found = {book: tables.get(table_name) for book, table_name in BOOKS.items()}
+        found = {book: tables.get(table_name) for book, table_name in PORTFOLIOS.items()}
 
         return {book: held for book, held in found.items()
                 if held is not None and not held.empty}

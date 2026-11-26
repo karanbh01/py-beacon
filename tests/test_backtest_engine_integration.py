@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from beacon.backtest.engine import BacktestEngine
-from beacon.backtest.result import BacktestResult, IndexBooks
+from beacon.backtest.result import BacktestResult, IndexRecords
 from beacon.data.base import MarketData
 from beacon.data.fetcher import DataFetcher
 from beacon.index.result import IndexResult
@@ -362,7 +362,7 @@ class TestResultMetrics:
             index_result=index_result_from_weights(schedule),
         ).run()
 
-        return BacktestResult(portfolio=run.portfolio, index=IndexBooks())
+        return BacktestResult(portfolio=run.portfolio, index=IndexRecords())
 
     def test_tracking_error_none_without_target(self,
                                                 fetcher):

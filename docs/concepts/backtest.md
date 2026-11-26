@@ -464,7 +464,7 @@ portfolio's do and there is never more than 2 points to correct.
 ## Reading the result
 
 `BacktestResult` keeps the books whole rather than flattening them into
-fields. Each comparator is a `Book` with the same surface: `levels`,
+fields. Each comparator is a `PortfolioRecord` with the same surface: `levels`,
 `weights` (dates by identifiers) and `returns`.
 
 | Attribute | What it holds |

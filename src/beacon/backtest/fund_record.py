@@ -28,7 +28,7 @@ from ..portfolio.base import Portfolio
 from ..portfolio.cash_flows import FEE
 from .flows import FlowRecord
 from .futures import FuturesRoll, FuturesTrade
-from .share_classes import ShareClassBook
+from .share_classes import ShareClassRecord
 from .swap import SwapReset
 
 Nav = Callable[[], pd.Series]
@@ -185,7 +185,7 @@ class FundRecord:
     fees: FeesRecord = field(default_factory=lambda: FeesRecord(pd.Series(dtype=float), 0.0))
     dividends: DividendsRecord = field(default_factory=lambda: DividendsRecord(
         pd.Series(dtype=float), pd.DataFrame(columns=["GROSS", "WITHHELD"], dtype=float)))
-    share_classes: dict[str, ShareClassBook] = field(default_factory=dict)
+    share_classes: dict[str, ShareClassRecord] = field(default_factory=dict)
     etf: ETFRecord | None = None
     swap: SwapRecord | None = None
     futures: FuturesRecord | None = None
@@ -273,7 +273,7 @@ def fund_record(portfolio: Portfolio,
                 fees_payable: pd.Series,
                 dividends_receivable: pd.Series,
                 dividends_entitled: pd.DataFrame,
-                share_classes: dict[str, ShareClassBook],
+                share_classes: dict[str, ShareClassRecord],
                 market: pd.DataFrame,
                 swap_value: pd.Series,
                 swap_resets: list[SwapReset],

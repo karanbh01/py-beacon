@@ -23,7 +23,7 @@ from beacon.analysis.performance.style import (
 from beacon.analysis.reports.catalogue import CATALOGUE
 
 SETTINGS = StyleSettings()
-BOOKS = ("fund", "index", "benchmark")
+PORTFOLIOS = ("fund", "index", "benchmark")
 
 
 def caps(*values: float) -> pd.Series:
@@ -148,7 +148,7 @@ class TestTheBoxAndTheCentre:
 
     def test_each_book_sums_to_one(self,
                                    positions):
-        box = style_box(positions.reset_index(), BOOKS)
+        box = style_box(positions.reset_index(), PORTFOLIOS)
 
         assert box["fund"].sum() == pytest.approx(1.0)
         assert box["index"].sum() == pytest.approx(1.0)
@@ -156,7 +156,7 @@ class TestTheBoxAndTheCentre:
 
     def test_the_index_holds_a_sixth_in_each_corner_and_middle_cell(self,
                                                                     positions):
-        box = style_box(positions.reset_index(), BOOKS).set_index(["size", "style"])
+        box = style_box(positions.reset_index(), PORTFOLIOS).set_index(["size", "style"])
 
         assert box.loc[("large", "value"), "index"] == pytest.approx(1 / 6)
         assert box.loc[("mid", "growth"), "index"] == pytest.approx(1 / 6)
@@ -164,14 +164,14 @@ class TestTheBoxAndTheCentre:
 
     def test_the_fund_s_weights_are_over_its_placed_names(self,
                                                           positions):
-        box = style_box(positions.reset_index(), BOOKS).set_index(["size", "style"])
+        box = style_box(positions.reset_index(), PORTFOLIOS).set_index(["size", "style"])
 
         assert box.loc[("large", "value"), "fund"] == pytest.approx(0.3 / 0.9)
         assert box.loc[("mid", "blend"), "fund"] == pytest.approx(0.1 / 0.9)
 
     def test_the_centre_is_the_weighted_mean(self,
                                              positions):
-        found = style_classification(positions.reset_index(), BOOKS).set_index("book")
+        found = style_classification(positions.reset_index(), PORTFOLIOS).set_index("book")
         shares = positions["fund"] / positions["fund"].sum()
 
         assert found.loc["fund", "size_centre"] == pytest.approx(
@@ -182,7 +182,7 @@ class TestTheBoxAndTheCentre:
 
     def test_the_cell_is_the_centre_s(self,
                                       positions):
-        found = style_classification(positions.reset_index(), BOOKS).set_index("book")
+        found = style_classification(positions.reset_index(), PORTFOLIOS).set_index("book")
 
         assert found.loc["index", "size"] == ("large", "mid", "small")[
             int(np.floor(found.loc["index", "size_centre"]))]

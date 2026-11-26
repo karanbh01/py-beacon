@@ -1,5 +1,5 @@
 # tests/test_backtest_result.py
-"""Unit tests for BacktestResult, Book and BacktestAssetView.
+"""Unit tests for BacktestResult, PortfolioRecord and BacktestAssetView.
 
 Rewritten for BN-154: the result holds books rather than flattened fields.
 Fixtures build a real Portfolio and feed its history recorder directly — the
@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 from beacon.backtest.asset_view import BacktestAssetView
-from beacon.backtest.result import BacktestResult, Book, IndexBooks
+from beacon.backtest.result import BacktestResult, IndexRecords, PortfolioRecord
 from beacon.index.result import IndexResult
 from beacon.portfolio.base import Holding, Portfolio, Transaction
 
@@ -95,8 +95,8 @@ def _make_result(nav_values=None,
 
     fields = {"portfolio": portfolio}
     if index_levels is not None:
-        fields["index"] = IndexBooks(
-            target=Book.from_index(_make_index_result(index_levels)))
+        fields["index"] = IndexRecords(
+            target=PortfolioRecord.from_index(_make_index_result(index_levels)))
     fields.update(overrides)
 
     return BacktestResult(**fields)
@@ -180,7 +180,7 @@ class TestBook:
 
     def test_from_index_carries_levels_and_source(self):
         idx = _make_index_result([100, 101, 102])
-        book = Book.from_index(idx)
+        book = PortfolioRecord.from_index(idx)
 
         assert book.levels.equals(idx.index_levels)
         assert book.source is idx
@@ -189,13 +189,13 @@ class TestBook:
     def test_from_levels_has_no_weights(self):
         """A benchmark from a bare series has no composition; the frame is
         empty rather than invented."""
-        book = Book.from_levels(pd.Series([1.0, 1.1], index=_dates(2)))
+        book = PortfolioRecord.from_levels(pd.Series([1.0, 1.1], index=_dates(2)))
 
         assert book.weights.empty
         assert book.source is None
 
     def test_returns(self):
-        book = Book.from_levels(pd.Series([100.0, 110.0], index=_dates(2)))
+        book = PortfolioRecord.from_levels(pd.Series([100.0, 110.0], index=_dates(2)))
 
         assert book.returns.iloc[0] == pytest.approx(0.10)
 
@@ -207,7 +207,7 @@ class TestBook:
             "AMOUNT": [1.0, 1.0, 2.0, 2.0],
             "WEIGHT": [0.6, 0.55, 0.4, 0.45],
         })
-        book = Book.from_index(idx)
+        book = PortfolioRecord.from_index(idx)
 
         assert book.weights.loc[_dates(2)[1], "BBB"] == pytest.approx(0.45)
 
@@ -215,8 +215,8 @@ class TestBook:
 class TestIndexBooks:
 
     def test_tracked_is_target_when_nothing_was_optimised(self):
-        target = Book.from_index(_make_index_result([100, 101]))
-        books = IndexBooks(target=target)
+        target = PortfolioRecord.from_index(_make_index_result([100, 101]))
+        books = IndexRecords(target=target)
 
         assert books.tracked is target
         assert books.optimised is None
@@ -225,14 +225,14 @@ class TestIndexBooks:
         """The engine trades toward the solved index when one exists; the
         convenience must answer with the same book the metrics measure
         against."""
-        target = Book.from_index(_make_index_result([100, 101]))
-        optimised = Book.from_index(_make_index_result([100, 102]))
-        books = IndexBooks(target=target, optimised=optimised)
+        target = PortfolioRecord.from_index(_make_index_result([100, 101]))
+        optimised = PortfolioRecord.from_index(_make_index_result([100, 102]))
+        books = IndexRecords(target=target, optimised=optimised)
 
         assert books.tracked is optimised
 
     def test_tracked_is_none_when_no_index_was_calculated(self):
-        assert IndexBooks().tracked is None
+        assert IndexRecords().tracked is None
 
     def test_metrics_follow_the_tracked_book(self):
         """An optimised book present means tracking is measured against it,
@@ -240,10 +240,10 @@ class TestIndexBooks:
         nav_values = [10000, 10100, 10200, 10150, 10300]
         r = _make_result(
             nav_values=nav_values,
-            index=IndexBooks(
-                target=Book.from_index(
+            index=IndexRecords(
+                target=PortfolioRecord.from_index(
                     _make_index_result([10000, 10500, 11000, 11500, 12000])),
-                optimised=Book.from_index(_make_index_result(nav_values))))
+                optimised=PortfolioRecord.from_index(_make_index_result(nav_values))))
 
         assert r.get_tracking_error() == pytest.approx(0.0, abs=1e-10)
         assert r.get_tracking_difference() == pytest.approx(0.0, abs=1e-10)
@@ -468,7 +468,7 @@ def _make_view(asset_id="AAPL",
 
     index_book = None
     if target_snapshots is not None:
-        index_book = Book.from_index(
+        index_book = PortfolioRecord.from_index(
             _make_index_result([100.0] * count,
                                weight_snapshots=target_snapshots))
 
@@ -658,7 +658,7 @@ class TestBacktestResultAssetIntegration:
         r = _make_result(nav_values=[10000, 10050, 10100],
                          weights_per_asset={"AAPL": [0.5, 0.51, 0.49]},
                          txns=txns,
-                         index=IndexBooks(target=Book.from_index(target_idx)))
+                         index=IndexRecords(target=PortfolioRecord.from_index(target_idx)))
         r.with_data(MagicMock())
         view = r.asset("AAPL")
         assert isinstance(view, BacktestAssetView)

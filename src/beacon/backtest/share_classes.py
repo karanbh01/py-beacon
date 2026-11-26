@@ -47,6 +47,7 @@ from typing import Any
 
 import pandas as pd
 
+from .._renamed import renamed_names
 from ..exceptions import CalculationError
 from ..portfolio.base import Portfolio
 from .flows import FlowContext, FlowRecord, Flows
@@ -129,7 +130,7 @@ class ShareClass:
 
 
 @dataclass(frozen=True)
-class ShareClassBook:
+class ShareClassRecord:
     """One share class's record of a run.
 
     Attributes:
@@ -504,9 +505,9 @@ class ShareClassesMixin:
             ledger.book_history[date] = ledger.net
             ledger.units_history[date] = ledger.units
 
-    def _class_books(self) -> dict[str, ShareClassBook]:
+    def _class_books(self) -> dict[str, ShareClassRecord]:
         """Each class's record of the run, by name."""
-        return {ledger.share_class.name: ShareClassBook(
+        return {ledger.share_class.name: ShareClassRecord(
                     name=ledger.share_class.name,
                     distribution=ledger.share_class.distribution,
                     management_fee_bps=ledger.fee_bps,
@@ -523,3 +524,6 @@ class ShareClassesMixin:
                     hedge_value=pd.Series(ledger.hedge_history, dtype=float),
                     hedges=list(ledger.hedge_trades))
                 for ledger in self._ledgers}
+
+# BN-462: the name before 0.11.0.
+__getattr__ = renamed_names(__name__, {"ShareClassBook": ("ShareClassRecord", ShareClassRecord)})

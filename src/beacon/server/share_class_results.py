@@ -18,7 +18,7 @@ from ..assumptions import DEFAULT_PERIODS_PER_YEAR
 from ..backtest.class_benchmark import class_tracking, index_in_class_currency
 from ..backtest.flows import FlowRecord
 from ..backtest.result import BacktestResult
-from ..backtest.share_classes import ShareClass, ShareClassBook
+from ..backtest.share_classes import ShareClass, ShareClassRecord
 from ..data.fetcher import DataFetcher
 from ..exceptions import CalculationError
 from .schemas import (
@@ -77,7 +77,7 @@ def share_class_payloads(result: BacktestResult,
             "hedge_value": (_series(hedging.value, days) if hedging is not None else None)}
 
 
-def _benchmark(book: ShareClassBook,
+def _benchmark(book: ShareClassRecord,
                hedge_ratio: float,
                index_levels: pd.Series,
                index_currency: str,
@@ -96,7 +96,7 @@ def _benchmark(book: ShareClassBook,
         return pd.Series(dtype=float)
 
 
-def _payload(book: ShareClassBook,
+def _payload(book: ShareClassRecord,
              days: pd.Index,
              benchmark: pd.Series,
              periods_per_year: int) -> ShareClassPayload:

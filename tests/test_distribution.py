@@ -136,12 +136,12 @@ class TestTheReturnDistribution:
     """BN-430: the fund's, the index's and the benchmark's returns counted
     into the same bins, as shares, with the fund's normal share."""
 
-    BOOKS: ClassVar[dict[str, pd.Series]] = {
+    PORTFOLIOS: ClassVar[dict[str, pd.Series]] = {
         "fund": pd.Series(YEAR.to_numpy(), index=pd.bdate_range("2024-01-02", periods=252)),
         "index": pd.Series(YEAR.to_numpy() * 2.0, index=pd.bdate_range("2024-01-02", periods=252))}
 
     def test_the_same_edges_span_every_book(self):
-        found = shape.return_distribution(self.BOOKS, bins=20)
+        found = shape.return_distribution(self.PORTFOLIOS, bins=20)
 
         assert len(found) == 20
         assert found["low"].iloc[0] == pytest.approx(min(YEAR.min(), 2 * YEAR.min()))
@@ -149,28 +149,28 @@ class TestTheReturnDistribution:
         np.testing.assert_allclose(found["high"].iloc[:-1], found["low"].iloc[1:])
 
     def test_each_book_s_shares_add_up(self):
-        found = shape.return_distribution(self.BOOKS, bins=20)
+        found = shape.return_distribution(self.PORTFOLIOS, bins=20)
 
         assert found["fund"].sum() == pytest.approx(1.0)
         assert found["index"].sum() == pytest.approx(1.0)
         assert found["normal"].sum() == pytest.approx(1.0, abs=0.01)
 
     def test_the_normal_share_is_the_fund_s(self):
-        found = shape.return_distribution(self.BOOKS, bins=20)
+        found = shape.return_distribution(self.PORTFOLIOS, bins=20)
         fitted = stats.norm(YEAR.mean(), YEAR.std(ddof=1))
         row = found.iloc[10]
 
         assert row["normal"] == pytest.approx(fitted.cdf(row["high"]) - fitted.cdf(row["low"]))
 
     def test_a_horizon_compounds_periods_that_do_not_overlap(self):
-        daily = self.BOOKS["fund"]
+        daily = self.PORTFOLIOS["fund"]
 
         weekly = shape.over_horizon(daily, 5)
 
         assert len(weekly) == 252 // 5
         assert weekly.iloc[0] == pytest.approx((1 + daily.iloc[:5]).prod() - 1)
         assert weekly.index[0] == daily.index[4]
-        assert shape.return_distribution(self.BOOKS, 10, 5)["fund"].sum() == pytest.approx(1.0)
+        assert shape.return_distribution(self.PORTFOLIOS, 10, 5)["fund"].sum() == pytest.approx(1.0)
 
     def test_no_returns_no_bins(self):
         assert shape.return_distribution({"fund": pd.Series(dtype=float)}).empty

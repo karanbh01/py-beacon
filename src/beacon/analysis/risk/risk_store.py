@@ -38,7 +38,7 @@ from ...risk.model.global_fit import COUNTRY, CURRENCY, SECTOR
 from ...strategy.factors import Factor
 from ..panels import read_manifest, read_panels, write_panels
 from . import factor_store
-from .contributions import BOOKS, RiskOverTime
+from .contributions import PORTFOLIOS, RiskOverTime
 from .model import RiskModelSettings
 
 FOLDER = "risk"
@@ -57,7 +57,7 @@ def rebalance_risk(over_time: RiskOverTime) -> dict[str, pd.DataFrame]:
     """Each name's expected risk (``name_risk``) and its model's exposures
     (``name_exposures``) at each rebalance its model can be fitted for;
     long, a row a name a rebalance."""
-    books = [book for book, table_name in BOOKS.items()
+    books = [book for book, table_name in PORTFOLIOS.items()
              if (table := over_time.run.tables.get(table_name)) is not None and not table.empty]
     comparators = [book for book in books if book != "fund"]
     risks, exposures = [], []

@@ -748,7 +748,7 @@ class BookPayload(BaseModel):
 class IndexBooksPayload(BaseModel):
     """The run's calculated indices on the wire.
 
-    Mirrors the library's `IndexBooks`: `target` is the index being aimed
+    Mirrors the library's `IndexRecords`: `target` is the index being aimed
     at, pre-optimisation; `optimised` is the solved index's own
     calculation, null until an optimised run fills it.
     """
@@ -846,7 +846,7 @@ class BacktestResultSummary(BaseModel):
     run did not have (no benchmark given, no index calculated) are null rather
     than empty, so a client can tell "not measured" from "measured and empty".
     `index` is a container of two books, `{target, optimised}`, matching the
-    library's `IndexBooks`.
+    library's `IndexRecords`.
     """
     portfolio: PortfolioBookPayload
     index: IndexBooksPayload = Field(default_factory=IndexBooksPayload)
@@ -999,7 +999,7 @@ def _book_payload(book: Any,
     and so decides nothing.
 
     Args:
-        book: The library `Book`, or None.
+        book: The library `PortfolioRecord`, or None.
         cap: The maximum constituent weight the definition behind this book
             declares, if it has one. Carried rather than read off the cap
             reports, which exist only on the dates a cap actually bound.

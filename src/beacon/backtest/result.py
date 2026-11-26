@@ -55,6 +55,7 @@ from typing import Any, Union
 
 import pandas as pd
 
+from .._renamed import renamed_names
 from ..analysis.relative import RelativeMetrics, relative_metrics
 from ..assumptions import ModellingAssumptions
 from ..data.fetcher import DataFetcher
@@ -65,7 +66,7 @@ from ..strategy.active import ActiveStep
 from ..strategy.tracking import ReplicationStep
 from .analytics_access import AnalyticsMixin
 from .asset_view import BacktestAssetView
-from .books import Book, IndexBooks
+from .books import IndexRecords, PortfolioRecord
 from .cash_band import band_events_frame
 from .etf import quotes_frame
 from .flows import FlowRecord
@@ -73,7 +74,7 @@ from .fund_record import fund_record
 from .futures import FuturesRoll, FuturesTrade, futures_days_frame
 from .implementation import RebalanceStep
 from .metrics import MetricsMixin
-from .share_classes import ShareClassBook
+from .share_classes import ShareClassRecord
 from .swap import SwapReset
 from .trading_record import (
     RebalancePricing,
@@ -82,7 +83,7 @@ from .trading_record import (
 )
 
 # What `against()` accepts: anything carrying a daily level series.
-Comparable = Union["BacktestResult", Book, IndexResult, pd.Series]
+Comparable = Union["BacktestResult", PortfolioRecord, IndexResult, pd.Series]
 
 
 class BacktestResult(MetricsMixin, AnalyticsMixin):
@@ -91,7 +92,7 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
     Attributes:
         portfolio: The books (positions, weights, cash, NAV, transactions),
             kept whole and frozen by the engine on completion.
-        index: The run's calculated indices, as an :class:`IndexBooks`
+        index: The run's calculated indices, as an :class:`IndexRecords`
             container: always present, its books None when the run
             calculated none. `index.target` is the index aimed at,
             `index.optimised` the solved calculation when one exists, and
@@ -126,8 +127,8 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
 
     def __init__(self,
                  portfolio: Portfolio,
-                 index: IndexBooks | None = None,
-                 benchmark: Book | None = None,
+                 index: IndexRecords | None = None,
+                 benchmark: PortfolioRecord | None = None,
                  unfilled: list[UnfilledOrder] | None = None,
                  price_gaps: list[PriceGap] | None = None,
                  rebalance_pricing: list[RebalancePricing] | None = None,
@@ -151,12 +152,12 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
                  hedge_value: pd.Series | None = None,
                  dividends_receivable: pd.Series | None = None,
                  dividends_entitled: pd.DataFrame | None = None,
-                 share_classes: dict[str, ShareClassBook] | None = None,
+                 share_classes: dict[str, ShareClassRecord] | None = None,
                  analysis_request: Any = None,
                  analysis_timings: dict[str, float] | None = None,
                  analysis_block: dict[str, Any] | None = None):
         self.portfolio = portfolio
-        self.index = index if index is not None else IndexBooks()
+        self.index = index if index is not None else IndexRecords()
         self.benchmark = benchmark
         self.assumptions = modelling_assumptions
         self.fund = fund_record(
@@ -256,7 +257,7 @@ def _levels_of(other: Comparable) -> pd.Series:
     if isinstance(other, BacktestResult):
         return other._performance_levels()
 
-    if isinstance(other, Book):
+    if isinstance(other, PortfolioRecord):
         return other.levels
 
     if isinstance(other, IndexResult):
@@ -267,7 +268,7 @@ def _levels_of(other: Comparable) -> pd.Series:
 
     raise TypeError(
         f"Cannot compare against {type(other).__name__}; expected a "
-        f"BacktestResult, Book, IndexResult or level series.")
+        f"BacktestResult, PortfolioRecord, IndexResult or level series.")
 
 
 def _series(found: pd.Series | None) -> pd.Series:
@@ -408,5 +409,9 @@ for _name, (_path, _private) in MOVED_METHODS.items():
     setattr(BacktestResult, _name, _moved_method(_name, _path, _private))
 
 
-__all__ = ["MOVED", "MOVED_METHODS", "BacktestResult", "Book", "Comparable", "IndexBooks",
-           "PriceGap", "RebalancePricing", "UnfilledOrder"]
+__all__ = ["MOVED", "MOVED_METHODS", "BacktestResult", "Comparable", "IndexRecords",
+           "PortfolioRecord", "PriceGap", "RebalancePricing", "UnfilledOrder"]
+
+# BN-462: the names before 0.11.0.
+__getattr__ = renamed_names(__name__, {"Book": ("PortfolioRecord", PortfolioRecord),
+                                       "IndexBooks": ("IndexRecords", IndexRecords)})

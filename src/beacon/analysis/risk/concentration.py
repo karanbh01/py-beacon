@@ -47,6 +47,7 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
+from ..._renamed import renamed_keyword, renamed_names
 from ...data.base import as_of_position
 from ...risk.model import FactorRiskModel
 from ..data import RunData
@@ -62,7 +63,7 @@ from ..performance.crises import THRESHOLD, CrisisAnalytics, Episode
 from ..performance.settings import AnalysisSettings
 from .contributions import RiskOverTime
 
-BOOKS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "optimised": OPTIMISED_WEIGHTS,
+PORTFOLIOS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "optimised": OPTIMISED_WEIGHTS,
          "benchmark": BENCHMARK_WEIGHTS}
 TOPS = (5, 10, 20, 25)
 COVERAGE = (0.5, 0.8, 0.9)
@@ -199,14 +200,15 @@ class ConcentrationAnalytics:
         self.risk = risk
         self.settings = settings
 
+    @renamed_keyword("book", "of")
     def weights(self,
-                book: str = "fund",
+                of: str = "fund",
                 field: str | None = None) -> pd.DataFrame:
         """A book's daily weights, by name or, with *field*, by group."""
-        table = self.run.tables.get(BOOKS[book])
+        table = self.run.tables.get(PORTFOLIOS[of])
 
         if table is None or table.empty:
-            raise KeyError(f"The run kept no weights for its {book}.")
+            raise KeyError(f"The run kept no weights for its {of}.")
 
         table = table.sort_index().fillna(0.0)
         table.columns = table.columns.astype(str)
@@ -219,14 +221,15 @@ class ConcentrationAnalytics:
 
         return sorted(pd.Timestamp(day) for day in reference.index.get_level_values(0).unique())
 
+    @renamed_keyword("book", "of")
     def by_weight(self,
-                  book: str = "fund",
+                  of: str = "fund",
                   field: str | None = None,
                   daily: bool = False,
                   optional: bool = False) -> pd.DataFrame:
         """The book's concentration by weight at each rebalance's close, or
         each day; across groups with *field*."""
-        weights = self.weights(book, field)
+        weights = self.weights(of, field)
 
         if not daily:
             rows = [as_of_position(weights.index, day) for day in self.rebalances()]
@@ -245,40 +248,43 @@ class ConcentrationAnalytics:
 
         return ours.loc[days] - theirs.loc[days]
 
+    @renamed_keyword("book", "of")
     def curve(self,
               date: str | pd.Timestamp,
-              book: str = "fund",
+              of: str = "fund",
               field: str | None = None) -> pd.DataFrame:
         """The concentration curve of a book's weights (or, with *field*,
         its group weights) at the close of *date*: names largest first, with
         cumulative weight and the top k's concentration."""
-        weights = self.weights(book, field)
+        weights = self.weights(of, field)
         at = as_of_position(weights.index, pd.Timestamp(date))
 
         if at is None:
-            raise KeyError(f"The run kept no {book} weights on or before {date}.")
+            raise KeyError(f"The run kept no {of} weights on or before {date}.")
 
         return concentration_curve(weights.iloc[at])
 
+    @renamed_keyword("book", "of")
     def by_period(self,
                   frequency: str = "Y",
-                  book: str = "fund",
+                  of: str = "fund",
                   field: str | None = None) -> pd.DataFrame:
         """Each month's (``M``) or year's (``Y``) mean daily figures by weight."""
-        daily = self.by_weight(book, field, daily=True)
+        daily = self.by_weight(of, field, daily=True)
         periods = pd.DatetimeIndex(daily.index).to_period(frequency).astype(str)
 
         return daily.groupby(periods).mean().rename_axis("period")
 
+    @renamed_keyword("book", "of")
     def in_crises(self,
-                  book: str = "fund",
+                  of: str = "fund",
                   field: str | None = None,
                   market: str | pd.Series | None = None,
                   threshold: float = THRESHOLD,
                   named: Sequence[Episode] | None = None) -> pd.DataFrame:
         """The mean daily figures by weight inside each crisis and on the
         calm days outside all of them, within the analysis window."""
-        daily = self.by_weight(book, field, daily=True)
+        daily = self.by_weight(of, field, daily=True)
         settings = self.settings
 
         if settings is not None and settings.start is not None:
@@ -301,10 +307,11 @@ class ConcentrationAnalytics:
 
         return pd.DataFrame.from_dict(rows, orient="index")
 
+    @renamed_keyword("book", "of")
     def drift(self,
-              book: str = "fund") -> pd.Series:
+              of: str = "fund") -> pd.Series:
         """Each day's drift from the last rebalance's weights."""
-        weights = self.weights(book)
+        weights = self.weights(of)
         rebalances = pd.DatetimeIndex(self.rebalances())
         found = {}
 
@@ -320,8 +327,9 @@ class ConcentrationAnalytics:
 
         return pd.Series(found, name="drift")
 
+    @renamed_keyword("book", "of")
     def by_risk(self,
-                book: str = "fund") -> pd.DataFrame:
+                of: str = "fund") -> pd.DataFrame:
         """The book's concentration by risk at each rebalance the risk model
         covers, with its diversification ratio and average correlation.
 
@@ -332,8 +340,8 @@ class ConcentrationAnalytics:
         rows = {}
 
         for day in risk.dates():
-            figures = risk_figures(risk.contributions(day, book)["share"])
-            expected = risk.expected(day, book)
+            figures = risk_figures(risk.contributions(day, of)["share"])
+            expected = risk.expected(day, of)
             figures["diversification_ratio"] = expected["diversification_ratio"]
             figures["average_correlation"] = expected["average_correlation"]
             rows[day] = figures
@@ -435,3 +443,6 @@ def _gini(shares: np.ndarray) -> float:
     count = len(ordered)
 
     return float(1.0 - (2.0 * cumulative.sum() - cumulative[-1]) / (count * cumulative[-1]))
+
+# BN-462: the name before 0.11.0.
+__getattr__ = renamed_names(__name__, {"BOOKS": ("PORTFOLIOS", PORTFOLIOS)})

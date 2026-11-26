@@ -804,7 +804,7 @@ class TestResultSchemas:
         weights, with the true date count published beside the served rows."""
         import pandas as pd
 
-        from beacon.backtest.result import BacktestResult, Book, IndexBooks
+        from beacon.backtest.result import BacktestResult, IndexRecords, PortfolioRecord
         from beacon.index.result import IndexResult
         from beacon.portfolio.base import Portfolio
 
@@ -830,8 +830,8 @@ class TestResultSchemas:
 
         payload = BacktestResultSummary.from_result(
             BacktestResult(portfolio=portfolio,
-                           index=IndexBooks(
-                               target=Book.from_index(idx)))).model_dump()
+                           index=IndexRecords(
+                               target=PortfolioRecord.from_index(idx)))).model_dump()
 
         book = payload["index"]["target"]
         assert book is not None

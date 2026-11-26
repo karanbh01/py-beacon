@@ -43,7 +43,7 @@ from ..performance.name_figures import DAILY, RELATIVE
 from ..reports.context import FUND
 from ..reports.rolling import window_ends
 from ..reports.statistics import RUN_PREDATES, TOO_SHORT, Unavailable
-from ..risk.liquidity import BOOKS
+from ..risk.liquidity import PORTFOLIOS
 from .category import Category, Day
 from .forms import PERIODS
 from .groupings import FREQUENCIES
@@ -216,11 +216,11 @@ class InstrumentLevel(Category):
         # BN-453.
         context = self._analytics._context_for(start=start, end=end)
         days = context.performance.returns.index
-        books = list(BOOKS) if of == ALL else [of]
+        books = list(PORTFOLIOS) if of == ALL else [of]
         found = {}
 
         for book in books:
-            weights = context.run.tables.get(BOOKS[book]) if book in BOOKS else None
+            weights = context.run.tables.get(PORTFOLIOS[book]) if book in PORTFOLIOS else None
 
             if weights is None or weights.empty:
                 if of == ALL:

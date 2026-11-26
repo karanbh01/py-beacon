@@ -9,10 +9,11 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from .._renamed import renamed_names
 from ..index.result import IndexResult
 
 
-class Book:
+class PortfolioRecord:
     """One comparator's daily record: levels, weights, returns.
 
     The uniform surface every comparator answers through, so
@@ -35,7 +36,7 @@ class Book:
 
     @classmethod
     def from_index(cls,
-                   result: IndexResult) -> "Book":
+                   result: IndexResult) -> "PortfolioRecord":
         """A book over an index result.
 
         The result's daily weights panel becomes the wide weights frame
@@ -57,7 +58,7 @@ class Book:
 
     @classmethod
     def from_levels(cls,
-                    levels: pd.Series) -> "Book":
+                    levels: pd.Series) -> "PortfolioRecord":
         """A book over a bare level series, such as a benchmark from raw data."""
         return cls(levels=pd.Series(levels).astype(float))
 
@@ -70,7 +71,7 @@ class Book:
         return self.levels.pct_change().dropna()
 
     def __repr__(self) -> str:
-        return (f"Book(dates={len(self.levels)}, "
+        return (f"PortfolioRecord(dates={len(self.levels)}, "
                 f"weighted={not self.weights.empty})")
 
 
@@ -79,7 +80,7 @@ class Book:
 # `target` is always filled because the engine has taken an IndexResult as its
 # only schedule source since BN-165; `optimised` is BN-167's derived index.
 @dataclass
-class IndexBooks:
+class IndexRecords:
     """The run's calculated indices, one home each.
 
     The **container is always present**; its books are what can be None.
@@ -94,17 +95,17 @@ class IndexBooks:
         optimised: The solved index's own calculation, filled when the run
             tracked a derived (optimised) index. None on plain passive runs.
     """
-    target: Book | None = None
-    optimised: Book | None = None
+    target: PortfolioRecord | None = None
+    optimised: PortfolioRecord | None = None
 
     @property
-    def tracked(self) -> Book | None:
+    def tracked(self) -> PortfolioRecord | None:
         """The book the engine traded toward: optimised when solved, else target."""
         return self.optimised if self.optimised is not None else self.target
 
 
-def index_books(index_result: IndexResult,
-                target_index: IndexResult | None) -> IndexBooks:
+def index_records(index_result: IndexResult,
+                target_index: IndexResult | None) -> IndexRecords:
     """A run's calculated indices, one book each.
 
     Given *index_result* alone, the run traded a plain calculation: it is the
@@ -113,18 +114,22 @@ def index_books(index_result: IndexResult,
     solved from, so they are the `target` and `optimised` books.
     """
     if target_index is not None:
-        return IndexBooks(target=Book.from_index(target_index),
-                          optimised=Book.from_index(index_result))
+        return IndexRecords(target=PortfolioRecord.from_index(target_index),
+                          optimised=PortfolioRecord.from_index(index_result))
 
-    return IndexBooks(target=Book.from_index(index_result))
+    return IndexRecords(target=PortfolioRecord.from_index(index_result))
 
 
-def benchmark_book(benchmark: IndexResult | pd.Series | None) -> Book | None:
+def benchmark_record(benchmark: IndexResult | pd.Series | None) -> PortfolioRecord | None:
     """The benchmark of record as a book, whichever form it was given in."""
     if benchmark is None:
         return None
 
     if isinstance(benchmark, pd.Series):
-        return Book.from_levels(benchmark)
+        return PortfolioRecord.from_levels(benchmark)
 
-    return Book.from_index(benchmark)
+    return PortfolioRecord.from_index(benchmark)
+
+# BN-462: the names before 0.11.0.
+__getattr__ = renamed_names(__name__, {"Book": ("PortfolioRecord", PortfolioRecord),
+                                       "IndexBooks": ("IndexRecords", IndexRecords)})

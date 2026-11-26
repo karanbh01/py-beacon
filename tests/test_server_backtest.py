@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from beacon.analysis.performance.levels import annual_returns
-from beacon.backtest.result import BacktestResult, Book, IndexBooks
+from beacon.backtest.result import BacktestResult, IndexRecords, PortfolioRecord
 from beacon.data.base import MarketData, ReferenceData
 from beacon.data.fetcher import DataFetcher
 from beacon.index.result import IndexResult
@@ -519,11 +519,11 @@ def built_record(snapshot_dates,
     for day in days:
         portfolio._history.record(day, {}, 1000.0)
 
-    benchmark = (Book.from_levels(pd.Series([100.0, 101.0], index=days))
+    benchmark = (PortfolioRecord.from_levels(pd.Series([100.0, 101.0], index=days))
                  if levels_only_benchmark else None)
     result = BacktestResult(
         portfolio=portfolio,
-        index=IndexBooks(target=Book.from_index(index_result)),
+        index=IndexRecords(target=PortfolioRecord.from_index(index_result)),
         benchmark=benchmark)
 
     return BacktestResultSummary.from_result(
