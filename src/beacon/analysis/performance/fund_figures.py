@@ -76,7 +76,7 @@ def characteristics_over_time(characteristics: pd.DataFrame,
     table = pd.DataFrame.from_dict(rows, orient="index")
 
     if not table.empty:
-        table.columns = pd.MultiIndex.from_tuples(table.columns, names=["book", "figure"])
+        table.columns = pd.MultiIndex.from_tuples(table.columns, names=["portfolio", "figure"])
 
     return table
 

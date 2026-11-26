@@ -38,7 +38,7 @@ BLANK = "\N{EN DASH}"
 
 PART_LABELS = {category: category.capitalize() for category in CATEGORIES} | {
     "relative": "Relative", INSTRUMENT: "By name"}
-BOOK_LABELS = {"fund": "Fund", "index": "Index", "optimised": "Optimised index",
+PORTFOLIO_LABELS = {"fund": "Fund", "index": "Index", "optimised": "Optimised index",
                "benchmark": "Benchmark", "active": "Active"}
 
 
@@ -300,7 +300,7 @@ def _book_label(name: str) -> str:
     if name.startswith("class/"):
         return f"Class {name.removeprefix('class/')}"
 
-    return BOOK_LABELS.get(name, name)
+    return PORTFOLIO_LABELS.get(name, name)
 
 
 # -- drawn --------------------------------------------------------------------

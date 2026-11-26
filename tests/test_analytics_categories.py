@@ -144,7 +144,7 @@ def check_as_today(result,
                  for key, item in block["statistics"][statistic_id]["point"].items()}
 
         # A fund's figure alone is given without the fund's name.
-        if not every and first == ("book",):
+        if not every and first == ("portfolio",):
             point = {key.removeprefix("fund").removeprefix("/"): item
                      for key, item in point.items()}
 

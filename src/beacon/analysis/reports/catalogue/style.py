@@ -41,7 +41,7 @@ POSITION_COLUMNS = (Column("name", "Name"), Column("size", "Size position"),
                     Column("style", "Style position"), *BOOK_COLUMNS)
 BOX_COLUMNS = (Column("size", "Size", labels=SIZE_LABELS),
                Column("style", "Style", labels=STYLE_LABELS), *BOOK_COLUMNS)
-CLASSIFICATION_COLUMNS = (Column("book", "Portfolio", labels={FUND: "Fund", "index": "Index",
+CLASSIFICATION_COLUMNS = (Column("portfolio", "Portfolio", labels={FUND: "Fund", "index": "Index",
                                                               "benchmark": "Benchmark"}),
                           Column("size", "Size", labels=SIZE_LABELS),
                           Column("style", "Style", labels=STYLE_LABELS),

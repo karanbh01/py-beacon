@@ -23,6 +23,7 @@ from ..exceptions import (
     InvalidIdentifierError,
 )
 from ..index.schedule import DEFAULT_CALENDAR
+from .block_names import portfolio_named
 
 # Path segments that name an *endpoint*, and so cannot also name a document.
 #
@@ -55,7 +56,7 @@ APP_NAME = "beacon"
 SCHEMA_VERSION_KEY = "schema_version"
 
 # Bump when a stored shape changes, and add the matching entry to MIGRATIONS.
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 # The field an index document is discriminated by. One version chain covers
 # every collection — watchlists, indices, constraint sets — so a migration that
@@ -121,11 +122,29 @@ def _wrap_job_error(document: dict[str, Any]) -> dict[str, Any]:
                       "detail": None}}
 
 
+def _portfolio_named_job(document: dict[str, Any]) -> dict[str, Any]:
+    """v3 -> v4: a stored backtest's analytics block names its tables'
+    portfolio column ``portfolio``.
+
+    BN-463 renamed the dimension, which was ``book`` before 0.11.0, so a
+    client reads one name whenever the run was made. Documents from other
+    collections, and jobs without an analytics block, pass through untouched.
+    """
+    result = document.get("result") if _JOB_MARKER in document else None
+    block = result.get("analytics") if isinstance(result, dict) else None
+
+    if isinstance(block, dict):
+        portfolio_named(block)
+
+    return document
+
+
 # version -> function producing the next version's shape. Keyed by the version
 # being migrated FROM, so applying 1 turns a v1 document into a v2 one.
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: _add_default_calendar,
     2: _wrap_job_error,
+    3: _portfolio_named_job,
 }
 
 

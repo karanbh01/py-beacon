@@ -58,7 +58,7 @@ TRACKING_BOUNDS = (0.005, 0.02, 0.05)
 WEEK = "W-FRI"
 WEEKS_A_YEAR = 52
 
-RATING_COLUMNS = ["book", "rating", "band", "volatility", "tracking_error"]
+RATING_COLUMNS = ["portfolio", "rating", "band", "volatility", "tracking_error"]
 DISTRIBUTION_COLUMNS = ["rating", "band", "days", "share"]
 
 
@@ -200,7 +200,7 @@ def _rating_row(book: str,
     band = (None if tracking_error is None
             else str(bands(tracking_error, settings.tracking_bounds)[0]))
 
-    return {"book": book, "rating": int(ratings(volatility, settings.volatility_bounds)[0]),
+    return {"portfolio": book, "rating": int(ratings(volatility, settings.volatility_bounds)[0]),
             "band": band, "volatility": volatility, "tracking_error": tracking_error}
 
 

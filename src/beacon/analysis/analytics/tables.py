@@ -25,9 +25,9 @@ from ..reports.catalogue.forms import (
     AGAINST,
     ANNUALISE,
     AS_OF,
-    BOOK,
     COMPARATOR,
     OF,
+    PORTFOLIO,
     ROLLING,
     STEP,
 )
@@ -42,7 +42,7 @@ NOT_IN_A_TABLE = (ROLLING, STEP, AS_OF)
 def single_figure(statistic: StatisticSpec) -> bool:
     """Whether *statistic* gives one figure, a portfolio's or the fund's
     against a comparator."""
-    return statistic.kind == FIGURES and statistic.figure_names in ((BOOK,), (COMPARATOR,))
+    return statistic.kind == FIGURES and statistic.figure_names in ((PORTFOLIO,), (COMPARATOR,))
 
 
 def table(statistics: Iterable[str],

@@ -42,7 +42,7 @@ COVERED, PARTIAL, BEFORE_RUN, AFTER_RUN = "covered", "partial", "before_run", "a
 # the fund's recovery, at most eighteen months (beacon-ui, 2026-11-21).
 PATH_MONTHS, PATH_PAST_RECOVERY, PATH_MOST = 3, 1, 18
 IN_CRISIS, AFTER_CRISIS = "crisis", "after"
-PATH_COLUMNS = ["crisis", "date", "book", "level", "phase"]
+PATH_COLUMNS = ["crisis", "date", "portfolio", "level", "phase"]
 
 
 @dataclass(frozen=True)
@@ -267,7 +267,7 @@ def crisis_paths(crises: Sequence[Crisis],
         until = _path_end(crisis)
 
         for book, returns in books.items():
-            rows.extend({"crisis": crisis.name, "date": day, "book": book, "level": level,
+            rows.extend({"crisis": crisis.name, "date": day, "portfolio": book, "level": level,
                          "phase": IN_CRISIS if day <= crisis.end else AFTER_CRISIS}
                         for day, level in _path(returns, crisis.start, until).items())
 

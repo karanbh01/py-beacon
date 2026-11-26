@@ -28,12 +28,12 @@ CATEGORY = "risk"
 SETTINGS = ("risk_return.frequency",)
 FRONTIER_SETTINGS = (*SETTINGS, "risk_return.frontier_names", "risk_return.frontier_points")
 
-BOOK_LABELS = {"fund": "Fund", INDEX: "Index", BENCHMARK: "Benchmark"}
+PORTFOLIO_LABELS = {"fund": "Fund", INDEX: "Index", BENCHMARK: "Benchmark"}
 FIGURE_COLUMNS = (Column("return", "Return", "fraction"),
                   Column("volatility", "Volatility", "fraction"),
                   Column("observations", "Periods", "count"),
                   Column("first", "First", "date"), Column("last", "Last", "date"))
-PORTFOLIO_COLUMNS = (Column("book", "Portfolio", labels=BOOK_LABELS), *FIGURE_COLUMNS)
+PORTFOLIO_COLUMNS = (Column("portfolio", "Portfolio", labels=PORTFOLIO_LABELS), *FIGURE_COLUMNS)
 FRONTIER_COLUMNS = (Column("volatility", "Volatility", "fraction"),
                     Column("return", "Return", "fraction"),
                     Column("minimum_variance", "Minimum variance"))

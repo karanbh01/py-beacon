@@ -27,7 +27,7 @@ OF, START, END, BY, TRAILING, ROLLING, STEP, AGAINST, AS_OF, ANNUALISE, GRID = (
     "grid")
 KEYWORDS = (OF, START, END, BY, TRAILING, ROLLING, STEP, AGAINST, AS_OF, ANNUALISE, GRID)
 
-BOOK, COMPARATOR = "book", "comparator"
+PORTFOLIO, COMPARATOR = "portfolio", "comparator"
 
 
 def _ids(text: str) -> frozenset[str]:
@@ -109,7 +109,7 @@ def forms_of(statistic: StatisticSpec) -> tuple[str, ...]:
     first = names[0] if names else None
     found = set()
 
-    if ((statistic.kind == FIGURES and first == BOOK and statistic.id not in FUND_ONLY)
+    if ((statistic.kind == FIGURES and first == PORTFOLIO and statistic.id not in FUND_ONLY)
             or statistic.id in BY_BOOK_TABLES):
         found.add(OF)
 

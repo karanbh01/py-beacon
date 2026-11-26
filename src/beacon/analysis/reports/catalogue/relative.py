@@ -41,7 +41,7 @@ COMPARED = ("comparator",)
 STATUS_LABELS = {COVERED: "Covered", PARTIAL: "Partly covered", BEFORE_RUN: "Before the run",
                  AFTER_RUN: "After the run"}
 PHASE_LABELS = {IN_CRISIS: "Crisis", AFTER_CRISIS: "After"}
-BOOK_LABELS = {FUND: "Fund", INDEX: "Index", BENCHMARK: "Benchmark"}
+PORTFOLIO_LABELS = {FUND: "Fund", INDEX: "Index", BENCHMARK: "Benchmark"}
 
 
 def _basic(name: str) -> Any:
@@ -228,7 +228,7 @@ def statistics() -> list[StatisticSpec]:
                       settings=("crises.market", "crises.threshold", "crises.episodes",
                                 "window.tracked"),
                       columns=(Column("crisis", "Crisis"), Column("date", "Date", "date"),
-                               Column("book", "Portfolio", labels=BOOK_LABELS),
+                               Column("portfolio", "Portfolio", labels=PORTFOLIO_LABELS),
                                Column("level", "Level"),
                                Column("phase", "Phase", labels=PHASE_LABELS))),
         StatisticSpec("crisis_summary", "Crisis summary", CRISES, FIGURES, PERFORMANCE,

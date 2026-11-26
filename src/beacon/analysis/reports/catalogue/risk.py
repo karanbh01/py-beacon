@@ -206,11 +206,11 @@ def statistics() -> list[StatisticSpec]:
         stat("value_at_risk", "Value at risk", LOSS, FIGURES, "The loss exceeded one day (or "
              "more) in twenty or a hundred: historical, normal and Cornish-Fisher.",
              _loss(VAR), unit="fraction", rolling=MODERATE, settings=LOSS_SETTINGS,
-             figure_names=("book", "method", "confidence", "horizon")),
+             figure_names=("portfolio", "method", "confidence", "horizon")),
         stat("expected_shortfall", "Expected shortfall", LOSS, FIGURES, "The mean loss on the "
              "days worse than the value at risk: historical and normal.", _loss(ES),
              unit="fraction", rolling=MODERATE, settings=LOSS_SETTINGS,
-             figure_names=("book", "method", "confidence", "horizon")),
+             figure_names=("portfolio", "method", "confidence", "horizon")),
         stat("stress_windows", "Stress windows", LOSS, TABLE, "Each book's return and "
              "deepest fall in each crisis window.",
              lambda context: frame(context.loss.stress_windows(

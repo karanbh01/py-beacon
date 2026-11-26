@@ -52,7 +52,7 @@ def of_figures(figures: Mapping[str, Any],
 
     Args:
         figures: By name, the parts joined with ``/``.
-        parts: What each part of a name is, such as ``("book", "frequency")``.
+        parts: What each part of a name is, such as ``("portfolio", "frequency")``.
         choice: The one picked, ``all``, or None.
         what: What the first part is, as an error names it.
     """

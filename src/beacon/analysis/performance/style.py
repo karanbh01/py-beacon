@@ -216,11 +216,11 @@ def style_classification(positions: pd.DataFrame,
 
         size = float(np.dot(shares, positions["size"].to_numpy(dtype=float)))
         style = float(np.dot(shares, positions["style"].to_numpy(dtype=float)))
-        rows.append({"book": book, "size": SIZES[cells(pd.Series([size]))[0]],
+        rows.append({"portfolio": book, "size": SIZES[cells(pd.Series([size]))[0]],
                      "style": STYLES[cells(pd.Series([style]))[0]],
                      "size_centre": size, "style_centre": style})
 
-    return pd.DataFrame(rows, columns=["book", "size", "style", "size_centre", "style_centre"])
+    return pd.DataFrame(rows, columns=["portfolio", "size", "style", "size_centre", "style_centre"])
 
 
 def _yield(ratios: pd.Series | None) -> pd.Series | None:

@@ -194,14 +194,14 @@ class TestPaths:
 
     def test_from_100_at_the_start(self):
         crisis, found = self.paths()
-        fund = found[found["book"] == "fund"].set_index("date")["level"]
+        fund = found[found["portfolio"] == "fund"].set_index("date")["level"]
 
         assert fund.iloc[0] == 100.0 and fund.index[0] == PEAK
         assert fund.loc[TROUGH] == pytest.approx(100.0 * (1 + crisis.fund))
 
     def test_the_phases(self):
         _, found = self.paths()
-        index = found[found["book"] == "index"]
+        index = found[found["portfolio"] == "index"]
 
         assert (index[index["date"] <= TROUGH]["phase"] == "crisis").all()
         assert (index[index["date"] > TROUGH]["phase"] == "after").all()
@@ -226,7 +226,7 @@ class TestPaths:
         crisis = analytics(named=named).crises()[0]
 
         _, found = self.paths(crisis)
-        fund = found[found["book"] == "fund"].set_index("date")["level"]
+        fund = found[found["portfolio"] == "fund"].set_index("date")["level"]
 
         assert fund.index[0] == DAYS[0] and fund.iloc[0] == 100.0
         assert fund.loc[DAYS[20]] == pytest.approx(100.0 * (1 + FUND.loc[DAYS[1]:DAYS[20]]).prod())

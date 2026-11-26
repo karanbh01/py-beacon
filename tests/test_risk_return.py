@@ -76,7 +76,7 @@ class TestPortfolios:
         names_ = risk_return(compounded(daily[["A", "B"]]), 52)
 
         np.testing.assert_allclose(found["volatility"], names_["volatility"])
-        assert found["book"].tolist() == ["fund", "index"]
+        assert found["portfolio"].tolist() == ["fund", "index"]
 
 
 class TestTheFrontier:
@@ -141,7 +141,7 @@ class TestTheCatalogue:
     def test_the_portfolios(self):
         found = CATALOGUE["portfolio_risk_return"].compute(self.context())
 
-        assert found["book"].tolist() == ["fund", "index"]
+        assert found["portfolio"].tolist() == ["fund", "index"]
 
     def test_the_frontier_with_its_universe(self):
         found = payload("table", CATALOGUE["efficient_frontier"].compute(self.context()))
@@ -192,5 +192,5 @@ class TestTheCatalogue:
         assert crises["status"].iloc[0] == "before_run"
         assert covered["name"].tolist() == ["Covid crash"]
         assert set(paths["crisis"]) == {"Covid crash"}
-        assert set(paths["book"]) == {"fund", "index"}
+        assert set(paths["portfolio"]) == {"fund", "index"}
         assert set(paths["phase"]) <= {"crisis", "after"}

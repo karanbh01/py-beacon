@@ -5,7 +5,7 @@ gives, how it is worked out, and whether it can roll.
 
 A statistic gives one of three kinds of value:
 
-- ``figures``: named numbers, by book (``fund``, ``index``, ``benchmark``,
+- ``figures``: named numbers, by portfolio (``fund``, ``index``, ``benchmark``,
   ``class/<name>``), by comparator, or by the parts of a compound name joined
   with ``/`` (``historical/0.95/1``);
 - ``series``: one series, dated or not;
@@ -144,7 +144,7 @@ class StatisticSpec:
     rolling: str | None = None
     settings: tuple[str, ...] = ()
     columns: tuple[Column, ...] = ()
-    figure_names: tuple[str, ...] = ("book",)
+    figure_names: tuple[str, ...] = ("portfolio",)
     roll: Callable[[Any], pd.DataFrame] | None = None
     signed: tuple[str, ...] = ()
     forms: tuple[str, ...] = ()

@@ -171,7 +171,7 @@ class TestTheBoxAndTheCentre:
 
     def test_the_centre_is_the_weighted_mean(self,
                                              positions):
-        found = style_classification(positions.reset_index(), PORTFOLIOS).set_index("book")
+        found = style_classification(positions.reset_index(), PORTFOLIOS).set_index("portfolio")
         shares = positions["fund"] / positions["fund"].sum()
 
         assert found.loc["fund", "size_centre"] == pytest.approx(
@@ -182,7 +182,7 @@ class TestTheBoxAndTheCentre:
 
     def test_the_cell_is_the_centre_s(self,
                                       positions):
-        found = style_classification(positions.reset_index(), PORTFOLIOS).set_index("book")
+        found = style_classification(positions.reset_index(), PORTFOLIOS).set_index("portfolio")
 
         assert found.loc["index", "size"] == ("large", "mid", "small")[
             int(np.floor(found.loc["index", "size_centre"]))]

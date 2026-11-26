@@ -19,9 +19,9 @@ SETTINGS = ("risk_rating.volatility_bounds", "risk_rating.tracking_bounds",
 
 BAND_LABELS = {"passive": "Passive", "enhanced": "Enhanced", "active": "Active",
                "unconstrained": "Unconstrained"}
-BOOK_LABELS = {rating.FUND: "Fund", INDEX: "Index", BENCHMARK: "Benchmark"}
+PORTFOLIO_LABELS = {rating.FUND: "Fund", INDEX: "Index", BENCHMARK: "Benchmark"}
 
-RATING_COLUMNS = (Column("book", "Portfolio", labels=BOOK_LABELS),
+RATING_COLUMNS = (Column("portfolio", "Portfolio", labels=PORTFOLIO_LABELS),
                   Column("rating", "Risk rating"),
                   Column("band", "Band", labels=BAND_LABELS),
                   Column("volatility", "Volatility", "fraction"),

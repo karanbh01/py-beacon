@@ -85,7 +85,7 @@ class TestTheShape:
                                                 figures):
         found = get("total_return", of="all")
 
-        assert found.index.name == "book"
+        assert found.index.name == "portfolio"
         assert found.to_dict() == pytest.approx(figures("total_return"))
 
     def test_of_picks_a_portfolio(self,

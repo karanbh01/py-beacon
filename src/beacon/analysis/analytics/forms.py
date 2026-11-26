@@ -33,7 +33,6 @@ from ..reports.catalogue.forms import (
     AGAINST,
     ANNUALISE,
     AS_OF,
-    BOOK,
     BY,
     BY_BOOK_TABLES,
     COMPARATOR,
@@ -41,6 +40,7 @@ from ..reports.catalogue.forms import (
     GRID,
     GROUPINGS,
     OF,
+    PORTFOLIO,
     ROLLING,
     START,
     STEP,
@@ -171,7 +171,7 @@ def _picked(statistic: StatisticSpec,
     choice, what = None, ""
 
     # A statistic given for the fund alone takes no `of`, and gives the fund.
-    if first == (BOOK,):
+    if first == (PORTFOLIO,):
         choice, what = form.get(OF, FUND), "portfolio"
     elif first == (COMPARATOR,):
         choice, what = form.get(AGAINST) or context.require_tracked(), "comparator"
@@ -191,7 +191,7 @@ def _picked_table(statistic: StatisticSpec,
     if statistic.kind != FIGURES:
         return table
 
-    if first == (BOOK,):
+    if first == (PORTFOLIO,):
         return of_table(table, form.get(OF, FUND))
 
     if first == (COMPARATOR,):

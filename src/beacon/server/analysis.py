@@ -32,6 +32,7 @@ from ..data.fetcher import DataFetcher
 from ..exceptions import DataNotFoundError, InvalidArgumentError
 from ..portfolio.reasons import REASONS as TRADE_REASONS
 from .analysis_schemas import AnalyticsBlock
+from .block_names import portfolio_named
 from .job_threads import Report, run_in_thread
 from .jobs import ProgressReporter
 
@@ -70,7 +71,7 @@ CODED_LABELS = {
 
 # Labels for figure names that are not statistic ids, by dimension.
 NAMES = {
-    "book": {"fund": "Fund", "index": "Index", "optimised": "Optimised index",
+    "portfolio": {"fund": "Fund", "index": "Index", "optimised": "Optimised index",
              "benchmark": "Benchmark", "active": "Active", "class": "Class"},
     "comparator": {"index": "Index", "optimised": "Optimised index", "benchmark": "Benchmark"},
     # BN-467: the windows of a statistic table's rows.
@@ -139,7 +140,7 @@ def read_analytics(folder: Path) -> dict[str, Any] | None:
     """A stored run's analytics block, or None when it was made without one."""
     path = folder / ANALYTICS_FILE
 
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+    return portfolio_named(json.loads(path.read_text(encoding="utf-8"))) if path.exists() else None
 
 
 def build_rerun_job(strategy_id: str,
@@ -226,6 +227,7 @@ def read_saved(folder: Path,
                                 source="GET /strategies/{strategy_id}/analyses lists them")
 
     entry: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    entry["analytics"] = portfolio_named(entry["analytics"])
     request = entry["analytics"].get("request", {})
 
     return {**entry, "reports": request.get("reports", {}), "options": request.get("options", {})}

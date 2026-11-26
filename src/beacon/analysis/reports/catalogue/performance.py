@@ -198,24 +198,24 @@ def statistics() -> list[StatisticSpec]:
         StatisticSpec("best_and_worst", "Best and worst periods", RETURNS, FIGURES, PERFORMANCE,
                       "The best and worst day, week, month, quarter and year.",
                       per_book(_best_and_worst), unit="fraction",
-                      figure_names=("book", "frequency", "extreme", "field")),
+                      figure_names=("portfolio", "frequency", "extreme", "field")),
         StatisticSpec("positive_share", "Share of positive periods", RETURNS, FIGURES, PERFORMANCE,
                       "The share of days, months and years with a gain.",
                       per_book(lambda book, context: book.positive_shares()), unit="fraction",
-                      rolling=LIGHT, figure_names=("book", "frequency")),
+                      rolling=LIGHT, figure_names=("portfolio", "frequency")),
         StatisticSpec("gains_and_losses", "Average gain and loss", RETURNS, FIGURES, PERFORMANCE,
                       "The mean of the periods that gained and of those that lost, and their "
                       "ratio.", per_book(lambda book, context: book.gains_and_losses(
                           context.options.returns.gains_frequency)), unit="fraction",
                       rolling=LIGHT, settings=("returns.gains_frequency",),
-                      figure_names=("book", "field")),
+                      figure_names=("portfolio", "field")),
         StatisticSpec("streaks", "Longest winning and losing streaks", RETURNS, FIGURES,
                       PERFORMANCE, "The most months in a row with a gain, and with a loss.",
-                      per_book(_streaks), figure_names=("book", "streak", "field")),
+                      per_book(_streaks), figure_names=("portfolio", "streak", "field")),
         StatisticSpec("mean_return", "Arithmetic and geometric mean return", RETURNS, FIGURES,
                       PERFORMANCE, "The mean daily return, and the daily rate that compounds to "
                       "the total, each also a year.", per_book(lambda book, context: book.means()),
-                      unit="fraction", rolling=LIGHT, figure_names=("book", "mean")),
+                      unit="fraction", rolling=LIGHT, figure_names=("portfolio", "mean")),
         StatisticSpec("hit_rate", "Hit rate (monthly)", RETURNS, FIGURES, PERFORMANCE,
                       "The share of months the fund rose.",
                       per_book(lambda book, context: book.hit_rate_monthly()), unit="fraction",
@@ -246,7 +246,7 @@ def _distribution() -> list[StatisticSpec]:
               label: str,
               description: str,
               unit: str | None = None,
-              names: tuple[str, ...] = ("book",)) -> StatisticSpec:
+              names: tuple[str, ...] = ("portfolio",)) -> StatisticSpec:
         return StatisticSpec(id_, label, DISTRIBUTION, FIGURES, PERFORMANCE, description,
                              per_book(_shape(id_)), unit=unit, rolling=LIGHT, figure_names=names)
 
@@ -261,7 +261,7 @@ def _distribution() -> list[StatisticSpec]:
         shape("tail_ratio", "Tail ratio", "The 95th percentile return over the size of the "
               "5th.", unit="ratio"),
         shape("serial_correlation", "Serial correlation", "The correlation of each day's "
-              "return with the days before.", unit="ratio", names=("book", "lag")),
+              "return with the days before.", unit="ratio", names=("portfolio", "lag")),
         StatisticSpec("return_histogram", "Return histogram", DISTRIBUTION, TABLE, PERFORMANCE,
                       "Daily returns counted into bins, with what a normal distribution would put "
                       "in each.", _histogram, settings=("returns.histogram_bins",),

@@ -45,7 +45,7 @@ WEEKLY, MONTHLY = "weekly", "monthly"
 FREQUENCIES = {WEEKLY: ("W-FRI", 52), MONTHLY: ("ME", 12)}
 
 FIGURE_COLUMNS = ["return", "volatility", "observations", "first", "last"]
-PORTFOLIO_COLUMNS = ["book", *FIGURE_COLUMNS]
+PORTFOLIO_COLUMNS = ["portfolio", *FIGURE_COLUMNS]
 FRONTIER_COLUMNS = ["volatility", "return", "minimum_variance"]
 
 
@@ -139,7 +139,7 @@ def portfolio_risk_return(books: Mapping[str, pd.Series],
     daily = pd.DataFrame(dict(books))
     figures = risk_return(compounded(daily, settings.frequency), settings.per_year)
 
-    return figures.rename_axis("book").reset_index()[PORTFOLIO_COLUMNS]
+    return figures.rename_axis("portfolio").reset_index()[PORTFOLIO_COLUMNS]
 
 
 def hindsight_frontier(name_returns: pd.DataFrame,

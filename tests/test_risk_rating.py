@@ -92,7 +92,7 @@ class TestTheRating:
     def test_the_volatility_of_weekly_returns_annualised(self):
         returns = noise(days(3 * YEAR), 0.12, seed=1)
 
-        found = risk_rating(returns, None, {}, SETTINGS, YEAR).set_index("book")
+        found = risk_rating(returns, None, {}, SETTINGS, YEAR).set_index("portfolio")
 
         expected = formulas.volatility(weekly(returns), 52)
         assert found.loc["fund", "volatility"] == pytest.approx(expected)
@@ -107,12 +107,12 @@ class TestTheRating:
         calm = noise(index[3 * YEAR:], 0.03, seed=3)
         returns = pd.concat([wild, calm])
 
-        found = risk_rating(returns, None, {}, SETTINGS, YEAR).set_index("book")
+        found = risk_rating(returns, None, {}, SETTINGS, YEAR).set_index("portfolio")
 
         assert found.loc["fund", "rating"] == 3
         assert RiskRatingSettings(years=9) != SETTINGS
         longer = risk_rating(returns, None, {}, RiskRatingSettings(years=9), YEAR)
-        assert longer.set_index("book").loc["fund", "rating"] == 6
+        assert longer.set_index("portfolio").loc["fund", "rating"] == 6
 
     def test_the_band_against_the_tracked_comparator(self):
         index = days(3 * YEAR)
@@ -120,7 +120,7 @@ class TestTheRating:
         ours = theirs + noise(index, 0.01, seed=5)
 
         found = risk_rating(ours, levels(theirs), {"index": levels(theirs)}, SETTINGS,
-                            YEAR).set_index("book")
+                            YEAR).set_index("portfolio")
 
         assert found.loc["fund", "band"] == "enhanced"
         assert 0.005 < found.loc["fund", "tracking_error"] < 0.02
@@ -179,7 +179,7 @@ class TestTheCatalogue:
         return RunData.of_returns(ours, YEAR, comparators={"index": levels(theirs)})
 
     def test_the_fund_s_row(self):
-        found = CATALOGUE["risk_rating"].compute(Context(self.run())).set_index("book")
+        found = CATALOGUE["risk_rating"].compute(Context(self.run())).set_index("portfolio")
 
         assert found.loc["fund", "rating"] == 5
         assert found.loc["fund", "band"] == "enhanced"
@@ -191,7 +191,7 @@ class TestTheCatalogue:
 
         found = CATALOGUE["risk_rating"].compute(Context(self.run(), options))
 
-        assert found.set_index("book").loc["fund", "band"] == "unconstrained"
+        assert found.set_index("portfolio").loc["fund", "band"] == "unconstrained"
 
     def test_labelled_columns(self):
         columns = {column.name: column for column in CATALOGUE["risk_distribution"].columns}
