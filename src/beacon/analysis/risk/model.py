@@ -213,6 +213,10 @@ class RebalanceRiskModels:
 
         return self._models[day]
 
+    def estimated(self) -> list[pd.Timestamp]:
+        """The rebalances whose model has been estimated so far, in order."""
+        return sorted(self._models)
+
     def uncovered(self,
                   date: str | pd.Timestamp) -> list[str]:
         """The names held on the rebalance on *date* whose returns did not

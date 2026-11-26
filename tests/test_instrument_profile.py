@@ -171,8 +171,10 @@ class TestItsParts:
 
         assert columns["target"].unit == "fraction" and columns["removed"].unit is None
         assert columns["capped"].label == LABELS["capped"]
-        assert Profile.parts == ("rebalance_weights", "daily_weights", "attribution")
-        assert repr(profile) == "Profile('N0': rebalance_weights, daily_weights, attribution)"
+        assert Profile.parts == ("rebalance_weights", "daily_weights", "attribution", "risk",
+                                 "liquidity")
+        assert repr(profile) == ("Profile('N0': rebalance_weights, daily_weights, attribution, "
+                                 "risk, liquidity)")
 
     def test_a_stored_run_s_is_the_same(self,
                                         result,

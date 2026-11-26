@@ -278,8 +278,10 @@ class InstrumentProfile(BaseModel):
                                      "it, or 'period', each period on its own.")
     parts: dict[str, ProfileTable] = Field(
         description="Each part the run can give, by name: 'rebalance_weights', a row a "
-                    "rebalance; 'daily_weights', a row a day; and 'attribution', a row a "
-                    "period, dated by its last day.")
+                    "rebalance; 'daily_weights', a row a day; 'attribution', a row a "
+                    "period, dated by its last day; and 'risk' and 'liquidity', a row a "
+                    "rebalance. A days to sell is null where the name has no traded "
+                    "value.")
     unavailable: dict[str, str] = Field(description="Each part the run cannot give, and why.")
 
 

@@ -251,8 +251,14 @@ each's total to date. `linking` says how the periods are linked, as the run's
 analysis options' `attribution.linking` sets it: `window`, each period its
 share of the whole window's contribution, so the periods add up to it; or
 `period`, each period on its own, so it agrees with the per-name table over
-that period alone and the periods do not add up. `start`, `end` and `against`
-pick what it measures. A part the run cannot give, such as the rebalances of
+that period alone and the periods do not add up. `risk` has a row a
+rebalance: the name's contribution to and share of the fund's expected
+volatility, and of its expected tracking error against the comparator, from
+the risk model fitted that day; a stored run's are read from what its
+analysis kept, so no model is fitted again. `liquidity` has a row a
+rebalance: the fund's holding of the name, the name's average daily traded
+value and the days the holding would take to sell, null where the name has
+no traded value. `start`, `end` and `against` pick what it measures. A part the run cannot give, such as the rebalances of
 a run kept before they were, is named under `unavailable` with why.
 
 ## An index on its own

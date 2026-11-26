@@ -37,18 +37,18 @@ import pandas as pd
 
 from ...data.base import as_of_position
 from ..annualising import days_in, long_enough
-from ..panels import NAME_RETURNS, TRADED_VALUES
+from ..panels import NAME_RETURNS
 from ..performance import name_figures
 from ..performance.name_figures import DAILY, RELATIVE
 from ..reports.context import FUND
 from ..reports.rolling import window_ends
-from ..reports.statistics import NO_DATA_STORE, RUN_PREDATES, TOO_SHORT, Unavailable
-from ..risk.liquidity import BOOKS, LiquidityAnalytics
+from ..reports.statistics import RUN_PREDATES, TOO_SHORT, Unavailable
+from ..risk.liquidity import BOOKS
 from .category import Category, Day
 from .forms import PERIODS
 from .groupings import FREQUENCIES
 from .instrument_table import per_name
-from .profile import Profile
+from .profile import Profile, liquidity_dates, liquidity_of
 from .shape import ALL
 
 DAILY_STEP, MONTH_END = "daily", "month_end"
@@ -245,8 +245,8 @@ class InstrumentLevel(Category):
         options set, slowest first, at the last rebalance or month end, or
         the last on or before ``as_of``; infinite for a name with no traded
         value."""
-        liquidity = _liquidity(self._analytics._context)
-        dates = _liquidity_dates(liquidity)
+        liquidity = liquidity_of(self._analytics._context)
+        dates = liquidity_dates(liquidity)
         at = as_of_position(pd.DatetimeIndex(dates),
                             pd.Timestamp(as_of) if as_of is not None else dates[-1])
 
@@ -267,8 +267,8 @@ class InstrumentLevel(Category):
         """Each name's average daily value traded on its market, at each
         rebalance and month end the run kept, dates by names."""
         context = self._analytics._context_for(start=start, end=end)
-        liquidity = _liquidity(context)
-        _liquidity_dates(liquidity)
+        liquidity = liquidity_of(context)
+        liquidity_dates(liquidity)
         traded = liquidity.traded_values()
         days = context.performance.returns.index
         found = traded.loc[(traded.index >= days[0]) & (traded.index <= days[-1])]
@@ -300,16 +300,19 @@ class InstrumentLevel(Category):
                 by: str = "quarter") -> Profile:
         """One name over the run, a dated table a part
         (`beacon.analysis.analytics.profile`): how each rebalance weighted
-        it, how its weight drifted each day and what it contributed each
-        month, quarter or year (``by``), against the comparator given as
-        ``against`` or the one the analysis tracks.
+        it, how its weight drifted each day, what it contributed each
+        month, quarter or year (``by``), and its risk and liquidity at each
+        rebalance, against the comparator given as ``against`` or the one
+        the analysis tracks.
 
         Raises:
             ValueError: If no portfolio of the run held *name*, or *by* is
                 not ``month``, ``quarter`` or ``year``.
         """
-        # BN-468; BN-469 added by.
-        return Profile(name, self._analytics._context_for(start=start, end=end), against, by)
+        # BN-468; BN-469 added by; BN-470 the whole run's context, which
+        # fits each rebalance's risk model once.
+        return Profile(name, self._analytics._context_for(start=start, end=end), against, by,
+                       self._analytics._context)
 
     def _observations(self,
                       window: dict[str, Any],
@@ -386,31 +389,6 @@ def _name_returns(context: Any) -> pd.DataFrame:
     found: pd.DataFrame = tables[NAME_RETURNS]
 
     return found.loc[(found.index >= days[0]) & (found.index <= days[-1])]
-
-
-def _liquidity(context: Any) -> LiquidityAnalytics:
-    """The run's liquidity under the analysis's options: measured from the
-    data store when it is loaded, else from the traded values the run
-    kept."""
-    options = context.options.liquidity
-
-    return LiquidityAnalytics(context.run, context.source, participation=options.participation,
-                              lookback_days=options.lookback_days)
-
-
-def _liquidity_dates(liquidity: LiquidityAnalytics) -> list[pd.Timestamp]:
-    """The dates the run kept traded values on, or `Unavailable`."""
-    try:
-        dates: list[pd.Timestamp] = liquidity.dates()
-    except KeyError as error:
-        code = RUN_PREDATES if TRADED_VALUES in str(error) else NO_DATA_STORE
-
-        raise Unavailable(code) from error
-
-    if not dates:
-        raise Unavailable(TOO_SHORT)
-
-    return dates
 
 
 def _picked(returns: pd.DataFrame,

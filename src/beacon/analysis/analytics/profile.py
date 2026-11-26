@@ -6,6 +6,8 @@ One name over a run: `result.analytics.instrument.profile(name)`.
     profile.rebalance_weights          # a row a rebalance
     profile.daily_weights              # a row a day
     profile.attribution                # a row a quarter, or as by= says
+    profile.risk                       # a row a rebalance
+    profile.liquidity                  # a row a rebalance
 
 Each part is a dated table over the analysis window the profile was asked
 for (``start``, ``end``), worked out the first time it is asked for.
@@ -40,6 +42,24 @@ linked on its own, as the per-name table over the window from the last day
 before the period to its last day gives it, and each total as the table over
 the window to the period's end: then the periods do not add up to the
 total. Its ``attrs`` say the comparator, the periods and the linking.
+
+``risk`` has a row for each rebalance the risk model could be fitted for:
+the name's contribution to the fund's expected volatility and its share of it
+(``volatility_contribution``, ``volatility_share``), and to the fund's
+expected tracking error against the comparator, from its active weight
+(``tracking_error_contribution``, ``tracking_error_share``), each 0 when no
+portfolio held it, from the model fitted that day
+(`beacon.analysis.risk.contributions`). A stored run's are read from what its
+analysis kept for the same risk model; otherwise the model is fitted at
+every rebalance, which needs the data store. Its ``attrs`` say the
+comparator.
+
+``liquidity`` has a row for each rebalance the run kept traded values on: the
+fund's holding of the name (``value``), the name's average daily traded value
+(``traded_value``) and the days the holding would take to sell
+(``days_to_sell``) at the participation rate the liquidity options set, as
+`instrument.days_to_sell()` gives them, 0 days when the fund did not hold it
+and infinite when the name has no traded value.
 """
 # BN-468 (Karan, 2026-11-25): the first of the enhanced Drilldown's
 # sections; BN-469..BN-474 add theirs to the same profile.
@@ -48,13 +68,15 @@ from typing import Any
 
 import pandas as pd
 
-from ...catalogue import FRACTION
+from ...catalogue import DAYS, FRACTION, MONEY
+from ...exceptions import CalculationError
 from ..attribution.contribution import linking_factors
-from ..panels import REBALANCE_WEIGHTS
+from ..panels import REBALANCE_WEIGHTS, REFERENCE, TRADED_VALUES
 from ..reports.context import FUND
 from ..reports.options import WINDOW
-from ..reports.statistics import RUN_PREDATES, TOO_SHORT, Column, Unavailable
-from ..risk.liquidity import BOOKS
+from ..reports.statistics import NO_DATA_STORE, RUN_PREDATES, TOO_SHORT, Column, Unavailable
+from ..risk import risk_store
+from ..risk.liquidity import BOOKS, LiquidityAnalytics
 from .groupings import FREQUENCIES
 
 # The rebalance table's columns as the profile names them.
@@ -72,25 +94,35 @@ LABELS = {"target": "Target", "screened": "After the screens", "weight": "Traded
           "optimised": "Optimised index", "benchmark": "Benchmark", ACTIVE: "Active",
           CONTRIBUTION: "Contribution", ACTIVE_CONTRIBUTION: "Active contribution",
           CONTRIBUTION + TO_DATE: "Contribution to date",
-          ACTIVE_CONTRIBUTION + TO_DATE: "Active contribution to date"}
+          ACTIVE_CONTRIBUTION + TO_DATE: "Active contribution to date",
+          "volatility_contribution": "Contribution to volatility",
+          "volatility_share": "Share of volatility",
+          "tracking_error_contribution": "Contribution to tracking error",
+          "tracking_error_share": "Share of tracking error", "value": "Holding",
+          "traded_value": "Average daily traded value", "days_to_sell": "Days to sell"}
+UNITS = {"value": MONEY, "traded_value": MONEY, "days_to_sell": DAYS}
 
 
 class Profile:
     """One name over a run: a dated table a part, worked out when first
     asked for."""
 
-    parts = ("rebalance_weights", "daily_weights", "attribution")
+    parts = ("rebalance_weights", "daily_weights", "attribution", "risk", "liquidity")
 
     def __init__(self,
                  name: str,
                  context: Any,
                  against: str | None = None,
-                 by: str = "quarter"):
+                 by: str = "quarter",
+                 whole: Any = None):
         """
         Raises:
             ValueError: If no portfolio of the run held *name*, or *by* is
                 not ``month``, ``quarter`` or ``year``.
             Unavailable: If the run lacks the comparator given.
+
+        *whole* is the analysis over the whole run, whose work over every
+        rebalance (the risk model's) is done once; *context* when None.
         """
         if by not in FREQUENCIES:
             raise ValueError(f"by is {', '.join(FREQUENCIES)}; not {by!r}.")
@@ -98,6 +130,7 @@ class Profile:
         self.name = name
         self.by = by
         self._context = context
+        self._whole = whole if whole is not None else context
         self._against = None if against is None else context.require(against)
 
         if not any(name in weights.columns for weights in self._weights().values()):
@@ -189,6 +222,101 @@ class Profile:
 
         return found.rename_axis("DATE")
 
+    @cached_property
+    def risk(self) -> pd.DataFrame:
+        """At each rebalance: the name's contribution to and share of the
+        fund's expected volatility, and of its expected tracking error
+        against the comparator.
+
+        Raises:
+            Unavailable: Without the data store for a run that kept no risk
+                for this model, or when no rebalance has enough returns
+                before it for its model.
+        """
+        # BN-470 (Karan, 2026-11-26): kept with the run, as its analysis
+        # fitted it, else fitted here.
+        try:
+            table = self._whole.name_risk
+        except CalculationError as error:
+            raise Unavailable(TOO_SHORT, str(error)) from error
+
+        days = self._days()
+        table = table.loc[(table.index >= days[0]) & (table.index <= days[-1])]
+
+        if table.empty:
+            raise Unavailable(TOO_SHORT)
+
+        dates = pd.DatetimeIndex(sorted(table.index.unique()))
+        mine = table.loc[table[risk_store.IDENTIFIER] == self.name]
+        against = self._comparator()
+        columns = {"volatility": FUND}
+
+        if against is not None and f"share/{against}" in table.columns:
+            columns["tracking_error"] = against
+        else:
+            against = None
+
+        found = pd.DataFrame(index=dates)
+
+        for label, book in columns.items():
+            for part in (risk_store.CONTRIBUTION, risk_store.SHARE):
+                found[f"{label}_{part}"] = mine[f"{part}/{book}"].reindex(dates).fillna(0.0)
+
+        found.attrs = {"against": against}
+
+        return found.rename_axis("DATE")
+
+    @cached_property
+    def liquidity(self) -> pd.DataFrame:
+        """At each rebalance: the fund's holding of the name, the name's
+        average daily traded value and the days to sell the holding.
+
+        Raises:
+            Unavailable: If the run kept no traded values, or none in the
+                window.
+        """
+        # BN-470.
+        liquidity = liquidity_of(self._whole)
+        days = self._days()
+        rebalances = set(self._rebalances())
+        dates = [day for day in liquidity_dates(liquidity)
+                 if day in rebalances and days[0] <= day <= days[-1]]
+
+        if not dates:
+            raise Unavailable(TOO_SHORT)
+
+        traded = liquidity.traded_values()
+        rows = {}
+
+        for day in dates:
+            held = liquidity.days_to_sell(day)
+
+            if self.name in held.index:
+                rows[day] = held.loc[self.name, ["value", "traded_value", "days"]].tolist()
+            else:
+                value = traded.at[day, self.name] if self.name in traded.columns else None
+                rows[day] = [0.0, value, 0.0]
+
+        found = pd.DataFrame.from_dict(rows, orient="index",
+                                       columns=["value", "traded_value", "days_to_sell"])
+
+        return found.astype(float).rename_axis("DATE")
+
+    def _comparator(self) -> str | None:
+        """The comparator active figures are measured against."""
+        against: str | None = self._against or self._context.tracked
+
+        return against
+
+    def _rebalances(self) -> list[pd.Timestamp]:
+        """The run's rebalances."""
+        reference = self._context.run.tables.get(REFERENCE)
+
+        if reference is None or reference.empty:
+            return []
+
+        return sorted(pd.Timestamp(day) for day in reference.index.get_level_values(0).unique())
+
     def _days(self) -> pd.DatetimeIndex:
         """The analysis window's days, or `Unavailable` when it has none."""
         days = pd.DatetimeIndex(self._context.performance.returns.index)
@@ -212,8 +340,34 @@ class Profile:
 
 def columns_of(table: pd.DataFrame) -> list[Column]:
     """The label and unit of each of a part's columns, in its order."""
-    return [Column(str(name), LABELS[str(name)], None if name == REMOVED else FRACTION)
+    return [Column(str(name), LABELS[str(name)],
+                   None if name == REMOVED else UNITS.get(str(name), FRACTION))
             for name in table.columns]
+
+
+def liquidity_of(context: Any) -> LiquidityAnalytics:
+    """The run's liquidity under the analysis's options: measured from the
+    data store when it is loaded, else from the traded values the run
+    kept."""
+    options = context.options.liquidity
+
+    return LiquidityAnalytics(context.run, context.source, participation=options.participation,
+                              lookback_days=options.lookback_days)
+
+
+def liquidity_dates(liquidity: LiquidityAnalytics) -> list[pd.Timestamp]:
+    """The dates the run kept traded values on, or `Unavailable`."""
+    try:
+        dates: list[pd.Timestamp] = liquidity.dates()
+    except KeyError as error:
+        code = RUN_PREDATES if TRADED_VALUES in str(error) else NO_DATA_STORE
+
+        raise Unavailable(code) from error
+
+    if not dates:
+        raise Unavailable(TOO_SHORT)
+
+    return dates
 
 
 def _linked(daily: pd.DataFrame,
@@ -254,4 +408,4 @@ def _column(weights: pd.DataFrame,
     return weights[name].fillna(0.0)
 
 
-__all__ = ["ACTIVE", "LABELS", "Profile", "columns_of"]
+__all__ = ["ACTIVE", "LABELS", "Profile", "columns_of", "liquidity_dates", "liquidity_of"]

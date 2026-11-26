@@ -21,7 +21,7 @@ from typing import Any
 import pandas as pd
 
 from ...data.fetcher import DataFetcher
-from ...strategy.factors import Factor
+from ...strategy.factors import Factor, default_factors
 from ..attribution.analytics import Attribution
 from ..class_panels import CLASS_DAYS
 from ..data import RunData
@@ -31,7 +31,7 @@ from ..performance.crises import NAMED_CRISES, CrisisAnalytics
 from ..performance.portfolio import PortfolioAnalytics
 from ..performance.regimes import RegimeAnalytics
 from ..performance.relative_analytics import RelativeAnalytics
-from ..risk import factor_store
+from ..risk import factor_store, risk_store
 from ..risk.concentration import ConcentrationAnalytics
 from ..risk.contributions import RiskOverTime
 from ..risk.factors import FactorAnalytics
@@ -250,12 +250,22 @@ class Context:
     def keep_work(self,
                   folder: Path) -> bool:
         """Keep the factor work this context did with the run in *folder*,
-        so a later analysis of it does not do it again; False when it did
-        none, or its factors cannot be kept."""
+        so a later analysis of it does not do it again, and, when it fitted
+        the risk model, each name's expected risk at every rebalance
+        (`name_risk`); False when it did none, or its factors cannot be
+        kept."""
         if "factor_analytics" not in self.__dict__:
             return False
 
-        return factor_store.keep(self.factor_analytics, folder)
+        kept = factor_store.keep(self.factor_analytics, folder)
+
+        # BN-470: when the analysis fitted the risk model, the rebalances it
+        # did not fit are fitted here, so a name's profile never waits.
+        if "risk_over_time" in self.__dict__ and self.risk_over_time.models.estimated():
+            kept = risk_store.keep(self.name_risk, self._factors(),
+                                   self.options.risk_model.settings(), folder) or kept
+
+        return kept
 
     @cached_property
     def loss(self) -> RiskOfLoss:
@@ -266,6 +276,26 @@ class Context:
     def risk_over_time(self) -> RiskOverTime:
         """The run's expected and measured risk."""
         return RiskOverTime(self.factor_analytics, settings=self.options.risk_model.settings())
+
+    @cached_property
+    def name_risk(self) -> pd.DataFrame:
+        """Each name's contribution to and share of the fund's expected
+        volatility, and of its expected tracking error against each
+        comparator, at each rebalance (`beacon.analysis.risk.risk_store`):
+        as kept with a stored run for this risk model, else worked out."""
+        settings = self.options.risk_model.settings()
+
+        if self.folder is not None:
+            kept = risk_store.restore(self._factors(), settings, self.folder)
+
+            if kept is not None:
+                return kept
+
+        return risk_store.name_risk(self.risk_over_time)
+
+    def _factors(self) -> list[Factor]:
+        """The factors the analysis measures, as its factor work is keyed."""
+        return list(self.factors) if self.factors is not None else default_factors()
 
     @cached_property
     def concentration(self) -> ConcentrationAnalytics:

@@ -270,7 +270,9 @@ class TestAName_sProfile:
         daily = found["parts"]["daily_weights"]
         fund = [row[0] for row in daily["data"]]
 
-        assert set(found["parts"]) == set(kept.parts) and found["unavailable"] == {}
+        # The run is too short for its risk model (BN-470).
+        assert set(found["parts"]) == set(kept.parts) - {"risk"}
+        assert list(found["unavailable"]) == ["risk"]
         assert [column["name"] for column in daily["columns"]] == list(kept.daily_weights.columns)
         assert daily["dates"][0] == kept.daily_weights.index[0].strftime("%Y-%m-%d")
         assert fund == pytest.approx(kept.daily_weights["fund"].tolist(), rel=1e-12)
@@ -278,6 +280,8 @@ class TestAName_sProfile:
                                                                               "index")
         assert found["parts"]["rebalance_weights"]["columns"][0] == {
             "name": "target", "label": "Target", "unit": "fraction"}
+        assert found["parts"]["liquidity"]["columns"][0] == {
+            "name": "value", "label": "Holding", "unit": "money"}
 
     def test_its_contribution_by_period(self,
                                         client,
