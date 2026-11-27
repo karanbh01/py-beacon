@@ -203,7 +203,7 @@ Calculation   IndexCalculator.run() -> IndexResult
      |        levels, divisor, what each rebalance decided, daily weights
      v
 Backtest      Backtest.run() -> BacktestResult
-              the portfolio's books, compared with the index it tracked
+              the portfolio, compared with the index it tracked
 ```
 
 1. **Methodology.** An `IndexDefinition` holds the rules: a universe of
@@ -223,11 +223,13 @@ Backtest      Backtest.run() -> BacktestResult
    then call `run(definition, start, end)` for each index. It calculates the
    index, reusing a cached calculation when it can, and hands the weights to
    `BacktestEngine`, which trades towards them on each rebalance (sells before
-   buys). The `BacktestResult` keeps the portfolio's books on
-   `result.portfolio`, the calculated index on `result.index`, and the
-   benchmark, when one was given, on `result.benchmark`. `summary()` gives
-   the headline metrics and `against(other)` compares the run with anything
-   that has a level series.
+   buys). The `BacktestResult` keeps the portfolio on
+   `result.portfolio`, the calculated index on `result.index`, the
+   benchmark, when one was given, on `result.benchmark`, the vehicle's
+   records on `result.fund`, what the engine did at each rebalance on
+   `result.trading`, and every calculation on the run on `result.analytics`.
+   `summary()` gives the headline metrics and `against(other)` compares the
+   run with anything that has a level series.
 
 Funds, derivatives, the optimiser, risk models and analytics all build on
 these results. [Concepts](concepts/overview.md) walks through each part.

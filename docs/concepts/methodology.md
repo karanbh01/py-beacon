@@ -451,7 +451,7 @@ Four things trigger that:
   (`IndexCalculator.adjust_divisor_for_rebalance`).
 - **A delisting.** A holding whose reference record ends (`DATE_TO`) is
   removed on the first session after that date, and the divisor is rescaled
-  by the book's value without it over its value with it, both on the last
+  by the holdings' value without it over their value with it, both on the last
   day it had a price. The survivors' weights grow in proportion. On a
   rebalance day this happens before the outgoing holdings are valued. See
   [Universe](universe.md#delistings).
@@ -489,7 +489,7 @@ Two data gaps do not move the divisor:
   never had a bar is valued at zero, and if no holding can be valued the
   previous level is carried forward.
 - If every holding would be delisted at once, the holdings are kept and an
-  error is logged, rather than emptying the index. If the book cannot be
+  error is logged, rather than emptying the index. If the holdings cannot be
   valued on the leaver's last day, the leaver is removed without a divisor
   adjustment and the level steps, with a warning.
 

@@ -132,8 +132,8 @@ for vehicle in (uk_oeic(management_fee_bps=15),
     result = Backtest(initial_capital=10_000_000.0, transaction_cost_bps=10.0,
                       flows=flows, vehicle=vehicle, data_provider=fetcher,
                       ).run(definition, start="2023-01-03", end="2024-12-31")
-    paid_in = sum(flow.adjustment for flow in result.flows)
-    print(vehicle.name, round(result.nav_per_unit.iloc[-1], 4),
+    paid_in = sum(flow.adjustment for flow in result.fund.flows)
+    print(vehicle.name, round(result.fund.nav_per_unit.iloc[-1], 4),
           "paid in by dealing investors:", round(paid_in, 2))
 ```
 
@@ -361,11 +361,15 @@ listed = Backtest(initial_capital=50_000_000.0, transaction_cost_bps=5.0,
                   data_provider=fetcher,
                   ).run(definition, start="2023-01-03", end="2024-12-31")
 
-print(listed.market[["premium", "spread", "bid", "ask"]].tail(3))
-print({name: round(value, 6) for name, value in listed.market_summary().items()})
+vehicle = listed.analytics.portfolio.vehicle
+
+print(listed.fund.etf.market[["premium", "spread", "bid", "ask"]].tail(3))
+print({name: round(value, 6) for name, value in vehicle.market_summary().items()})
 ```
 
-`result.market` holds each day's quote, and `market_summary()` (also part of
+`result.fund.etf.market` holds each day's quote (`result.fund.etf` is `None`
+for a fund that is not an ETF), and
+`result.analytics.portfolio.vehicle.market_summary()` (also part of
 `summary()`) gives the exchange investor's return and the average premium and
 spread. Each flow's `creation_units` says how many units it was.
 

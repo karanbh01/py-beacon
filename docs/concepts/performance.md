@@ -55,22 +55,22 @@ print(performance.total_return(by="year"))   # a Series, a year a row
 ```python
 from beacon.analysis.performance import PerformanceAnalytics
 
-analytics = PerformanceAnalytics(result.run_data)
+analytics = PerformanceAnalytics(result.analytics.run_data)
 print(analytics.headline())   # total_return 0.457, sharpe_ratio 1.53, ...
 print(analytics.summary())    # with the monthly hit rate and tracking figures
 ```
 
 The analytics read a `RunData`, everything the analysis of a run needs:
-`result.run_data` for a finished run. Written to a folder, it reads back
-exactly as it was, whatever has happened to the data since, so a run stored
-months ago gives the same figures as when it finished.
+`result.analytics.run_data` for a finished run. Written to a folder, it reads
+back exactly as it was, whatever has happened to the data since, so a run
+stored months ago gives the same figures as when it finished.
 
 ```python
 from pathlib import Path
 
 from beacon.analysis import RunData
 
-result.run_data.write(Path("stored-run"))
+result.analytics.run_data.write(Path("stored-run"))
 stored = PerformanceAnalytics(RunData.from_record(Path("stored-run")))
 print(stored.headline() == analytics.headline())   # True
 ```
@@ -90,7 +90,7 @@ Every field left as None takes the run's own.
 ```python
 from beacon.analysis.performance import AnalysisSettings
 
-year = PerformanceAnalytics(result.run_data,
+year = PerformanceAnalytics(result.analytics.run_data,
                             AnalysisSettings(start="2024-01-01", risk_free_rate=0.04))
 print(year.headline()["sharpe_ratio"])
 ```
@@ -273,7 +273,7 @@ counts a normal distribution of the same mean and spread would give.
 
 The `return_distribution` statistic counts the fund's, the index's and the
 benchmark's returns into the same bins, so they can be drawn on one chart.
-Each book's count is a share of its returns. A `normal` column gives the
+Each portfolio's count is a share of its returns. A `normal` column gives the
 share a normal distribution of the fund's mean and standard deviation would
 put in each bin. The returns are daily unless the `histogram_horizon` setting
 (in the `returns` options) asks for more days. Each return then compounds that
@@ -429,7 +429,7 @@ starts after the run, the run's first day does too.
 ```python
 from beacon.analysis.performance import RelativeAnalytics
 
-relative = RelativeAnalytics(result.run_data, levels)
+relative = RelativeAnalytics(result.analytics.run_data, levels)
 print(relative.regression())
 print(relative.capture(), relative.batting_average())
 ```
@@ -467,10 +467,12 @@ alpha, by contrast, is a total over the window with no risk-free rate.
 ```python
 from beacon.analysis.performance import CrisisAnalytics, RegimeAnalytics
 
-crises = CrisisAnalytics(result.run_data, levels, market=levels, threshold=0.05)
+run = result.analytics.run_data
+
+crises = CrisisAnalytics(run, levels, market=levels, threshold=0.05)
 print(len(crises.crises()), crises.summary())
 
-regimes = RegimeAnalytics(result.run_data, levels, market=levels).regimes()
+regimes = RegimeAnalytics(run, levels, market=levels).regimes()
 print(regimes["down months"])
 ```
 

@@ -75,6 +75,7 @@ nav:
   - Serving data: serving-data.md
   - Server guide: server.md
   - Gallery: gallery.md
+  - Moving to 0.11.0: moving-to-0.11.md
   - Reference:
       - reference/index.md
       - Indices: reference/indices.md

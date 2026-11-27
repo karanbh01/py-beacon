@@ -47,6 +47,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 - `result.assumptions`: what the run assumed, every field resolved, as `modelling_assumptions` was.
 - `result.trading`: what the engine did at each rebalance (`beacon.backtest.trading_record`): its `steps`, `pricing`, `unfilled` orders and their `unfilled_value`, `price_gaps` and `total_costs`, and an `IndexTracking` run's `replication` or an `ActiveStrategy`'s `active` record, each None for another strategy. `UnfilledOrder` and `RebalancePricing` live there now, and are still importable from `beacon.backtest`.
 - Two modelling assumptions, `min_annualised_rate_window` (`"1Y"` unless set) and `min_annualised_ratio_window` (`"6M"`), the shortest windows an annualised rate and an annualised ratio are given over. Each run records them, `AnalysisSettings` overrides them for one analysis, and `"0M"` turns one off.
+- A docs page, Moving to 0.11.0, with every 0.10.0 path on a backtest result and its replacement, the renamed names, and the changes that cannot warn. The docs pages and example notebooks use the 0.11.0 paths, and the backtest analysis notebook has a step on `result.analytics` and a report's display.
 
 ### Changed
 

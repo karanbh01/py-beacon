@@ -250,7 +250,7 @@ applies an expression inside a backtest. Pass it in the backtest's
 rebalance the screen resolves the expression for each target name as of the
 rebalance date, and a name that fails is removed from the target: sold if
 held, never bought, and its weight redistributed. Money fields are in the
-book's currency.
+portfolio's currency.
 
 ```python
 from beacon.backtest import BacktestEngine, ExpressionScreen, Implementation

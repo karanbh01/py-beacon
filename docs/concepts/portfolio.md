@@ -11,10 +11,13 @@ groups, its turnover, its costs, the characteristics of what it held, its
 income and flows, and the figures particular to an ETF, a fund with share
 classes or one holding index futures.
 
-A finished backtest carries it as `result.portfolio_analytics`. For a stored
-run, build it from the run's data: `PortfolioAnalytics(RunData.from_record(folder))`.
-It reads the run's tables (`result.run_data.tables`), which are built the
-first time any is asked for.
+Build it from a run's data: `PortfolioAnalytics(result.analytics.run_data)`
+for a finished backtest, `PortfolioAnalytics(RunData.from_record(folder))` for
+a stored run. It reads the run's tables (`result.analytics.run_data.tables`),
+which are built the first time any is asked for. A finished backtest also
+gives these figures as statistics, a method each, in the `holdings`,
+`trading`, `flows`, `income` and `vehicle` categories of
+`result.analytics.portfolio` (see [performance](performance.md#a-runs-analytics)).
 
 ## Weights and groups
 
@@ -39,15 +42,17 @@ backtest = Backtest(initial_capital=1_000_000.0, transaction_cost_bps=5.0,
                     data_provider=dataset.data_fetcher())
 result = backtest.run(definition, start="2023-01-03", end="2024-12-31")
 
-portfolio = result.portfolio_analytics
+from beacon.analysis.performance import PortfolioAnalytics
+
+portfolio = PortfolioAnalytics(result.analytics.run_data)
 print(portfolio.weights().tail(1))          # dates by name
 print(portfolio.holdings_count().iloc[-1])  # 5
 print(portfolio.group_weights("SECTOR").tail(1))
 ```
 
-`weights(book)` is a portfolio's daily weights, dates by name, for `fund`,
+`weights(of)` is a portfolio's daily weights, dates by name, for `fund`,
 `index` or `benchmark`. It is None for a portfolio the run kept no weights
-for, such as a benchmark given as a level series. `holdings_count(book)` is
+for, such as a benchmark given as a level series. `holdings_count(of)` is
 how many names it held each day.
 `holdings_range()` gives the fewest and most names each portfolio held on
 any day of the run, and how many it held on the last. `holdings_distribution()`
@@ -55,7 +60,7 @@ gives how many days the fund held each number of names, with each count's
 share of the run's days. Both count every day, not only rebalances, so a name
 that stops trading between rebalances lowers the count until the next one.
 
-`group_weights(field, book)` adds the weights up by a grouping field of the
+`group_weights(field, of)` adds the weights up by a grouping field of the
 run's reference data: `SECTOR`, `CURRENCY` and `EXCHANGE` in the sample, and
 whatever else the data gives. A name's group on a day is the one it had at
 the latest rebalance on or before that day, and a name with no group recorded
@@ -100,7 +105,8 @@ equal = IndexDefinition(
     rebalancing_frequency="QUARTERLY", calendar="XNYS",
     universe_identifiers=["AAA", "BBB", "CCC", "DDD", "EEE"],
 )
-trading = backtest.run(equal, start="2023-01-03", end="2024-12-31").portfolio_analytics
+rebalanced = backtest.run(equal, start="2023-01-03", end="2024-12-31")
+trading = PortfolioAnalytics(rebalanced.analytics.run_data)
 
 print(trading.turnover("rebalance")[["one_way", "two_way"]].round(4))
 print(trading.turnover("year")[["one_way", "two_way"]].round(4))
@@ -125,8 +131,8 @@ year, and 0 one-way.
 
 Each trade has **one reason**, the event that triggered it, and **a set of
 tags**: the reason, what it implies, and anything else that shaped it. The
-run's trades table (`result.run_data.tables["trades"]`) has both, as `REASON`
-and `TAGS` (joined by `"; "`).
+run's trades table (`result.analytics.run_data.tables["trades"]`) has both, as
+`REASON` and `TAGS` (joined by `"; "`).
 
 | Reason | The trade was made |
 | --- | --- |

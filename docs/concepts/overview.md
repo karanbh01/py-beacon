@@ -81,10 +81,12 @@ held on every day, and a report for each rebalance where a weight cap bound.
 
 `Backtest` calculates the index (reusing a cached calculation when it can)
 and simulates a portfolio trading towards its weights, with transaction
-costs. The `BacktestResult` keeps the portfolio's books on
+costs. The `BacktestResult` keeps the portfolio on
 `result.portfolio` and the index on `result.index`, so the two can be
-compared. The portfolio's NAV generally differs from the index level, even
-without costs; [Backtest](backtest.md) explains why.
+compared, with the vehicle's records on `result.fund`, what the engine did
+at each rebalance on `result.trading`, and every calculation on the run on
+`result.analytics`. The portfolio's NAV generally differs from the index
+level, even without costs; [Backtest](backtest.md) explains why.
 
 ## Built on top
 

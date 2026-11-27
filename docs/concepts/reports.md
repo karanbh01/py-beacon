@@ -193,7 +193,7 @@ writes a non-empty DataFrame, index included, to one sheet. The sheet is
 named after `report_title` with spaces replaced by underscores and cut to 30
 characters, or `PerformanceData` when the title is `None`. It raises
 `ValueError` for an empty frame or anything that is not a DataFrame. A
-backtest's NAV works well here: `result.trading_nav.to_frame("nav")` (see
+backtest's NAV works well here: `result.fund.trading_nav.to_frame("nav")` (see
 [Backtest](backtest.md)).
 
 `report_path` can be a string or a `pathlib.Path`. If it does not end in

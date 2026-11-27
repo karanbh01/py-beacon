@@ -9,12 +9,17 @@ The [risk model](risk-model.md) page covers `beacon.risk`, the library that
 estimates how assets move together from a returns panel. This page covers
 `beacon.analysis.risk`, which applies it to a finished run: what the
 portfolio was exposed to, how much it could lose, where its risk came from,
-how concentrated and how liquid it was. It is reached as `result.risk` on a
-[backtest](backtest.md) result.
+how concentrated and how liquid it was. A [backtest](backtest.md) result
+gives its figures as statistics, a method each, on
+`result.analytics.portfolio.risk`: `value_at_risk()`, `expected_risk()`,
+`risk_contributions()`, `herfindahl()`, `days_to_sell()` and the rest. This
+page builds the classes beneath them from the run's data, which shows each
+part in full and takes other choices.
 
 ```python
 import logging
 
+from beacon.analysis.risk.analytics import RiskAnalytics
 from beacon.backtest import Backtest
 from beacon.index.constructor import IndexDefinition
 from beacon.index.methodology import MarketCapWeighted
@@ -32,11 +37,11 @@ definition = IndexDefinition(
 backtest = Backtest(initial_capital=1_000_000.0, transaction_cost_bps=5.0,
                     data_provider=dataset.data_fetcher())
 result = backtest.run(definition, start="2023-01-03", end="2024-12-31")
-risk = result.risk
+risk = RiskAnalytics(result.analytics.run_data, dataset.data_fetcher())
 ```
 
-`result.risk` is a `RiskAnalytics` with five parts, each worked out the first
-time it is read and kept:
+`RiskAnalytics(run, source)` reads the run's data and the data source the run
+read. It has five parts, each worked out the first time it is read and kept:
 
 | Part | Class | Answers |
 | --- | --- | --- |
@@ -46,8 +51,9 @@ time it is read and kept:
 | `risk.concentration` | `ConcentrationAnalytics` | Concentration by weight, by risk and by outcome |
 | `risk.liquidity` | `LiquidityAnalytics` | How fast the portfolio could be sold |
 
-The factors and traded values are measured from the data the run read, so a
-result that kept no data source raises `ValueError` on `result.risk`.
+The factors and traded values are measured from that data source, so the
+statistics on `result.analytics.portfolio.risk` that read them need a result
+that kept the source it was run on.
 
 ## Factors
 
@@ -222,8 +228,10 @@ section:
 | `weekly` | `True` | Whether the global model is fitted on weekly returns, or on `window` sessions of daily ones |
 | `weeks` | 104 | Weeks of returns before each rebalance, for the weekly model |
 
-`result.risk` uses the defaults. For other choices, build a `RiskOverTime`
-on the run's factors:
+`RiskAnalytics` uses the defaults unless given `risk_model=`, and
+`result.analytics.portfolio.risk` uses the choices of the analysis the run
+was asked for. For other choices, build a `RiskOverTime` on the run's
+factors:
 
 ```python
 from beacon.analysis.risk.contributions import RiskOverTime
@@ -245,7 +253,7 @@ over_time.group_contributions(day, "SECTOR")
 over_time.measured()            # over the run, from its returns
 ```
 
-`expected(date, book="fund", against="index")` holds the portfolio at its
+`expected(date, of="fund", against="index")` holds the portfolio at its
 weights at the close of the rebalance. The model's covariance is
 `B F Bᵀ + D`, so the variance splits exactly into a factor part and a
 specific part:
@@ -262,13 +270,13 @@ specific part:
 
 `summary()` is `expected` at every rebalance in `dates()`.
 
-`forecast_check(book="fund", against="index")` sets each rebalance's
+`forecast_check(of="fund", against="index")` sets each rebalance's
 expected volatility and tracking error beside the ones measured over the days
 after it, up to and including the next rebalance (or the run's last day):
 `days`, `expected_volatility`, `realised_volatility`, `volatility_ratio`
 (realised over expected, above 1 where the model under-forecast) and the same
 three for the tracking error, left out when `against` is None.
-`bias_statistics(book="fund", against="index")` pools the days: each day's
+`bias_statistics(of="fund", against="index")` pools the days: each day's
 return (or active return) over the daily forecast in force at the close
 before, and the standard deviation of those. It is 1 when the forecasts were
 right on average; with `n` days its standard error is about `1/√(2n)`.
@@ -278,7 +286,7 @@ over_time.forecast_check().round(4)
 over_time.bias_statistics()     # {"volatility": ..., "tracking_error": ...}
 ```
 
-`contributions(date, book="fund", against=None)` splits the expected
+`contributions(date, of="fund", against=None)` splits the expected
 volatility by name (or, with `against`, the expected tracking error):
 `weight`, `marginal` (the change in volatility per unit of weight),
 `contribution` (weight times marginal, adding up to the volatility) and
@@ -325,7 +333,7 @@ left out:
 | `names_for_50`, `names_for_80`, `names_for_90` | The fewest names making that share of the portfolio |
 | `gini`, `entropy`, `entropy_effective_number` | With `optional=True`: the Gini coefficient, `-Σ w_i ln w_i` and its exponential |
 
-`by_weight` takes `book` (`"fund"`, `"index"`, `"benchmark"`), `field` for
+`by_weight` takes `of` (`"fund"`, `"index"`, `"benchmark"`), `field` for
 group weights and `daily=True` for every day; `against("index")` is the
 fund's figures less the index's. `curve(date)` lists the names largest
 first with each one's weight, the cumulative weight, and the Herfindahl and
@@ -388,7 +396,7 @@ for others, build one directly:
 ```python
 from beacon.analysis.risk.liquidity import LiquidityAnalytics
 
-cautious = LiquidityAnalytics(result.run_data, dataset.data_fetcher(),
+cautious = LiquidityAnalytics(result.analytics.run_data, dataset.data_fetcher(),
                               participation=0.05)
 cautious.profile(horizons=(1, 2))
 ```

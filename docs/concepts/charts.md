@@ -30,7 +30,7 @@ changes every setting on sample charts and shows the code for each change.
 | `IndexResult` | `weights(date=None)` | Constituent weights at a rebalance (the latest by default), with the weight cap marked |
 | `BacktestResult` | `performance()` | Growth of 100 with a linked drawdown panel beneath |
 | `BacktestResult` | `constituents(limit=8)` | The same chart for the index the run tracked |
-| `BacktestResult` | `annual_returns()` | Calendar-year returns as green and red bars, each year from the previous year's close and the first from the initial capital (the same figures as `get_annual_returns()`) |
+| `BacktestResult` | `annual_returns()` | Calendar-year returns as green and red bars, each year from the previous year's close and the first from the initial capital (the same figures as `result.analytics.portfolio.performance.total_return(by="year")`) |
 | `AttributionResult` | `contributions()` | Each constituent's contribution to return, with the cap and cost drags in the notes |
 | `OptimisationResult` | `exposures()` | Active weights (optimal minus target), with tracking error and turnover |
 | `OptimisationResult` | `frontier(frontier, risk_free_rate=None)` | An efficient frontier, its minimum-variance and tangency points and the capital market line |

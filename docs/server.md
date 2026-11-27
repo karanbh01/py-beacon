@@ -120,10 +120,10 @@ capital and the trading cost, and, optionally, every other part of a
 | Field | What it says |
 | --- | --- |
 | `flows` | Money arriving and leaving, as a list of scenarios, or with share classes a list for each class by name. |
-| `share_classes` | The fund's share classes, sharing one book: each a `name`, and optionally a `currency`, `hedged`, `hedge_ratio`, `hedge_band`, `hedge_cost_bps`, `management_fee_bps` and `distribution`. With classes, `initial_capital` is by class name, each in its class's currency. See [Funds](concepts/funds.md). |
+| `share_classes` | The fund's share classes, sharing one portfolio: each a `name`, and optionally a `currency`, `hedged`, `hedge_ratio`, `hedge_band`, `hedge_cost_bps`, `management_fee_bps` and `distribution`. With classes, `initial_capital` is by class name, each in its class's currency. See [Funds](concepts/funds.md). |
 | `vehicle` | A preset (`uk_oeic`, `ucits_etf`, ..., or null for the generic vehicle) and the settings to change. See [Fund vehicles and pricing](concepts/fund-vehicles.md). |
 | `modelling_assumptions` | What the run takes as given; each unset field takes the engine's default. |
-| `dividends`, `reinvest_into`, `currency` | The dividend policy, where a reinvested dividend goes (`payer`, the name that paid it, by default, or `holdings`, in proportion to value), and the book's currency. |
+| `dividends`, `reinvest_into`, `currency` | The dividend policy, where a reinvested dividend goes (`payer`, the name that paid it, by default, or `holdings`, in proportion to value), and the portfolio's currency. |
 
 A request without them runs exactly as one with only the dates, capital and
 cost. A body carrying `strategy` or `implementation` is refused: those are
@@ -132,7 +132,7 @@ and `GET /backtest/options` lists every type with its fields, and every setting 
 request can carry, `run_settings` describing the dates, capital, cost,
 currency, dividends and benchmark: their types,
 defaults, choices, units (`fraction` is shown as a percentage, `money` is in
-the book's currency) and bounds. It needs no data.
+the portfolio's currency) and bounds. It needs no data.
 
 A field whose `type` is `json` names the shape it takes in `ref`, a schema
 under `components.schemas` in `/openapi.json`, so an editor can offer rows or a
@@ -168,9 +168,9 @@ so a flow is not drawn as a gain.
 
 With share classes the result carries `share_classes`, one record per class
 in the request's order, and `hedge_value`, the hedged classes' forwards
-together in the book's currency. A class's record is in its own currency, its
+together in the portfolio's currency. A class's record is in its own currency, its
 series on `level`'s dates: its net assets (and `book_net_assets`, in the
-book's currency, which add up to the fund's), units, NAV per unit, the fees
+portfolio's currency, which add up to the fund's), units, NAV per unit, the fees
 and distributions of each day and their totals, its flows as dealt, and for a
 hedged class its `hedge_value` and each trade of its `hedges`. Its `metrics`
 give its total return, tracking difference and tracking error against the
@@ -192,7 +192,7 @@ of NAV) and each of `futures_rolls`: the date, the new `expiry`, the
 `contracts` held and their `price` (each contract on one unit of the index,
 so contracts times price is the `notional`), the roll's `cost` and the
 `dividend_yield` it was priced with. These share `level`'s dates, money is in
-the book's currency, and each is null or empty for a fund without them.
+the portfolio's currency, and each is null or empty for a fund without them.
 
 A run's `comparisons` compare it with its `index` (the index it tracked, or the
 one an active strategy is built against) and its `benchmark` (the request's
@@ -321,7 +321,7 @@ universe's total market cap at the rebalance: a universe has no weighting of
 its own, so this is its free-float market cap over the total where the index
 weights by free-float market cap, its full market cap otherwise. A constituent
 preview's assets carry the same `universe_weight`. A held weight is the units at the day's
-price over the day's NAV, what the book recorded. A run saved before 0.9.3 has
+price over the day's NAV, what the portfolio recorded. A run saved before 0.9.3 has
 no saved stages: its rows show the index's weights alone until it is run
 again.
 
@@ -573,7 +573,7 @@ contents depend on the code.
 | 422 | `INVALID_IDENTIFIER` | An id that cannot be used, for example one containing `/`, or a name reserved for an endpoint. |
 | 422 | `INVALID_EXPRESSION` | A malformed expression. |
 | 422 | `INVALID_ARGUMENT` | A request that cannot be answered as put, such as an end date before the start, an unknown price interval or price column, an adjusted series without `CLOSE`, more than 1,000 identifiers at once, a futures expiry before its valuation date, or a query parameter that takes one value given more than once. A list parameter, such as `fields`, may be repeated or comma-separated. |
-| 422 | `FROZEN_PORTFOLIO` | An attempt to change a finished backtest's books. |
+| 422 | `FROZEN_PORTFOLIO` | An attempt to change a finished backtest's portfolio. |
 | 500 | `CALCULATION_ERROR` | A calculation refused deliberately; the message says what to change. |
 | 500 | `UNEXPECTED_CALCULATION_FAILURE` | Something failed that should not have. `detail.original_type` names the exception, so a crash can be told from a refusal. |
 | 500 | `CONFIGURATION_ERROR`, `REPORTING_ERROR`, `NO_DATA_SOURCE`, `BEACON_ERROR` | Other failures inside the engine. |

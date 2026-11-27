@@ -14,7 +14,7 @@ is the simulation underneath it, and `BacktestResult` is what both return.
 
 ## Running a backtest
 
-`Backtest` holds what stays fixed across runs (capital, costs, the book's
+`Backtest` holds what stays fixed across runs (capital, costs, the portfolio's
 currency, the [implementation](#implementation-screens-and-redistribution),
 the [flows and vehicle](#flows-units-and-the-fee),
 [modelling assumptions](#modelling-assumptions), modifiers, a benchmark, the
@@ -80,8 +80,8 @@ day it:
    ignored.
 2. **Accrues** interest on the cash and the vehicle's management fee since
    the last session, and receives any [dividends](#dividends) due.
-3. **Marks** every holding at that day's price, converted into the book's
-   currency.
+3. **Marks** every holding at that day's price, converted into the
+   portfolio's currency.
 4. **Settles delistings.** A holding past its last listed date (reference
    data's `DATE_TO`) is sold into cash at the last price the portfolio saw,
    with no transaction cost: an acquisition or a failure is not a trade
@@ -94,7 +94,7 @@ day it:
    needs nothing from the engine. On any other day it invests an inflow and
    works orders an execution limit left.
 7. **Records** the day: positions, weights, cash and NAV go into the
-   portfolio's books, after paying what fee the cash allows.
+   portfolio's records, after paying what fee the cash allows.
 
 A rebalance first removes stale names from the target (see
 [Prices](#prices)), then asks each modifier whether to skip, generates the
@@ -113,17 +113,17 @@ plus market impact when the implementation sets one (see
 
 Buys are sized so that they and their costs fit the cash the sells leave:
 when they would need more, they are scaled down together. A rebalance
-therefore fills in full and leaves the book fully invested, short of its
+therefore fills in full and leaves the portfolio fully invested, short of its
 target weights only by the costs.
 
 A buy the cash still cannot cover (a modifier enlarged it, say) is
 **partially filled**: the engine buys what the cash affords, cost included,
-and records the rest as an `UnfilledOrder` in `result.unfilled` with the
+and records the rest as an `UnfilledOrder` in `result.trading.unfilled` with the
 reason `"cash"`. If what the cash affords is worth less than 0.01, nothing is
 bought and the order is recorded with a filled quantity of zero.
 
 A target name that cannot be priced on the day (one already delisted, say)
-is not bought. It is recorded in `unfilled` with the reason `"no price"`, a
+is not bought. It is recorded in `result.trading.unfilled` with the reason `"no price"`, a
 requested quantity of zero and, as its shortfall, the value the rebalance
 aimed to hold; its weight stays in cash.
 
@@ -133,7 +133,7 @@ The run steps onto the sessions of the definition's `calendar`. A rebalance
 date in the schedule that is not a session (a holiday in a schedule built on
 another venue's calendar, or written by hand) is still traded, on the date it
 names, at the prices of the last session on or before it. The date also gets
-its own row in the NAV series. `result.rebalance_pricing` holds one
+its own row in the NAV series. `result.trading.pricing` holds one
 `RebalancePricing(date, priced_from)` per rebalance that went ahead; the two
 dates differ only when the market was shut. A skipped rebalance has no row.
 
@@ -146,7 +146,7 @@ The engine reads the `CLOSE` column unless `price_column` says otherwise, and
 refuses before the first trade if the data has no such column.
 
 **Currency.** Prices are stored in each name's listing currency (reference
-data's `CURRENCY`). Each is converted into the book's currency with the FX
+data's `CURRENCY`). Each is converted into the portfolio's currency with the FX
 rate on or before the day. A missing rate raises `CalculationError` rather
 than valuing the holding unconverted.
 
@@ -157,7 +157,7 @@ resolves to the name's last bar on or before it:
   nothing is recorded.
 - If the calendar says it was **open**, the data has a hole. The last price
   is carried forward and recorded as a `PriceGap(date, asset_id, priced_from)`
-  in `result.price_gaps`, one per name per day.
+  in `result.trading.price_gaps`, one per name per day.
 
 A date outside the data's coverage raises `CalculationError`. A delisted name
 is never carried forward past its last listed date.
@@ -174,7 +174,7 @@ no threshold (the default) nothing is removed.
 
 A holding is entitled to a cash distribution if it is held at the start of
 the ex-date, before that day's trades. The cash arrives on the pay date (the
-ex-date when the data gives none), converted into the book's currency that
+ex-date when the data gives none), converted into the portfolio's currency that
 day and net of withholding tax: by the fund's domicile and the dividend's
 source country when the vehicle has a domicile (see
 [withholding tax](fund-vehicles.md#structures-and-presets)), otherwise at
@@ -187,25 +187,26 @@ From the ex-date until it is paid, the dividend is a receivable: the NAV
 includes it, at the day's exchange rate and net of withholding tax, as a
 fund's accounts do, so the NAV does not dip on the ex-date and recover on the
 pay date. It is not cash, so nothing is bought with it until it arrives.
-`result.dividends_receivable` holds it for each day.
+`result.fund.dividends.receivable` holds it for each day.
 
 `Backtest(dividends=...)` decides what happens to the cash:
 
 | Policy | The cash |
 | --- | --- |
 | `"reinvest"` (default) | is invested the day it arrives: in the name that paid it, or across the holdings in proportion to their value with `reinvest_into="holdings"` |
-| `"cash"` | stays in the book as cash and is invested at the next rebalance |
-| `"distribute"` | is paid out of the book; returns add it back, so performance is still total return |
+| `"cash"` | stays in the portfolio as cash and is invested at the next rebalance |
+| `"distribute"` | is paid out of the portfolio; returns add it back, so performance is still total return |
 
-`"reinvest"` and `"cash"` both keep the income in the book, as an
+`"reinvest"` and `"cash"` both keep the income in the portfolio, as an
 accumulating share class does, and differ only in when it is invested.
 `"distribute"` pays it out, as a distributing share class does. `"cash"`
 avoids a round of small trades, and their costs, on every pay date.
 
 Each payment is a `CashFlow` in `result.portfolio.cash_flows`: a `DIVIDEND`
 per name paid, and a negative `DISTRIBUTION` when the cash is paid out. With
-`"distribute"`, `trading_nav` is the NAV after the payout, while
-`get_returns()` and `summary()` add the payout back.
+`"distribute"`, `result.fund.trading_nav` is the NAV after the payout, while
+`result.analytics.portfolio.performance.returns()` and `summary()` add the
+payout back.
 
 ## Implementation: screens and redistribution
 
@@ -219,19 +220,19 @@ changing the index. Each rebalance runs as stages:
 3. **Redistribution**: the removed weight is spread across the remaining
    names in proportion to their weights (`redistribution="pro_rata"`, the
    default), or left in cash (`redistribution="cash"`).
-4. **Capacity**: each name is cut to its [caps](#capacity) at the book's
-   size, and positions too small to keep are dropped.
+4. **Capacity**: each name is cut to its [caps](#capacity) at the
+   portfolio's size, and positions too small to keep are dropped.
 5. **Trades**, generated from the result, then any [modifiers](#modifiers).
 
 | Screen | Removes a name when |
 | --- | --- |
-| `MarketCapScreen(min_cap, exit=None, float_adjusted=False)` | its market cap, in the book's currency, is below the level |
-| `LiquidityScreen(min_traded_value=..., exit=None, lookback_days=63)` | its average daily close times volume, in the book's currency, is below the level |
+| `MarketCapScreen(min_cap, exit=None, float_adjusted=False)` | its market cap, in the portfolio's currency, is below the level |
+| `LiquidityScreen(min_traded_value=..., exit=None, lookback_days=63)` | its average daily close times volume, in the portfolio's currency, is below the level |
 | `LiquidityScreen(min_volume=..., exit=None, lookback_days=63)` | its average daily share volume is below the level |
-| `MinimumPriceScreen(min_price, exit=None)` | its last close, in the book's currency, is below the level |
+| `MinimumPriceScreen(min_price, exit=None)` | its last close, in the portfolio's currency, is below the level |
 | `ListingAgeScreen(min_days)` | fewer than `min_days` calendar days have passed since its first price in the data |
 | `ExclusionScreen(identifiers=..., sectors=..., regions=...)` | it is listed, or its `SECTOR` or `REGION` on the date is |
-| `ExpressionScreen(expression, on_missing=False)` | it fails the [expression](expressions.md); money fields are in the book's currency |
+| `ExpressionScreen(expression, on_missing=False)` | it fails the [expression](expressions.md); money fields are in the portfolio's currency |
 
 **Buffers.** The threshold screens take an optional `exit` level below the
 entry level. A name not held must reach the entry level to come in; a held
@@ -259,12 +260,12 @@ screened = Backtest(
     ]),
 ).run(definition, start="2023-01-03", end="2024-12-31")
 
-first = screened.rebalance_steps[0]
+first = screened.trading.steps[0]
 print(first.removed)                         # {'CCC': 'ExpressionScreen'}
 print({name: round(weight, 3) for name, weight in first.weights.items()})
 ```
 
-`result.rebalance_steps` records each rebalance's stages as a
+`result.trading.steps` records each rebalance's stages as a
 `RebalanceStep`: the `target`, the names `removed` and the screen that
 removed each (`"stale price"` for a stale one, `"MinimumPosition"` for one
 too small to keep), the names `capped` and the weight each was cut to, the
@@ -274,14 +275,14 @@ re-evaluated at every rebalance from data dated on or before it.
 ### Capacity
 
 A cap limits a position without excluding the name, measured against the
-book's value at each rebalance, so a position shrinks smoothly as the fund
+portfolio's value at each rebalance, so a position shrinks smoothly as the fund
 grows rather than vanishing at a threshold.
 
 | Cap | A position's value is at most |
 | --- | --- |
 | `OwnershipCap(max_share)` | `max_share` of the name's free-float market cap |
 | `LiquidityCap(days, participation=0.2, lookback_days=63)` | `days` times its average daily traded value times `participation` |
-| `WeightCap(max_weight)` | `max_weight` of the book |
+| `WeightCap(max_weight)` | `max_weight` of the portfolio |
 
 Each name is held at no more than its tightest cap. The excess of a capped
 name is spread across the names still under their caps, in proportion to
@@ -303,7 +304,7 @@ large = Backtest(
         minimum_position=MinimumPosition(weight=0.01)),
 ).run(definition, start="2023-01-03", end="2024-12-31")
 
-print(large.rebalance_steps[0].capped)
+print(large.trading.steps[0].capped)
 ```
 
 ### Costs and execution
@@ -316,7 +317,7 @@ impact = coefficient x daily volatility x sqrt(trade value / average daily trade
 ```
 
 as a fraction of the trade's value, with the volatility and the traded value
-measured over the `lookback_days` before the trade, in the book's currency.
+measured over the `lookback_days` before the trade, in the portfolio's currency.
 A name with no history or no volume pays no impact. Without impact a
 backtest's return does not depend on its size; with it, the same weights
 cost a large fund more, in proportion to the square root of its size.
@@ -328,7 +329,7 @@ What cannot trade on the rebalance day is a working order, traded on the
 following sessions under the same limit, sells before buys and buys no
 further than the cash. A new rebalance replaces any order still working,
 and a replaced order, or one still working when the run ends, is recorded
-in `unfilled` with the reason `"execution limit"`. A volume of 0 means
+in `result.trading.unfilled` with the reason `"execution limit"`. A volume of 0 means
 nothing trades that day. A blank volume is replaced by the last one reported,
 if no older than `volume_backfill_days` in the
 [modelling assumptions](#modelling-assumptions), and otherwise by the name's
@@ -360,7 +361,7 @@ vehicles. Pass one scenario or a list, which are added together:
 | `RandomFlows(drift=0.05, volatility=0.2, seed=1)` | A normal share of the assets each flow day, with annual drift and volatility, seeded |
 | `PerformanceChasingFlows(sensitivity=0.1, lookback_days=63)` | `base + sensitivity x` the trailing return, as a share of the assets |
 
-Amounts are in the book's currency, positive in and negative out. A periodic
+Amounts are in the portfolio's currency, positive in and negative out. A periodic
 scenario flows on the first simulated day of each period after the first day
 of the run, which the initial capital already funds.
 
@@ -382,8 +383,8 @@ then by selling every holding pro rata. It is paid the day it is dealt, so
 those sales are not held back by an execution limit, and one larger than the
 fund is cut to the fund. The trading costs of a flow are borne by the fund.
 
-**Cash buffer.** `Implementation(cash_buffer=0.02)` keeps 2% of the book in
-cash: each rebalance invests the rest, an inflow tops the buffer up before
+**Cash buffer.** `Implementation(cash_buffer=0.02)` keeps 2% of the portfolio
+in cash: each rebalance invests the rest, an inflow tops the buffer up before
 buying, and an outflow draws on it first. Add `equitise=IndexFutures()` and
 the fund holds index futures on the cash it keeps uninvested, so the buffer
 earns the index's return rather than cash's (see
@@ -396,7 +397,7 @@ delisted holding's proceeds, is covered.
 **Cash band.** Between rebalances the cash moves: a delisted holding is
 settled into it, a dividend kept as cash lands in it, fees and margin are
 paid from it. `Implementation(cash_buffer=0.01, cash_band=(0.005, 0.02))`
-checks it at the close of every day. Above 2% of the book, the cash above the
+checks it at the close of every day. Above 2% of the portfolio, the cash above the
 buffer is invested, as an inflow is; below 0.5%, holdings are sold pro rata
 back up to the buffer; inside the band nothing is traded. Without a band
 (the default) the cash waits for the next rebalance. With
@@ -424,8 +425,8 @@ growing = Backtest(
     vehicle=Vehicle(management_fee_bps=20, launch_price=100.0),
 ).run(definition, start="2023-01-03", end="2024-12-31")
 
-print(growing.aum.iloc[-1], growing.nav_per_unit.iloc[-1])
-print(len(growing.flows), "flows;",
+print(growing.fund.aum.iloc[-1], growing.fund.nav_per_unit.iloc[-1])
+print(len(growing.fund.flows), "flows;",
       round(growing.summary()["money_weighted_return"], 4), "money-weighted")
 ```
 
@@ -453,8 +454,8 @@ drifting = Backtest(
     modifiers=[DriftThresholdModifier(0.02)],
 ).run(definition, start="2023-01-03", end="2024-12-31")
 
-print("Rebalances traded:", len(drifting.rebalance_pricing),
-      "of", len(result.rebalance_pricing))
+print("Rebalances traded:", len(drifting.trading.pricing),
+      "of", len(result.trading.pricing))
 ```
 
 The drift run trades only its first rebalance. Share counts never change in
@@ -463,52 +464,58 @@ portfolio's do and there is never more than 2 points to correct.
 
 ## Reading the result
 
-`BacktestResult` keeps the books whole rather than flattening them into
+`BacktestResult` keeps each portfolio whole rather than flattening it into
 fields. Each comparator is a `PortfolioRecord` with the same surface: `levels`,
 `weights` (dates by identifiers) and `returns`.
 
 | Attribute | What it holds |
 |---|---|
 | `result.portfolio` | The simulated `Portfolio`, frozen: `nav`, `cash`, `positions`, `weights`, `transactions`, `initial_capital` |
-| `result.trading_nav` | `portfolio.nav` without its opening row (initial capital on the eve of the first trading day), net of any fee owed and including a synthetic fund's swap: one row per simulated day. Also `result.aum`. |
-| `result.nav_per_unit` | The NAV over the units outstanding: a unit's performance, whatever money flowed |
-| `result.units_outstanding` | Units outstanding each simulated day |
-| `result.flows` | Each flow as dealt: `date`, `amount`, `nav_per_unit` and the `units` created or cancelled |
-| `result.fees_payable` | The management fee owed and not yet paid at the end of each day |
-| `result.swap_value`, `result.swap_resets`, `result.counterparty_exposure` | For a [synthetic fund](strategies.md#synthetic-replication): its swap's value each day, each reset, and what it would lose if the counterparty failed, as a share of NAV. Empty otherwise. |
-| `result.futures_notional`, `result.futures_rolls`, `result.futures_exposure` | For a fund holding [index futures](strategies.md#futures-based-replication), futures-based or equitising its buffer: the exposure they carried each day, each roll and its cost, and the exposure as a share of NAV. Empty otherwise. |
+| `result.fund` | The vehicle's recorded data, below |
+| `result.fund.trading_nav` | `portfolio.nav` without its opening row (initial capital on the eve of the first trading day), net of any fee owed and including a synthetic fund's swap: one row per simulated day. Also `result.fund.aum`. |
+| `result.fund.nav_per_unit` | The NAV over the units outstanding: a unit's performance, whatever money flowed |
+| `result.fund.units_outstanding` | Units outstanding each simulated day |
+| `result.fund.flows` | Each flow as dealt: `date`, `amount`, `nav_per_unit` and the `units` created or cancelled |
+| `result.fund.fees.payable`, `result.fund.fees.paid` | The management fee owed and not yet paid at the end of each day, and the fee paid over the run |
+| `result.fund.swap` | For a [synthetic fund](strategies.md#synthetic-replication), its swap: `value` each day, each of its `resets`, and `counterparty_exposure`, what the fund would lose if the counterparty failed, as a share of NAV. `None` otherwise. |
+| `result.fund.futures` | For a fund holding [index futures](strategies.md#futures-based-replication), futures-based or equitising its buffer: the `notional` exposure they carried each day, each of its `rolls` and its cost, and the `exposure` as a share of NAV. `None` otherwise. |
 | `result.index.target` | The calculated index being aimed at. Its `source` is the `IndexResult`. |
 | `result.index.optimised` | The optimised index's own calculation, on an optimised run; otherwise `None` |
-| `result.index.tracked` | The book the engine traded toward: `optimised` if present, else `target` |
+| `result.index.tracked` | The index the engine traded toward: `optimised` if present, else `target` |
 | `result.benchmark` | The benchmark of record, when `benchmark=` was given (an `IndexResult` or a level series) |
-| `result.unfilled` | Orders not filled in full, each with its `reason`: `"cash"`, `"no price"` or `"execution limit"` |
-| `result.price_gaps` | Days a name was marked at a carried price on an open session |
-| `result.rebalance_pricing` | The session each rebalance priced from |
+| `result.trading` | What the engine did at each rebalance, below |
+| `result.trading.unfilled` | Orders not filled in full, each with its `reason`: `"cash"`, `"no price"` or `"execution limit"` |
+| `result.trading.price_gaps` | Days a name was marked at a carried price on an open session |
+| `result.trading.pricing` | The session each rebalance priced from |
+| `result.assumptions` | The [modelling assumptions](#modelling-assumptions) the run used, every field resolved |
+| `result.analytics` | Every calculation on the run, by portfolio and category: `result.analytics.portfolio.performance`, `.risk`, `.relative` and so on |
 
 ```python
-print(result.trading_nav.tail(3))
+print(result.fund.trading_nav.tail(3))
 print(result.index.target.levels.tail(3))
 print(len(result.portfolio.transactions), "transactions,",
-      len(result.unfilled), "unfilled orders,",
-      len(result.price_gaps), "price gaps")
+      len(result.trading.unfilled), "unfilled orders,",
+      len(result.trading.price_gaps), "price gaps")
 ```
 
 `summary()` returns total and annualised return, volatility, Sharpe ratio
 (over the run's `ModellingAssumptions.risk_free_rate`, 0 unless set),
 maximum drawdown and, when the run tracked an index, `tracking_error` and
 `tracking_difference`; with flows, every figure is a unit's and `money_weighted_return` is added. Returns are daily and annualised
-over 252 periods. `get_tracking_error()` is the annualised standard deviation
-of daily NAV returns minus `index.tracked` returns; `get_tracking_difference()`
-is the cumulative NAV return minus the cumulative index return.
+over 252 periods. `result.analytics.portfolio.relative.tracking_error()` is
+the annualised standard deviation of daily NAV returns minus `index.tracked`
+returns; `relative.tracking_difference()` is the cumulative NAV return minus
+the cumulative index return.
 
-Every metric starts from the initial capital. `get_returns()` has one return
-per simulated day, and the first runs from the capital to the first day's
+Every metric starts from the initial capital.
+`result.analytics.portfolio.performance.returns()` has one return per
+simulated day, and the first runs from the capital to the first day's
 close, so the cost of the opening trades is in the tracking metrics,
 volatility and maximum drawdown, as it is in `total_return`. On that first day
 the index's return is zero, since it starts at its base level.
 
 `result.against(other)` compares the NAV (per unit, with flows) with any
-other result, book,
+other result, portfolio record,
 `IndexResult` or level series and returns excess return, tracking error, beta
 and correlation. It stores nothing, so the benchmark of record stays what the
 run was given. `result.asset("AAA")` gives one name's trades, holding periods
@@ -516,7 +523,7 @@ and weight against target. For charts, see `result.plot`.
 
 ## Index level and NAV
 
-At zero cost, for a price-return index with the book in the index's
+At zero cost, for a price-return index with the portfolio in the index's
 currency, the NAV follows the index exactly: it is the index level rescaled
 to the initial capital, and the two agree to about 15 significant digits.
 There is no tracking error to explain.
@@ -525,7 +532,7 @@ There is no tracking error to explain.
 exact = Backtest(initial_capital=1000.0, data_provider=fetcher).run(
     definition, start="2023-01-03", end="2024-12-31")
 
-nav = exact.trading_nav
+nav = exact.fund.trading_nav
 level = exact.index.target.levels.reindex(nav.index)
 print("Largest daily gap:", float((nav / level - 1).abs().max()))
 ```
@@ -533,16 +540,16 @@ print("Largest daily gap:", float((nav / level - 1).abs().max()))
 Differences come from what the index does not model or models differently:
 
 - **Costs.** The index trades for free.
-- **Fees, flows and cash.** A vehicle's management fee lowers the NAV, a cash buffer holds part of the book out of the market, and trading for flows costs the fund; the index has none of these. Compare a unit's NAV, not the NAV, when money flowed.
-- **Execution.** Costs leave the book a little under its target weights,
+- **Fees, flows and cash.** A vehicle's management fee lowers the NAV, a cash buffer holds part of the portfolio out of the market, and trading for flows costs the fund; the index has none of these. Compare a unit's NAV, not the NAV, when money flowed.
+- **Execution.** Costs leave the portfolio a little under its target weights,
   an execution limit trades into them over several days, and a name with no
   price leaves its weight in cash.
 - **Distributions.** A `TOTAL_RETURN` or `NET_TOTAL_RETURN` index reinvests
-  a dividend on its ex-date. The book counts it in its NAV from the ex-date,
+  a dividend on its ex-date. The portfolio counts it in its NAV from the ex-date,
   but is paid it on the pay date and, by default, reinvests it then, so
-  until it is paid the dividend earns nothing in the book. The two agree
+  until it is paid the dividend earns nothing in the portfolio. The two agree
   exactly when the pay date is the ex-date. A `PRICE` index leaves dividends
-  out, so a book that keeps them beats it by about the dividend yield. With `dividends="cash"` the book holds the cash until the
+  out, so a portfolio that keeps them beats it by about the dividend yield. With `dividends="cash"` the portfolio holds the cash until the
   next rebalance (see [Dividends](#dividends)). Set `withholding_tax_rate` to
   the index's rate to track a net-total-return index.
 - **Price gaps.** On an open session with no bar, both carry the name's last
@@ -550,18 +557,18 @@ Differences come from what the index does not model or models differently:
   separate them.
 - **Delistings between rebalances.** The engine settles into cash and holds
   it until the next rebalance.
-- **Currency.** A book kept in a different currency from the index sees
+- **Currency.** A portfolio kept in a different currency from the index sees
   exchange-rate moves the index does not (see below).
-- **Modifiers.** A skipped rebalance or a screened-out name leaves the book
+- **Modifiers.** A skipped rebalance or a screened-out name leaves the portfolio
   away from the index's weights.
 
-## The book's currency
+## The portfolio's currency
 
-The simulated book is kept in the index's currency: a GBP index's backtest
+The simulated portfolio is kept in the index's currency: a GBP index's backtest
 values its holdings, cash, costs and NAV in pounds, so its NAV follows the
-level. `result.currency` says which currency a run's book is in.
+level. `result.fund.currency` says which currency a run's portfolio is in.
 
-Pass `Backtest(currency=...)` to keep the book in another currency, as a
+Pass `Backtest(currency=...)` to keep the portfolio in another currency, as a
 dollar investor tracking a sterling index would. The NAV then picks up the
 GBP/USD moves the index does not see, which shows in the tracking figures:
 
@@ -578,12 +585,13 @@ in_gbp = Backtest(initial_capital=1000.0,
                   data_provider=fetcher).run(sterling, end="2024-12-31")
 in_usd = Backtest(initial_capital=1000.0, currency="USD",
                   data_provider=fetcher).run(sterling, end="2024-12-31")
-print(in_gbp.currency, in_usd.currency)   # GBP USD
-print(in_gbp.get_tracking_error() < in_usd.get_tracking_error())   # True
+print(in_gbp.fund.currency, in_usd.fund.currency)   # GBP USD
+print(in_gbp.analytics.portfolio.relative.tracking_error()
+      < in_usd.analytics.portfolio.relative.tracking_error())   # True
 ```
 
 An index that does not record its currency, such as one built by hand, gets
-a book in USD.
+a portfolio in USD.
 
 ## Modelling assumptions
 
@@ -598,7 +606,7 @@ data, so a result can say what it assumed. Every field is optional:
 | `cash_rate` | 0 | The annual rate cash earns, accrued daily, ACT/365 |
 | `risk_free_rate` | 0 | The rate the Sharpe ratio is measured against |
 | `periods_per_year` | 252 | How returns, volatility and tracking error are annualised |
-| `withholding_tax_rate` | 0 | The share of each dividend withheld before the book receives it |
+| `withholding_tax_rate` | 0 | The share of each dividend withheld before the portfolio receives it |
 | `volume_backfill_days` | 5 | How many calendar days a name's last reported volume stands in for a blank one under an execution limit |
 | `min_annualised_rate_window` | `"1Y"` | The shortest window a rate compounded or scaled to a year is given over: the annualised return, alpha, and the Calmar, Martin, Sterling, Burke and Treynor ratios. `"0M"` gives it over any window |
 | `min_annualised_ratio_window` | `"6M"` | The same for a ratio scaled by the square root of a year: the Sharpe, Sortino, information and Lo Sharpe ratios |
@@ -620,13 +628,13 @@ use_modelling_assumptions(ModellingAssumptions(fx_policy="EXACT_DAY"))
 earning = Backtest(initial_capital=1_000_000.0, data_provider=fetcher,
                    modelling_assumptions=ModellingAssumptions(cash_rate=0.02)
                    ).run(definition, end="2024-12-31")
-print(earning.modelling_assumptions.fx_policy,
-      earning.modelling_assumptions.cash_rate)   # EXACT_DAY 0.02
+print(earning.assumptions.fx_policy,
+      earning.assumptions.cash_rate)   # EXACT_DAY 0.02
 
 use_modelling_assumptions(None)   # back to nothing set
 ```
 
-`result.modelling_assumptions` records every field resolved: unset data
+`result.assumptions` records every field resolved: unset data
 treatment filled from the data source, unset conventions from the defaults.
 Interest on cash appears in `result.portfolio.cash_flows`, one `CashFlow` per
 day, beside the trades in `transactions`.
@@ -709,7 +717,7 @@ engine_result = BacktestEngine(
     index_result=schedule, calendar="XNYS",
 ).run()
 
-for row in engine_result.rebalance_pricing:
+for row in engine_result.trading.pricing:
     print(row.date.date(), "priced from", row.priced_from.date())
 ```
 

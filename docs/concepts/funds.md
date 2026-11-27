@@ -45,7 +45,7 @@ result = fund.backtest(end="2024-12-31",
                        flows={"Acc": PeriodicFlows(fraction=0.01)},
                        transaction_cost_bps=2.0, data_provider=fetcher)
 
-for name, share_class in result.share_classes.items():
+for name, share_class in result.fund.share_classes.items():
     print(name, round(share_class.total_return(), 6),
           round(share_class.net_assets.iloc[-1]))
 ```
@@ -55,15 +55,15 @@ distribution policy: an accumulating class keeps its income in the fund and a
 distributing class pays it out. The classes share one pool of assets, as a
 real fund's do: `fund.backtest()` runs the fund once with every class, each
 with its own capital and flows (by class name; one number for a fund of one
-class), and their money trades one book, so capacity caps, market impact and
+class), and their money trades one portfolio, so capacity caps, market impact and
 execution limits see the whole fund.
 
-Each day the book's gains, losses and income are split between the classes
+Each day the portfolio's gains, losses and income are split between the classes
 in proportion to their net assets at the previous close. Then what belongs to
 one class reaches it alone: its fee, accrued on its own net assets; its flows,
 dealt at its own NAV per unit (moved by the vehicle's swing or levy, which the
 fund's net flow sets); and, for a distributing class, its share of the
-dividends, paid out. `result.share_classes` holds each class's book: its net
+dividends, paid out. `result.fund.share_classes` holds each class's record: its net
 assets, units, NAV per unit, fees, distributions and flows, with
 `get_returns()` and `total_return()` per unit, distributions added back. The
 result itself is the whole fund's.
@@ -73,16 +73,16 @@ The same works without a `Fund`: pass `share_classes=` to `Backtest`, with
 
 ### Classes in another currency, hedged or not
 
-A class can be denominated in another currency from the fund's book:
+A class can be denominated in another currency from the fund's portfolio:
 `ShareClass("EUR", currency="EUR")`. Its capital, flows, fees and distributions
 are in its own currency, converted at each day's rate, and its NAV per unit
-moves with the book's return and the exchange rate together. Its
-`book_net_assets` gives its net assets in the book's currency, so the classes
+moves with the portfolio's return and the exchange rate together. Its
+`book_net_assets` gives its net assets in the portfolio's currency, so the classes
 still add up to the fund.
 
 A hedged class takes the currency move out:
-`ShareClass("EUR H", currency="EUR", hedged=True)`. It sells the book's currency
-forward for its own, in the amount of its net assets times `hedge_ratio` (1 by
+`ShareClass("EUR H", currency="EUR", hedged=True)`. It sells the portfolio's
+currency forward for its own, in the amount of its net assets times `hedge_ratio` (1 by
 default):
 
 - **Pricing.** Each forward is priced at covered interest parity from the
@@ -95,7 +95,7 @@ default):
   size leaves the hedge ratio by more than `hedge_band` (3% by default; `None`
   turns resizing off).
 - **Settlement.** A roll or resize settles the old forward in cash, as a
-  `"HEDGE"` cash flow. A loss is paid by selling across the book and a gain is
+  `"HEDGE"` cash flow. A loss is paid by selling across the portfolio and a gain is
   invested across it, so the other classes are not left holding the hedged
   class's cash.
 - **Cost.** `hedge_cost_bps` (0 by default) is charged on the notional each
@@ -106,11 +106,11 @@ default):
 
 The forward's gains and losses are the hedged class's alone, and its open
 value is part of its net assets and of the fund's NAV
-(`result.hedge_value`). A hedged class earns the book's return plus the
+(`result.fund.hedging.value`). A hedged class earns the portfolio's return plus the
 interest rate differential: a euro class hedged out of dollars at 3% against
-5% gives up about 2% a year. `share_classes[name].hedges` lists each trade
+5% gives up about 2% a year. `result.fund.share_classes[name].hedges` lists each trade
 with its reason (`"open"`, `"roll"` or `"band"`), and `hedge_value` its daily
-value. A class hedged into the book's own currency is refused.
+value. A class hedged into the portfolio's own currency is refused.
 
 A class is measured against the index in its own currency.
 `index_in_class_currency(levels, "USD", "EUR", data)` in
@@ -118,7 +118,7 @@ A class is measured against the index in its own currency.
 an unhedged class. With `hedge_ratio=` it hedges the index the way the class
 hedges: at the first session of each month the index's value is sold forward
 for the class's currency, at covered interest parity from the same short
-rates, at the class's hedge ratio. `class_tracking(book, benchmark)` gives
+rates, at the class's hedge ratio. `class_tracking(share_class, benchmark)` gives
 the class's total return, tracking difference and tracking error against it,
 defined as a backtest's are. Against the hedged index, a hedged class's
 tracking difference is its fees, costs and hedge slippage, not the 2% a year
@@ -131,23 +131,26 @@ from beacon.backtest.class_benchmark import class_tracking, index_in_class_curre
 # benchmark is the index as it is. For a euro class hedged out of dollars it
 # would be index_in_class_currency(levels, "USD", "EUR", fetcher, hedge_ratio=1.0).
 levels = result.index.tracked.levels
-book = result.share_classes["I Acc"]
-benchmark = index_in_class_currency(levels, "USD", book.currency, fetcher)
+share_class = result.fund.share_classes["I Acc"]
+benchmark = index_in_class_currency(levels, "USD", share_class.currency, fetcher)
 
-print(class_tracking(book, benchmark))  # total_return, tracking_difference, tracking_error
+print(class_tracking(share_class, benchmark))  # total_return, tracking_difference, tracking_error
 ```
 
 ## Tracking a fund against its index
 
-A fund's backtest is measured against the index it tracked.
-`get_tracking_difference()` is the run's cumulative return minus the index's
-over the period, not annualised. `get_tracking_error()` is the annualised
+A fund's backtest is measured against the index it tracked, in
+`result.analytics.portfolio.relative`. `tracking_difference()` is the run's
+cumulative return minus the index's over the period, not annualised.
+`tracking_error()` is the annualised
 standard deviation of the daily return differences, which measures how
 consistently the fund follows the index rather than how far it falls behind.
 
 ```python
-print("Tracking difference:", round(result.get_tracking_difference(), 6))
-print("Tracking error:", f"{result.get_tracking_error():.2e}")
+relative = result.analytics.portfolio.relative
+
+print("Tracking difference:", round(relative.tracking_difference(), 6))
+print("Tracking error:", f"{relative.tracking_error():.2e}")
 ```
 
 The functions in `beacon.analysis` measure any pair of return series, such as
@@ -161,7 +164,7 @@ from beacon.analysis import (
     calculate_tracking_error,
 )
 
-nav = result.nav_per_unit
+nav = result.fund.nav_per_unit
 index_levels = result.index.target.levels.reindex(nav.index)
 
 fund_returns = nav.pct_change().dropna()
@@ -172,7 +175,7 @@ print("Tracking difference:",
 print("Tracking error:",
       f"{calculate_tracking_error(fund_returns, index_returns):.2e}")
 print("Premium or discount:",
-      round(calculate_premium_discount(result.market["market_price"].iloc[-1],
+      round(calculate_premium_discount(result.fund.etf.market["market_price"].iloc[-1],
                                        nav.iloc[-1]), 6))
 ```
 

@@ -15,8 +15,8 @@ it, and both with the property that the parts must add to the whole.
 weights held, and the constituents' returns, all per period. Build them from
 an `IndexResult` and prices. This example uses a capped market-cap index over
 the five US-dollar names in the sample dataset, so local prices need no FX.
-For a backtest, `result.attribution` does all of this from the run's own
-records; see [A run's attribution](#a-runs-attribution).
+For a backtest, `Attribution(result.analytics.run_data)` does all of this from
+the run's own records; see [A run's attribution](#a-runs-attribution).
 
 ```python
 from beacon.analysis import attribute, cap_drag, cost_drag, drifted_weights
@@ -148,17 +148,22 @@ attribution.cap_drag, attribution.cost_drag
 
 ## A run's attribution
 
-A backtest result carries its own attribution: `result.attribution` is an
-`Attribution` (`beacon.analysis.attribution.Attribution`) over the records the
-run kept, so there are no weights or prices to rebuild. It reads each book's
-daily weights, each name's daily total return in the fund's currency, the
-reference data at each rebalance, and the run's cash and costs.
+A backtest result carries the records its attribution needs, so there are no
+weights or prices to rebuild: `Attribution(result.analytics.run_data)`
+(`beacon.analysis.Attribution`) reads them. It reads each portfolio's daily
+weights, each name's daily total return in the fund's currency, the
+reference data at each rebalance, and the run's cash and costs. The run's
+figures are also statistics on `result.analytics.portfolio.attribution`, a
+method each: `contribution()`, `active_attribution()`, `brinson()`,
+`currency_attribution()`, `factor_attribution()` and
+`implementation_breakdown()`, each a table as the run's analysis gives it.
+This section covers the class, which gives each result in full.
 
-A book is `"fund"`, `"index"` (the index the fund tracked), `"optimised"`
+A portfolio is `"fund"`, `"index"` (the index the fund tracked), `"optimised"`
 (the optimised index, for a strategy that tracks one) or `"benchmark"` (the
 benchmark of record). Every method takes `start` and `end`, both
 included, and covers the whole run by default. The days are linked as above:
-by Carino's `ln(1+R)/R` for one book's return, and for a return over a
+by Carino's `ln(1+R)/R` for one portfolio's return, and for a return over a
 comparator by the active factor
 
     k_t = (ln(1+R_t) - ln(1+R^b_t)) / (R_t - R^b_t)
@@ -172,6 +177,7 @@ series has no weights, so every method that reads them raises a `KeyError`
 against it; only the returns-based factor attribution works there.
 
 ```python
+from beacon.analysis import Attribution
 from beacon.index.methodology import EqualWeighted
 
 equal = IndexCalculator(IndexDefinition(index_id="EQUAL",
@@ -190,18 +196,19 @@ run = Backtest(initial_capital=1_000_000.0,
                transaction_cost_bps=10.0,
                benchmark=equal,
                data_provider=fetcher).run(definition, end="2024-06-28")
+run_attribution = Attribution(run.analytics.run_data)
 
-run.attribution.contribution().to_frame()                   # each name
-run.attribution.contribution("benchmark", field="SECTOR").to_frame()
-run.attribution.active("benchmark").to_frame()
+run_attribution.contribution().to_frame()           # each name
+run_attribution.contribution("benchmark", field="SECTOR").to_frame()
+run_attribution.active("benchmark").to_frame()
 ```
 
 ### By name and by group
 
-`contribution(book="fund", field=None)` is each name's contribution to a
-book's return, as an `AttributionResult` like `attribute()`'s. With `field`, a
-column of the reference data the run kept (`SECTOR`, `CURRENCY` and
-`EXCHANGE` in the sample), it is each group's instead: a name counts in the
+`contribution(of="fund", field=None)` is each name's contribution to a
+portfolio's return, as an `AttributionResult` like `attribute()`'s. With
+`field`, a column of the reference data the run kept (`SECTOR`, `CURRENCY`
+and `EXCHANGE` in the sample), it is each group's instead: a name counts in the
 group it was in at the close before, which is its group at the last rebalance
 before the day, and a group's return is what its names earned over what it
 held.
@@ -230,7 +237,7 @@ close before and `R` and `R^b` their returns, by group `g` and in all:
 
 and the days are linked by the active factor. **Interaction has a line of its
 own** rather than being folded into selection, and **cash is a group of its
-own**: a book's weight in it is one less its names', and its return is the
+own**: a portfolio's weight in it is one less its names', and its return is the
 interest the fund earned over the cash it held at the close before.
 
 A group the fund does not hold takes the comparator's group return as its
@@ -243,13 +250,13 @@ The `BrinsonResult` carries `fund_return`, `comparator_return` and
 `explained` (what the effects add up to: the holdings' active return) and
 `residual` (the active return less that: costs, fees, dividends not yet paid,
 a price index's missing dividends), with `start`, `end` and `periods`.
-`groups` has a row a group: each book's mean weight and compounded return in
-it, each effect and their `total`, largest first. A group neither book held is
+`groups` has a row a group: each portfolio's mean weight and compounded return in
+it, each effect and their `total`, largest first. A group neither portfolio held is
 left out; cash is always shown. `totals` adds each effect over the groups, and
 `reconciles()` checks the residual against `1e-9`.
 
 ```python
-sectors = run.attribution.brinson("SECTOR", against="benchmark")
+sectors = run_attribution.brinson("SECTOR", against="benchmark")
 
 sectors.active_return, sectors.explained, sectors.residual
 sectors.groups[["allocation", "selection", "interaction", "total"]]
@@ -257,7 +264,7 @@ sectors.names.loc["Technology"]   # AAA and BBB, adding up to the group's row
 ```
 
 **`names` opens each group into its names**, indexed by group and name. With
-`W_g` and `B_g` the two books' weights in the group, `w_i` and `b_i` a name's
+`W_g` and `B_g` the two portfolios' weights in the group, `w_i` and `b_i` a name's
 and `r_i` its return:
 
     d_i           = (w_i / W_g - b_i / B_g) (r_i - R^b_g)
@@ -292,23 +299,24 @@ with `by_currency=True`, its `table` splits each part by the names'
 currencies. The sample's names are all in US dollars, so here it is all local.
 
 It returns an `EffectsResult`, as `factors()` and `implementation()` do:
-`total_return` (a book's compounded return, or the fund's less the
+`total_return` (a portfolio's compounded return, or the fund's less the
 comparator's), `effects` (each effect linked, largest first), `explained`,
 `residual`, `table` (empty unless a breakdown was asked for), `start`, `end`,
 `periods` and `reconciles()`.
 
 ```python
-run.attribution.currency(against="benchmark", by_currency=True).table
+run_attribution.currency(against="benchmark", by_currency=True).table
 ```
 
 ### Factors
 
 `factors(analytics, against=None, method="holdings")` explains the return by
-the run's factors. `analytics` is the run's `FactorAnalytics`,
-`run.risk.factors`: each name's exposures at each rebalance, standardised over
-the universe, and each day's factor returns, from a cross-sectional
+the run's factors. `analytics` is the run's `FactorAnalytics`
+(`beacon.analysis.risk.factors`), built from the run's data and the data
+source the run read: each name's exposures at each rebalance, standardised
+over the universe, and each day's factor returns, from a cross-sectional
 regression on those exposures, weighted by market cap, with a market
-intercept. `run.risk` needs the data source the run read.
+intercept. See [risk analysis](risk-analysis.md#factors).
 
 **Holdings-based** (`"holdings"`) splits every name's return as
 
@@ -331,10 +339,12 @@ method regresses the active return, with no risk-free rate taken off. Any
 other method raises a `ValueError`.
 
 ```python
-factors = run.risk.factors
+from beacon.analysis.risk.factors import FactorAnalytics
 
-run.attribution.factors(factors).effects
-run.attribution.factors(factors, method="returns").effects
+factors = FactorAnalytics(run.analytics.run_data, fetcher)
+
+run_attribution.factors(factors).effects
+run_attribution.factors(factors, method="returns").effects
 ```
 
 ### Implementation
@@ -369,7 +379,7 @@ day, whose close before is the starting capital all in cash, so the cost of
 buying in is counted; with a `start`, it starts from that day's close.
 
 ```python
-costs = run.attribution.implementation()
+costs = run_attribution.implementation()
 
 costs.total_return   # the tracking difference
 costs.effects        # here almost all fixed_costs: 10 bps on every trade
@@ -382,13 +392,13 @@ rebalance is then the difference between two methodologies, so it reads as
 
 ### Weights
 
-`weights(book="fund")` is a book's daily weights, dates by names, as every
+`weights(of="fund")` is a portfolio's daily weights, dates by names, as every
 method above reads them: names as strings, blanks as zero. It raises a
-`KeyError` if the run kept no weights for that book, as for a benchmark given
-as levels, or if the book is none of the four.
+`KeyError` if the run kept no weights for that portfolio, as for a benchmark
+given as levels, or if the portfolio is none of the four.
 
 ```python
-run.attribution.weights("benchmark").tail()
+run_attribution.weights("benchmark").tail()
 ```
 
 ## Risk contribution

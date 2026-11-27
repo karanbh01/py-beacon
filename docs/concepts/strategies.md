@@ -20,13 +20,13 @@ The strategy is what a [backtest](backtest.md) holds, whatever the
 The index itself is still calculated, and the run is measured against it:
 tracking error and difference compare the portfolio with the index, not with
 the replicated weights. At each rebalance the replication turns the index's
-weights into the weights the portfolio trades to, and `result.replication`
-records what it did.
+weights into the weights the portfolio trades to, and
+`result.trading.replication` records what it did.
 
 ## Optimised replication
 
 At each rebalance the covariance of the constituents is estimated from their
-trailing daily returns in the book's currency (`lookback_days=252` by
+trailing daily returns in the portfolio's currency (`lookback_days=252` by
 default), shrunk toward constant correlation. The optimiser then finds the
 long-only, fully invested weights closest to the index in tracking error,
 holding no more than `holdings` names and meeting any other `constraints`
@@ -77,8 +77,9 @@ backtest = Backtest(initial_capital=10_000_000.0, transaction_cost_bps=5.0,
 for replication in (OptimisedReplication(holdings=4), SampledReplication(holdings=4)):
     result = backtest.run(IndexTracking(definition, replication),
                           start="2024-01-02", end="2025-12-31")
-    print(replication.name, result.replication[0].holdings, "names,",
-          "tracking error", round(result.get_tracking_error(), 4))
+    print(replication.name, result.trading.replication[0].holdings, "names,",
+          "tracking error",
+          round(result.analytics.portfolio.relative.tracking_error(), 4))
 ```
 
 A `Fund` can hold its index through a replication too: pass the
@@ -105,7 +106,7 @@ The basket still shapes the result:
   unlike the index reaches the limit sooner, and each reset trades the basket.
 - **Counterparty exposure.** What the fund would lose if the counterparty
   failed: the swap's value when it is owed to the fund.
-  `result.counterparty_exposure` is that as a share of NAV each day.
+  `result.fund.swap.counterparty_exposure` is that as a share of NAV each day.
 - **Dividend tax.** The fund passes on the basket's dividends as it received
   them, after its own withholding, while the swap pays the index's return as
   the index measures it: price, total or net total return.
@@ -113,8 +114,8 @@ The basket still shapes the result:
   (`spread_bps`, a year) accrues on the notional every calendar day
   (ACT/360).
 
-The NAV includes the swap's value, and `result.swap_value` and
-`result.swap_resets` record it and each reset: the day, the value settled,
+The NAV includes the swap's value, and `result.fund.swap.value` and
+`result.fund.swap.resets` record it and each reset: the day, the value settled,
 why, and the new notional.
 
 ```python
@@ -125,9 +126,12 @@ synthetic = backtest.run(
     IndexTracking(definition, SyntheticReplication(basket, spread_bps=15.0)),
     start="2024-01-02", end="2025-12-31")
 
-print("tracking difference", round(synthetic.get_tracking_difference(), 4))
-print(len(synthetic.swap_resets), "resets, most exposure",
-      round(synthetic.counterparty_exposure.max(), 4))
+swap = synthetic.fund.swap
+
+print("tracking difference",
+      round(synthetic.analytics.portfolio.relative.tracking_difference(), 4))
+print(len(swap.resets), "resets, most exposure",
+      round(swap.counterparty_exposure.max(), 4))
 ```
 
 ## Futures-based replication
@@ -181,10 +185,10 @@ yield, less the cost of rolling.
   Each trade between rolls (opening the position and each resize) also pays
   `trading_cost_bps` on the notional it trades. Both are 0 by default.
 
-`result.futures_notional`, `result.futures_rolls` and
-`result.futures_exposure` record the position; `result.futures_trades` holds
-each trade with what it cost, and `result.futures_days` each day's contracts,
-price, fair value and index level. The same futures can
+`result.fund.futures` records the position: its `notional`, `rolls` and
+`exposure`, its `trades`, each with what it cost, and its `days`, each day's
+contracts, price, fair value and index level. It is `None` for a fund that
+held no futures. The same futures can
 equitise a physical fund's cash buffer: `Implementation(cash_buffer=0.03,
 equitise=IndexFutures())`.
 
@@ -198,9 +202,11 @@ futures = with_cash_rate.run(
     IndexTracking(definition, FuturesReplication(roll_cost_bps=2.0)),
     start="2024-01-02", end="2025-12-31")
 
-print("tracking difference", round(futures.get_tracking_difference(), 4))
-print(len(futures.futures_rolls), "rolls, costing",
-      round(sum(roll.cost for roll in futures.futures_rolls), 2))
+rolls = futures.fund.futures.rolls
+
+print("tracking difference",
+      round(futures.analytics.portfolio.relative.tracking_difference(), 4))
+print(len(rolls), "rolls, costing", round(sum(roll.cost for roll in rolls), 2))
 ```
 
 ## Active strategies
@@ -296,16 +302,17 @@ Active share is half the summed absolute differences from the benchmark's
 weights. The turnover limit is measured from the last rebalance's target
 weights, not from the drifted holdings.
 
-**Reporting.** `result.active` records each rebalance's weights, the
+**Reporting.** `result.trading.active` records each rebalance's weights, the
 benchmark's, the ex-ante tracking error, the active share, the scores, each
 holding's share of the portfolio's variance (`risk_contributions`) and what
 the construction reports (`exposures`, a factor tilt's active exposure to
 each factor).
 The summary adds the `information_ratio` (annualised active return over
 tracking error), the average active share and the average ex-ante tracking
-error, and `result.active_attribution()` says which names produced the active
-return: each name's active weight times its return, linked over the run, with
-costs and cash in the residual.
+error, and `result.analytics.portfolio.attribution.active_attribution()` says
+which names produced the active return, a row for each name and each group:
+its active weight times its return, linked over the run. Costs and cash are
+not attributed to any name.
 
 ```python
 from beacon.strategy import ActiveStrategy, MaxAlpha, Momentum, RelativeSectorBounds
@@ -319,7 +326,8 @@ active = backtest.run(momentum, start="2024-01-02", end="2025-12-31")
 summary = active.summary()
 print(round(summary["information_ratio"], 3),
       round(summary["average_active_share"], 3))
-print(active.active_attribution().contributions[0])
+attribution = active.analytics.portfolio.attribution.active_attribution()
+print(attribution.iloc[0])
 ```
 
 ```python
@@ -328,7 +336,7 @@ from beacon.strategy import RiskParity
 balanced = backtest.run(ActiveStrategy(benchmark=definition, construction=RiskParity(),
                                        rebalancing="QUARTERLY"),
                         start="2024-01-02", end="2025-12-31")
-shares = balanced.active[0].risk_contributions
+shares = balanced.trading.active[0].risk_contributions
 print(round(min(shares.values()), 3), round(max(shares.values()), 3))
 ```
 
