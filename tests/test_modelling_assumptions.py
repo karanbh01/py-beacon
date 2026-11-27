@@ -189,8 +189,11 @@ class TestTheSimulationConventions:
         """BN-405: the mean daily return in excess of the daily rate that
         compounds to the risk-free rate, over its spread, annualised."""
         returns = half_in_cash().get_returns()
+        # Over any window (BN-466): the run is shorter than the six months a
+        # Sharpe ratio is otherwise given over.
         four = half_in_cash(
-            modelling_assumptions=ModellingAssumptions(risk_free_rate=0.04)
+            modelling_assumptions=ModellingAssumptions(risk_free_rate=0.04,
+                                                       min_annualised_ratio_window="0M")
         ).summary()
         excess = returns - (1.04 ** (1 / 252) - 1)
 

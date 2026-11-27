@@ -328,10 +328,10 @@ class TestResultMetrics:
     def test_summary_has_core_metrics(self,
                                       zero_cost_result):
         summary = zero_cost_result.summary()
-        for key in ("total_return", "annualised_return", "volatility",
-                    "sharpe_ratio", "max_drawdown"):
-            assert key in summary
+        for key in ("total_return", "volatility", "max_drawdown"):
             assert summary[key] is not None
+        # BN-466: given, and blank over a run too short to annualise.
+        assert {"annualised_return", "sharpe_ratio"} <= set(summary)
 
     def test_summary_includes_tracking_metrics_with_target(self,
                                                            zero_cost_result):

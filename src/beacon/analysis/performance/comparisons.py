@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from ...data.base import as_of_position
+from ..annualising import left_blank
 from . import formulas
 
 
@@ -73,7 +74,8 @@ class Period:
 def comparison_of(returns: pd.Series,
                   comparator_levels: pd.Series,
                   periods_per_year: int,
-                  risk_free_rate: float = 0.0) -> Comparison | None:
+                  risk_free_rate: float = 0.0,
+                  annualising: tuple[str, str] | None = None) -> Comparison | None:
     """A run against a comparator over the days both have; None when they
     share fewer than two.
 
@@ -82,6 +84,9 @@ def comparison_of(returns: pd.Series,
         comparator_levels: The comparator's levels.
         periods_per_year: How many daily returns make a year.
         risk_free_rate: The annual rate Sharpe ratios are in excess of.
+        annualising: The shortest windows an annualised rate and ratio are
+            given over (`beacon.analysis.annualising`); over any window
+            when None.
     """
     ours, theirs = aligned(returns, comparator_levels)
 
@@ -95,8 +100,11 @@ def comparison_of(returns: pd.Series,
                       end=window[-1],
                       observations=len(window),
                       level=levels / levels.iloc[0] * 100.0,
-                      own=own_figures(theirs, levels, periods_per_year, risk_free_rate),
-                      relative=relative_figures(ours, theirs, periods_per_year))
+                      own=left_blank(own_figures(theirs, levels, periods_per_year,
+                                                 risk_free_rate),
+                                     len(window), annualising, periods_per_year),
+                      relative=left_blank(relative_figures(ours, theirs, periods_per_year),
+                                          len(window), annualising, periods_per_year))
 
 
 def aligned(returns: pd.Series,
@@ -139,7 +147,8 @@ def periods_of(returns: pd.Series,
                frequency: str,
                periods_per_year: int,
                risk_free_rate: float = 0.0,
-               comparators: Mapping[str, pd.Series] | None = None) -> list[Period]:
+               comparators: Mapping[str, pd.Series] | None = None,
+               annualising: tuple[str, str] | None = None) -> list[Period]:
     """A run's figures in each calendar period, and each comparator's in it.
 
     Each period's returns are its own days', so the first runs from the run's
@@ -152,6 +161,10 @@ def periods_of(returns: pd.Series,
         risk_free_rate: The annual rate the Sharpe ratio is in excess of.
         comparators: Each comparator's daily returns, by name, its first day's
             nothing.
+        annualising: The shortest windows an annualised rate and ratio are
+            given over (`beacon.analysis.annualising`): each period's
+            annualised figures shorter than them are blank. Over any period
+            when None.
 
     Raises:
         ValueError: If the frequency is not one of the three.
@@ -160,9 +173,11 @@ def periods_of(returns: pd.Series,
 
     for label, ours in formulas.grouped(returns, frequency):
         path = formulas.path_of(ours)
-        figures = formulas.headline_figures(ours, float(path.iloc[-1] - 1.0), path,
-                                            periods_per_year, risk_free_rate)
-        against = {name: period_against(ours, theirs, periods_per_year, risk_free_rate)
+        figures = left_blank(formulas.headline_figures(ours, float(path.iloc[-1] - 1.0), path,
+                                                       periods_per_year, risk_free_rate),
+                             len(ours), annualising, periods_per_year)
+        against = {name: period_against(ours, theirs, periods_per_year, risk_free_rate,
+                                        annualising)
                    for name, theirs in (comparators or {}).items()}
         periods.append(Period(period=label, start=ours.index[0], end=ours.index[-1],
                               returns=ours,
@@ -176,9 +191,12 @@ def periods_of(returns: pd.Series,
 def period_against(ours: pd.Series,
                    theirs: pd.Series,
                    periods_per_year: int,
-                   risk_free_rate: float = 0.0) -> dict[str, dict[str, float | None]] | None:
+                   risk_free_rate: float = 0.0,
+                   annualising: tuple[str, str] | None = None
+                   ) -> dict[str, dict[str, float | None]] | None:
     """A comparator's ``own`` figures and the run's ``relative`` ones over a
-    period, from both's daily returns in it; None with no common days."""
+    period, from both's daily returns in it, each annualised one blank over
+    a period shorter than *annualising* says; None with no common days."""
     window = ours.index.intersection(theirs.index)
 
     if len(window) < 1:
@@ -186,9 +204,11 @@ def period_against(ours: pd.Series,
 
     ours, theirs = ours.loc[window], theirs.loc[window]
 
-    return {"own": own_figures(theirs, formulas.path_of(theirs), periods_per_year,
-                               risk_free_rate),
-            "relative": relative_figures(ours, theirs, periods_per_year)}
+    own = own_figures(theirs, formulas.path_of(theirs), periods_per_year, risk_free_rate)
+
+    return {"own": left_blank(own, len(window), annualising, periods_per_year),
+            "relative": left_blank(relative_figures(ours, theirs, periods_per_year),
+                                   len(window), annualising, periods_per_year)}
 
 
 def own_figures(returns: pd.Series,

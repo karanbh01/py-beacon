@@ -62,16 +62,18 @@ def period_table(returns: pd.Series,
                  frequency: str,
                  periods_per_year: int,
                  risk_free_rate: float,
-                 comparators: Mapping[str, pd.Series]) -> pd.DataFrame:
+                 comparators: Mapping[str, pd.Series],
+                 annualising: tuple[str, str] | None = None) -> pd.DataFrame:
     """Each quarter's or year's figures (return, volatility, Sharpe ratio,
     maximum drawdown) for the fund, with its share of positive days, and for
     each comparator (given by its daily returns, its first day's nothing),
     and the fund's less each comparator's: a row a period, columns by whom
-    and figure."""
+    and figure. A Sharpe ratio over a period shorter than *annualising*'s
+    ratio window is blank (`periods_of`)."""
     rows: dict[str, dict[tuple[str, str], float | None]] = {}
 
     for period in periods_of(returns, frequency, periods_per_year, risk_free_rate,
-                             comparators):
+                             comparators, annualising):
         row: dict[tuple[str, str], float | None] = {
             (FUND, name): period.figures[name] for name in (*PERIOD_FIGURES, "positive_days")}
 

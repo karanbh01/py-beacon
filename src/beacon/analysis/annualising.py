@@ -92,6 +92,26 @@ def blanked_over(statistic_id: str,
     return None if long_enough(days, span, periods_per_year) else fields
 
 
+def left_blank(figures: Mapping[str, Any],
+               days: int,
+               windows: tuple[str, str] | None,
+               periods_per_year: int) -> dict[str, Any]:
+    """*figures* by name, each annualised one (named as its statistic is,
+    such as ``sharpe_ratio``) left blank over *days* daily returns too few
+    for it; every figure as it is when *windows* (the rate's and the
+    ratio's thresholds) is None."""
+    # BN-466: the rule for figures given together rather than a statistic
+    # at a time: a period's, a comparison's, the run's summary.
+    if windows is None:
+        return dict(figures)
+
+    rate_window, ratio_window = windows
+
+    return {name: (None if blanked_over(name, days, rate_window, ratio_window,
+                                        periods_per_year) is not None else value)
+            for name, value in figures.items()}
+
+
 def blank(value: Any,
           fields: tuple[str, ...]) -> Any:
     """*value*'s figures left blank: every one when *fields* is empty, else
@@ -105,4 +125,4 @@ def blank(value: Any,
 
 
 __all__ = ["ANNUALISED", "ANY_WINDOW", "RATE", "RATIO", "SPREAD", "blank", "blanked_over",
-           "days_in", "long_enough"]
+           "days_in", "left_blank", "long_enough"]

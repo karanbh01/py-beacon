@@ -15,6 +15,7 @@ from typing import Any
 
 import pandas as pd
 
+from ..annualising import left_blank
 from ..data import BENCHMARK, INDEX, OPTIMISED, RunData
 from . import distribution as shape
 from . import formulas, ratios, return_figures, tables
@@ -168,7 +169,9 @@ class PerformanceAnalytics:
         if levels is None:
             return None
 
-        return comparison_of(self.returns, levels, self.periods_per_year, self.risk_free_rate)
+        # BN-466: its annualised figures blank over a window too short.
+        return comparison_of(self.returns, levels, self.periods_per_year, self.risk_free_rate,
+                             self.annualising)
 
     def periods(self,
                 frequency: str,
@@ -187,7 +190,7 @@ class PerformanceAnalytics:
                   for name in names if name in self.run.comparators}
 
         return periods_of(self.returns, frequency, self.periods_per_year, self.risk_free_rate,
-                          theirs)
+                          theirs, self.annualising)
 
     def trailing_returns(self) -> dict[str, return_figures.WindowReturn | None]:
         """The returns over the last 1, 3 and 6 months and 1, 3, 5 and 10
@@ -396,7 +399,7 @@ class PerformanceAnalytics:
                        for name in (INDEX, BENCHMARK) if name in self.run.comparators}
 
         return tables.period_table(self.returns, frequency, self.periods_per_year,
-                                   self.risk_free_rate, comparators)
+                                   self.risk_free_rate, comparators, self.annualising)
 
     def trailing_table(self) -> pd.DataFrame:
         """The trailing returns (`trailing_returns`) of the fund, its index
@@ -422,8 +425,12 @@ class PerformanceAnalytics:
     def summary(self) -> dict[str, float | None]:
         """The headline figures, the monthly hit rate, and, when the run has
         them, the tracking error and difference against the tracked
-        comparator and the money-weighted return."""
-        result: dict[str, float | None] = {**self.headline()}
+        comparator and the money-weighted return; the annualised return and
+        Sharpe ratio blank over a window too short to annualise
+        (`beacon.analysis.annualising`)."""
+        # BN-466: the rule wherever a figure is given, as statistics have it.
+        result: dict[str, float | None] = left_blank(self.headline(), len(self.returns),
+                                                     self.annualising, self.periods_per_year)
         result["hit_rate_monthly"] = self.hit_rate_monthly()
         tracking_error = self.tracking_error()
         tracking_difference = self.tracking_difference()

@@ -206,6 +206,11 @@ Identifier = Annotated[str, Field(pattern=IDENTIFIER_PATTERN,
 # a bounded length: a request line far longer is refused by the HTTP server
 # before the app sees it (BN-475, found by the fuzz run with 65,537).
 PATH_NAME_LENGTH = 128
+# Why an annualised figure is null (BN-466), as `beacon.analysis.annualising` has it.
+RATE_BLANK = ("null over a window shorter than the run's "
+              "min_annualised_rate_window, a year unless set")
+RATIO_BLANK = ("null over a window shorter than the run's "
+               "min_annualised_ratio_window, six months unless set")
 PathName = Annotated[str, Field(min_length=1, max_length=PATH_NAME_LENGTH,
                                 description=f"Up to {PATH_NAME_LENGTH} characters.")]
 
@@ -458,9 +463,13 @@ class BacktestMetrics(BaseModel):
     Tracking figures are null when the run had no target index to compare to.
     """
     total_return: Pct
-    annualised_return: Pct
+    # BN-466: null over a run too short to annualise, as statistics are.
+    annualised_return: Pct | None = Field(
+        description=f"The total return a year; {RATE_BLANK}.")
     volatility: Pct
-    sharpe_ratio: float
+    sharpe_ratio: float | None = Field(
+        description="The annualised return in excess of the risk-free rate, over the "
+                    f"volatility; {RATIO_BLANK}.")
     max_drawdown: Pct
     tracking_error: Pct | None = None
     tracking_difference: Pct | None = None
@@ -516,10 +525,12 @@ def metrics_from(summary: dict[str, float | None]) -> BacktestMetrics:
 # The five every run has; the rest are null unless the run produces them.
 HEADLINE_METRICS = ("total_return", "annualised_return", "volatility",
                     "sharpe_ratio", "max_drawdown")
+# Of them, those blank over a run too short to annualise (BN-466).
+ANNUALISED_METRICS = ("annualised_return", "sharpe_ratio")
 
 
 def headline_metric(summary: dict[str, float | None],
-            key: str) -> float:
+                    key: str) -> float | None:
     """Read a core metric, which `BacktestResult.summary()` always populates.
 
     The summary's value type is `float | None` because the tracking figures
@@ -529,6 +540,10 @@ def headline_metric(summary: dict[str, float | None],
     a value that was never measured.
     """
     value = summary.get(key)
+
+    # Blank, not missing: the run was too short to annualise over.
+    if value is None and key in ANNUALISED_METRICS and key in summary:
+        return None
 
     if value is None:
         raise CalculationError(
@@ -4251,10 +4266,12 @@ class MarketPayload(BaseModel):
 class ComparatorFigures(BaseModel):
     """A comparator's own figures over a run's window, defined as a run's are."""
     total_return: Pct = Field(description="Over the window, from its first day's level.")
-    annualised_return: Pct = Field(description="The total return a year.")
+    annualised_return: Pct | None = Field(
+        description=f"The total return a year; {RATE_BLANK}.")
     volatility: Pct = Field(description="Of its daily returns, annualised.")
-    sharpe_ratio: float = Field(description="The annualised return in excess of the risk-free "
-                                            "rate, over the volatility.")
+    sharpe_ratio: float | None = Field(
+        description="The annualised return in excess of the risk-free rate, over the "
+                    f"volatility; {RATIO_BLANK}.")
     max_drawdown: Pct = Field(description="Its largest fall from a peak.")
     hit_rate_monthly: Pct | None = Field(
         default=None, description="The share of calendar months with a positive return.")
@@ -4263,8 +4280,8 @@ class ComparatorFigures(BaseModel):
 class RelativeFigures(BaseModel):
     """A run against a comparator over the same window."""
     relative_return: Pct = Field(description="The run's total return less the comparator's.")
-    annualised_relative_return: Pct = Field(
-        description="The run's annualised return less the comparator's.")
+    annualised_relative_return: Pct | None = Field(
+        description=f"The run's annualised return less the comparator's; {RATE_BLANK}.")
     tracking_error: Pct | None = Field(
         default=None, description="Of the daily return differences, annualised.")
     information_ratio: float | None = Field(
@@ -4305,8 +4322,9 @@ class PeriodFigures(BaseModel):
     """A run's figures over one calendar period."""
     total_return: Pct = Field(description="From the previous period's close.")
     volatility: Pct = Field(description="Of its daily returns, annualised.")
-    sharpe_ratio: float = Field(description="Its annualised return in excess of the "
-                                            "risk-free rate, over the volatility.")
+    sharpe_ratio: float | None = Field(
+        description="Its annualised return in excess of the risk-free rate, over the "
+                    f"volatility; {RATIO_BLANK}, as each quarter and month is.")
     max_drawdown: Pct = Field(description="Its largest fall from a peak within the period.")
     positive_days: Pct = Field(description="The share of its days with a positive return.")
 

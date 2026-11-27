@@ -233,11 +233,11 @@ class TestTracking:
     def test_summary_reports_metrics(self,
                                      zero_cost_result):
         summary = zero_cost_result.summary()
-        for key in ("total_return", "annualised_return", "volatility",
-                    "sharpe_ratio", "max_drawdown", "tracking_error",
+        for key in ("total_return", "volatility", "max_drawdown", "tracking_error",
                     "tracking_difference"):
-            assert key in summary
             assert summary[key] is not None
+        # BN-466: given, and blank over a run too short to annualise.
+        assert {"annualised_return", "sharpe_ratio"} <= set(summary)
 
 
 # ---------------------------------------------------------------------------

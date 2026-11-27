@@ -239,6 +239,13 @@ long enough when it holds the threshold's daily returns less a week's, since
 a calendar year holds 250 to 253 trading days. Only the annualised figure of
 alpha is left blank: its t-statistic and p-value are given over any window.
 
+The rule holds too where figures are given together: `result.summary()` and
+the backtest metrics the server gives with a run, a comparison of the run with
+its index or benchmark, and each calendar period's figures
+(`PerformanceAnalytics.periods()`, the period table and
+`GET /strategies/{id}/periods`), where each quarter's and month's Sharpe ratio
+is blank, as a year's under six months is. There the figure is null.
+
 Every annualised analytic takes `annualise`, which asks for it another way:
 
 ```python
