@@ -165,7 +165,9 @@ def build_analysis_router() -> APIRouter:
                 end: EndQuery = None,
                 against: AgainstQuery = None,
                 by: Annotated[str, Query(description="The periods its contribution is given "
-                                         "by: 'month', 'quarter' or 'year'.")] = "quarter"
+                                         "by: 'month', 'quarter', 'year' or "
+                                         "'rebalance', each rebalance period from the day "
+                                         "after a rebalance to the next.")] = "quarter"
                 ) -> InstrumentProfile:
         """One name over the strategy's latest run, a dated table a part: at
         each rebalance, its weight at each implementation stage, any cap or

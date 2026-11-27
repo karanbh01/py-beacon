@@ -278,7 +278,9 @@ class InstrumentProfile(BaseModel):
     against: str | None = Field(description="The comparator the active weight is measured "
                                             "against; null when there is none.")
     by: str = Field(description="The periods 'attribution' has a row for: 'month', "
-                                "'quarter' or 'year'.")
+                                "'quarter', 'year' or 'rebalance', each rebalance period "
+                                "from the day after a rebalance to the next inclusive, "
+                                "dated by its last day.")
     linking: str = Field(description="How 'attribution' links each period's contribution, "
                                      "as the run's analysis options say: 'window', as its "
                                      "share of the whole window's, so the periods add up to "

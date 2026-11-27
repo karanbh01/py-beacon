@@ -36,8 +36,9 @@ NAV), each comparator's, each 0 on a day that portfolio did not hold it, and
 the fund's active weight against the comparator (``active``): the one given
 as ``against``, else the one the analysis tracks. Its ``attrs`` say which.
 
-``attribution`` has a row for each month, quarter or year (``by``), dated by
-its last day: the name's contribution to the fund's return
+``attribution`` has a row for each month, quarter, year or rebalance period
+(``by``), dated by its last day, a rebalance period as ``period_statistics``
+cuts it: the name's contribution to the fund's return
 (``contribution``), its contribution to the fund's return over the
 comparator from its active weight (``active_contribution``), and each's
 total from the window's start (``contribution_to_date``,
@@ -194,8 +195,11 @@ from . import (
     trading,
     weights,
 )
-from .columns import ACTIVE, LABELS, columns_of
+from .columns import ACTIVE, LABELS, REBALANCE, columns_of
 from .risk import liquidity_dates, liquidity_of
+
+# BN-487: the periods ``attribution`` is given by.
+BY = (*FREQUENCIES, REBALANCE)
 
 
 class Profile:
@@ -215,14 +219,14 @@ class Profile:
         """
         Raises:
             ValueError: If no portfolio of the run held *name*, or *by* is
-                not ``month``, ``quarter`` or ``year``.
+                not ``month``, ``quarter``, ``year`` or ``rebalance``.
             Unavailable: If the run lacks the comparator given.
 
         *whole* is the analysis over the whole run, whose work over every
         rebalance (the risk model's) is done once; *context* when None.
         """
-        if by not in FREQUENCIES:
-            raise ValueError(f"by is {', '.join(FREQUENCIES)}; not {by!r}.")
+        if by not in BY:
+            raise ValueError(f"by is {', '.join(BY)}; not {by!r}.")
 
         self.name = name
         self.by = by
@@ -263,7 +267,8 @@ class Profile:
         against = self.comparator()
         held = against if against in self.portfolios() else None
 
-        return contribution.attribution(self.name, self._context, self.by, held)
+        return contribution.attribution(self.name, self._context, self.by, held,
+                                        self.rebalances())
 
     @cached_property
     def period_statistics(self) -> pd.DataFrame:
@@ -452,4 +457,4 @@ class Profile:
         return f"Profile({self.name!r}: {', '.join(self.parts)})"
 
 
-__all__ = ["ACTIVE", "LABELS", "Profile", "columns_of", "liquidity_dates", "liquidity_of"]
+__all__ = ["ACTIVE", "BY", "LABELS", "Profile", "columns_of", "liquidity_dates", "liquidity_of"]

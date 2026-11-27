@@ -304,11 +304,12 @@ class InstrumentLevel(Category):
         month, quarter or year (``by``), its return and risk over the window
         and each rebalance period, year, quarter and month, and its risk and
         liquidity at each rebalance, against the comparator given as ``against`` or the one
-        the analysis tracks.
+        the analysis tracks. Its contribution can also be given by
+        rebalance period (``by="rebalance"``).
 
         Raises:
             ValueError: If no portfolio of the run held *name*, or *by* is
-                not ``month``, ``quarter`` or ``year``.
+                not ``month``, ``quarter``, ``year`` or ``rebalance``.
         """
         # BN-468; BN-469 added by; BN-470 the whole run's context, which
         # fits each rebalance's risk model once.

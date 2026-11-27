@@ -275,6 +275,32 @@ class TestItsContribution:
         assert half["contribution"].sum() == pytest.approx(
             contribution(result.analytics, start="2024-06-28"), rel=1e-12)
 
+    def test_by_rebalance_period(self,
+                                 result,
+                                 alone):
+        # BN-487: the periods `period_statistics` cuts, and their figures.
+        profile = result.analytics.instrument.profile("N0", by="rebalance")
+        found = profile.attribution
+        statistics = profile.period_statistics
+        periods = statistics.loc[statistics["period"] == "rebalance"]
+
+        assert found.attrs["by"] == "rebalance"
+        assert list(found.index) == list(periods.index)
+        assert found["contribution"].to_numpy() == pytest.approx(
+            periods["contribution/fund"].to_numpy(), rel=1e-12)
+        assert found["contribution"].sum() == pytest.approx(contribution(result.analytics),
+                                                            rel=1e-12)
+        assert found["active_contribution"].sum() == pytest.approx(active(result.analytics),
+                                                                   rel=1e-12)
+
+        each = alone.instrument.profile("N0", by="rebalance").attribution
+        before = None
+
+        for end in each.index:
+            assert each.loc[end, "contribution"] == pytest.approx(
+                contribution(alone, before, end), rel=1e-12)
+            before = end
+
     def test_against_the_benchmark(self,
                                    result):
         found = result.analytics.instrument.profile("N0", against="benchmark").attribution
@@ -290,7 +316,8 @@ class TestRefusals:
 
     def test_a_period_it_does_not_give(self,
                                        result):
-        with pytest.raises(ValueError, match="by is month, quarter, year; not 'week'"):
+        with pytest.raises(ValueError, match="by is month, quarter, year, rebalance; "
+                                             "not 'week'"):
             result.analytics.instrument.profile("N0", by="week")
 
     def test_a_linking_it_does_not_know(self):

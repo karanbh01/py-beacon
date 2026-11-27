@@ -303,6 +303,21 @@ class TestAName_sProfile:
         assert part["columns"][0] == {"name": "contribution", "label": "Contribution",
                                       "unit": "fraction", "labels": None}
 
+    def test_its_contribution_by_rebalance_period(self,
+                                                  client,
+                                                  analytics):
+        # BN-487.
+        name = analytics.instrument.table().index[0]
+        found = client.get(f"/strategies/analysed/instrument/{name}?by=rebalance",
+                           headers=auth()).json()
+        kept = analytics.instrument.profile(name, by="rebalance").attribution
+        part = found["parts"]["attribution"]
+
+        assert found["by"] == "rebalance"
+        assert part["dates"] == [date.strftime("%Y-%m-%d") for date in kept.index]
+        assert [row[0] for row in part["data"]] == pytest.approx(
+            kept["contribution"].tolist(), rel=1e-12)
+
     def test_the_near_miss_share_comes_with_it(self,
                                                client,
                                                analytics):
