@@ -373,7 +373,9 @@ At each rebalance and month end (`risk.liquidity.dates()`), a holding worth
 
 and within `d` days the portfolio can sell `Σ min(V, d × participation × ADV)`.
 The traded value is the close times the volume, in the run's currency, over
-the name's last 20 days with a volume, read from the data the run used. A
+the name's last 20 days with a volume, as the run measured it from the data it
+used and kept it. Over any other number of days, or for a run kept before
+runs kept them, it is measured from the data store when it is loaded. A
 holding's value is its weight times the fund's net assets, for the index and
 benchmark as well, so all three read as if the fund held them. A name with no
 traded value cannot be sold at all: its days are infinite and it is counted

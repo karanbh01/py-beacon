@@ -7,6 +7,8 @@ test_backtest_flows' two names each trade a million shares a day: FLAT at 50
 200,000,000 holds 40% FLAT and 60% GROW at the start, selling 20% of a day's
 traded value a day.
 """
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -62,12 +64,27 @@ class TestTradedValues:
 
     def test_measured_from_the_data_over_the_window_given(self,
                                                           data):
-        stored = LiquidityAnalytics(data).traded_values()
-        measured = LiquidityAnalytics(data, source=fetcher(), lookback_days=20).traded_values()
+        screens = LiquidityAnalytics(data, lookback_days=63).traded_values()
+        measured = LiquidityAnalytics(data, source=fetcher(), lookback_days=30).traded_values()
 
-        assert measured["FLAT"].to_numpy() == pytest.approx(stored["FLAT"].to_numpy())
-        # GROW's price rises, so its last 20 days trade more than its last 63.
-        assert (measured["GROW"].iloc[4:] > stored["GROW"].iloc[4:]).all()
+        assert measured["FLAT"].to_numpy() == pytest.approx(screens["FLAT"].to_numpy())
+        # GROW's price rises, so its last 30 days trade more than its last 63.
+        assert (measured["GROW"].iloc[4:] > screens["GROW"].iloc[4:]).all()
+
+    def test_the_run_keeps_them_over_the_analysis_s_days(self,
+                                                         data):
+        # BN-481: read rather than measured from the data store again.
+        from beacon.analysis.panels import LIQUIDITY_DAYS, traded_values_over
+
+        kept = data.tables[traded_values_over(LIQUIDITY_DAYS)]
+        tables = {name: table for name, table in data.tables.items()
+                  if name != traded_values_over(LIQUIDITY_DAYS)}
+        without = dataclasses.replace(data, tables=tables)
+        measured = LiquidityAnalytics(without, source=fetcher()).traded_values()
+
+        assert not kept.empty
+        pd.testing.assert_frame_equal(LiquidityAnalytics(data, source=fetcher()).traded_values(),
+                                      measured, check_exact=True)
 
     def test_a_name_with_no_traded_value_cannot_be_sold(self,
                                                         data):

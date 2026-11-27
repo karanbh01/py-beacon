@@ -85,6 +85,9 @@ BENCHMARK_WEIGHTS = "benchmark_weights"
 REFERENCE = "reference"
 CHARACTERISTICS = "characteristics"
 TRADED_VALUES = "traded_values"
+# The days the analysis's liquidity averages a name's traded value over by
+# default; the run keeps them measured so (BN-481), as `traded_values_over`.
+LIQUIDITY_DAYS = 20
 # The run's trades, each with why it was made (BN-406).
 TRADES = "trades"
 # What each rebalance's implementation did to each name (BN-468).
@@ -167,6 +170,8 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
     - ``traded_values``: their average daily traded value at each
       rebalance and month end, as the liquidity screens measure it
       (`beacon.analysis.snapshots.traded_value_snapshots`).
+    - ``traded_values_20d``: the same over the last 20 days with a volume,
+      as the analysis's liquidity measures it by default.
 
     Args:
         result: The finished run.
@@ -228,10 +233,21 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
     try:
         panels[TRADED_VALUES] = traded_value_snapshots(source, names, liquidity_dates(result),
                                                        result.fund.currency, market)
+        # BN-481 (Karan, 2026-11-27): as the analysis's liquidity measures
+        # them, so a name's profile reads them rather than the data store.
+        panels[traded_values_over(LIQUIDITY_DAYS)] = traded_value_snapshots(
+            source, names, liquidity_dates(result), result.fund.currency, market,
+            lookback_days=LIQUIDITY_DAYS)
     except (CalculationError, DataNotFoundError) as error:
         logger.warning("The run's traded values were not kept: %s", error)
 
     return panels
+
+
+def traded_values_over(days: int) -> str:
+    """The table of each name's traded value averaged over its last *days*
+    days with a volume, as a run keeps it."""
+    return f"{TRADED_VALUES}_{days}d"
 
 
 def name_returns_from(tables: Mapping[str, pd.DataFrame],

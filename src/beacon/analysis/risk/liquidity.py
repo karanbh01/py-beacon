@@ -32,15 +32,17 @@ from ..panels import (
     BENCHMARK_WEIGHTS,
     FUND_WEIGHTS,
     INDEX_WEIGHTS,
+    LIQUIDITY_DAYS,
     OPTIMISED_WEIGHTS,
     TRADED_VALUES,
+    traded_values_over,
 )
 from ..snapshots import IDENTIFIER, TRADED_VALUE, traded_value_snapshots
 
 PORTFOLIOS = {"fund": FUND_WEIGHTS, "index": INDEX_WEIGHTS, "optimised": OPTIMISED_WEIGHTS,
          "benchmark": BENCHMARK_WEIGHTS}
 PARTICIPATION = 0.2
-LOOKBACK_DAYS = 20
+LOOKBACK_DAYS = LIQUIDITY_DAYS
 HORIZONS = (1, 5, 20)
 
 
@@ -50,7 +52,8 @@ class LiquidityAnalytics:
     Args:
         run: The run's data.
         source: The data the run read, which traded values are measured
-            from; without it, the run's own stored traded values.
+            from when the run kept none over *lookback_days*; without it,
+            the traded values the liquidity screens kept.
         participation: The share of a name's daily traded value sold a day.
         lookback_days: The days with a volume its traded value is averaged
             over, when measured from *source*.
@@ -82,9 +85,16 @@ class LiquidityAnalytics:
 
     def traded_values(self) -> pd.DataFrame:
         """Each name's average daily traded value on each date, dates by
-        name."""
+        name: as the run kept them over *lookback_days*, else measured from
+        the data store, else the liquidity screens' kept values."""
         if self._traded is None:
-            if self.source is None:
+            # BN-481: as the run kept them over these days, when it did; then
+            # measured from the data store, else the screens' kept values.
+            kept = self.run.tables.get(traded_values_over(self.lookback_days))
+
+            if kept is not None:
+                long = kept
+            elif self.source is None:
                 long = self.run.tables[TRADED_VALUES]
             else:
                 names = sorted({str(name) for book in PORTFOLIOS.values()
