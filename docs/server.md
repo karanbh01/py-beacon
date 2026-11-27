@@ -251,7 +251,7 @@ each's total to date. `linking` says how the periods are linked, as the run's
 analysis options' `attribution.linking` sets it: `window`, each period its
 share of the whole window's contribution, so the periods add up to it; or
 `period`, each period on its own, so it agrees with the per-name table over
-that period alone and the periods do not add up. `return_risk` has the
+that period alone and the periods do not add up. `period_statistics` has the
 name's return and risk in one table: a row for the whole window, then a row
 for each rebalance period, year, quarter and month, told apart by its
 `period` column, each dated by its last day in the window with its first in

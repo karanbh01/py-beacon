@@ -6,7 +6,7 @@ One name over a run: `result.analytics.instrument.profile(name)`.
     profile.rebalance_weights          # a row a rebalance
     profile.daily_weights              # a row a day
     profile.attribution                # a row a quarter, or as by= says
-    profile.return_risk                # a row a window, rebalance period, year, ...
+    profile.period_statistics                # a row a window, rebalance period, year, ...
     profile.risk                       # a row a rebalance
     profile.liquidity                  # a row a rebalance
     profile.factor_exposures           # a row a rebalance
@@ -52,7 +52,7 @@ before the period to its last day gives it, and each total as the table over
 the window to the period's end: then the periods do not add up to the
 total. Its ``attrs`` say the comparator, the periods and the linking.
 
-``return_risk`` has the name's return and risk over a run of periods, told
+``period_statistics`` has the name's return and risk over a run of periods, told
 apart by ``period``: the whole window (``run``), then each rebalance period
 (``rebalance``), each year, each quarter and each month, each dated by its
 last day in the window, with its first (``start``), so a part of a year,
@@ -183,7 +183,7 @@ from . import (
     characteristics,
     contribution,
     factors,
-    return_risk,
+    period_statistics,
     risk,
     selection,
     trading,
@@ -197,7 +197,7 @@ class Profile:
     """One name over a run: a dated table a part, worked out when first
     asked for."""
 
-    parts = ("rebalance_weights", "daily_weights", "attribution", "return_risk", "risk",
+    parts = ("rebalance_weights", "daily_weights", "attribution", "period_statistics", "risk",
              "liquidity", "factor_exposures", "factor_betas", "style", "key_data",
              "corporate_actions", "trades", "events", "selection")
 
@@ -261,7 +261,7 @@ class Profile:
         return contribution.attribution(self.name, self._context, self.by, held)
 
     @cached_property
-    def return_risk(self) -> pd.DataFrame:
+    def period_statistics(self) -> pd.DataFrame:
         """Over the window, each rebalance period, year, quarter and month:
         the name's return and volatility, and against each portfolio its
         excess return, contribution, beta, correlation and share of
@@ -272,7 +272,7 @@ class Profile:
                 were.
         """
         # BN-477.
-        return return_risk.return_risk(self.name, self._context, self.days(),
+        return period_statistics.period_statistics(self.name, self._context, self.days(),
                                        self.rebalances(), list(self.portfolios()))
 
     @cached_property

@@ -29,7 +29,7 @@ FLAT = "The portfolio's return did not vary over some periods."
 Period = tuple[str, pd.Timestamp, pd.Timestamp]
 
 
-def return_risk(name: str,
+def period_statistics(name: str,
                 context: Any,
                 days: pd.DatetimeIndex,
                 rebalances: list[pd.Timestamp],

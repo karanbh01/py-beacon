@@ -81,5 +81,5 @@ def day_factors(daily: pd.DataFrame,
                 of: str = FUND) -> pd.Series:
     """The Carino factor each of the days (`Attribution.by_day`) is
     scaled by, linked over them on portfolio *of*'s returns."""
-    # BN-477: of, for the comparators' contributions in return_risk.
+    # BN-477: of, for the comparators' contributions in period_statistics.
     return linking_factors(daily[of], daily.get("comparator"))

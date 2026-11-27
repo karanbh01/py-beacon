@@ -309,8 +309,8 @@ class TestAName_sProfile:
         # BN-477: every cut in one table, and why a column is null.
         name = analytics.instrument.table().index[0]
         found = client.get(f"/strategies/analysed/instrument/{name}", headers=auth()).json()
-        kept = analytics.instrument.profile(name).return_risk
-        part = found["parts"]["return_risk"]
+        kept = analytics.instrument.profile(name).period_statistics
+        part = found["parts"]["period_statistics"]
         names = [column["name"] for column in part["columns"]]
 
         assert names == list(kept.columns)

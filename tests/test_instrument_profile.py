@@ -172,7 +172,7 @@ class TestItsParts:
         assert columns["target"].unit == "fraction" and columns["removed"].unit is None
         assert columns["capped"].label == LABELS["capped"]
         assert Profile.parts == ("rebalance_weights", "daily_weights", "attribution",
-                                 "return_risk", "risk", "liquidity", "factor_exposures",
+                                 "period_statistics", "risk", "liquidity", "factor_exposures",
                                  "factor_betas", "style", "key_data", "corporate_actions",
                                  "trades", "events", "selection")
         assert repr(profile).startswith("Profile('N0': rebalance_weights, daily_weights")

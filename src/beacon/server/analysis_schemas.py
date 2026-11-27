@@ -290,7 +290,7 @@ class InstrumentProfile(BaseModel):
                     "'factor_exposures', 'factor_betas', 'style' and 'key_data', a row a "
                     "rebalance; 'corporate_actions', a row an action, dated by its "
                     "ex-date; 'trades', a row a trade; 'events', a row an event; and "
-                    "'selection', a row a rebalance a rule a threshold; and 'return_risk', "
+                    "'selection', a row a rebalance a rule a threshold; and 'period_statistics', "
                     "a row for the whole window, then each rebalance period, year, quarter "
                     "and month, told apart by its 'period' column and dated by its last "
                     "day. A days to sell is null where the name has no traded value.")

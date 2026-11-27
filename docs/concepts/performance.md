@@ -257,7 +257,7 @@ daily rate that compounds to it.
 
 A name's risk over a short period says little for a like reason: a
 volatility, beta or correlation over a few days is mostly noise. A name's
-profile (`instrument.profile(name).return_risk`) leaves its volatility, beta,
+profile (`instrument.profile(name).period_statistics`) leaves its volatility, beta,
 correlation and share of volatility blank over a period with fewer daily
 returns than `min_risk_days`, 5 unless set, and says so in the part's
 `attrs["unavailable"]`. It is a modelling assumption too, recorded with each

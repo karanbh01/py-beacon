@@ -57,7 +57,7 @@ DEFAULT_VOLUME_BACKFILL_DAYS = 5
 DEFAULT_MIN_ANNUALISED_RATE_WINDOW = "1Y"
 DEFAULT_MIN_ANNUALISED_RATIO_WINDOW = "6M"
 # BN-477 (Karan, 2026-11-27): a name's risk over a period of fewer daily
-# returns than this is left blank in its profile's return_risk.
+# returns than this is left blank in its profile's period_statistics.
 DEFAULT_MIN_RISK_DAYS = 5
 
 # The windows the two thresholds take: a number of months or years.

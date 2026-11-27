@@ -1,6 +1,6 @@
-# tests/test_instrument_return_risk.py
+# tests/test_instrument_period_statistics.py
 """BN-477: a name's return and risk over the window, each rebalance period,
-year, quarter and month, `instrument.profile(name).return_risk`.
+year, quarter and month, `instrument.profile(name).period_statistics`.
 
 The run is test_instrument_profile's: test_strategy_futures' eight-name
 market-cap index held through 2024, rebalanced each quarter (2024-01-02,
@@ -55,7 +55,7 @@ def result():
 
 @pytest.fixture(scope="module")
 def table(result):
-    return result.analytics.instrument.profile("N0").return_risk
+    return result.analytics.instrument.profile("N0").period_statistics
 
 
 def analysed(result,
@@ -107,7 +107,7 @@ class TestItsRows:
     def test_a_window_clips_each_period(self,
                                         result):
         found = result.analytics.instrument.profile("N0", start="2024-05-15",
-                                                    end="2024-08-15").return_risk
+                                                    end="2024-08-15").period_statistics
         spans = [(period, str(start.date()), str(end.date()))
                  for period, start, end in zip(found["period"], found["start"], found.index,
                                                strict=True)]
@@ -204,7 +204,7 @@ class TestItsContribution:
                                     result,
                                     table):
         alone = analysed(result, attribution=AttributionOptions(linking="period"))
-        found = alone.instrument.profile("N0").return_risk
+        found = alone.instrument.profile("N0").period_statistics
         quarters = alone.instrument.profile("N0").attribution
 
         assert found.attrs["linking"] == "period"
@@ -236,15 +236,15 @@ class TestItsPortfolios:
                 if name != BENCHMARK_WEIGHTS}
         found = Analytics(dataclasses.replace(data, tables=kept)).instrument.profile("N0")
 
-        assert not any(column.endswith("/benchmark") for column in found.return_risk.columns)
-        assert "contribution/index" in found.return_risk.columns
+        assert not any(column.endswith("/benchmark") for column in found.period_statistics.columns)
+        assert "contribution/index" in found.period_statistics.columns
 
 
 class TestItsShareOfVolatility:
 
     def test_every_name_s_add_up_to_1(self,
                                       result):
-        profiles = [result.analytics.instrument.profile(name).return_risk for name in NAMES]
+        profiles = [result.analytics.instrument.profile(name).period_statistics for name in NAMES]
 
         for portfolio in PORTFOLIOS:
             shares = sum(found[f"volatility_share/{portfolio}"] for found in profiles)
@@ -253,7 +253,7 @@ class TestItsShareOfVolatility:
 
     def test_0_over_a_period_the_portfolio_did_not_hold_it(self,
                                                            result):
-        found = cut(result.analytics.instrument.profile("N7").return_risk, "rebalance")
+        found = cut(result.analytics.instrument.profile("N7").period_statistics, "rebalance")
         first = found.iloc[0]
         held = result.analytics._context.run.tables[FUND_WEIGHTS]["N7"].fillna(0.0)
 
@@ -265,7 +265,7 @@ class TestItsShareOfVolatility:
 
 @pytest.fixture(scope="module")
 def short(result):
-    return result.analytics.instrument.profile("N0", **SHORT).return_risk
+    return result.analytics.instrument.profile("N0", **SHORT).period_statistics
 
 
 class TestAShortPeriod:
@@ -292,7 +292,7 @@ class TestAShortPeriod:
     def test_fewer_days_through_the_analysis_settings(self,
                                                       result):
         fewer = analysed(result, window=AnalysisSettings(min_risk_days=2))
-        found = fewer.instrument.profile("N0", **SHORT).return_risk
+        found = fewer.instrument.profile("N0", **SHORT).period_statistics
 
         assert found.attrs["min_risk_days"] == 2
         assert found.attrs["unavailable"] == {}
@@ -302,7 +302,7 @@ class TestAShortPeriod:
                                                           result):
         # The run's own, which the analysis settings override.
         data = dataclasses.replace(result.analytics.run_data, min_risk_days=4)
-        found = Analytics(data).instrument.profile("N0", **SHORT).return_risk
+        found = Analytics(data).instrument.profile("N0", **SHORT).period_statistics
         more = analysed(result, data, window=AnalysisSettings(min_risk_days=6))
         leading = cut(found, "rebalance").iloc[0]
 
@@ -311,7 +311,7 @@ class TestAShortPeriod:
         assert found.attrs["min_risk_days"] == 4
         assert not np.isnan(leading["volatility"]) and not np.isnan(leading["beta/index"])
         assert np.isnan(leading["volatility_share/index"])
-        assert more.instrument.profile("N0", **SHORT).return_risk.attrs["min_risk_days"] == 6
+        assert more.instrument.profile("N0", **SHORT).period_statistics.attrs["min_risk_days"] == 6
 
     def test_a_backtest_s_modelling_assumptions(self):
         from beacon.backtest import Backtest
@@ -320,7 +320,7 @@ class TestAShortPeriod:
         run = Backtest(initial_capital=1e7, data_provider=DATA, cache=False,
                        modelling_assumptions=ModellingAssumptions(min_risk_days=2)).run(
             index(), start=START, end=END)
-        found = run.analytics.instrument.profile("N0", **SHORT).return_risk
+        found = run.analytics.instrument.profile("N0", **SHORT).period_statistics
 
         assert run.analytics.run_data.min_risk_days == 2
         assert found.attrs["min_risk_days"] == 2
@@ -350,7 +350,7 @@ class TestItsColumns:
         assert (found[0].label, found[0].unit) == ("Market beta", "ratio")
 
     def test_it_is_a_part_after_the_attribution(self):
-        assert Profile.parts[2:4] == ("attribution", "return_risk")
+        assert Profile.parts[2:4] == ("attribution", "period_statistics")
 
 
 class TestThroughTheServer:
@@ -361,9 +361,9 @@ class TestThroughTheServer:
         from beacon.server.instrument import instrument_profile
 
         found = instrument_profile(result.analytics, "N0", SHORT["start"], SHORT["end"], None)
-        part = found["parts"]["return_risk"]
+        part = found["parts"]["period_statistics"]
         names = [column["name"] for column in part["columns"]]
-        kept = result.analytics.instrument.profile("N0", **SHORT).return_risk
+        kept = result.analytics.instrument.profile("N0", **SHORT).period_statistics
 
         assert part["dates"] == [date.strftime("%Y-%m-%d") for date in kept.index]
         assert part["data"][1][names.index("start")] == "2024-03-26"
