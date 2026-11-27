@@ -155,11 +155,13 @@ each kind.
 name against at each rebalance in the window: the rule's position and type
 (``rule``, ``rule_name``), what it measured (``measure``), the name's value
 (``measured``),
-the comparison, the threshold, the ``margin`` (`beacon.index.margins`: how
+the comparison, the threshold, the value less the threshold in the measure's
+own units (``difference``), the ``margin`` (`beacon.index.margins`: how
 far it was from failing, as a share of the threshold, positive when it
-passed) and whether it ``passed``. A name has no rows for a rule it did not
-reach, having been removed before it, and a run kept before its margins were
-gives the part as unavailable.
+passed) and whether it ``passed``. Its ``attrs`` say the selection options'
+``near_miss``, the share of the threshold a pass is a near miss within. A
+name has no rows for a rule it did not reach, having been removed before it,
+and a run kept before its margins were gives the part as unavailable.
 
 A stored run's risk and exposures are read from what its analysis kept for
 the same factors and risk model (`beacon.analysis.risk.risk_store`);
@@ -398,8 +400,9 @@ class Profile:
         Raises:
             Unavailable: If the run was kept before its margins were.
         """
-        # BN-474.
-        return selection.selection(self.name, self._context.run.tables, self.days())
+        # BN-474; BN-485 the near miss.
+        return selection.selection(self.name, self._context.run.tables, self.days(),
+                                   self._context.options.selection.near_miss)
 
     def comparator(self) -> str | None:
         """The comparator active figures are measured against: the one

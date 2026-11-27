@@ -146,6 +146,7 @@ def instrument_profile(analytics: Analytics,
             "against": (profile.daily_weights.attrs.get("against")
                         if "daily_weights" in parts else None),
             "by": by, "linking": analytics._context.options.attribution.linking,
+            "near_miss": analytics._context.options.selection.near_miss,
             "parts": parts, "unavailable": unavailable}
 
 

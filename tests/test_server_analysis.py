@@ -303,6 +303,15 @@ class TestAName_sProfile:
         assert part["columns"][0] == {"name": "contribution", "label": "Contribution",
                                       "unit": "fraction", "labels": None}
 
+    def test_the_near_miss_share_comes_with_it(self,
+                                               client,
+                                               analytics):
+        # BN-485: the band Drilldown shades around each threshold.
+        name = analytics.instrument.table().index[0]
+        found = client.get(f"/strategies/analysed/instrument/{name}", headers=auth()).json()
+
+        assert found["near_miss"] == 0.1
+
     def test_its_return_and_risk(self,
                                  client,
                                  analytics):

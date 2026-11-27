@@ -39,12 +39,13 @@ LABELS = {"target": "Target", "screened": "After the screens", "weight": "Traded
           "cost": "Cost", "impact": "Market impact", "reason": "Reason", "tags": "Tags",
           "event": "Event", "detail": "Detail", "rule": "Rule", "rule_name": "Rule type",
           "measure": "Measured", "measured": "Value", "comparison": "Comparison",
-          "threshold": "Threshold", "margin": "Margin", "passed": "Passed",
+          "threshold": "Threshold", "difference": "Difference", "margin": "Margin",
+          "passed": "Passed",
           "period": "Period", "start": "From", "return": "Return", "volatility": "Volatility"}
 UNITS = {"value": MONEY, "traded_value": MONEY, "days_to_sell": DAYS, "observations": COUNT,
          "market_cap": MONEY, "size_position": None, "style_position": None, "amount": None,
          "quantity": None, "price": MONEY, "notional": MONEY, "cost": MONEY, "impact": MONEY,
-         "rule": None, "measured": None, "threshold": None}
+         "rule": None, "measured": None, "threshold": None, "difference": None}
 # The labels of a column of codes, by code.
 CODES = {"event": EVENT_LABELS,
          "comparison": {"gt": "Above", "ge": "At least", "lt": "Below", "le": "At most",

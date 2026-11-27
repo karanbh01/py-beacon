@@ -283,6 +283,10 @@ class InstrumentProfile(BaseModel):
                                      "as the run's analysis options say: 'window', as its "
                                      "share of the whole window's, so the periods add up to "
                                      "it, or 'period', each period on its own.")
+    # BN-485: the band Drilldown shades around each threshold.
+    near_miss: float = Field(description="The share of a threshold within which a pass is "
+                                         "a near miss, as the run's analysis options say: "
+                                         "'selection' and 'events' are measured with it.")
     parts: dict[str, ProfileTable] = Field(
         description="Each part the run can give, by name: 'rebalance_weights', a row a "
                     "rebalance; 'daily_weights', a row a day; 'attribution', a row a "

@@ -16,12 +16,15 @@ COLUMNS = {"RULE": "rule", "RULE_NAME": "rule_name", "QUANTITY": "measure",
 
 def selection(name: str,
               tables: dict[str, pd.DataFrame],
-              days: pd.DatetimeIndex) -> pd.DataFrame:
+              days: pd.DatetimeIndex,
+              near_miss: float | None = None) -> pd.DataFrame:
     """At each rebalance over *days*: each threshold each eligibility rule
     tested *name* against, a row each: what it measured (``measure``),
-    the name's value (``measured``), the threshold, its margin
+    the name's value (``measured``), the threshold, its value less the
+    threshold in the measure's units (``difference``), its margin
     (`beacon.index.margins`) and whether it passed; none for a rule
-    it did not reach, having been removed before it.
+    it did not reach, having been removed before it. Its ``attrs`` say the
+    share of the threshold a near miss is within (*near_miss*).
 
     Raises:
         Unavailable: If the run was kept before its margins were.
@@ -41,10 +44,14 @@ def selection(name: str,
     margins = [margin(value, comparison, threshold) for value, comparison, threshold
                in zip(_numbers(found["measured"]), found["comparison"],
                       _numbers(found["threshold"]), strict=True)]
+    # BN-485 (Karan's Drilldown review): beside the margin, the gap itself.
+    found.insert(len(found.columns) - 1, "difference", found["measured"] - found["threshold"])
     found.insert(len(found.columns) - 1, "margin", pd.Series(margins, index=found.index,
                                                             dtype=float))
+    found = found.sort_index(kind="stable").rename_axis("DATE")
+    found.attrs = {"near_miss": near_miss}
 
-    return found.sort_index(kind="stable").rename_axis("DATE")
+    return found
 
 
 def near_misses(table: pd.DataFrame,

@@ -147,10 +147,24 @@ class TestAName_sSelection:
         found = result.analytics.instrument.profile("N3").selection
 
         assert list(found.columns) == ["rule", "rule_name", "measure", "measured",
-                                       "comparison", "threshold", "margin", "passed"]
+                                       "comparison", "threshold", "difference", "margin",
+                                       "passed"]
         assert found["passed"].all()
         assert found["margin"].tolist() == pytest.approx(
             ((found["measured"] - FLOOR) / FLOOR).tolist())
+
+    def test_the_difference_is_in_the_measure_s_units(self,
+                                                      result):
+        # BN-485: the value less the threshold, beside the margin.
+        found = result.analytics.instrument.profile("N3").selection
+
+        assert found["difference"].tolist() == pytest.approx(
+            (found["measured"] - FLOOR).tolist())
+        assert (found["difference"] > 0).all()
+
+    def test_the_near_miss_share_comes_with_it(self,
+                                               result):
+        assert result.analytics.instrument.profile("N3").selection.attrs == {"near_miss": 0.1}
 
     def test_a_name_that_failed_until_it_passed(self,
                                                 result):
@@ -165,6 +179,7 @@ class TestAName_sSelection:
                    for column in columns_of(result.analytics.instrument.profile("N3").selection)}
 
         assert columns["margin"].unit == "fraction" and columns["threshold"].unit is None
+        assert (columns["difference"].label, columns["difference"].unit) == ("Difference", None)
         assert columns["comparison"].labels["ge"] == "At least"
 
     def test_a_stored_run_s_and_one_kept_before_them(self,
