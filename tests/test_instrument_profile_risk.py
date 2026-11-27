@@ -168,6 +168,18 @@ class TestItsLiquidity:
 
             assert found.loc[day].tolist() == pytest.approx(held.tolist(), rel=1e-12)
 
+    def test_each_name_shares_the_run_s_liquidity(self,
+                                                  data):
+        # BN-481: measured once for the run, not once a name.
+        from beacon.analysis.analytics.profile import liquidity_of
+
+        analytics = Analytics(data)
+        context = analytics._context
+
+        assert liquidity_of(context) is liquidity_of(context)
+        assert analytics.instrument.profile("GROW").liquidity.equals(
+            Analytics(data).instrument.profile("GROW").liquidity)
+
     def test_a_rebalance_the_fund_did_not_hold_it(self,
                                                   data):
         import dataclasses

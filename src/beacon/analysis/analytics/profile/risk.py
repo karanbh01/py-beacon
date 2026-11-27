@@ -89,11 +89,16 @@ def liquidity(name: str,
 def liquidity_of(context: Any) -> LiquidityAnalytics:
     """The run's liquidity under the analysis's options: measured from the
     data store when it is loaded, else from the traded values the run
-    kept."""
+    kept; one for the context, so what it works out is shared."""
+    # BN-481: one for the context rather than one a call, so a name's
+    # profile does not pivot the traded values again.
     options = context.options.liquidity
+    found: LiquidityAnalytics = context.kept(
+        ("liquidity_of",), lambda: LiquidityAnalytics(context.run, context.source,
+                                                      participation=options.participation,
+                                                      lookback_days=options.lookback_days))
 
-    return LiquidityAnalytics(context.run, context.source, participation=options.participation,
-                              lookback_days=options.lookback_days)
+    return found
 
 
 def liquidity_dates(measured: LiquidityAnalytics) -> list[pd.Timestamp]:

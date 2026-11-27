@@ -72,6 +72,7 @@ class LiquidityAnalytics:
         self.participation = participation
         self.lookback_days = lookback_days
         self._traded: pd.DataFrame | None = None
+        self._weights: dict[str, pd.DataFrame] = {}
 
     def dates(self) -> list[pd.Timestamp]:
         """The rebalances and month ends the run kept traded values on."""
@@ -148,12 +149,7 @@ class LiquidityAnalytics:
                 day: pd.Timestamp,
                 of: str) -> pd.Series:
         """The portfolio's holdings' values on *day*, at the fund's net assets."""
-        weights = self.run.tables.get(PORTFOLIOS[of])
-
-        if weights is None or weights.empty:
-            raise KeyError(f"The run kept no weights for its {of}.")
-
-        weights = weights.sort_index()
+        weights = self._sorted(of)
         at = as_of_position(weights.index, day)
         nav_at = as_of_position(self.run.nav.index, day)
 
@@ -164,6 +160,21 @@ class LiquidityAnalytics:
         row.index = row.index.astype(str)
 
         return row[row > 0.0] * float(self.run.nav.iloc[nav_at])
+
+    def _sorted(self,
+                of: str) -> pd.DataFrame:
+        """The portfolio's daily weights in date order, sorted once."""
+        # BN-481: a name's profile reads every rebalance's holdings; each
+        # sorted the whole table again.
+        if of not in self._weights:
+            weights = self.run.tables.get(PORTFOLIOS[of])
+
+            if weights is None or weights.empty:
+                raise KeyError(f"The run kept no weights for its {of}.")
+
+            self._weights[of] = weights.sort_index()
+
+        return self._weights[of]
 
     def _traded_on(self,
                    day: pd.Timestamp) -> pd.Series:
