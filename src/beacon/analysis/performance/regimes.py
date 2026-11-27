@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from ..annualising import long_enough
 from ..data import BENCHMARK, INDEX, RunData
 from . import formulas
 from .analytics import PerformanceAnalytics
@@ -43,20 +44,22 @@ class Regime:
         fund: The fund's return compounded over them.
         comparator: The comparator's.
         difference: The fund's less the comparator's.
-        fund_annual: The fund's mean daily return, a year.
-        comparator_annual: The comparator's.
+        fund_annual: The fund's mean daily return, a year; None over fewer
+            days than a rate is annualised over (`beacon.analysis.annualising`).
+        comparator_annual: The comparator's; None as the fund's is.
         beta: The fund's beta to the comparator over them.
         alpha: The fund's mean daily return beyond its beta, in excess of the
-            risk-free rate, a year (Jensen's alpha over the regime).
+            risk-free rate, a year (Jensen's alpha over the regime); None as
+            the annual returns are.
     """
     days: int
     fund: float
     comparator: float
     difference: float
-    fund_annual: float
-    comparator_annual: float
+    fund_annual: float | None
+    comparator_annual: float | None
     beta: float
-    alpha: float
+    alpha: float | None
 
 
 def up_and_down_months(market: pd.Series) -> tuple[pd.Series, pd.Series]:
@@ -106,8 +109,10 @@ def regime_of(ours: pd.Series,
               theirs: pd.Series,
               days: pd.Series,
               daily_rate: float,
-              periods_per_year: int) -> Regime | None:
-    """The fund against its comparator over *days*; None without any."""
+              periods_per_year: int,
+              rate_window: str | None = None) -> Regime | None:
+    """The fund against its comparator over *days*; None without any. Its
+    annual figures and alpha are None over fewer days than *rate_window*."""
     chosen = days.reindex(ours.index, fill_value=False).to_numpy(dtype=bool)
 
     if not chosen.any():
@@ -117,13 +122,17 @@ def regime_of(ours: pd.Series,
     total, theirs_total = formulas.compounded_return(fund), formulas.compounded_return(comparator)
     beta = formulas.beta(fund, comparator)
     excess, theirs_excess = fund - daily_rate, comparator - daily_rate
+    # BN-466: rates, so a year of the regime's days.
+    annual = rate_window is None or long_enough(int(chosen.sum()), rate_window, periods_per_year)
 
     return Regime(days=int(chosen.sum()), fund=total, comparator=theirs_total,
                   difference=total - theirs_total,
-                  fund_annual=float(fund.mean() * periods_per_year),
-                  comparator_annual=float(comparator.mean() * periods_per_year),
+                  fund_annual=float(fund.mean() * periods_per_year) if annual else None,
+                  comparator_annual=(float(comparator.mean() * periods_per_year) if annual
+                                     else None),
                   beta=beta,
-                  alpha=float((excess.mean() - beta * theirs_excess.mean()) * periods_per_year))
+                  alpha=(float((excess.mean() - beta * theirs_excess.mean()) * periods_per_year)
+                         if annual else None))
 
 
 class RegimeAnalytics:
@@ -149,6 +158,7 @@ class RegimeAnalytics:
                  settings: AnalysisSettings | None = None):
         performance = PerformanceAnalytics(run, settings)
         self.periods_per_year = performance.periods_per_year
+        self.rate_window = performance.annualising[0]
         self.daily_rate = formulas.daily_rate(performance.risk_free_rate, self.periods_per_year)
         levels = run.comparators[comparator] if isinstance(comparator, str) else comparator
         self.ours, self.theirs = aligned(performance.returns, levels, performance.before)
@@ -171,5 +181,5 @@ class RegimeAnalytics:
         """The fund against its comparator in each regime, by name; None for
         a regime the run never saw."""
         return {name: regime_of(self.ours, self.theirs, days, self.daily_rate,
-                                self.periods_per_year)
+                                self.periods_per_year, self.rate_window)
                 for name, days in self.days().items()}

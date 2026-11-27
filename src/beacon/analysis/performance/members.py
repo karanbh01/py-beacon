@@ -41,6 +41,7 @@ from ..._renamed import renamed_keyword
 from ...exceptions import CalculationError
 from ...optimise.frontier import efficient_frontier
 from ...risk.model import estimate_risk_model
+from ..annualising import long_enough
 
 WEEKLY, MONTHLY = "weekly", "monthly"
 FREQUENCIES = {WEEKLY: ("W-FRI", 52), MONTHLY: ("ME", 12)}
@@ -132,14 +133,22 @@ def risk_return(periods: pd.DataFrame,
 
 @renamed_keyword("books", "portfolios")
 def portfolio_risk_return(portfolios: Mapping[str, pd.Series],
-                          settings: RiskReturnSettings) -> pd.DataFrame:
+                          settings: RiskReturnSettings,
+                          rate_window: str | None = None) -> pd.DataFrame:
     """Each portfolio's risk and return, from its daily returns by name,
-    measured as the names' are."""
+    measured as the names' are; its return, a rate, blank over fewer
+    periods than *rate_window* (`beacon.analysis.annualising`)."""
     if not portfolios:
         return pd.DataFrame(columns=PORTFOLIO_COLUMNS)
 
     daily = pd.DataFrame(dict(portfolios))
     figures = risk_return(compounded(daily, settings.frequency), settings.per_year)
+
+    # BN-466: the mean return a year over a run too short to annualise.
+    if rate_window is not None:
+        short = [not long_enough(int(count), rate_window, settings.per_year)
+                 for count in figures["observations"]]
+        figures["return"] = figures["return"].mask(short)
 
     return figures.rename_axis("portfolio").reset_index()[PORTFOLIO_COLUMNS]
 

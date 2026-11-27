@@ -71,7 +71,8 @@ def _portfolios(context: Context) -> pd.DataFrame:
     books.update({name: context.performance_of(name).returns for name in (INDEX, BENCHMARK)
                   if name in context.run.comparators})
 
-    return members.portfolio_risk_return(books, context.options.risk_return)
+    return members.portfolio_risk_return(books, context.options.risk_return,
+                                         context.performance.annualising[0])
 
 
 def _frontier(context: Context) -> Summarised:

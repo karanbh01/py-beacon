@@ -244,7 +244,12 @@ the backtest metrics the server gives with a run, a comparison of the run with
 its index or benchmark, and each calendar period's figures
 (`PerformanceAnalytics.periods()`, the period table and
 `GET /strategies/{id}/periods`), where each quarter's and month's Sharpe ratio
-is blank, as a year's under six months is. There the figure is null.
+is blank, as a year's under six months is. There the figure is null. So too
+are the crisis summary's pooled alpha over crises adding up to less than a
+year, a regime's annual returns and alpha over fewer than a year of its days,
+and a portfolio's return in `portfolio_risk_return` over less than a year of
+its weeks or months. A single crisis's alpha is its return beyond its beta
+over the crisis, not annualised, and is always given.
 
 Every annualised analytic takes `annualise`, which asks for it another way:
 

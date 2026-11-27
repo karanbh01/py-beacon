@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from ..._renamed import renamed_keyword
+from ..annualising import long_enough
 from ..data import BENCHMARK, INDEX, RunData
 from . import formulas
 from .analytics import PerformanceAnalytics
@@ -157,10 +158,13 @@ def across(crises: Sequence[Crisis],
            ours: pd.Series,
            theirs: pd.Series,
            run_beta: float,
-           periods_per_year: int) -> dict[str, float | None]:
+           periods_per_year: int,
+           rate_window: str | None = None) -> dict[str, float | None]:
     """The figures across every crisis: the average outperformance, the share
     outperformed, crisis capture, and the pooled crisis alpha (the mean daily
-    return beyond the whole run's beta over every crisis day, a year)."""
+    return beyond the whole run's beta over every crisis day, a year), blank
+    when the crises' days add up to less than *rate_window*
+    (`beacon.analysis.annualising`)."""
     if not crises:
         return dict.fromkeys(("average_outperformance", "share_outperformed", "capture",
                               "pooled_alpha"))
@@ -174,12 +178,16 @@ def across(crises: Sequence[Crisis],
         days |= (ours.index > crisis.start) & (ours.index <= crisis.end)
 
     beyond = ours[days] - run_beta * theirs[days]
+    # BN-466: a rate, so a year of crisis days, as alpha needs one.
+    pooled = (float(beyond.mean() * periods_per_year)
+              if rate_window is None or long_enough(int(days.sum()), rate_window,
+                                                   periods_per_year) else None)
 
     return {"average_outperformance": float(np.mean([crisis.outperformance
                                                      for crisis in crises])),
             "share_outperformed": sum(crisis.outperformance > 0 for crisis in crises) / count,
             "capture": fund_mean / theirs_mean if theirs_mean != 0 else None,
-            "pooled_alpha": float(beyond.mean() * periods_per_year)}
+            "pooled_alpha": pooled}
 
 
 class CrisisAnalytics:
@@ -209,6 +217,7 @@ class CrisisAnalytics:
                  settings: AnalysisSettings | None = None):
         performance = PerformanceAnalytics(run, settings)
         self.periods_per_year = performance.periods_per_year
+        self.rate_window = performance.annualising[0]
         levels = run.comparators[comparator] if isinstance(comparator, str) else comparator
         self.ours, self.theirs = aligned(performance.returns, levels, performance.before)
         chosen = market if market is not None else (BENCHMARK if BENCHMARK in run.comparators
@@ -228,7 +237,7 @@ class CrisisAnalytics:
     def summary(self) -> dict[str, float | None]:
         """The figures across every crisis."""
         return across(self.crises(), self.ours, self.theirs, self.run_beta,
-                      self.periods_per_year)
+                      self.periods_per_year, self.rate_window)
 
     def unseen(self) -> list[tuple[Episode, str]]:
         """Each crisis the run saw none of, in order, and whether it came

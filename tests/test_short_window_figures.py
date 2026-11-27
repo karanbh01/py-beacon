@@ -107,3 +107,33 @@ class TestTheWholeRun:
 
         assert metrics.annualised_return is None and metrics.sharpe_ratio is None
         assert metrics.total_return is not None
+
+
+class TestRegimesAndRiskReturn:
+
+    def test_a_regime_of_few_days_has_no_annual_figures(self):
+        from beacon.analysis.performance.regimes import regime_of
+
+        returns = run(400).returns
+        theirs = returns * 0.8
+        few = pd.Series(returns.index < returns.index[60], index=returns.index)
+        many = pd.Series(True, index=returns.index)
+
+        short = regime_of(returns, theirs, few, 0.0, 252, "1Y")
+        whole = regime_of(returns, theirs, many, 0.0, 252, "1Y")
+
+        assert (short.fund_annual, short.comparator_annual, short.alpha) == (None, None, None)
+        assert short.fund is not None and short.beta is not None
+        assert None not in (whole.fund_annual, whole.comparator_annual, whole.alpha)
+
+    def test_a_portfolio_s_return_needs_a_year_of_periods(self):
+        from beacon.analysis.performance.members import (
+            RiskReturnSettings,
+            portfolio_risk_return,
+        )
+
+        short = portfolio_risk_return({"fund": run(150).returns}, RiskReturnSettings(), "1Y")
+        long = portfolio_risk_return({"fund": run(400).returns}, RiskReturnSettings(), "1Y")
+
+        assert np.isnan(short["return"].iloc[0]) and not np.isnan(short["volatility"].iloc[0])
+        assert not np.isnan(long["return"].iloc[0])

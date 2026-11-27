@@ -110,8 +110,17 @@ class TestAcrossCrises:
         assert summary["average_outperformance"] == pytest.approx(
             np.mean([crisis.outperformance for crisis in crises]))
         assert summary["share_outperformed"] == 1.0
-        assert summary["pooled_alpha"] == pytest.approx(0.0, abs=1e-12)
         assert 0.0 < summary["capture"] < 1.0
+
+    def test_the_pooled_alpha_needs_a_year_of_crisis_days(self):
+        # BN-466: a rate, and these crises add up to a few weeks.
+        from beacon.analysis.performance.settings import AnalysisSettings
+
+        anywhere = AnalysisSettings(min_annualised_rate_window="0M")
+
+        assert analytics(threshold=0.05).summary()["pooled_alpha"] is None
+        assert analytics(threshold=0.05, settings=anywhere).summary()["pooled_alpha"] == (
+            pytest.approx(0.0, abs=1e-12))
 
     def test_no_crisis_has_no_figures(self):
         summary = analytics(threshold=0.5).summary()
