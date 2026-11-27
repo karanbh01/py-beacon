@@ -1,6 +1,7 @@
 # tests/test_optional_dependencies.py
 """Unit tests for beacon._optional — the optional-dependency import guards."""
 import importlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -304,5 +305,9 @@ class TestTheServerExtraIsSelfSufficient:
         with pyproject.open("rb") as handle:
             server = tomllib.load(handle)["project"]["optional-dependencies"]["server"]
 
-        assert {"fastapi", "orjson", "websockets"} <= set(server)
-        assert any(entry.startswith("uvicorn") for entry in server)
+        names = {re.split(r"[<>=!~\[; ]", entry, maxsplit=1)[0] for entry in server}
+
+        assert {"fastapi", "orjson", "websockets", "uvicorn"} <= names
+        # BN-484: an older FastAPI leaves path parameters' descriptions out of
+        # the spec, so an export would differ from a fresh install's.
+        assert "fastapi>=0.165" in server

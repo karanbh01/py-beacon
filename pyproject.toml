@@ -65,7 +65,10 @@ dependencies = [
 # beacon._optional.require(), which names the extra when it is absent.
 [project.optional-dependencies]
 data = ["yfinance"]
-server = ["fastapi", "uvicorn[standard]", "orjson", "websockets"]
+# FastAPI 0.165 or later (BN-484): it writes a path parameter's description into
+# the OpenAPI spec, which earlier releases leave out, so a spec exported with
+# an older one differs from one exported on a fresh install.
+server = ["fastapi>=0.165", "uvicorn[standard]", "orjson", "websockets"]
 # Folded into the core in BN-310 and kept, empty, so an install command
 # written for an earlier release still works.
 excel = []
