@@ -324,7 +324,9 @@ from beacon.expressions.catalogue import describe_fields
 
 fields = describe_fields(fetcher)
 print([entry["path"] for entry in fields if entry["namespace"] == "reference"])
-# ['reference.name', 'reference.currency', 'reference.exchange', 'reference.sector']
+# ['reference.name', 'reference.currency', 'reference.exchange', 'reference.sector',
+#  'reference.asset_class', 'reference.security_type', 'reference.base_currency',
+#  'reference.quote_currency']
 print([entry["path"] for entry in fields if entry["derived"]])
 # ['market.adv_3m', 'market.market_cap', 'market.free_float_market_cap']
 ```

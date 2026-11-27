@@ -5,10 +5,11 @@ description: "Covariance estimation and shrinkage, factor risk models and risk c
 
 # Risk model
 
-`beacon.analysis.risk` answers questions about **one** series: this
-portfolio's volatility, this index's drawdown. `beacon.risk` answers questions
-about how assets move **together**, which is a different thing and the input
-an [optimiser](optimiser.md) needs.
+`beacon.risk` answers questions about how assets move **together**: it
+estimates their covariance from a returns panel, the input an
+[optimiser](optimiser.md) needs. `beacon.analysis.risk`, covered in
+[risk analysis](risk-analysis.md), applies it to a finished run: what the
+portfolio was exposed to, how much it could lose and where its risk came from.
 
 It needs only numpy, so it is part of the core rather than behind an extra.
 
