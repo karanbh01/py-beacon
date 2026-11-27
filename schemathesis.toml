@@ -30,6 +30,15 @@ enabled = false
 include-path-regex = "^/data/coverage/[^/]+/sync$"
 enabled = false
 
+# Registering a database store connects to it and reads it before it is
+# kept. A generated host that never answers takes the connection's whole
+# 10-second timeout, which was the fuzzer's own, so the request outlived it
+# (BN-483). Waited for longer here, the operation is still fuzzed, folder
+# stores and databases alike.
+[[operations]]
+include-name-regex = '^POST /data/stores$'
+request-timeout = 60
+
 # Operations with rules the OpenAPI schema cannot state. Each is enforced by
 # the API with a 422 and a message, and each has tests; the fuzzer, which only
 # knows the schema, builds requests that break them and reports the 422 as
