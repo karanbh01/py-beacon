@@ -52,8 +52,10 @@ def replayed(trades: pd.DataFrame,
 
     trade_days: dict[pd.Timestamp, list[tuple[str, bool, float]]] = {}
 
-    for day, name, side, quantity in zip(pd.DatetimeIndex(trades.index), trades["IDENTIFIER"],
-                                         trades["SIDE"], trades["QUANTITY"], strict=True):
+    for day, name, side, quantity in zip(pd.DatetimeIndex(trades.index),
+                                         trades["IDENTIFIER"].to_numpy(dtype=object),
+                                         trades["SIDE"].to_numpy(dtype=object),
+                                         trades["QUANTITY"].to_numpy(dtype=float), strict=True):
         trade_days.setdefault(day, []).append((str(name), side == "BUY", float(quantity)))
 
     held: dict[str, float] = {}
@@ -158,7 +160,8 @@ def unpack_holdings(trades: pd.DataFrame,
     drops = _keyed(kept[DROPS].assign(**{AMOUNT: 0.0, HELD: False}))
     patch = kept[PATCH]
     gone = set(drops.index) | set(_keyed(patch).index)
-    keys = list(zip(pd.DatetimeIndex(replay.index), replay[NAME], strict=True))
+    keys = list(zip(pd.DatetimeIndex(replay.index), replay[NAME].to_numpy(dtype=object),
+                    strict=True))
     left = replay[[key not in gone for key in keys]]
     frame = pd.concat([left, patch]) if len(patch) else left
     order = np.lexsort((pd.factorize(frame[NAME].astype(str), sort=True)[0],

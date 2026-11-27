@@ -46,7 +46,7 @@ def wide_of(frame: pd.DataFrame,
     grid[day_codes, name_codes] = frame[values].to_numpy(dtype=float)
 
     return pd.DataFrame(grid, index=pd.DatetimeIndex(days, name=index),
-                        columns=pd.Index(names, name=columns))
+                        columns=pd.Index(names, name=columns), copy=False)
 
 
 def holding_changes(amounts: pd.DataFrame) -> pd.DataFrame:
@@ -77,17 +77,36 @@ def held_amounts(changes: pd.DataFrame,
     """*changes* as amounts held on every one of *dates*, by name in *names*,
     missing where a name was not held; a holding that began before the
     first of *dates* is carried into them."""
-    if changes.empty:
-        return pd.DataFrame(np.nan, index=dates, columns=names)
+    # BN-481: in arrays, each of *dates* reading its last change at or before
+    # it; pivoting and forward-filling the amounts and the flags apart took
+    # most of a second over twenty years.
+    grid = np.full((len(dates), len(names)), np.nan)
 
-    keyed = changes.rename_axis("DAY").reset_index()
-    amounts = keyed.pivot(index="DAY", columns=NAME, values=AMOUNT)
-    held = keyed.pivot(index="DAY", columns=NAME, values=HELD).astype(float)
-    every = amounts.index.union(dates)
-    amounts = amounts.reindex(index=every, columns=names).ffill().reindex(dates)
-    held = held.reindex(index=every, columns=names).ffill().reindex(dates)
+    if changes.empty or not len(dates):
+        return pd.DataFrame(grid, index=dates, columns=names, copy=False)
 
-    return amounts.where(held == 1.0)
+    order = np.argsort(pd.DatetimeIndex(changes.index).asi8, kind="stable")
+    columns = pd.Index(names).get_indexer(changes[NAME].astype(str).to_numpy()[order])
+    rows = pd.DatetimeIndex(dates).searchsorted(pd.DatetimeIndex(changes.index)[order])
+    amounts = changes[AMOUNT].to_numpy(dtype=float)[order]
+    held = changes[HELD].to_numpy(dtype=bool)[order]
+    kept = (columns >= 0) & (rows < len(dates))
+    rows, columns, amounts, held = rows[kept], columns[kept], amounts[kept], held[kept]
+
+    # Of the changes a day reads, the last: in day order, so it is the
+    # last of each cell's.
+    cells = rows * len(names) + columns
+    last = len(cells) - 1 - np.unique(cells[::-1], return_index=True)[1]
+    grid[rows[last], columns[last]] = np.where(held[last], amounts[last], np.nan)
+
+    # By column in memory, so the running latest runs down each one.
+    changed = np.full(grid.shape, -1, order="F")
+    changed[rows[last], columns[last]] = rows[last]
+    latest = np.maximum.accumulate(changed, axis=0)
+    found = np.take_along_axis(grid, np.maximum(latest, 0), axis=0)
+
+    return pd.DataFrame(np.where(latest >= 0, found, np.nan), index=dates, columns=names,
+                        copy=False)
 
 
 def fund_weights_from(changes: pd.DataFrame,
@@ -105,13 +124,12 @@ def fund_weights_from(changes: pd.DataFrame,
         dates: The days the portfolio held anything.
         names: The names, in the recorded weights' order.
     """
-    quantities = held_amounts(changes, dates, names)
-    values = quantities * prices.reindex(index=dates, columns=names)
+    quantities = held_amounts(changes, dates, names).to_numpy()
+    values = quantities * prices.reindex(index=dates, columns=names).to_numpy(dtype=float)
+    grid = values / totals.reindex(dates).to_numpy(dtype=float)[:, None]
 
-    frame = values.div(totals.reindex(dates), axis=0)
-    frame.index.name, frame.columns.name = "DATE", "ASSET_ID"
-
-    return frame
+    return pd.DataFrame(grid, index=pd.DatetimeIndex(dates, name="DATE"),
+                        columns=pd.Index(names, name="ASSET_ID"), copy=False)
 
 
 def index_weights_from(changes: pd.DataFrame,
@@ -145,7 +163,7 @@ def index_weights_from(changes: pd.DataFrame,
     # whole arrays, since a column at a time took most of a second.
     grid = shares.astype(RECORDED_PRECISION).astype(dtype)
     frame = pd.DataFrame(grid, index=pd.DatetimeIndex(dates, name="DATE"),
-                         columns=pd.Index(names, name="IDENTIFIER"))
+                         columns=pd.Index(names, name="IDENTIFIER"), copy=False)
 
     return frame
 
@@ -158,15 +176,17 @@ def rate_grid(currencies: pd.DataFrame,
     currency's kept rate, or 1 for a name in the portfolio's own currency."""
     grid = np.ones((len(dates), len(names)))
     quoted = currencies["CURRENCY"]
+    quoted.index = quoted.index.astype(str)
+    codes = quoted.reindex(names).to_numpy(dtype=object)
 
     # In one array: a column at a time took over half a second at 6,000 names.
     for code in rates.columns:
-        held = [position for position, name in enumerate(names) if quoted.get(name) == code]
+        held = np.flatnonzero(codes == code)
 
-        if held:
+        if len(held):
             grid[:, held] = rates[code].reindex(dates).to_numpy(dtype=float)[:, None]
 
-    return pd.DataFrame(grid, index=dates, columns=names)
+    return pd.DataFrame(grid, index=dates, columns=names, copy=False)
 
 
 def patch_of(rebuilt: pd.DataFrame,
@@ -189,10 +209,9 @@ def patched(rebuilt: pd.DataFrame,
     if patch.empty:
         return rebuilt
 
-    frame = rebuilt.copy()
-    rows = frame.index.get_indexer(pd.DatetimeIndex(patch.index))
-    columns = frame.columns.get_indexer(patch[NAME].astype(str))
-    grid = frame.to_numpy(copy=True)
+    rows = rebuilt.index.get_indexer(pd.DatetimeIndex(patch.index))
+    columns = rebuilt.columns.get_indexer(patch[NAME].astype(str))
+    grid = rebuilt.to_numpy(copy=True)
     grid[rows, columns] = patch[WEIGHT].to_numpy(dtype=grid.dtype)
 
-    return pd.DataFrame(grid, index=frame.index, columns=frame.columns)
+    return pd.DataFrame(grid, index=rebuilt.index, columns=rebuilt.columns, copy=False)

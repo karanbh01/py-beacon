@@ -48,6 +48,31 @@ class TestHoldings:
         assert back["CCC"].isna().tolist() == [False, False, True, True, False]
         assert back.loc[DAYS[4], "CCC"] == 4.0
 
+    def test_on_fewer_days_each_reads_its_last_change_before_it(self):
+        """BN-481: in arrays, as the pivot and forward fill it replaced gave
+        them: a holding begun before the first day carried in, two changes
+        between days the later one, an end between days ending it, a name
+        not asked for left out and a change after the last day ignored."""
+        changes = holding_changes(amounts())
+        later = pd.DataFrame({NAME: ["DDD", "AAA"], AMOUNT: [1.0, 99.0], HELD: [True, True]},
+                             index=pd.DatetimeIndex([DAYS[1], DAYS[4] + pd.Timedelta(days=3)]))
+        every = pd.concat([changes, later]).sort_index(kind="stable")
+        fewer = DAYS[[1, 3, 4]]
+        names = ["CCC", "AAA", "BBB", "EEE"]
+
+        found = held_amounts(every, fewer, names)
+
+        keyed = every.rename_axis("DAY").reset_index()
+        amount = keyed.pivot(index="DAY", columns=NAME, values=AMOUNT)
+        held = keyed.pivot(index="DAY", columns=NAME, values=HELD).astype(float)
+        union = amount.index.union(fewer)
+        expected = (amount.reindex(index=union, columns=names).ffill().reindex(fewer)
+                    .where(held.reindex(index=union, columns=names).ffill().reindex(fewer) == 1.0))
+
+        np.testing.assert_array_equal(found.to_numpy(), expected.to_numpy())
+        assert found.loc[DAYS[3], "CCC"] != found.loc[DAYS[3], "CCC"]
+        assert found.loc[DAYS[4], "AAA"] == 12.0
+
     def test_no_changes_hold_nothing(self):
         empty = holding_changes(amounts().iloc[:0])
 

@@ -337,8 +337,9 @@ def weights_from(name: str,
     *last* days alone when given, which are those days of the whole table."""
     days = pd.DatetimeIndex(tables[name + DAYS].index)
     days = days[-last:] if last is not None and last > 0 else days
-    # Carried over gaps across the whole run, then only the days worked out.
-    closes = tables[CLOSES].ffill().reindex(days)
+    # Carried over gaps across the whole run, then only the days worked out;
+    # carried once for every portfolio (BN-481).
+    closes = _carried(tables).reindex(days)
     names = [str(item) for item in tables[name + NAMES].index]
     changes = tables[name + HOLDINGS]
     patch = tables[name + PATCH]
@@ -357,6 +358,19 @@ def weights_from(name: str,
     frame.index.name, frame.columns.name = None, None
 
     return frame.astype(dtype)
+
+
+def _carried(tables: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """A run's closes carried over gaps: worked out once for a stored run's
+    tables, which keep their own work."""
+    work = getattr(tables, "work", None)
+
+    if work is None:
+        return tables[CLOSES].ffill()
+
+    found: pd.DataFrame = work(CLOSES + "_carried", tables[CLOSES].ffill)
+
+    return found
 
 
 def held_names(result: BacktestResult) -> list[str]:

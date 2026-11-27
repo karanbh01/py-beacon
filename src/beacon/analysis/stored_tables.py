@@ -55,6 +55,7 @@ class StoredTables(Mapping[str, pd.DataFrame]):
         self._kept = kept
         self._rebuilds = rebuilds
         self._windows: dict[str, Callable[[int], pd.DataFrame]] = {}
+        self._work: dict[str, Any] = {}
 
     def __getitem__(self,
                     name: str) -> pd.DataFrame:
@@ -69,6 +70,18 @@ class StoredTables(Mapping[str, pd.DataFrame]):
 
     def __len__(self) -> int:
         return len(set(self._kept) | set(self._rebuilds))
+
+    def work(self,
+             key: str,
+             build: Callable[[], Any]) -> Any:
+        """What *build* gives, worked out once under *key*: work that the
+        tables worked out again share, such as the closes carried over
+        gaps, which is no table of its own."""
+        # BN-481.
+        if key not in self._work:
+            self._work[key] = build()
+
+        return self._work[key]
 
     def add(self,
             name: str,
