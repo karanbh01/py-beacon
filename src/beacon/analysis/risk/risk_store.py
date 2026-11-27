@@ -27,12 +27,14 @@ settings, so a run asked about another model works them out again.
 # BN-471 added the exposures.
 import hashlib
 import json
+import logging
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from ...exceptions import CalculationError
 from ...risk.model import FactorRiskModel
 from ...risk.model.global_fit import COUNTRY, CURRENCY, SECTOR
 from ...strategy.factors import Factor
@@ -45,6 +47,8 @@ FOLDER = "risk"
 KEY_FILE = "risk.json"
 VERSION = 2
 
+logger = logging.getLogger(__name__)
+
 TABLE, EXPOSURES = "name_risk", "name_exposures"
 TABLES = (TABLE, EXPOSURES)
 IDENTIFIER, DATE = "IDENTIFIER", "DATE"
@@ -56,22 +60,30 @@ GROUPS = (COUNTRY, SECTOR, CURRENCY)
 def rebalance_risk(over_time: RiskOverTime) -> dict[str, pd.DataFrame]:
     """Each name's expected risk (``name_risk``) and its model's exposures
     (``name_exposures``) at each rebalance its model can be fitted for;
-    long, a row a name a rebalance."""
+    long, a row a name a rebalance. A rebalance whose model cannot be
+    fitted is left out, with a warning, rather than failing the rest."""
     books = [book for book, table_name in PORTFOLIOS.items()
              if (table := over_time.run.tables.get(table_name)) is not None and not table.empty]
     comparators = [book for book in books if book != "fund"]
     risks, exposures = [], []
 
     for day in over_time.dates():
-        found = {"fund": over_time.contributions(day)}
+        # BN-482: one rebalance the model cannot be fitted for, say for want
+        # of returns, failed the whole analysis after all its work.
+        try:
+            found = {"fund": over_time.contributions(day)}
 
-        for comparator in comparators:
-            found[comparator] = over_time.contributions(day, against=comparator)
+            for comparator in comparators:
+                found[comparator] = over_time.contributions(day, against=comparator)
+
+            model = over_time.models.at(day)
+        except CalculationError as error:
+            logger.warning("No expected risk kept for %s: %s", day.date(), error)
+            continue
 
         columns = {f"{part}/{book}": table[part] for book, table in found.items()
                    for part in (CONTRIBUTION, SHARE)}
         risks.append(_dated(pd.DataFrame(columns), day))
-        model = over_time.models.at(day)
         assert isinstance(model, FactorRiskModel)
         exposures.append(_dated(grouped_exposures(model.exposures), day))
 

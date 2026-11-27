@@ -77,6 +77,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Fixed
 
+- A run whose analysis fits the risk model failed its whole analysis when a rebalance fell exactly the model's window after the first day of its name returns, since that day has no return for any name and the weekly model's first week none either: the rebalance was counted as having the history, then could not be estimated. Days and weeks with no return for any name are no longer counted, so such a rebalance has no model, as any other too early does. A rebalance whose model still cannot be fitted is left out of the expected risk kept with the run, with a warning, rather than failing the analysis.
 - A run whose index was read from the index cache kept no selections: neither each rebalance's funnel (which Holdings Detail shows) nor, now, what its rules measured. The cache keeps both, and an entry written before it did is calculated again.
 
 ## [0.10.1] - 2026-11-25

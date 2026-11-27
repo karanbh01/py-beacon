@@ -83,6 +83,25 @@ class TestEachRebalance:
         assert models.uncovered(second) == ["N3"]
 
 
+class TestTheFirstSession:
+    """BN-482: the run's first session has no return for any name."""
+
+    def test_it_is_not_counted_as_one_of_the_window_s(self,
+                                                      data,
+                                                      second):
+        returns = data.tables[NAME_RETURNS].sort_index().copy()
+        returns.iloc[0] = np.nan
+        run = with_returns(data, returns)
+        sessions = int((returns.index < second).sum())
+
+        assert not RebalanceRiskModels(run, RiskModelSettings(window=sessions)).has_history(second)
+
+        shorter = RebalanceRiskModels(run, RiskModelSettings(window=sessions - 1))
+
+        assert shorter.has_history(second)
+        assert sorted(shorter.at(second).asset_ids) == shorter.held(second)
+
+
 class TestAFactorModel:
 
     def test_it_is_fitted_on_the_exposures_given(self,

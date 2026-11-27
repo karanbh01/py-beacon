@@ -207,10 +207,15 @@ class GlobalModels:
         return self.run.tables[NAME_RETURNS].sort_index()
 
     def _periods(self) -> pd.DataFrame:
-        """The name returns of every period: weekly, compounded once."""
+        """The name returns of every period with a return for some name:
+        weekly, compounded once."""
+        # BN-482: the run's first day has no return for any name, so neither
+        # has its first week; counted, it let a rebalance exactly the model's
+        # periods after the start through to fail its estimate.
         if self._returns is None:
             daily = self._sorted()
-            self._returns = weekly_returns(daily) if self.weekly else daily
+            returns = weekly_returns(daily) if self.weekly else daily
+            self._returns = returns[returns.notna().any(axis=1).to_numpy()]
 
         return self._returns
 

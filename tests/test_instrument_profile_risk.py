@@ -89,6 +89,30 @@ class TestEachRebalance:
         assert list(later.index) == REBALANCES[3:]
 
 
+class TestARebalanceItCannotFit:
+
+    def test_is_left_out_rather_than_failing_the_rest(self,
+                                                      over_time,
+                                                      monkeypatch):
+        # BN-482: one rebalance failed the whole analysis after its work.
+        from beacon.exceptions import CalculationError
+
+        fitted = over_time.dates()
+        original = over_time.contributions
+
+        def refused(day,
+                    **kwargs):
+            if day == fitted[0]:
+                raise CalculationError("Risk model", "no name held has returns")
+
+            return original(day, **kwargs)
+
+        monkeypatch.setattr(over_time, "contributions", refused)
+        kept = risk_store.rebalance_risk(over_time)[risk_store.TABLE]
+
+        assert sorted(kept.index.unique()) == fitted[1:]
+
+
 class TestKeptWithTheRun:
 
     @pytest.fixture(scope="class")

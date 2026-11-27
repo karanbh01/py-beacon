@@ -321,9 +321,13 @@ class RebalanceRiskModels:
         return returns.iloc[sessions - self.settings.window:sessions]
 
     def _sorted_returns(self) -> pd.DataFrame:
-        """The run's daily name returns, in date order."""
+        """The run's daily name returns, in date order, on the sessions some
+        name has a return on."""
+        # BN-482: the first session has none, and counted as one let a
+        # rebalance exactly the window after it through to fail its fit.
         if self._sorted is None:
-            self._sorted = self.run.tables[NAME_RETURNS].sort_index()
+            returns = self.run.tables[NAME_RETURNS].sort_index()
+            self._sorted = returns[returns.notna().any(axis=1).to_numpy()]
 
         return self._sorted
 

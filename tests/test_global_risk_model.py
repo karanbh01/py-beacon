@@ -271,6 +271,21 @@ class TestTheAnalysis:
         assert found.periods_before(pd.Timestamp("2022-04-14")).index[-1] == pd.Timestamp(
             "2022-04-08")
 
+    def test_a_first_week_without_returns_is_not_counted(self):
+        # BN-482: a rebalance exactly the model's weeks after the run's start
+        # passed as having the history, then failed its estimate.
+        run = synthetic_run()
+        returns = run.tables[NAME_RETURNS].sort_index().copy()
+        returns.iloc[0] = np.nan
+        run.tables[NAME_RETURNS] = returns
+        found = GlobalModels(run, "COUNTRY_DOMICILE", 10, sectors=True, currencies=True,
+                             weekly=True)
+        weeks = found.periods_before(REBALANCES[0])
+
+        assert weeks.notna().any(axis=1).all()
+        assert not models(run, weeks=len(weeks) + 1).has_history(REBALANCES[0])
+        assert len(models(run, weeks=len(weeks)).at(REBALANCES[0]).factor_returns) == len(weeks)
+
     def test_names_in_one_country_keep_the_styles_model(self):
         run = synthetic_run(["US"] * len(RUN_NAMES))
         found = models(run)
