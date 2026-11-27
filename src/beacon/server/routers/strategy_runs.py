@@ -24,6 +24,7 @@ from ..._optional import require
 from ...data.fetcher import DataFetcher
 from ...exceptions import ConfigurationError
 from ..active_data import active_data, current_data, require_data
+from ..analytics_cache import kept_analytics
 from ..backtest_settings import GENERIC, BuiltSettings
 from ..backtest_settings import build as build_settings
 from ..backtests import build_backtest_job
@@ -32,7 +33,7 @@ from ..errors import FindingsError
 from ..holding_reference import ReferenceFieldsQuery, holding_reference
 from ..holdings import HOLDINGS_KEY, build_holdings
 from ..holdings_schemas import HoldingsView
-from ..instrument import asset_figures, stored_analytics
+from ..instrument import asset_figures
 from ..jobs import JobRegistry
 from ..market_caps import (
     FREE_FLOAT_MARKET_CAP,
@@ -567,10 +568,11 @@ def build_strategy_runs_router() -> APIRouter:
         fetcher = _data_fetcher(request)
         records: DocumentStore = request.app.state.backtest_record_store
         # BN-454: the run's own analytics, not measured here.
-        figures = (asset_figures(stored_analytics(records.panels_directory(strategy_id),
-                                                  fetcher), identifier)
-                   if records.exists(strategy_id)
-                   else {"figures_unavailable": "The run's tables were not kept."})
+        figures: dict[str, Any] = {"figures_unavailable": "The run's tables were not kept."}
+
+        if records.exists(strategy_id):
+            with kept_analytics(request, records.panels_directory(strategy_id)) as analytics:
+                figures = asset_figures(analytics, identifier)
 
         return build_asset_view(strategy_id,
                                 strategy.index_id,

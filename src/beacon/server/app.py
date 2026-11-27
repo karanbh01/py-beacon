@@ -26,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from . import parameter_schemas  # noqa: E402
 from .active_data import ActiveData, active_data  # noqa: E402
+from .analytics_cache import AnalyticsCache  # noqa: E402
 from .compression import RemoteGZip  # noqa: E402
 from .data_stores import StoreRegistry  # noqa: E402
 from .errors import register_exception_handlers  # noqa: E402
@@ -291,6 +292,8 @@ def create_app(config: ServerConfig) -> FastAPI:
         "renders", root=config.storage_root).directory
     # Completed results outlive the process: compare and report rendering both
     # need a result the request that produced it did not have to hold open.
+    # BN-481: the last run's analytics, kept between Drilldown's requests.
+    app.state.analytics_cache = AnalyticsCache()
     app.state.jobs = JobRegistry(
         result_store=DocumentStore("job_results", root=config.storage_root))
 

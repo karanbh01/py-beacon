@@ -40,7 +40,8 @@ from ..analysis_schemas import (
     SavedAnalysis,
     SavedAnalysisView,
 )
-from ..instrument import instrument_profile, instrument_table, stored_analytics
+from ..analytics_cache import kept_analytics
+from ..instrument import instrument_profile, instrument_table
 from ..jobs import JobRegistry
 from ..market_inputs import warnings_of
 from ..schemas import AnalyticsJobStatus, Identifier
@@ -150,10 +151,10 @@ def build_analysis_router() -> APIRouter:
                 frequency refused.
         """
         # BN-454.
-        analytics = stored_analytics(_run_folder(request, strategy_id), current_data(request))
-
-        return InstrumentTable.model_validate(instrument_table(analytics, columns, names, start,
-                                                               end, against, frequency))
+        with kept_analytics(request, _run_folder(request, strategy_id)) as analytics:
+            return InstrumentTable.model_validate(instrument_table(analytics, columns, names,
+                                                                   start, end, against,
+                                                                   frequency))
 
     @router.get("/strategies/{strategy_id}/instrument/{identifier}",
                 response_model=InstrumentProfile)
@@ -186,11 +187,10 @@ def build_analysis_router() -> APIRouter:
             InvalidArgumentError: For a name no portfolio held, or a
                 comparator or period refused.
         """
-        # BN-468; BN-469 added by.
-        analytics = stored_analytics(_run_folder(request, strategy_id), current_data(request))
-
-        return InstrumentProfile.model_validate(instrument_profile(analytics, identifier, start,
-                                                                   end, against, by))
+        # BN-468; BN-469 added by; BN-481 the analytics kept between requests.
+        with kept_analytics(request, _run_folder(request, strategy_id)) as analytics:
+            return InstrumentProfile.model_validate(instrument_profile(analytics, identifier,
+                                                                       start, end, against, by))
 
     # async, as the backtest's is: the registry schedules the job on the
     # running event loop.
