@@ -180,3 +180,34 @@ class TestActive:
 
         with pytest.raises(KeyError, match="index"):
             Attribution(bare).contribution("index")
+
+
+class TestEachDayWorkedOutOnce:
+    """BN-481: a name's days share the work over every name, done once."""
+
+    def test_a_window_s_days_are_the_whole_run_s(self,
+                                                 attribution):
+        run = attribution.run
+        weights = run.tables[FUND_WEIGHTS].sort_index().fillna(0.0)
+        returns = run.tables[NAME_RETURNS].sort_index()
+        found = attribution.by_day(str(weights.columns[0]), None, DAYS[50], DAYS[99], total=True)
+        days = run.returns.dropna().loc[DAYS[50]:DAYS[99]].index
+        expected = (weights.reindex(days).shift(1) * returns.reindex(days)).sum(axis=1)
+
+        assert list(found.index) == list(days[1:])
+        assert found["total"].to_numpy() == pytest.approx(expected.iloc[1:].to_numpy(),
+                                                          rel=1e-14)
+
+    def test_each_name_reads_the_same_total(self,
+                                            attribution):
+        names = [str(name) for name in attribution.run.tables[FUND_WEIGHTS].columns[:3]]
+        totals = [attribution.by_day(name, total=True)["total"] for name in names]
+
+        assert all(total.equals(totals[0]) for total in totals[1:])
+
+    def test_the_weights_given_are_a_copy(self,
+                                          attribution):
+        given = attribution.weights("fund")
+        given.iloc[:, :] = 0.0
+
+        assert (attribution.weights("fund").abs().sum(axis=1) > 0).all()

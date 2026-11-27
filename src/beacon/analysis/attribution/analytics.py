@@ -19,6 +19,9 @@ names do not explain (cash, costs, fees, futures, the timing of dividends) is
 the residual, reported with every result and never folded into a name.
 """
 # BN-393.
+from collections.abc import Callable
+from typing import Any
+
 import pandas as pd
 
 from ..._renamed import renamed_keyword, renamed_names
@@ -56,6 +59,19 @@ class Attribution:
     def __init__(self,
                  run: RunData):
         self.run = run
+        self._kept: dict[tuple[Any, ...], Any] = {}
+
+    def _memo(self,
+              key: tuple[Any, ...],
+              build: Callable[[], Any]) -> Any:
+        """What *build* gives, worked out once under *key*: the work over
+        every name that each name's days share."""
+        # BN-481: a name's profile asks for its days once a portfolio; every
+        # name's weights, returns and total are the same each time.
+        if key not in self._kept:
+            self._kept[key] = build()
+
+        return self._kept[key]
 
     @renamed_keyword("book", "of")
     def contribution(self,
@@ -111,18 +127,15 @@ class Attribution:
         if of != FUND and against is not None:
             raise ValueError("A contribution against a comparator is the fund's.")
 
-        ours, theirs = self._paired(against) if of == FUND else (self._returns(of), None)
-        weights = self._book_weights(against) if of == FUND else self.weights(of)
+        ours, theirs, weights, names, every_day, returned = self._days_of(of, against)
         name_returns = self._name_returns()
         returns = _window(ours.dropna(), start, end)
-        common = (returns.index.intersection(name_returns.index).intersection(weights.index)
-                  .sort_values())
-        names = sorted(set(weights.columns) & set(name_returns.columns))
+        common = _window(pd.Series(0.0, index=every_day), start, end).index
 
         # The days attribute() keeps: each after the first (whose weight at
         # the close before is not in the window) that any name has a return.
         # The weights have no blanks, so no other day is dropped.
-        kept = name_returns[names].reindex(common).notna().any(axis=1).to_numpy(copy=True)
+        kept = returned.reindex(common).to_numpy(copy=True)
         kept[:1] = False
         days = common[kept]
 
@@ -138,8 +151,46 @@ class Attribution:
             found["comparator"] = theirs.reindex(days)
 
         if total:
-            every = weights[names].reindex(common).shift(1) * name_returns[names].reindex(common)
-            found["total"] = every.reindex(days).sum(axis=1)
+            found["total"] = self._total(of, against).reindex(days)
+
+        return found
+
+    def _days_of(self,
+                 of: str,
+                 against: str | None) -> tuple[Any, ...]:
+        """What `by_day` reads of portfolio *of* (against *against*) over the
+        whole run: its returns and the comparator's, its weights, the names
+        with weights and returns, the days all three have, and whether any
+        name has a return each of them."""
+        def build() -> tuple[Any, ...]:
+            ours, theirs = self._paired(against) if of == FUND else (self._returns(of), None)
+            weights = self._book_weights(against) if of == FUND else self._weights(of)
+            name_returns = self._name_returns()
+            every_day = (ours.dropna().index.intersection(name_returns.index)
+                         .intersection(weights.index).sort_values())
+            names = sorted(set(weights.columns) & set(name_returns.columns))
+            returned = name_returns[names].reindex(every_day).notna().any(axis=1)
+
+            return ours, theirs, weights, names, every_day, returned
+
+        found: tuple[Any, ...] = self._memo(("days", of, against), build)
+
+        return found
+
+    def _total(self,
+               of: str,
+               against: str | None) -> pd.Series:
+        """Every name's contribution to portfolio *of* (against *against*)
+        added up, each day of the whole run."""
+        def build() -> pd.Series:
+            _, _, weights, names, every_day, _ = self._days_of(of, against)
+            name_returns = self._name_returns()
+            every = (weights[names].reindex(every_day).shift(1)
+                     * name_returns[names].reindex(every_day))
+
+            return every.sum(axis=1)
+
+        found: pd.Series = self._memo(("total", of, against), build)
 
         return found
 
@@ -189,10 +240,16 @@ class Attribution:
         return days
 
     def _name_returns(self) -> pd.DataFrame:
-        returns = self.run.tables[NAME_RETURNS].sort_index()
-        returns.columns = returns.columns.astype(str)
+        """The names' daily returns, worked out once; not to be changed."""
+        def build() -> pd.DataFrame:
+            returns = self.run.tables[NAME_RETURNS].sort_index()
+            returns.columns = returns.columns.astype(str)
 
-        return returns
+            return returns
+
+        found: pd.DataFrame = self._memo(("name_returns",), build)
+
+        return found
 
     def currency(self,
                  against: str | None = None,
@@ -265,18 +322,24 @@ class Attribution:
 
     def _book_weights(self,
                       against: str | None) -> pd.DataFrame:
-        """The fund's weights, less *against*'s when one is named."""
-        fund = self.weights(FUND)
+        """The fund's weights, less *against*'s when one is named; worked
+        out once, not to be changed."""
+        def build() -> pd.DataFrame:
+            fund = self._weights(FUND)
 
-        if against is None:
-            return fund
+            if against is None:
+                return fund
 
-        theirs = self.weights(against)
-        names = sorted(set(fund.columns) | set(theirs.columns))
+            theirs = self._weights(against)
+            names = sorted(set(fund.columns) | set(theirs.columns))
 
-        return (fund.reindex(columns=names, fill_value=0.0)
-                - theirs.reindex(index=fund.index, method="ffill").reindex(columns=names)
-                .fillna(0.0))
+            return (fund.reindex(columns=names, fill_value=0.0)
+                    - theirs.reindex(index=fund.index, method="ffill").reindex(columns=names)
+                    .fillna(0.0))
+
+        found: pd.DataFrame = self._memo(("book_weights", against), build)
+
+        return found
 
     def _paired(self,
                 against: str | None) -> tuple[pd.Series, pd.Series | None]:
@@ -296,18 +359,28 @@ class Attribution:
             KeyError: If the portfolio is none of those, or the run kept no
                 weights for it.
         """
+        return self._weights(of).copy()
+
+    def _weights(self,
+                 of: str) -> pd.DataFrame:
+        """`weights`, worked out once; not to be changed."""
         if of not in PORTFOLIOS:
             raise KeyError(f"Unknown portfolio {of!r}. Known: {', '.join(PORTFOLIOS)}.")
 
-        table = self.run.tables.get(PORTFOLIOS[of])
+        def build() -> pd.DataFrame:
+            table = self.run.tables.get(PORTFOLIOS[of])
 
-        if table is None or table.empty:
-            raise KeyError(f"The run kept no weights for its {of}.")
+            if table is None or table.empty:
+                raise KeyError(f"The run kept no weights for its {of}.")
 
-        table = table.sort_index().fillna(0.0)
-        table.columns = table.columns.astype(str)
+            table = table.sort_index().fillna(0.0)
+            table.columns = table.columns.astype(str)
 
-        return table
+            return table
+
+        found: pd.DataFrame = self._memo(("weights", of), build)
+
+        return found
 
     def _attributed(self,
                     returns: pd.Series,
