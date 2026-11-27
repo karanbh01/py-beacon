@@ -151,6 +151,8 @@ def chain_levels(index_id: str,
                        weight_snapshots=weight_snapshots,
                        daily_weights=daily_weights_frame(daily_records),
                        currency=currency.upper(),
+                       # On the parent's calendar, as its days are.
+                       calendar=parent.calendar,
                        modelling_assumptions=data_treatment_of(data_provider))
 
 

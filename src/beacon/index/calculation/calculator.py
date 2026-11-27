@@ -673,6 +673,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
                 weight_snapshots={},
                 calendar_coverage=coverage if coverage.is_partial else None,
                 currency=self.definition.currency,
+                calendar=self.definition.calendar,
                 modelling_assumptions=data_treatment_of(self.data),
             )
 
@@ -977,6 +978,7 @@ class IndexCalculator(MarketValuesMixin, DeletionMixin,
             calendar_coverage=coverage if coverage.is_partial else None,
             price_gaps=self.recorded_gaps(),
             currency=self.definition.currency,
+            calendar=self.definition.calendar,
             modelling_assumptions=data_treatment_of(self.data),
             selections=selections,
         ).with_data(self.data)

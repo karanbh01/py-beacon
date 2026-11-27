@@ -696,9 +696,11 @@ print("Cached calculations:", len(list(cache.root.iterdir())))
 ## Using the engine directly
 
 `BacktestEngine` takes the same assumptions plus an `IndexResult` to trade
-toward, with no cache and no calculation. Pass `calendar=`: without one the
-engine steps onto Monday to Friday and judges a missing bar against the
-data's own sessions. `beacon.testing.weights.index_result_from_weights` turns
+toward, with no cache and no calculation. It steps onto the sessions of the
+calendar the index was calculated on (`IndexResult.calendar`), as `Backtest`
+does, unless `calendar=` names another. A result built by hand has none, so
+without `calendar=` the engine steps onto Monday to Friday and judges a
+missing bar against the data's own sessions. `beacon.testing.weights.index_result_from_weights` turns
 a plain `{date: {identifier: weight}}` schedule into an `IndexResult` the
 engine accepts. Here the second rebalance falls on 4 July, when the NYSE is
 shut:

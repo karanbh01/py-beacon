@@ -172,10 +172,11 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             calendar says was closed the market was shut and the previous
             session's price is what the position was worth, while on a day it
             says was open the data is missing something and the carried price
-            is recorded as a gap. With None the run steps onto Monday to
-            Friday, and a missing bar is judged against the data's own
-            sessions (a day the store has bars for is treated as open), which
-            is all a caller assembling an engine by hand can offer.
+            is recorded as a gap. With None the index result's own calendar
+            (`IndexResult.calendar`) is used; with neither, the run steps
+            onto Monday to Friday, and a missing bar is judged against the
+            data's own sessions (a day the store has bars for is treated as
+            open).
         rebalance_tags: Tags every rebalance trade carries beyond its
             reason, as `beacon.portfolio.reasons` names them: an active
             strategy's are model-driven.
@@ -232,7 +233,10 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
         self.target_index: IndexResult | None = target_index
         self.price_column: str = price_column
         self.currency: str = book_currency(currency, index_result)
-        self.calendar: str | None = calendar
+        # BN-486: the index's own, so a run built by hand steps onto its
+        # sessions as one built by `Backtest` does.
+        self.calendar: str | None = (calendar if calendar is not None
+                                     else getattr(index_result, "calendar", None))
 
         # Listing currency per identifier, resolved lazily and once. Prices
         # are quoted where the company lists; a portfolio has one currency.

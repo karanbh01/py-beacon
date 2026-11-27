@@ -407,6 +407,7 @@ def _snapshots_payload(result: IndexResult) -> dict[str, Any]:
                                            "uncapped_weights": dict(report.uncapped_weights)}
                         for date, report in result.cap_reports.items()},
         "currency": result.currency,
+        "calendar": result.calendar,
         "modelling_assumptions": (result.modelling_assumptions.as_dict()
                                   if result.modelling_assumptions else None),
         "price_gaps": [{"date": gap.date.isoformat(),
@@ -450,6 +451,7 @@ def _read_entry(entry: Path) -> IndexResult:
                              priced_from=pd.Timestamp(gap["priced_from"]))
                     for gap in snapshots.get("price_gaps", [])],
         currency=snapshots.get("currency"),
+        calendar=snapshots.get("calendar"),
         modelling_assumptions=_assumptions(snapshots.get("modelling_assumptions")),
         selections=selection_record.decoded(snapshots["selections"],
                                             store._read_frame(entry / SELECTIONS_FILE)))
