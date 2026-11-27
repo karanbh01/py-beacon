@@ -66,6 +66,7 @@ from ..schemas import (
     Finding,
     IdentifierMatch,
     IdentifierSearchResponse,
+    PathName,
     PricesResponse,
     ReferenceResponse,
     TablePage,
@@ -434,7 +435,7 @@ def build_data_router() -> APIRouter:
 
     @router.get("/prices/{identifier}", response_model=PricesResponse)
     def prices(request: Request,
-               identifier: str,
+               identifier: PathName,
                start: StartQuery = None,
                end: EndQuery = None,
                interval: IntervalQuery = NATIVE_INTERVAL,
@@ -500,7 +501,7 @@ def build_data_router() -> APIRouter:
 
     @router.get("/reference/{identifier}", response_model=ReferenceResponse)
     def reference(request: Request,
-                  identifier: str,
+                  identifier: PathName,
                   date: AsOfQuery = None,
                   fields: FieldsQuery = None,
                   currency: CurrencyQuery = None) -> ReferenceResponse:
@@ -549,7 +550,7 @@ def build_data_router() -> APIRouter:
     @router.get("/corporate-actions/{identifier}",
                 response_model=CorporateActionsResponse)
     def corporate_actions(request: Request,
-                          identifier: str,
+                          identifier: PathName,
                           start: StartQuery = None,
                           end: EndQuery = None,
                           types: TypesQuery = None) -> CorporateActionsResponse:
@@ -634,7 +635,7 @@ def build_data_router() -> APIRouter:
 
     @router.get("/features/{identifier}", response_model=FeatureResponse)
     def features_for(request: Request,
-                     identifier: str,
+                     identifier: PathName,
                      date: AsOfQuery = None,
                      fields: FieldsQuery = None,
                      type: TypeQuery = None) -> FeatureResponse:
@@ -718,7 +719,7 @@ def build_data_router() -> APIRouter:
 
     @router.get("/tables/{dataset}", response_model=TablePage)
     def table_page(request: Request,
-                   dataset: str,
+                   dataset: PathName,
                    offset: OffsetQuery = 0,
                    limit: LimitQuery = DEFAULT_PAGE,
                    identifiers: IdentifiersQuery = None) -> TablePage:

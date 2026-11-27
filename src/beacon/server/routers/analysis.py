@@ -44,7 +44,7 @@ from ..analytics_cache import kept_analytics
 from ..instrument import instrument_profile, instrument_table
 from ..jobs import JobRegistry
 from ..market_inputs import warnings_of
-from ..schemas import AnalyticsJobStatus, Identifier
+from ..schemas import AnalyticsJobStatus, Identifier, PathName
 from ..store import DocumentStore
 from .strategy_runs import RECORD_SOURCE, EndQuery, StartQuery, _strategy
 
@@ -103,7 +103,7 @@ def build_analysis_router() -> APIRouter:
                                                 f"`Accept: {ARROW}`."}})
     def table(request: Request,
               strategy_id: Identifier,
-              name: str) -> Response | ColumnarTable:
+              name: PathName) -> Response | ColumnarTable:
         """One of the strategy's latest run's large tables, whole: by
         column, repeated text as its distinct values and a code a row; or
         as Arrow, with ``Accept: application/vnd.apache.arrow.stream``.
@@ -160,7 +160,7 @@ def build_analysis_router() -> APIRouter:
                 response_model=InstrumentProfile)
     def profile(request: Request,
                 strategy_id: Identifier,
-                identifier: str,
+                identifier: PathName,
                 start: StartQuery = None,
                 end: EndQuery = None,
                 against: AgainstQuery = None,

@@ -21,6 +21,7 @@ holds at the wrong number is not much use to someone reading a factsheet.
 import json
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 import pandas as pd
 import pytest
@@ -342,6 +343,35 @@ class TestSpec:
 
         assert {"data", "coverage", "indices", "jobs", "strategies", "backtests", "optimise",
                 "risk", "derivatives", "reports"} <= tags
+
+    def test_every_text_path_parameter_is_bounded(self,
+                                                  spec):
+        """BN-475, found by the fuzz run: a name of 65,537 characters made a
+        request line the HTTP server refused before the app saw it, with a
+        400 in plain text the schema does not document."""
+        unbounded = [f"{method.upper()} {path} {{{parameter['name']}}}"
+                     for path, operations in spec["paths"].items()
+                     for method, operation in operations.items()
+                     for parameter in operation.get("parameters", [])
+                     if parameter["in"] == "path"
+                     and parameter.get("schema", {}).get("type") == "string"
+                     and not {"pattern", "maxLength", "enum", "$ref"} & set(parameter["schema"])]
+
+        assert unbounded == []
+
+    @pytest.mark.parametrize("name", ["BRK.B", "^GSPC", "GC=F", "EURUSD"])
+    def test_a_real_name_still_reaches_the_app(self,
+                                               client,
+                                               name):
+        response = client.get(f"/data/reference/{quote(name, safe='')}", headers=auth())
+
+        assert response.status_code != 422
+
+    def test_a_name_too_long_is_refused_by_the_app(self,
+                                                   client):
+        response = client.get(f"/data/reference/{'a' * 129}", headers=auth())
+
+        assert response.status_code == 422
 
     def test_every_operation_documents_the_error_envelope(self,
                                                           spec):

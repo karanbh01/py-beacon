@@ -201,6 +201,13 @@ Number = Annotated[float, Field(strict=True)]
 Identifier = Annotated[str, Field(pattern=IDENTIFIER_PATTERN,
                                   description="Letters, digits, dash and "
                                               "underscore; up to 64.")]
+# A name in a path: an instrument's identifier, a dataset's or a table's. Any
+# characters, as a data source names its instruments (BRK.B, ^GSPC, GC=F), but
+# a bounded length: a request line far longer is refused by the HTTP server
+# before the app sees it (BN-475, found by the fuzz run with 65,537).
+PATH_NAME_LENGTH = 128
+PathName = Annotated[str, Field(min_length=1, max_length=PATH_NAME_LENGTH,
+                                description=f"Up to {PATH_NAME_LENGTH} characters.")]
 
 
 class Money(BaseModel):

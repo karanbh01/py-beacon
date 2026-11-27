@@ -58,6 +58,7 @@ from ..schemas import (
     Identifier,
     IndexDocument,
     OverviewView,
+    PathName,
     PeriodsView,
     ReferenceWindow,
     StrategyBacktestRequest,
@@ -563,7 +564,7 @@ def build_strategy_runs_router() -> APIRouter:
     @router.get("/{strategy_id}/assets/{identifier}", response_model=AssetView)
     def asset(request: Request,
               strategy_id: Identifier,
-              identifier: str) -> AssetView:
+              identifier: PathName) -> AssetView:
         strategy = _strategy(request, strategy_id)
         fetcher = _data_fetcher(request)
         records: DocumentStore = request.app.state.backtest_record_store

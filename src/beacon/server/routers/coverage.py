@@ -31,6 +31,7 @@ from ..data_stores import StoreRegistry
 from ..schemas import (
     CoverageResponse,
     DatasetCoverage,
+    PathName,
     RefreshJobStatus,
     SyncRequest,
 )
@@ -277,7 +278,7 @@ def build_coverage_router() -> APIRouter:
                  status_code=status.HTTP_202_ACCEPTED,
                  deprecated=True)
     async def sync(request: Request,
-                   dataset: str,
+                   dataset: PathName,
                    body: SyncRequest | None = None) -> RefreshJobStatus:
         """Refresh the store being served. Deprecated: use
         `POST /data/stores/{store_id}/refresh`.
