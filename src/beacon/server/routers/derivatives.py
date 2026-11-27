@@ -61,17 +61,27 @@ def _within_range(price: Callable[[], Priced]) -> Priced:
     fault in the engine (BN-250, found by the fuzz run, which answered 500).
     Arithmetic that overflows without raising gives an infinity or NaN
     instead, which would reach the client as null where a number is promised,
-    so a result holding one is refused the same way (BN-331).
+    so a result holding one is refused the same way (BN-331). A notional or
+    price so small that it underflows to zero, and is then divided by, is
+    refused too (BN-476).
     """
     try:
         priced = price()
     except OverflowError as error:
         raise _too_large() from error
+    except ZeroDivisionError as error:
+        raise _too_small() from error
 
     if not _finite(priced.model_dump() if hasattr(priced, "model_dump") else priced):
         raise _too_large()
 
     return priced
+
+
+def _too_small() -> InvalidArgumentError:
+    return InvalidArgumentError(
+        "These inputs give a value too small to represent. Check the "
+        "notional, the prices and the dates.")
 
 
 def _too_large() -> InvalidArgumentError:

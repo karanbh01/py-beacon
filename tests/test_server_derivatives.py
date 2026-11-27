@@ -170,6 +170,19 @@ class TestFuturesFairValue:
         assert response.json()["error"]["code"] == "INVALID_ARGUMENT"
 
 
+    def test_a_notional_that_underflows_is_refused_not_a_fault(self,
+                                                               client):
+        """BN-476, found by the fuzz run: a subnormal notional times the
+        accrual fraction is zero, and the fair spread divided by it."""
+        body = {"end_date": "2024-11-29", "initial_price": 5e-324, "notional": 5e-324,
+                "spot": 5e-324, "start_date": "2000-01-01", "valuation_date": "2000-01-02"}
+
+        response = client.post("/derivatives/trs/price", json=body, headers=auth())
+
+        assert response.status_code == 422
+        assert "too small" in response.json()["error"]["message"]
+
+
 class TestCurve:
 
     def test_a_flat_curve_reproduces_the_scalar_rate(self,

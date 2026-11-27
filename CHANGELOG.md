@@ -77,6 +77,7 @@ Before 1.0, a breaking change raises the middle number, as in 0.1 to 0.2.
 
 ### Fixed
 
+- Pricing a total return swap (`POST /derivatives/trs/price`) with a notional so small that it underflowed to zero, such as 5e-324, failed with a server error dividing by it; it is now refused with a 422 saying the inputs give a value too small to represent, as one that overflows is.
 - A run whose analysis fits the risk model failed its whole analysis when a rebalance fell exactly the model's window after the first day of its name returns, since that day has no return for any name and the weekly model's first week none either: the rebalance was counted as having the history, then could not be estimated. Days and weeks with no return for any name are no longer counted, so such a rebalance has no model, as any other too early does. A rebalance whose model still cannot be fitted is left out of the expected risk kept with the run, with a warning, rather than failing the analysis.
 - A run whose index was read from the index cache kept no selections: neither each rebalance's funnel (which Holdings Detail shows) nor, now, what its rules measured. The cache keeps both, and an entry written before it did is calculated again.
 
