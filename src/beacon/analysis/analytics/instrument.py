@@ -301,8 +301,9 @@ class InstrumentLevel(Category):
         """One name over the run, a dated table a part
         (`beacon.analysis.analytics.profile`): how each rebalance weighted
         it, how its weight drifted each day, what it contributed each
-        month, quarter or year (``by``), and its risk and liquidity at each
-        rebalance, against the comparator given as ``against`` or the one
+        month, quarter or year (``by``), its return and risk over the window
+        and each rebalance period, year, quarter and month, and its risk and
+        liquidity at each rebalance, against the comparator given as ``against`` or the one
         the analysis tracks.
 
         Raises:

@@ -153,6 +153,10 @@ ASSUMPTION_DISPLAYS = {
         help="A ratio scaled by the square root of a year, such as the Sharpe ratio, is left "
              "blank over a shorter window. A number of months or years, such as 6M; 0M "
              "gives it over any."),
+    "min_risk_days": Display(
+        "Fewest days for a period's risk", unit=DAYS, minimum=2,
+        help="A name's volatility, beta, correlation and share of volatility over a period "
+             "of fewer daily returns are left blank in its profile."),
 }
 
 FAMILIES = {

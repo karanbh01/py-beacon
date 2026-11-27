@@ -89,15 +89,30 @@ class Attribution:
                name: str,
                against: str | None = None,
                start: str | pd.Timestamp | None = None,
-               end: str | pd.Timestamp | None = None) -> pd.DataFrame:
+               end: str | pd.Timestamp | None = None,
+               of: str = FUND,
+               total: bool = False) -> pd.DataFrame:
         """Each day `contribution` (or, *against* a comparator, `active`)
         links over the window, unlinked: *name*'s contribution that day
         (``contribution``), the fund's return (``fund``) and the
-        comparator's (``comparator``)."""
+        comparator's (``comparator``).
+
+        With *of* another portfolio (``index``, ``optimised`` or
+        ``benchmark``), *name*'s contribution to that portfolio's return,
+        which is given under its name. With *total*, every name's
+        contribution that day added up (``total``).
+
+        Raises:
+            ValueError: If *of* is not the fund and *against* is given.
+        """
         # BN-469: one name's days, so a profile can link them by period
-        # without attributing every name.
-        ours, theirs = self._paired(against)
-        weights = self._book_weights(against)
+        # without attributing every name. BN-477: of and total, for a name's
+        # return and risk against each portfolio.
+        if of != FUND and against is not None:
+            raise ValueError("A contribution against a comparator is the fund's.")
+
+        ours, theirs = self._paired(against) if of == FUND else (self._returns(of), None)
+        weights = self._book_weights(against) if of == FUND else self.weights(of)
         name_returns = self._name_returns()
         returns = _window(ours.dropna(), start, end)
         common = (returns.index.intersection(name_returns.index).intersection(weights.index)
@@ -111,7 +126,7 @@ class Attribution:
         kept[:1] = False
         days = common[kept]
 
-        found = pd.DataFrame({FUND: returns.reindex(days)}, index=days)
+        found = pd.DataFrame({of: returns.reindex(days)}, index=days)
         found["contribution"] = 0.0
 
         if name in names:
@@ -121,6 +136,10 @@ class Attribution:
 
         if theirs is not None:
             found["comparator"] = theirs.reindex(days)
+
+        if total:
+            every = weights[names].reindex(common).shift(1) * name_returns[names].reindex(common)
+            found["total"] = every.reindex(days).sum(axis=1)
 
         return found
 

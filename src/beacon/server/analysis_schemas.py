@@ -262,6 +262,9 @@ class ProfileTable(BaseModel):
     dates: list[str] = Field(description="Each row's date, YYYY-MM-DD, in order.")
     data: list[list[Any]] = Field(description="A row a date, a value a column, in "
                                               "`columns`' order; null where it has none.")
+    # BN-477.
+    unavailable: dict[str, str] | None = Field(
+        default=None, description="Each column with a null, and why; null when none.")
 
 
 class InstrumentProfile(BaseModel):
@@ -287,8 +290,10 @@ class InstrumentProfile(BaseModel):
                     "'factor_exposures', 'factor_betas', 'style' and 'key_data', a row a "
                     "rebalance; 'corporate_actions', a row an action, dated by its "
                     "ex-date; 'trades', a row a trade; 'events', a row an event; and "
-                    "'selection', a row a rebalance a rule a threshold. A days to sell is "
-                    "null where the name has no traded value.")
+                    "'selection', a row a rebalance a rule a threshold; and 'return_risk', "
+                    "a row for the whole window, then each rebalance period, year, quarter "
+                    "and month, told apart by its 'period' column and dated by its last "
+                    "day. A days to sell is null where the name has no traded value.")
     unavailable: dict[str, str] = Field(description="Each part the run cannot give, and why.")
 
 

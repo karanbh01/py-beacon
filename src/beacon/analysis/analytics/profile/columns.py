@@ -1,6 +1,6 @@
 # src/beacon/analysis/analytics/profile/columns.py
 """The names, labels and units of the columns of a name's profile."""
-# BN-468..BN-474.
+# BN-468..BN-474; BN-477 the return and risk's.
 import pandas as pd
 from pandas.api.types import is_bool_dtype, is_numeric_dtype
 
@@ -13,6 +13,10 @@ REMOVED = "removed"
 CONTRIBUTION, ACTIVE_CONTRIBUTION = "contribution", "active_contribution"
 TO_DATE = "_to_date"
 COUNTRY, SECTOR, CURRENCY = "country", "sector", "currency"
+# The cuts of the return and risk, by code.
+RUN, REBALANCE, YEAR, QUARTER, MONTH = "run", "rebalance", "year", "quarter", "month"
+PERIODS = {RUN: "Whole window", REBALANCE: "Rebalance period", YEAR: "Year",
+           QUARTER: "Quarter", MONTH: "Month"}
 
 # Each column's label, and its unit when it is not a fraction.
 LABELS = {"target": "Target", "screened": "After the screens", "weight": "Traded to",
@@ -35,7 +39,8 @@ LABELS = {"target": "Target", "screened": "After the screens", "weight": "Traded
           "cost": "Cost", "impact": "Market impact", "reason": "Reason", "tags": "Tags",
           "event": "Event", "detail": "Detail", "rule": "Rule", "rule_name": "Rule type",
           "measure": "Measured", "measured": "Value", "comparison": "Comparison",
-          "threshold": "Threshold", "margin": "Margin", "passed": "Passed"}
+          "threshold": "Threshold", "margin": "Margin", "passed": "Passed",
+          "period": "Period", "start": "From", "return": "Return", "volatility": "Volatility"}
 UNITS = {"value": MONEY, "traded_value": MONEY, "days_to_sell": DAYS, "observations": COUNT,
          "market_cap": MONEY, "size_position": None, "style_position": None, "amount": None,
          "quantity": None, "price": MONEY, "notional": MONEY, "cost": MONEY, "impact": MONEY,
@@ -44,10 +49,19 @@ UNITS = {"value": MONEY, "traded_value": MONEY, "days_to_sell": DAYS, "observati
 CODES = {"event": EVENT_LABELS,
          "comparison": {"gt": "Above", "ge": "At least", "lt": "Below", "le": "At most",
                         "eq": "Equal to", "ne": "Not equal to", "in": "One of",
-                        "between": "Between"}}
+                        "between": "Between"},
+         "period": PERIODS}
 
 # A factor's columns, named by the factor after the prefix.
 FACTOR_COLUMNS = {"exposure/": "{}", "beta/": "{} beta", "t_stat/": "{} t-statistic"}
+# A figure of the name against a portfolio, named ``<figure>/<portfolio>``.
+PORTFOLIO_COLUMNS = {"excess_return": ("Excess return over the {}", FRACTION),
+                     "contribution": ("Contribution to the {}", FRACTION),
+                     "beta": ("Beta to the {}", RATIO),
+                     "correlation": ("Correlation with the {}", RATIO),
+                     "volatility_share": ("Share of the {}'s volatility", FRACTION)}
+PORTFOLIO_NAMES = {"fund": "fund", "index": "index", "optimised": "optimised index",
+                   "benchmark": "benchmark"}
 
 
 def columns_of(table: pd.DataFrame) -> list[Column]:
@@ -60,6 +74,13 @@ def columns_of(table: pd.DataFrame) -> list[Column]:
 
 def _column(name: str,
             numeric: bool) -> Column:
+    figure, _, portfolio = name.partition("/")
+
+    if figure in PORTFOLIO_COLUMNS and portfolio in PORTFOLIO_NAMES:
+        label, unit = PORTFOLIO_COLUMNS[figure]
+
+        return Column(name, label.format(PORTFOLIO_NAMES[portfolio]), unit)
+
     for prefix, label in FACTOR_COLUMNS.items():
         if name.startswith(prefix):
             return Column(name, label.format(_titled(name[len(prefix):])), RATIO)

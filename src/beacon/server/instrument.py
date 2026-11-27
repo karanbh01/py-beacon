@@ -135,7 +135,8 @@ def instrument_profile(analytics: Analytics,
                                    for column in profiles.columns_of(table)],
                        "dates": [_day(date) for date in table.index],
                        "data": [[_plain(value) for value in row]
-                                for row in table.itertuples(index=False)]}
+                                for row in table.itertuples(index=False)],
+                       "unavailable": table.attrs.get("unavailable") or None}
 
     days = analytics._context_for(start=start, end=end).performance.returns.index
 

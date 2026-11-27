@@ -14,7 +14,7 @@ import pandas as pd
 
 from ..analysis.attribution import AttributionResult, attribute
 from ..analysis.performance import formulas
-from ..assumptions import DEFAULT_PERIODS_PER_YEAR, ModellingAssumptions
+from ..assumptions import DEFAULT_MIN_RISK_DAYS, DEFAULT_PERIODS_PER_YEAR, ModellingAssumptions
 from ..exceptions import CalculationError
 from ..portfolio.base import Portfolio
 from ..portfolio.cash_flows import DISTRIBUTION, REDEMPTION, SUBSCRIPTION
@@ -204,6 +204,13 @@ class MetricsMixin:
 
         return (str(resolved.min_annualised_rate_window),
                 str(resolved.min_annualised_ratio_window))
+
+    def _min_risk_days(self) -> int:
+        """The fewest daily returns the run's risk figures over a period
+        are given over."""
+        assumptions = self.assumptions or ModellingAssumptions()
+
+        return int(assumptions.with_defaults().min_risk_days or DEFAULT_MIN_RISK_DAYS)
 
     def _analytics(self) -> Any:
         """The run's performance analytics, which its figures are."""

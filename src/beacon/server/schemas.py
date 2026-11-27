@@ -3583,6 +3583,11 @@ class ModellingAssumptionsSpec(BaseModel):
         default=None, pattern=r"^\d+[MYmy]$",
         description="The same for a ratio scaled by the square root of a year, "
                     "such as the Sharpe ratio.")
+    min_risk_days: int | None = Field(
+        default=None, ge=2,
+        description="The fewest daily returns a period's risk figures, such as a "
+                    "name's volatility, beta, correlation and share of volatility "
+                    "in its profile, are given over.")
 
 
 class ShareClassSpec(BaseModel):

@@ -59,6 +59,11 @@ class PerformanceAnalytics:
                 self.settings.min_annualised_ratio_window or self.run.min_annualised_ratio_window)
 
     @property
+    def min_risk_days(self) -> int:
+        """The fewest daily returns a period's risk figures are given over."""
+        return self.settings.min_risk_days or self.run.min_risk_days
+
+    @property
     def returns(self) -> pd.Series:
         """The fund's daily returns over the days measured."""
         return self._window(self.run.returns)

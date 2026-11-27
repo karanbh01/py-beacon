@@ -81,13 +81,34 @@ class TestTheThresholds:
 
     def test_a_run_records_its_own(self,
                                    tmp_path):
-        shorter = run(ModellingAssumptions(min_annualised_ratio_window="3M"))
+        # BN-477: and the fewest days a period's risk is given over.
+        shorter = run(ModellingAssumptions(min_annualised_ratio_window="3M", min_risk_days=3))
         shorter.run_data.write(tmp_path / "run")
         again = RunData.from_record(tmp_path / "run")
 
         assert again.min_annualised_ratio_window == "3M"
         assert again.min_annualised_rate_window == "1Y"
+        assert shorter.analytics.run_data.min_risk_days == again.min_risk_days == 3
         assert shorter.analytics.portfolio.performance.sharpe_ratio(by="quarter").notna().all()
+
+    def test_a_run_kept_before_the_fewest_risk_days_were(self,
+                                                         result,
+                                                         tmp_path):
+        import json
+
+        from beacon.analysis.data import RUN_FILE
+
+        result.analytics.run_data.write(tmp_path / "run")
+        path = tmp_path / "run" / RUN_FILE
+        kept = json.loads(path.read_text(encoding="utf-8"))
+        del kept["min_risk_days"]
+        path.write_text(json.dumps(kept), encoding="utf-8")
+
+        assert RunData.from_record(tmp_path / "run").min_risk_days == 5
+
+    def test_fewest_risk_days_that_are_not_a_number_of_days_are_refused(self):
+        with pytest.raises(ValueError, match="min_risk_days"):
+            AnalysisSettings(min_risk_days=1)
 
 
 class TestEveryWindow:

@@ -255,6 +255,15 @@ the volatility the daily standard deviation, and the annualised return the
 daily rate that compounds to the total. The risk-free rate is taken as the
 daily rate that compounds to it.
 
+A name's risk over a short period says little for a like reason: a
+volatility, beta or correlation over a few days is mostly noise. A name's
+profile (`instrument.profile(name).return_risk`) leaves its volatility, beta,
+correlation and share of volatility blank over a period with fewer daily
+returns than `min_risk_days`, 5 unless set, and says so in the part's
+`attrs["unavailable"]`. It is a modelling assumption too, recorded with each
+run, and `AnalysisSettings(min_risk_days=...)` sets it for one analysis; it
+is a whole number of days, 2 or more, as a standard deviation needs two.
+
 ```python
 print(analytics.trailing_table().loc[["1Y", "YTD", "inception"]])
 print(analytics.monthly_grid().round(4))

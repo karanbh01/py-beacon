@@ -303,6 +303,23 @@ class TestAName_sProfile:
         assert part["columns"][0] == {"name": "contribution", "label": "Contribution",
                                       "unit": "fraction", "labels": None}
 
+    def test_its_return_and_risk(self,
+                                 client,
+                                 analytics):
+        # BN-477: every cut in one table, and why a column is null.
+        name = analytics.instrument.table().index[0]
+        found = client.get(f"/strategies/analysed/instrument/{name}", headers=auth()).json()
+        kept = analytics.instrument.profile(name).return_risk
+        part = found["parts"]["return_risk"]
+        names = [column["name"] for column in part["columns"]]
+
+        assert names == list(kept.columns)
+        assert part["dates"] == [date.strftime("%Y-%m-%d") for date in kept.index]
+        assert [row[names.index("period")] for row in part["data"]] == kept["period"].tolist()
+        assert part["data"][0][names.index("start")] == kept["start"].iloc[0].strftime("%Y-%m-%d")
+        assert part["unavailable"] == (kept.attrs["unavailable"] or None)
+        assert found["parts"]["daily_weights"]["unavailable"] is None
+
     def test_what_it_refuses(self,
                              client):
         assert client.get("/strategies/analysed/instrument/NOPE",

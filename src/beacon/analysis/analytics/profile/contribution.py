@@ -57,23 +57,29 @@ def _linked(daily: pd.DataFrame,
     (``"_to_date"``), from its days (`Attribution.by_day`), linked over the
     whole window or each period on its own."""
     if linking == WINDOW:
-        each = (daily[CONTRIBUTION] * _factors(daily)).groupby(periods).sum()
+        each = (daily[CONTRIBUTION] * day_factors(daily)).groupby(periods).sum()
 
         return pd.DataFrame({"": each, TO_DATE: each.cumsum()})
 
     found = {}
 
     for period in periods.unique():
-        found[period] = {"": _link(daily[periods == period]),
-                         TO_DATE: _link(daily[periods <= period])}
+        found[period] = {"": linked(daily[periods == period]),
+                         TO_DATE: linked(daily[periods <= period])}
 
     return pd.DataFrame.from_dict(found, orient="index")
 
 
-def _link(daily: pd.DataFrame) -> float:
-    """The days' contribution, linked over them."""
-    return float((daily[CONTRIBUTION] * _factors(daily)).sum())
+def linked(daily: pd.DataFrame,
+           of: str = FUND) -> float:
+    """The days' contribution (`Attribution.by_day`) to portfolio *of*'s
+    return, linked over them."""
+    return float((daily[CONTRIBUTION] * day_factors(daily, of)).sum())
 
 
-def _factors(daily: pd.DataFrame) -> pd.Series:
-    return linking_factors(daily[FUND], daily.get("comparator"))
+def day_factors(daily: pd.DataFrame,
+                of: str = FUND) -> pd.Series:
+    """The Carino factor each of the days (`Attribution.by_day`) is
+    scaled by, linked over them on portfolio *of*'s returns."""
+    # BN-477: of, for the comparators' contributions in return_risk.
+    return linking_factors(daily[of], daily.get("comparator"))

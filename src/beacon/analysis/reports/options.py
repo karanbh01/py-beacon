@@ -279,6 +279,11 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
             "Shortest window for a ratio a year", "The shortest window a ratio scaled by the "
             "square root of a year, such as the Sharpe ratio, is given over; 0M gives it over "
             "any. The run's when empty.", suggestions=WINDOWS),
+        "min_risk_days": Described(
+            "Fewest days for a period's risk", "The fewest daily returns a period's risk "
+            "figures, such as a name's volatility, beta, correlation and share of volatility "
+            "in its profile, are given over. The run's when empty.", unit="days",
+            suggestions=(2, 5, 10, 21), minimum=2),
     }),
     "rolling": ("Rolling figures", {
         "window": Described("Window", "The trailing window each rolling figure covers.",

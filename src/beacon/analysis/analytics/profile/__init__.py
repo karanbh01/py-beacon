@@ -6,6 +6,7 @@ One name over a run: `result.analytics.instrument.profile(name)`.
     profile.rebalance_weights          # a row a rebalance
     profile.daily_weights              # a row a day
     profile.attribution                # a row a quarter, or as by= says
+    profile.return_risk                # a row a window, rebalance period, year, ...
     profile.risk                       # a row a rebalance
     profile.liquidity                  # a row a rebalance
     profile.factor_exposures           # a row a rebalance
@@ -50,6 +51,37 @@ linked on its own, as the per-name table over the window from the last day
 before the period to its last day gives it, and each total as the table over
 the window to the period's end: then the periods do not add up to the
 total. Its ``attrs`` say the comparator, the periods and the linking.
+
+``return_risk`` has the name's return and risk over a run of periods, told
+apart by ``period``: the whole window (``run``), then each rebalance period
+(``rebalance``), each year, each quarter and each month, each dated by its
+last day in the window, with its first (``start``), so a part of a year,
+quarter or month at either end of the window is a row of its own. A
+rebalance period runs from the day after a rebalance to the next rebalance
+inclusive, as the fund trades at a rebalance's close and that day's return
+is earned on what it held before; the last runs to the window's end, and the
+days before the window's first rebalance end at it. Each row has the name's
+compounded return (``return``) and annualised volatility of daily returns
+(``volatility``), as the per-name table measures them, and against each
+portfolio the run kept daily weights for, the fund's first, then the
+index's, the optimised index's and the benchmark's (``<figure>/fund``,
+``<figure>/index``, ...): the name's return less the portfolio's
+(``excess_return``), its contribution to the portfolio's return
+(``contribution``), its beta to it and correlation with it on daily returns
+(``beta``, ``correlation``) and its share of the portfolio's volatility
+(``volatility_share``). A contribution is the portfolio's weight in the name
+at each close times the name's return the next day, linked as the analysis
+options' ``attribution.linking`` says, for every portfolio as for the fund:
+with ``window`` each cut's periods add up to the whole window's, and the
+fund's are the ``attribution`` part's; with ``period`` each period is linked
+on its own. A share of volatility is the covariance of the name's daily
+contributions with the portfolio's, every name's added up, over that sum's
+variance, so the shares of every name add up to 1, and is 0 over a period
+the portfolio did not hold it. The volatility, beta, correlation and share
+of volatility over a period with fewer daily returns than the modelling
+assumption ``min_risk_days`` (5 unless set) are null; ``attrs["unavailable"]``
+says why for each column with a null, and ``attrs`` say the linking and
+``min_risk_days``.
 
 ``risk`` has a row for each rebalance the risk model could be fitted for:
 the name's contribution to the fund's expected volatility and its share of it
@@ -147,7 +179,16 @@ from ...panels import NAME_RETURNS, REFERENCE
 from ...reports.statistics import TOO_SHORT, Unavailable
 from ...risk.liquidity import PORTFOLIOS
 from ..groupings import FREQUENCIES
-from . import characteristics, contribution, factors, risk, selection, trading, weights
+from . import (
+    characteristics,
+    contribution,
+    factors,
+    return_risk,
+    risk,
+    selection,
+    trading,
+    weights,
+)
 from .columns import ACTIVE, LABELS, columns_of
 from .risk import liquidity_dates, liquidity_of
 
@@ -156,9 +197,9 @@ class Profile:
     """One name over a run: a dated table a part, worked out when first
     asked for."""
 
-    parts = ("rebalance_weights", "daily_weights", "attribution", "risk", "liquidity",
-             "factor_exposures", "factor_betas", "style", "key_data", "corporate_actions",
-             "trades", "events", "selection")
+    parts = ("rebalance_weights", "daily_weights", "attribution", "return_risk", "risk",
+             "liquidity", "factor_exposures", "factor_betas", "style", "key_data",
+             "corporate_actions", "trades", "events", "selection")
 
     def __init__(self,
                  name: str,
@@ -218,6 +259,21 @@ class Profile:
         held = against if against in self.portfolios() else None
 
         return contribution.attribution(self.name, self._context, self.by, held)
+
+    @cached_property
+    def return_risk(self) -> pd.DataFrame:
+        """Over the window, each rebalance period, year, quarter and month:
+        the name's return and volatility, and against each portfolio its
+        excess return, contribution, beta, correlation and share of
+        volatility.
+
+        Raises:
+            Unavailable: If the run was kept before its names' returns
+                were.
+        """
+        # BN-477.
+        return return_risk.return_risk(self.name, self._context, self.days(),
+                                       self.rebalances(), list(self.portfolios()))
 
     @cached_property
     def risk(self) -> pd.DataFrame:

@@ -21,9 +21,10 @@ never assume different things.
 cash earns, the risk-free rate the Sharpe ratio is measured against, how many
 periods make a year when returns are annualised, the share of each
 dividend withheld, and how far a day's traded volume carries over blank
-cells when an execution limit needs it, and how short a window an
-annualised figure is left blank over (`beacon.analysis.annualising`). They do
-not affect an index.
+cells when an execution limit needs it, how short a window an
+annualised figure is left blank over (`beacon.analysis.annualising`), and the
+fewest daily returns a name's risk over a period is given over in its
+profile. They do not affect an index.
 
 ## Unset fields, and where their values come from
 
@@ -55,6 +56,9 @@ DEFAULT_VOLUME_BACKFILL_DAYS = 5
 # six months, is left blank (`beacon.analysis.annualising`).
 DEFAULT_MIN_ANNUALISED_RATE_WINDOW = "1Y"
 DEFAULT_MIN_ANNUALISED_RATIO_WINDOW = "6M"
+# BN-477 (Karan, 2026-11-27): a name's risk over a period of fewer daily
+# returns than this is left blank in its profile's return_risk.
+DEFAULT_MIN_RISK_DAYS = 5
 
 # The windows the two thresholds take: a number of months or years.
 WINDOW_UNITS = ("M", "Y")
@@ -97,6 +101,10 @@ class ModellingAssumptions:
         min_annualised_ratio_window: The same for a ratio scaled by the
             square root of a year, such as the Sharpe ratio. Unset is
             ``"6M"``.
+        min_risk_days: The fewest daily returns a period's risk figures,
+            such as a name's volatility, beta, correlation and share of
+            volatility in its profile, are given over, a whole number of
+            days, 2 or more (a standard deviation needs two). Unset is 5.
 
     Raises:
         ValueError: If a field is set to a value it cannot take.
@@ -111,6 +119,7 @@ class ModellingAssumptions:
     volume_backfill_days: int | None = None
     min_annualised_rate_window: str | None = None
     min_annualised_ratio_window: str | None = None
+    min_risk_days: int | None = None
 
     def __post_init__(self) -> None:
         if self.fx_policy is not None and self.fx_policy not in FX_POLICIES:
@@ -151,6 +160,10 @@ class ModellingAssumptions:
                 raise ValueError(f"{name} is a number of months or years, such as "
                                  f"'6M' or '1Y', got {value!r}.")
 
+        if self.min_risk_days is not None and not is_risk_days(self.min_risk_days):
+            raise ValueError(f"min_risk_days must be a whole number of days, 2 or more, "
+                             f"got {self.min_risk_days!r}.")
+
     def over(self,
              base: "ModellingAssumptions") -> "ModellingAssumptions":
         """These assumptions, with *base*'s filling every field unset here."""
@@ -182,7 +195,8 @@ class ModellingAssumptions:
             min_annualised_rate_window=_or(self.min_annualised_rate_window,
                                            DEFAULT_MIN_ANNUALISED_RATE_WINDOW),
             min_annualised_ratio_window=_or(self.min_annualised_ratio_window,
-                                            DEFAULT_MIN_ANNUALISED_RATIO_WINDOW))
+                                            DEFAULT_MIN_ANNUALISED_RATIO_WINDOW),
+            min_risk_days=_or(self.min_risk_days, DEFAULT_MIN_RISK_DAYS))
 
     def with_defaults(self) -> "ModellingAssumptions":
         """The simulation conventions filled from the library defaults where
@@ -201,7 +215,8 @@ class ModellingAssumptions:
                            DEFAULT_MIN_ANNUALISED_RATE_WINDOW),
                        min_annualised_ratio_window=_or(
                            self.min_annualised_ratio_window,
-                           DEFAULT_MIN_ANNUALISED_RATIO_WINDOW))
+                           DEFAULT_MIN_ANNUALISED_RATIO_WINDOW),
+                       min_risk_days=_or(self.min_risk_days, DEFAULT_MIN_RISK_DAYS))
 
     def effective(self) -> "ModellingAssumptions":
         """These assumptions laid over the process-wide default."""
@@ -259,6 +274,11 @@ def is_window(value: Any) -> bool:
     """Whether *value* is a number of months or years, such as ``"6M"``."""
     return (isinstance(value, str) and value[:-1].isdigit()
             and value[-1:].upper() in WINDOW_UNITS)
+
+
+def is_risk_days(value: Any) -> bool:
+    """Whether *value* is a whole number of days, 2 or more."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 2
 
 
 def _or(value: Any,

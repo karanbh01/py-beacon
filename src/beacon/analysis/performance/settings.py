@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from ...assumptions import is_window
+from ...assumptions import is_risk_days, is_window
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,9 @@ class AnalysisSettings:
             it over any window (`beacon.analysis.annualising`).
         min_annualised_ratio_window: The same for a ratio scaled by the
             square root of a year, such as the Sharpe ratio.
+        min_risk_days: The fewest daily returns a period's risk figures,
+            such as a name's volatility and beta in its profile, are given
+            over, 2 or more.
     """
     start: pd.Timestamp | str | None = None
     end: pd.Timestamp | str | None = None
@@ -38,6 +41,7 @@ class AnalysisSettings:
     tracked: str | None = None
     min_annualised_rate_window: str | None = None
     min_annualised_ratio_window: str | None = None
+    min_risk_days: int | None = None
 
     def __post_init__(self) -> None:
         for name in ("min_annualised_rate_window", "min_annualised_ratio_window"):
@@ -46,3 +50,7 @@ class AnalysisSettings:
             if value is not None and not is_window(value):
                 raise ValueError(f"{name} is a number of months or years, such as "
                                  f"'6M' or '1Y', got {value!r}.")
+
+        if self.min_risk_days is not None and not is_risk_days(self.min_risk_days):
+            raise ValueError(f"min_risk_days must be a whole number of days, 2 or more, "
+                             f"got {self.min_risk_days!r}.")

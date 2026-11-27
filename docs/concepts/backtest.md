@@ -610,6 +610,7 @@ data, so a result can say what it assumed. Every field is optional:
 | `volume_backfill_days` | 5 | How many calendar days a name's last reported volume stands in for a blank one under an execution limit |
 | `min_annualised_rate_window` | `"1Y"` | The shortest window a rate compounded or scaled to a year is given over: the annualised return, alpha, and the Calmar, Martin, Sterling, Burke and Treynor ratios. `"0M"` gives it over any window |
 | `min_annualised_ratio_window` | `"6M"` | The same for a ratio scaled by the square root of a year: the Sharpe, Sortino, information and Lo Sharpe ratios |
+| `min_risk_days` | 5 | The fewest daily returns a period's risk figures, such as a name's volatility, beta, correlation and share of volatility in its profile, are given over; 2 or more |
 
 The first three are **data treatment**: they decide how data is read, so they
 reach the index calculation too. A backtest hands its assumptions to the

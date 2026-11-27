@@ -88,6 +88,9 @@ class TestTheObject:
         {"free_float_backfill_days": 1.5},
         {"periods_per_year": 0},
         {"cash_rate": 2.0},
+        {"min_risk_days": 1},
+        {"min_risk_days": 2.5},
+        {"min_risk_days": True},
     ])
     def test_an_impossible_value_is_refused(self,
                                             settings):
@@ -111,6 +114,8 @@ class TestTheObject:
         assert resolved.max_price_staleness_days == 0
         assert (resolved.cash_rate, resolved.risk_free_rate,
                 resolved.periods_per_year) == (0.0, 0.0, 252)
+        # BN-477.
+        assert resolved.min_risk_days == ModellingAssumptions().with_defaults().min_risk_days == 5
 
     def test_nothing_set_leaves_the_data_source_itself(self):
         """So a run with no assumptions shares the source's caches."""

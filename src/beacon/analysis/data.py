@@ -29,7 +29,11 @@ from typing import Any
 
 import pandas as pd
 
-from ..assumptions import DEFAULT_MIN_ANNUALISED_RATE_WINDOW, DEFAULT_MIN_ANNUALISED_RATIO_WINDOW
+from ..assumptions import (
+    DEFAULT_MIN_ANNUALISED_RATE_WINDOW,
+    DEFAULT_MIN_ANNUALISED_RATIO_WINDOW,
+    DEFAULT_MIN_RISK_DAYS,
+)
 from ..backtest.result import BacktestResult
 from ..exceptions import ConfigurationError
 from .packing import CLOSES_FLOAT, CLOSES_PACKED, CLOSES_SCALE, pack_closes, unpack_closes
@@ -134,6 +138,8 @@ class RunData:
         min_annualised_rate_window: The shortest window a rate annualised
             is given over (`beacon.analysis.annualising`).
         min_annualised_ratio_window: The same for a ratio annualised.
+        min_risk_days: The fewest daily returns a period's risk figures,
+            such as a name's volatility in its profile, are given over.
     """
     currency: str
     returns: pd.Series
@@ -151,6 +157,7 @@ class RunData:
     warnings: tuple[str, ...] = ()
     min_annualised_rate_window: str = DEFAULT_MIN_ANNUALISED_RATE_WINDOW
     min_annualised_ratio_window: str = DEFAULT_MIN_ANNUALISED_RATIO_WINDOW
+    min_risk_days: int = DEFAULT_MIN_RISK_DAYS
 
     @classmethod
     def from_result(cls,
@@ -181,7 +188,8 @@ class RunData:
                    performance_start=float(start),
                    investor_flows=result._investor_flows() if result.fund.flows else None,
                    min_annualised_rate_window=rate_window,
-                   min_annualised_ratio_window=ratio_window)
+                   min_annualised_ratio_window=ratio_window,
+                   min_risk_days=result._min_risk_days())
 
     @classmethod
     def of_returns(cls,
@@ -293,6 +301,7 @@ class RunData:
                "risk_free_rate": self.risk_free_rate,
                "min_annualised_rate_window": self.min_annualised_rate_window,
                "min_annualised_ratio_window": self.min_annualised_ratio_window,
+               "min_risk_days": self.min_risk_days,
                "performance_start": self.performance_start,
                "missing": dict(self.missing),
                "derived": derived,
@@ -387,7 +396,9 @@ class RunData:
                    min_annualised_rate_window=run.get("min_annualised_rate_window",
                                                       DEFAULT_MIN_ANNUALISED_RATE_WINDOW),
                    min_annualised_ratio_window=run.get("min_annualised_ratio_window",
-                                                       DEFAULT_MIN_ANNUALISED_RATIO_WINDOW))
+                                                       DEFAULT_MIN_ANNUALISED_RATIO_WINDOW),
+                   # And one kept before BN-477 the library's fewest risk days.
+                   min_risk_days=int(run.get("min_risk_days", DEFAULT_MIN_RISK_DAYS)))
 
 
 class _Built(Mapping[str, pd.DataFrame]):
