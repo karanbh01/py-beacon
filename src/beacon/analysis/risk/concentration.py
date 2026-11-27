@@ -1,21 +1,21 @@
 # src/beacon/analysis/risk/concentration.py
 """
-How concentrated a book is: in its weights, in its risk and in what earned
+How concentrated a portfolio is: in its weights, in its risk and in what earned
 its return.
 
 **By weight**, over the names held (weight above 0), scaled to add to 1:
 
 - the Herfindahl index ``H = sum w_i^2``, and its form normalised between
-  an equally weighted book (0) and a single name (1),
+  an equally weighted portfolio (0) and a single name (1),
   ``(H - 1/N) / (1 - 1/N)``;
 - the effective number of holdings ``1 / H``;
 - the largest weight and the top 5, 10 and 20 together;
-- the fewest names making 50%, 80% and 90% of the book;
+- the fewest names making 50%, 80% and 90% of the portfolio;
 - optionally, the Gini coefficient from the Lorenz curve (0 equal, toward 1
   all in one name) and the entropy ``-sum w_i ln w_i``, with its effective
   number ``exp(E)``.
 
-The same figures on group weights (a book's weight in each sector, say)
+The same figures on group weights (a portfolio's weight in each sector, say)
 measure how concentrated it is across the groups.
 
 **By risk**, from each name's share of the expected volatility at each
@@ -31,11 +31,11 @@ contributors' share of the total, and breadth, the share of the names held
 that added to it.
 
 **Drift** is how far the weights have moved since the last rebalance: half
-the sum of the gaps, the share of the book that would trade to put it back.
+the sum of the gaps, the share of the portfolio that would trade to put it back.
 
 **The concentration curve** takes the names largest first, position by
 position: the k-th name's weight, the cumulative weight of the top k (as a
-share of the book), and the concentration of the top k on their own, their
+share of the portfolio), and the concentration of the top k on their own, their
 Herfindahl and effective number once their weights are scaled to add to 1,
 with how much adding the k-th changed each.
 """
@@ -75,7 +75,7 @@ ABSORBED = 0.2
 
 def weight_figures(weights: pd.DataFrame,
                    optional: bool = False) -> pd.DataFrame:
-    """The concentration figures of each row of *weights* (a book's weights
+    """The concentration figures of each row of *weights* (a portfolio's weights
     by date and name), a row each."""
     # Laid out row by row whatever the weights' own layout (BN-399): a
     # stored run's weights, worked out again, came laid out the other way
@@ -117,7 +117,7 @@ def weight_figures(weights: pd.DataFrame,
 
 def lorenz(weights: pd.Series) -> pd.DataFrame:
     """The Lorenz curve of the names held: the share of the names, smallest
-    first, against the share of the book they make together."""
+    first, against the share of the portfolio they make together."""
     held = np.sort(weights.fillna(0.0)[weights.fillna(0.0) > 0.0].to_numpy(dtype=float))
     total = held.sum()
     names = np.arange(len(held) + 1) / max(len(held), 1)
@@ -156,7 +156,7 @@ def concentration_curve(weights: pd.Series) -> pd.DataFrame:
 
 def risk_figures(shares: pd.Series,
                  tops: Sequence[int] = TOPS) -> dict[str, float]:
-    """The concentration of a book's risk, from each name's share of it."""
+    """The concentration of a portfolio's risk, from each name's share of it."""
     values = shares.dropna().astype(float)
     herfindahl = float((values ** 2).sum())
     ordered = values.sort_values(ascending=False)
@@ -204,7 +204,7 @@ class ConcentrationAnalytics:
     def weights(self,
                 of: str = "fund",
                 field: str | None = None) -> pd.DataFrame:
-        """A book's daily weights, by name or, with *field*, by group."""
+        """A portfolio's daily weights, by name or, with *field*, by group."""
         table = self.run.tables.get(PORTFOLIOS[of])
 
         if table is None or table.empty:
@@ -227,7 +227,7 @@ class ConcentrationAnalytics:
                   field: str | None = None,
                   daily: bool = False,
                   optional: bool = False) -> pd.DataFrame:
-        """The book's concentration by weight at each rebalance's close, or
+        """The portfolio's concentration by weight at each rebalance's close, or
         each day; across groups with *field*."""
         weights = self.weights(of, field)
 
@@ -253,7 +253,7 @@ class ConcentrationAnalytics:
               date: str | pd.Timestamp,
               of: str = "fund",
               field: str | None = None) -> pd.DataFrame:
-        """The concentration curve of a book's weights (or, with *field*,
+        """The concentration curve of a portfolio's weights (or, with *field*,
         its group weights) at the close of *date*: names largest first, with
         cumulative weight and the top k's concentration."""
         weights = self.weights(of, field)
@@ -330,7 +330,7 @@ class ConcentrationAnalytics:
     @renamed_keyword("book", "of")
     def by_risk(self,
                 of: str = "fund") -> pd.DataFrame:
-        """The book's concentration by risk at each rebalance the risk model
+        """The portfolio's concentration by risk at each rebalance the risk model
         covers, with its diversification ratio and average correlation.
 
         Raises:

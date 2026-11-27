@@ -16,7 +16,7 @@ its forwards earned (each forward's locked-in carry, for the share of its term
 it was held); the trading its own flows caused, less what its dealing
 investors paid; and its share of the rest of the fund's trading (rebalances,
 dividends, the cash band, futures rolls), by its share of the fund's assets
-at the close before. All are in the book's currency, so the classes' trading
+at the close before. All are in the fund's base currency, so the classes' trading
 adds up to the fund's.
 """
 # BN-408. As agreed with Karan on 2026-10-27.
@@ -85,17 +85,17 @@ def class_costs(tables: dict[str, pd.DataFrame],
                 costs: pd.DataFrame,
                 periods_per_year: int,
                 by: str = "run") -> pd.DataFrame:
-    """Each class's costs in the book's currency, over the run (``run``,
+    """Each class's costs in the fund's base currency, over the run (``run``,
     with the net in basis points of its mean assets a year) or each year
     (``year``, with the net in basis points of the year's mean assets)."""
     days = tables[CLASS_DAYS]
-    assets = days.pivot_table(index=days.index, columns="CLASS", values="BOOK_NET_ASSETS")
+    assets = days.pivot_table(index=days.index, columns="CLASS", values="BASE_NET_ASSETS")
     rate = (days.pivot_table(index=days.index, columns="CLASS", values="NET_ASSETS")
             / assets.where(assets > 0)).ffill()
     fees = days.pivot_table(index=days.index, columns="CLASS", values="FEES") / rate
     flow_trading, other_trading = _trading_by_class(tables[CLASS_FLOWS], rate, assets,
                                                     trades, cash, costs)
-    dealt = _flows_in_book(tables[CLASS_FLOWS], rate, "ADJUSTMENT")
+    dealt = _flows_in_base(tables[CLASS_FLOWS], rate, "ADJUSTMENT")
     hedges = tables[CLASS_HEDGES]
     carry = _carry_earned(hedges, days.index.max())
     hedge_costs = hedges.pivot_table(index=hedges.index, columns="CLASS", values="COST",
@@ -151,10 +151,10 @@ def _daily(found: pd.DataFrame,
     return found.reindex(index=assets.index[1:], columns=assets.columns).fillna(0.0)
 
 
-def _flows_in_book(flows: pd.DataFrame,
+def _flows_in_base(flows: pd.DataFrame,
                    rate: pd.DataFrame,
                    column: str) -> pd.DataFrame:
-    """Each class's *column* of its flows each day, in the book's currency."""
+    """Each class's *column* of its flows each day, in the base currency."""
     if flows.empty:
         return pd.DataFrame(index=rate.index, columns=rate.columns, dtype=float)
 
@@ -178,7 +178,7 @@ def _trading_by_class(flows: pd.DataFrame,
     total = total.add(futures.astype(float).sum(axis=1), fill_value=0.0)
     caused = flow_costs(trades, cash, costs)["trading_cost"]
 
-    sizes = _flows_in_book(flows, rate, "AMOUNT").abs()
+    sizes = _flows_in_base(flows, rate, "AMOUNT").abs()
     shares = sizes.div(sizes.sum(axis=1).where(lambda found: found > 0), axis=0)
     flow_trading = shares.mul(caused.reindex(shares.index).fillna(0.0), axis=0)
 

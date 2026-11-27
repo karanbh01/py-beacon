@@ -1,20 +1,20 @@
 # src/beacon/backtest/result.py
 """
-BacktestResult: the record of a run, holding books rather than fields.
+BacktestResult: the record of a run, holding records rather than fields.
 
 The result is an **orchestrator**: it holds the Portfolio (kept whole, not
 flattened into series) plus the run-level facts (the index tracked, the
 target index, the benchmark of record, unfilled orders) and its methods
-answer questions by comparing books:
+answer questions by comparing records:
 
     result.portfolio.nav          what the money did
     result.index.target.levels    what the index being aimed at did
     result.index.optimised        the solved index's own calculation, when one exists
-    result.index.tracked          the book the engine actually traded toward
+    result.index.tracked          the record the engine actually traded toward
     result.benchmark.levels       the benchmark of record, when one was given
     result.against(other)         any comparator, after the fact
 
-Parallel structure is the point: several books, same question, same
+Parallel structure is the point: several records, same question, same
 spelling. Each fact has one home.
 
 ## The benchmark of record versus a question asked later
@@ -90,13 +90,13 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
     """The record of one backtest run.
 
     Attributes:
-        portfolio: The books (positions, weights, cash, NAV, transactions),
+        portfolio: The portfolio (positions, weights, cash, NAV, transactions),
             kept whole and frozen by the engine on completion.
         index: The run's calculated indices, as an :class:`IndexRecords`
-            container: always present, its books None when the run
+            container: always present, its records None when the run
             calculated none. `index.target` is the index aimed at,
             `index.optimised` the solved calculation when one exists, and
-            `index.tracked` the book the engine traded toward.
+            `index.tracked` the record the engine traded toward.
         benchmark: The benchmark of record, when one was given to the engine.
         fund: The vehicle's recorded data (`beacon.backtest.fund_record`):
             its NAV, units, fees, flows, dividends and share classes, and
@@ -199,7 +199,7 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
         Raises:
             RuntimeError: If no DataFetcher has been bound via
                 :meth:`with_data`.
-            KeyError: If the run's books never held *asset_id*. Membership is
+            KeyError: If the run's portfolio never held *asset_id*. Membership is
                 judged from the positions panel (the record of holdings)
                 rather than from a weight column, so a position too small to
                 round to a visible weight still counts as held.
@@ -213,7 +213,7 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
 
         if positions.empty or asset_id not in set(positions["ASSET_ID"]):
             raise KeyError(
-                f"Asset '{asset_id}' does not appear in this backtest's books."
+                f"Asset '{asset_id}' does not appear in this backtest's portfolio."
             )
 
         return BacktestAssetView(asset_id=asset_id,
@@ -230,7 +230,7 @@ class BacktestResult(MetricsMixin, AnalyticsMixin):
         against ten comparators and the result is byte-for-byte what it was.
 
         Args:
-            other: Another result, a book, an index result, or a bare level
+            other: Another result, a portfolio, an index result, or a bare level
                 series.
 
         Returns:

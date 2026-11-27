@@ -1,6 +1,6 @@
 # src/beacon/backtest/futures.py
 """
-Index futures held beside the books: for a futures-based fund, its whole
+Index futures held beside the portfolio: for a futures-based fund, its whole
 exposure; for a physical fund, the cash buffer it equitises.
 
 The position's profit and loss is settled in cash every day, as variation

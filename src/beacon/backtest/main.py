@@ -152,8 +152,8 @@ class Backtest:
             each trade's notional value. Defaults to 0 (no cost).
         price_column: Market-data column both the calculator and the engine
             read. Defaults to ``"CLOSE"``.
-        currency: The simulated book's currency. None, the default, uses the
-            index's currency. Pass another to keep the book in a different
+        currency: The simulated portfolio's currency. None, the default, uses the
+            index's currency. Pass another to keep the portfolio in a different
             currency from the index.
         modelling_assumptions: What the run takes as given about markets and
             data, laid over the process-wide default (see
@@ -167,7 +167,7 @@ class Backtest:
             current holdings in proportion to value.
         implementation: The screens and redistribution rule applied at each
             rebalance. None screens nothing beyond stale prices.
-        share_classes: The fund's share classes, sharing one book, each with
+        share_classes: The fund's share classes, sharing one portfolio, each with
             its own fee, flows and distribution policy (see
             :mod:`beacon.backtest.share_classes`). None runs one class.
         flows: Money arriving and leaving: one scenario or several, added
@@ -247,7 +247,7 @@ class Backtest:
             definition: The index to calculate and track: a plain
                 :class:`IndexDefinition`, or a stored
                 :class:`~beacon.index.derived.OptimisedIndexDefinition`,
-                which always fills both index books: its parent's calculation
+                which always fills both index records: its parent's calculation
                 as ``index.target`` and its own as ``index.optimised``. Or an
                 :class:`~beacon.strategy.IndexTracking`, which holds the index
                 through a replication: the index is calculated and measured
@@ -274,7 +274,7 @@ class Backtest:
                 part is still built on first read, with default settings.
 
         Returns:
-            BacktestResult: The engine's result: portfolio kept whole, books
+            BacktestResult: The engine's result: portfolio kept whole, records
             filled, data bound to the run's own source.
 
         Raises:

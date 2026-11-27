@@ -5,16 +5,16 @@ model, and measured over the run, from its returns.
 
 **Expected.** At each rebalance the factor model (see
 `beacon.analysis.risk.model`) is estimated on the year of daily returns
-before it, on the factors' exposures that day, and the book is held at its
+before it, on the factors' exposures that day, and the portfolio is held at its
 weights at that day's close. Its covariance is ``B F B' + D``, so the
-book's variance splits exactly into a factor part, ``x' F x`` with
+portfolio's variance splits exactly into a factor part, ``x' F x`` with
 ``x = B' w``, and a specific part, ``w' D w``; so does the active variance,
 on the active weights. Each name's marginal contribution is ``(S w)_i / sigma``
 and its contribution ``w_i`` times that, which add up to the volatility;
 a group's is the sum of its names'.
 
 The diversification ratio is the weighted sum of the names' volatilities
-over the book's, and the average correlation the one the weights and
+over the portfolio's, and the average correlation the one the weights and
 volatilities imply:
 
     DR = sum w_i s_i / s,    rho = (s^2 - sum w_i^2 s_i^2) / ((sum w_i s_i)^2 - sum w_i^2 s_i^2)
@@ -94,7 +94,7 @@ class RiskOverTime:
     def weights(self,
                 date: pd.Timestamp,
                 of: str = "fund") -> pd.Series:
-        """A book's weights at the close of *date*, by name."""
+        """A portfolio's weights at the close of *date*, by name."""
         table = self.run.tables.get(PORTFOLIOS[of])
 
         if table is None or table.empty:
@@ -112,9 +112,9 @@ class RiskOverTime:
                       of: str = "fund",
                       against: str | None = None) -> pd.DataFrame:
         """Each name's weight, marginal contribution, contribution and share
-        of the book's expected volatility (or, *against* a comparator, of its
+        of the portfolio's expected volatility (or, *against* a comparator, of its
         expected tracking error) at the rebalance on *date*. A tracking error
-        below a millionth of the book's own volatility is rounding in the
+        below a millionth of the portfolio's own volatility is rounding in the
         weights, and its shares are given as 0."""
         day = pd.Timestamp(date)
         model = self._model(day)
@@ -152,7 +152,7 @@ class RiskOverTime:
                  date: str | pd.Timestamp,
                  of: str = "fund",
                  against: str = "index") -> dict[str, float]:
-        """The book's expected risk at the rebalance on *date*: its
+        """The portfolio's expected risk at the rebalance on *date*: its
         volatility, split into factor and specific; its tracking error
         against *against*, split the same way; its diversification ratio and
         average correlation; and the share of its weight the model covers."""
@@ -185,7 +185,7 @@ class RiskOverTime:
         until the next rebalance, and the measured over the expected: see
         `beacon.analysis.risk.forecast`."""
         expected = self._forecasts(of, against)
-        returns = forecast.book_returns(self.run, of)
+        returns = forecast.portfolio_returns(self.run, of)
         active = forecast.active_returns(self.run, of, against) if against else None
 
         return forecast.forecast_check(expected, returns, active, self.run.periods_per_year)
@@ -203,7 +203,7 @@ class RiskOverTime:
         figures = pd.DataFrame.from_dict(expected, orient="index")
         found = {"volatility": forecast.bias_statistic(
             figures.get("volatility", pd.Series(dtype=float)),
-            forecast.book_returns(self.run, of), year)}
+            forecast.portfolio_returns(self.run, of), year)}
 
         if against:
             found["tracking_error"] = forecast.bias_statistic(
@@ -213,17 +213,17 @@ class RiskOverTime:
         return found
 
     def _forecasts(self,
-                   book: str,
+                   of: str,
                    against: str | None) -> dict[pd.Timestamp, dict[str, float]]:
         """The expected volatility (and tracking error) at each rebalance."""
         found = {}
 
         for day in self.dates():
             model = self._model(day)
-            figures = _split(model, self._vector(model, day, book, None), "")
+            figures = _split(model, self._vector(model, day, of, None), "")
 
             if against:
-                figures.update(_split(model, self._vector(model, day, book, against),
+                figures.update(_split(model, self._vector(model, day, of, against),
                                       "tracking_"))
 
             found[day] = figures
@@ -251,9 +251,9 @@ class RiskOverTime:
     def _book_volatility(self,
                          model: FactorRiskModel,
                          day: pd.Timestamp,
-                         book: str) -> float:
-        """The book's own expected volatility on *day*."""
-        weights = self._vector(model, day, book, None)
+                         of: str) -> float:
+        """The portfolio's own expected volatility on *day*."""
+        weights = self._vector(model, day, of, None)
 
         return _volatility(weights, _covariance_times(model, weights))
 
@@ -267,10 +267,10 @@ class RiskOverTime:
     def _vector(self,
                 model: FactorRiskModel,
                 day: pd.Timestamp,
-                book: str,
+                of: str,
                 against: str | None) -> pd.Series:
-        """The book's weights (less *against*'s) on the model's names."""
-        weights = self.weights(day, book).reindex(model.asset_ids).fillna(0.0)
+        """The portfolio's weights (less *against*'s) on the model's names."""
+        weights = self.weights(day, of).reindex(model.asset_ids).fillna(0.0)
 
         if against is not None:
             weights = weights - self.weights(day, against).reindex(model.asset_ids).fillna(0.0)

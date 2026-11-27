@@ -355,7 +355,7 @@ class InstrumentLevel(Category):
         returns = _picked(_name_returns(context), names)
         comparator = None if figure not in RELATIVE else context.require(
             against or context.require_tracked())
-        theirs = None if comparator is None else context.book(comparator).returns
+        theirs = None if comparator is None else context.performance_of(comparator).returns
         returns, theirs, periods = name_figures.on_basis(returns, theirs, frequency,
                                                          context.performance.periods_per_year)
         periods = 1 if annualise is False else periods

@@ -21,7 +21,7 @@ return the interest it earned over the cash it held.
 The days are linked over the window by Carino's factors for an active return,
 ``(ln(1 + R_t) - ln(1 + R^b_t)) / (R_t - R^b_t)`` over the same for the
 window, so the effects add up to the holdings' compounded active return. What
-the holdings do not explain of the books' own returns (costs, fees, dividends
+the holdings do not explain of the portfolios' own returns (costs, fees, dividends
 not yet paid, a price index's missing dividends) is the residual.
 """
 # BN-394. Agreed with Karan on 2026-10-28: daily, Carino-linked; interaction
@@ -59,7 +59,7 @@ class BrinsonResult:
         groups: By group: the mean weights and compounded returns of the
             fund's and the comparator's holdings, and each effect, linked.
         names: By group and name: each name's mean weights in the two
-            books and its share of its group's selection and interaction,
+            portfolios and its share of its group's selection and interaction,
             linked; a group's names add up to its own.
     """
     start: str
@@ -88,7 +88,7 @@ def daily_effects(fund: pd.DataFrame,
                   comparator: pd.DataFrame,
                   fund_earned: pd.DataFrame,
                   comparator_earned: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Each day's effects by group, from each book's group weights at the
+    """Each day's effects by group, from each portfolio's group weights at the
     close before and what each group earned (weight times return)."""
     groups = sorted(set(fund.columns) | set(comparator.columns))
     w = fund.reindex(columns=groups, fill_value=0.0)

@@ -66,18 +66,18 @@ def share_class_payloads(result: BacktestResult,
     cash_rate = assumptions.cash_rate if assumptions is not None else None
     ratios = {share_class.name: share_class.hedge_ratio for share_class in share_classes}
 
-    payloads = [_payload(book, days,
-                         _benchmark(book, ratios.get(book.name, 1.0), index_levels,
+    payloads = [_payload(share_class, days,
+                         _benchmark(share_class, ratios.get(share_class.name, 1.0), index_levels,
                                     index_currency, fetcher, cash_rate),
                          periods or DEFAULT_PERIODS_PER_YEAR)
-                for book in result.fund.share_classes.values()]
+                for share_class in result.fund.share_classes.values()]
     hedging = result.fund.hedging
 
     return {"share_classes": payloads,
             "hedge_value": (_series(hedging.value, days) if hedging is not None else None)}
 
 
-def _benchmark(book: ShareClassRecord,
+def _benchmark(share_class: ShareClassRecord,
                hedge_ratio: float,
                index_levels: pd.Series,
                index_currency: str,
@@ -86,42 +86,42 @@ def _benchmark(book: ShareClassRecord,
     """The index in the class's currency, or nothing when no rate reaches it,
     which is said."""
     try:
-        return index_in_class_currency(index_levels, index_currency, book.currency, fetcher,
-                                       hedge_ratio=hedge_ratio if book.hedged else None,
+        return index_in_class_currency(index_levels, index_currency, share_class.currency, fetcher,
+                                       hedge_ratio=hedge_ratio if share_class.hedged else None,
                                        cash_rate=cash_rate)
     except CalculationError as error:
         logger.warning("Share class '%s' is not measured against the index: %s",
-                       book.name, error)
+                       share_class.name, error)
 
         return pd.Series(dtype=float)
 
 
-def _payload(book: ShareClassRecord,
+def _payload(share_class: ShareClassRecord,
              days: pd.Index,
              benchmark: pd.Series,
              periods_per_year: int) -> ShareClassPayload:
     """One class's record, on the run's days."""
-    metrics = class_tracking(book, benchmark, periods_per_year)
+    metrics = class_tracking(share_class, benchmark, periods_per_year)
 
     return ShareClassPayload(
-        name=book.name,
-        currency=book.currency,
-        hedged=book.hedged,
-        distribution=book.distribution,
-        management_fee_bps=book.management_fee_bps,
-        net_assets=_series(book.net_assets, days),
-        book_net_assets=_series(book.book_net_assets, days),
-        units=_series(book.units, days),
-        nav_per_unit=_series(book.nav_per_unit, days),
-        fees=_series(book.fees, days, fill=0.0),
-        fees_paid=book.fees_paid,
-        distributions=_series(book.distributions, days, fill=0.0),
-        distributions_paid=book.distributions_paid,
-        flows=flow_payloads(book.flows),
-        hedge_value=_series(book.hedge_value, days) if book.hedged else None,
+        name=share_class.name,
+        currency=share_class.currency,
+        hedged=share_class.hedged,
+        distribution=share_class.distribution,
+        management_fee_bps=share_class.management_fee_bps,
+        net_assets=_series(share_class.net_assets, days),
+        base_net_assets=_series(share_class.base_net_assets, days),
+        units=_series(share_class.units, days),
+        nav_per_unit=_series(share_class.nav_per_unit, days),
+        fees=_series(share_class.fees, days, fill=0.0),
+        fees_paid=share_class.fees_paid,
+        distributions=_series(share_class.distributions, days, fill=0.0),
+        distributions_paid=share_class.distributions_paid,
+        flows=flow_payloads(share_class.flows),
+        hedge_value=_series(share_class.hedge_value, days) if share_class.hedged else None,
         hedges=[HedgePayload(date=str(trade.date.date()), reason=trade.reason, kind=trade.kind,
                              notional=trade.notional, rate=trade.rate, settled=trade.settled)
-                for trade in book.hedges],
+                for trade in share_class.hedges],
         metrics=ShareClassMetrics.model_validate(metrics))
 
 

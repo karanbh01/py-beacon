@@ -1,18 +1,18 @@
 # src/beacon/analysis/risk/liquidity.py
 """
-How quickly a book could be sold: each holding's days to sell, and the share
-of the book sellable within 1, 5 and 20 days, at each rebalance and month end.
+How quickly a portfolio could be sold: each holding's days to sell, and the share
+of the portfolio sellable within 1, 5 and 20 days, at each rebalance and month end.
 
 A holding worth ``V`` is sold at no more than *participation* of the name's
 average daily traded value ``ADV`` a day, so it takes
 
     days = V / (participation x ADV)
 
-and within ``d`` days the book can sell ``sum min(V, d x participation x ADV)``
+and within ``d`` days the portfolio can sell ``sum min(V, d x participation x ADV)``
 of itself. A name with no traded value in the window cannot be sold at all
 and is counted apart.
 
-The average daily traded value is the close times the volume, in the book's
+The average daily traded value is the close times the volume, in the portfolio's
 currency, over the name's last *lookback_days* days with a volume, as the
 liquidity screens measure it (`beacon.analysis.snapshots`), read from the
 data the run used. Without it, a stored run's own traded values are used,
@@ -119,7 +119,7 @@ class LiquidityAnalytics:
     def profile(self,
                 of: str = "fund",
                 horizons: Sequence[int] = HORIZONS) -> pd.DataFrame:
-        """At each date: the share of the book sellable within each horizon,
+        """At each date: the share of the portfolio sellable within each horizon,
         the days to sell all of it but the names with no traded value, the
         value-weighted mean days, and the share with no traded value."""
         rows = {}
@@ -146,12 +146,12 @@ class LiquidityAnalytics:
 
     def _values(self,
                 day: pd.Timestamp,
-                book: str) -> pd.Series:
-        """The book's holdings' values on *day*, at the fund's net assets."""
-        weights = self.run.tables.get(PORTFOLIOS[book])
+                of: str) -> pd.Series:
+        """The portfolio's holdings' values on *day*, at the fund's net assets."""
+        weights = self.run.tables.get(PORTFOLIOS[of])
 
         if weights is None or weights.empty:
-            raise KeyError(f"The run kept no weights for its {book}.")
+            raise KeyError(f"The run kept no weights for its {of}.")
 
         weights = weights.sort_index()
         at = as_of_position(weights.index, day)

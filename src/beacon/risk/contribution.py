@@ -218,7 +218,7 @@ def active_risk_contributions(weights: Mapping[str, float] | pd.Series,
     weight is signed, so an underweight in something correlated with what the
     portfolio is overweight genuinely *reduces* tracking error: it hedges.
     Taking an absolute value would hide the position doing the most useful
-    thing in the book.
+    thing in the portfolio.
 
     Args:
         weights: The portfolio's holdings.

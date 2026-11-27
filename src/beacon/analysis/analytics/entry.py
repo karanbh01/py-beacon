@@ -205,15 +205,15 @@ class Analytics:
             ValueError: If the run has no portfolio *of*.
         """
         context = self._context_for(start=start, end=end)
-        books = context.books()
+        books = context.portfolios()
 
         if of != ALL and of not in books:
             raise ValueError(f"No portfolio {of!r} here. Known: {', '.join(books)}.")
 
         if of != ALL:
-            return context.book(of).returns
+            return context.performance_of(of).returns
 
-        return pd.DataFrame({name: context.book(name).returns for name in books})
+        return pd.DataFrame({name: context.performance_of(name).returns for name in books})
 
     def _active_share(self) -> pd.Series:
         """An active strategy's active share at each rebalance; empty for

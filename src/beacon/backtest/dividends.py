@@ -4,7 +4,7 @@ Cash distributions: what a backtest's holdings are paid, and what happens to it.
 
 A holding is entitled to a cash distribution if it is held at the start of the
 ex-date, before that day's trades. The cash arrives on the pay date, or on the
-ex-date when the data gives none, converted into the book's currency on the
+ex-date when the data gives none, converted into the portfolio's currency on the
 day it arrives and net of withholding tax: by the fund's domicile and the
 dividend's source country when the vehicle has a domicile (see
 `beacon.backtest.withholding`), otherwise at the flat rate in the run's
@@ -17,12 +17,12 @@ What happens to the cash is the run's dividend policy:
   that paid it, and ``"holdings"`` buys the current holdings in proportion to
   their value, as a total-return index assumes. A payer no longer held, or
   with no price that day, leaves its dividend in cash.
-- ``"cash"``: it stays in the book as cash and is invested at the next
+- ``"cash"``: it stays in the portfolio as cash and is invested at the next
   rebalance.
-- ``"distribute"``: it is paid out of the book. The NAV falls by it and the
+- ``"distribute"``: it is paid out of the portfolio. The NAV falls by it and the
   returns add it back, so performance is still measured as total return.
 
-``"reinvest"`` and ``"cash"`` both keep the income in the book, as an
+``"reinvest"`` and ``"cash"`` both keep the income in the portfolio, as an
 accumulating share class does; they differ only in when it is invested.
 ``"distribute"`` pays it out, as a distributing share class does.
 
@@ -74,7 +74,7 @@ class CashEvent:
 
 @dataclass(frozen=True)
 class Entitlement:
-    """A distribution the book is owed: an event and the shares held for it."""
+    """A distribution the portfolio is owed: an event and the shares held for it."""
     event: CashEvent
     shares: float
 
@@ -172,7 +172,7 @@ class DividendsMixin:
 
     def _mark_receivable(self,
                          date: pd.Timestamp) -> None:
-        """Value what the book is owed and not yet paid, at *date*'s rates
+        """Value what the portfolio is owed and not yet paid, at *date*'s rates
         and net of withholding, and record it.
 
         The NAV includes it from the ex-date, as a fund's accounts do: the
@@ -200,7 +200,7 @@ class DividendsMixin:
                              portfolio: Portfolio,
                              previous: pd.Timestamp,
                              date: pd.Timestamp) -> None:
-        """Note what the book is owed for ex-dates after *previous*, up to
+        """Note what the portfolio is owed for ex-dates after *previous*, up to
         *date*, for the shares held now, before the day's trades."""
         rates: dict[str, float] = {}
         gross = withheld = 0.0

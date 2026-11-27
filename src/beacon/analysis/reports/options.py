@@ -153,10 +153,10 @@ class RiskModelOptions:
 
 @dataclass(frozen=True)
 class LiquidityOptions:
-    """How fast the book could be sold.
+    """How fast the portfolio could be sold.
 
     Attributes:
-        participation: The share of a name's daily traded value the book
+        participation: The share of a name's daily traded value the portfolio
             could sell.
         lookback_days: The days a name's average traded value is taken over.
         horizons: The days the sellable share is given at.
@@ -370,7 +370,7 @@ SECTIONS: dict[str, tuple[str, dict[str, Described]]] = {
     }),
     "liquidity": ("Liquidity", {
         "participation": Described("Participation", "The share of a name's daily traded "
-                                   "value the book could sell.", unit="fraction",
+                                   "value the portfolio could sell.", unit="fraction",
                                    minimum=0.0, maximum=1.0),
         "lookback_days": Described("Traded value over", "The days a name's average traded "
                                    "value is taken over.", unit="days", minimum=1),

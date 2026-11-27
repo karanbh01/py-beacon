@@ -126,14 +126,22 @@ What a strategy holds is called a portfolio throughout, and the names that said 
 | `ShareClassBook` | `ShareClassRecord` |
 | `book=` on the analysis classes' methods | `of=` |
 | `BOOKS` | `PORTFOLIOS` |
+| `book_net_assets` on `ShareClassRecord` | `base_net_assets` |
+| `RiskOfLoss.books()` | `RiskOfLoss.portfolios()` |
+| `class_tracking(book=)` | `class_tracking(share_class=)` |
+| `books=` on the performance functions | `portfolios=` |
+| `beacon.analysis.risk.forecast.book_returns` | `portfolio_returns` |
+| `StoredSource(book=)` and `StoredSource.book` | `currency=` and `currency` |
+| `currency_parts(book=)` | `base=` |
 
-`PortfolioRecord`, `IndexRecords`, `FundRecord` and `TradingRecord` are exported from `beacon.backtest`. The analysis classes that took `book=` are `Attribution`, `PortfolioAnalytics`, `ConcentrationAnalytics`, `RiskOverTime`, `FactorAnalytics`, `LiquidityAnalytics` and `RiskOfLoss`, and `beacon.analysis.risk.forecast`'s functions took it too. A method given both `of=` and `book=` raises `TypeError`.
+`PortfolioRecord`, `IndexRecords`, `FundRecord` and `TradingRecord` are exported from `beacon.backtest`. The analysis classes that took `book=` are `Attribution`, `PortfolioAnalytics`, `ConcentrationAnalytics`, `RiskOverTime`, `FactorAnalytics`, `LiquidityAnalytics` and `RiskOfLoss`, and `beacon.analysis.risk.forecast`'s functions took it too. A method given both `of=` and `book=` raises `TypeError`. The performance functions that took `books=` are `risk_rating`, `portfolio_risk_return`, `crisis_paths`, `return_distribution`, `characteristics_over_time`, `style_box` and `style_classification`. A share class's `base_net_assets` is its net assets in the fund's base currency, since `net_assets` is in the class's own.
 
 ## Changes without a warning
 
 These can't warn, so code that relies on them needs changing now:
 
 - **The portfolio column.** The tables with a column for each row's portfolio name it `portfolio`, not `book`: `risk_rating`, `portfolio_risk_return`, `crisis_paths` and `style_classification`. The characteristics table's column levels are `portfolio` and `figure`. Each statistic's `figure_names` starts with `portfolio`, and the server's `names` key is `portfolio`. The values, such as `fund` and `index`, are unchanged. The server renames the column in a run saved before 0.11.0 as it reads it.
+- **A share class's net assets in the base currency.** The server's share-class field `book_net_assets` is `base_net_assets`, and the `class_days` table's `BOOK_NET_ASSETS` column is `BASE_NET_ASSETS`. A run or job saved before 0.11.0 is read with the new names.
 - **Short windows.** A figure annualised over too short a window is left blank, unless `annualise=True` asks for it. Annualised rates need at least a year. Ratios scaled by the square root of a year, such as the Sharpe ratio, need at least six months.
 - **Removed statistics.** `trailing_statistics` is the `summary` statistic table every analysis holds, or `analytics.table([...], trailing=[...], of="all")`. `member_risk_return` is the per-name table at weekly returns, `result.analytics.instrument.table(frequency="weekly")`.
 - **A statistic's part.** A statistic's `part` is where it sits in `result.analytics`: one of the nine categories, or `instrument`.

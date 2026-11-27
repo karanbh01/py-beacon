@@ -547,7 +547,7 @@ class RebalanceSnapshot(BaseModel):
     applied weights alone.
 
     The run payload publishes these snapshots as `rebalances`, and the stored
-    backtest record publishes the same rows on each index book.
+    backtest record publishes the same rows on each index portfolio.
     """
     date: str = Field(
         description="Date these weights took effect, YYYY-MM-DD. Snapshots "
@@ -652,16 +652,16 @@ class ReferenceWindow(BaseModel):
 
 
 class PortfolioBookPayload(BaseModel):
-    """The portfolio's books on the wire.
+    """The portfolio's record on the wire.
 
-    No `rebalances` here, unlike the index books: a portfolio makes no
+    No `rebalances` here, unlike the index records: a portfolio makes no
     rebalance decision of its own (it trades toward one), so decided weights
     would be a field with nothing honest to put in it.
     """
     portfolio_id: str
     initial_capital: float
     nav: SeriesPayload = Field(
-        description="The full NAV book, day-zero row included: it opens with "
+        description="The full NAV record, day-zero row included: it opens with "
                     "initial capital on the eve of the first trading day. "
                     "Metrics derive from the series without that row, and a "
                     "client deriving its own period figures should do the "
@@ -695,7 +695,7 @@ class BookPayload(BaseModel):
     """One comparator's record on the wire.
 
     Two different facts about weights, not two copies of one: `weights` is
-    the daily panel (what the book actually HELD each day, drift included)
+    the daily panel (what the portfolio actually HELD each day, drift included)
     and `rebalances` is what each rebalance DECIDED. They agree only
     on a rebalance date; everywhere else prices have moved the held weights
     away from the decided ones. A client wanting decided weights reads
@@ -708,7 +708,7 @@ class BookPayload(BaseModel):
                     "MAX_WEIGHT_DATES dates at most. Empty for a comparator "
                     "supplied as a bare level series.")
     weights_dates_total: int = Field(
-        description="Dates the book's daily weights panel actually covers: a "
+        description="Dates the portfolio's daily weights panel actually covers: a "
                     "count, not a date. Larger than the rows in `weights` "
                     "whenever the panel was truncated to its most recent "
                     "MAX_WEIGHT_DATES, and 0 for a comparator supplied as a "
@@ -840,12 +840,12 @@ REBALANCE_PRICING_DESCRIPTION = (
 # of being bolted flat beside old names. Since BN-164 `index` is a container of
 # two books.
 class BacktestResultSummary(BaseModel):
-    """Serialised view of a `BacktestResult`, in the shape of its books.
+    """Serialised view of a `BacktestResult`, in the shape of its records.
 
-    The nested shape mirrors the library object, one home per fact. Books the
+    The nested shape mirrors the library object, one home per fact. Records the
     run did not have (no benchmark given, no index calculated) are null rather
     than empty, so a client can tell "not measured" from "measured and empty".
-    `index` is a container of two books, `{target, optimised}`, matching the
+    `index` is a container of two records, `{target, optimised}`, matching the
     library's `IndexRecords`.
     """
     portfolio: PortfolioBookPayload
@@ -861,7 +861,7 @@ class BacktestResultSummary(BaseModel):
         default=None,
         description="What ran, fully resolved, as the run payload's `settings`. "
                     "Null on a record from before it was kept.")
-    currency: str | None = Field(default=None, description="The book's currency.")
+    currency: str | None = Field(default=None, description="The portfolio's currency.")
     # None only on records written before BN-162 stamped them: a listing row
     # without a date is honest about predating the stamp.
     run_at: str | None = Field(
@@ -886,12 +886,12 @@ class BacktestResultSummary(BaseModel):
         Args:
             result: The finished run.
             cap: The maximum constituent weight declared by the definition
-                whose rules produced the **target** book: the document's own
+                whose rules produced the **target** portfolio: the document's own
                 on a passive run, its parent's on an optimised one. Stamped on
-                that book's rebalance snapshots only: a solved index has no cap
+                that portfolio's rebalance snapshots only: a solved index has no cap
                 of its own, since its constraints are what shaped its weights.
             settings: What ran, resolved, to keep with the record.
-            weights: Whether each book's daily weights are filled in. Left
+            weights: Whether each portfolio's daily weights are filled in. Left
                 empty, `weights_dates_total` still counts them, for a record
                 whose weights are served from the run's own tables.
         """
@@ -949,7 +949,7 @@ def rebalance_pricing_payloads(result: BacktestResult) -> list[RebalancePricingP
 
 def _portfolio_payload(portfolio: Any,
                        weights: bool = True) -> PortfolioBookPayload:
-    """The portfolio's books, bounded; its daily weights empty unless
+    """The portfolio's record, bounded; its daily weights empty unless
     *weights*."""
     rows = [
         {
@@ -984,7 +984,7 @@ def _portfolio_payload(portfolio: Any,
 
 def _weights_payload(panel: pd.DataFrame,
                      shown: bool) -> TableFrame:
-    """A book's latest daily weights, or none when not *shown*."""
+    """A portfolio's latest daily weights, or none when not *shown*."""
     return TableFrame.from_dataframe(panel.tail(MAX_WEIGHT_DATES) if shown else pd.DataFrame())
 
 
@@ -993,14 +993,14 @@ def _book_payload(book: Any,
                   weights: bool = True) -> BookPayload | None:
     """One comparator's record, or None when the run had none.
 
-    The decided weights come off the book's `source` — the `IndexResult` a
-    calculated book keeps precisely because its snapshots are a different fact
-    from the daily panel. A book built from a bare level series has no source
+    The decided weights come off the portfolio's `source` — the `IndexResult` a
+    calculated portfolio keeps precisely because its snapshots are a different fact
+    from the daily panel. A portfolio built from a bare level series has no source
     and so decides nothing.
 
     Args:
         book: The library `PortfolioRecord`, or None.
-        cap: The maximum constituent weight the definition behind this book
+        cap: The maximum constituent weight the definition behind this portfolio
             declares, if it has one. Carried rather than read off the cap
             reports, which exist only on the dates a cap actually bound.
         weights: Whether its daily weights are filled in.
@@ -1053,7 +1053,7 @@ class BacktestRecordRow(BaseModel):
         default=None,
         description="The preset's key, stable across renames; null for a plain "
                     "backtest or a generic vehicle.")
-    currency: str | None = Field(default=None, description="The book's currency.")
+    currency: str | None = Field(default=None, description="The portfolio's currency.")
 
 
 # An envelope rather than the bare array this used to return (BN-174). The
@@ -2364,7 +2364,7 @@ class ParameterSpec(BaseModel):
     unit: str | None = Field(
         default=None,
         description="What the value is measured in: 'fraction' (show 0.02 as "
-                    "2%), 'bps', 'days', 'money' (in the book's currency), "
+                    "2%), 'bps', 'days', 'money' (in the portfolio's currency), "
                     "'count' or 'ratio'. Null for a value with no unit.")
     minimum: float | None = Field(
         default=None, description="The smallest value accepted, when bounded.")
@@ -3433,12 +3433,12 @@ EquitiseSettings = Annotated[
 
 
 class CashBandSpec(BaseModel):
-    """The shares of the book the cash may move between before it is brought
+    """The shares of the portfolio the cash may move between before it is brought
     back to the cash buffer."""
     model_config = ConfigDict(extra="forbid")
-    lower: Number = Field(ge=0.0, lt=1.0, description="The lowest share of the book in "
+    lower: Number = Field(ge=0.0, lt=1.0, description="The lowest share of the portfolio in "
                                                        "cash, a fraction.")
-    upper: Number = Field(ge=0.0, lt=1.0, description="The highest share of the book in "
+    upper: Number = Field(ge=0.0, lt=1.0, description="The highest share of the portfolio in "
                                                        "cash, a fraction.")
 
 
@@ -3452,7 +3452,7 @@ class ImplementationSpec(BaseModel):
     minimum_position: dict[str, Number | None] | None = Field(
         default=None,
         description="Positions too small to keep: `value` (money, in the "
-                    "book's currency) and `weight` (a fraction).")
+                    "portfolio's currency) and `weight` (a fraction).")
     impact: dict[str, Number] | None = Field(
         default=None,
         description="Market impact: `coefficient` and `lookback_days`. Null "
@@ -3467,7 +3467,7 @@ class ImplementationSpec(BaseModel):
         description="Where removed or capped weight goes: 'pro_rata' or 'cash'.")
     cash_buffer: Number = Field(
         default=0.0, ge=0.0, lt=1.0,
-        description="The share of the book kept in cash, a fraction.")
+        description="The share of the portfolio kept in cash, a fraction.")
     invest_flows: str = Field(
         default="target",
         description="What money arriving between rebalances buys: 'target' "
@@ -3481,7 +3481,7 @@ class ImplementationSpec(BaseModel):
                     "`whole_contracts` (true by default), `band` (how far the "
                     "exposure may drift from the cash before the futures are resized, "
                     "as a share of the net assets; 0.0025 by default), "
-                    "`cost_per_contract` (each contract traded, in the book's currency), "
+                    "`cost_per_contract` (each contract traded, in the portfolio's currency), "
                     "`trading_cost_bps` (on the notional of each trade between rolls), "
                     "`underlying` (a market series the futures are on, when not the "
                     "fund's index), `prices` (a series of the held contract's prices) and "
@@ -3530,7 +3530,7 @@ class VehicleSpec(BaseModel):
     (`limits`) replaces the preset's whole, a plain object (`market`) merges
     key by key, an omitted key keeps the preset's value, and null means none
     (refused on a setting that cannot be none). Money settings are in the
-    book's currency.
+    portfolio's currency.
     """
     model_config = ConfigDict(extra="forbid")
     preset: str | None = Field(
@@ -3587,17 +3587,17 @@ class ModellingAssumptionsSpec(BaseModel):
 
 class ShareClassSpec(BaseModel):
     """One share class of a backtest's fund: its own currency, fee and
-    distribution policy, sharing the book with the other classes."""
+    distribution policy, sharing the portfolio with the other classes."""
     # BN-314.
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, description="What the class is called, such as 'EUR H'.")
     currency: str | None = Field(
         default=None, pattern=r"^[A-Za-z]{3}$",
-        description="The class's currency. Null is the book's.")
+        description="The class's currency. Null is the portfolio's.")
     hedged: bool = Field(
         default=False,
         description="Whether it hedges its share of the assets into its currency with "
-                    "a monthly forward. Needs a currency other than the book's.")
+                    "a monthly forward. Needs a currency other than the portfolio's.")
     hedge_ratio: Number = Field(
         default=1.0, gt=0.0, le=2.0,
         description="The share of its net assets it hedges, as a fraction: 1 for all.")
@@ -3636,7 +3636,7 @@ class StrategyBacktestRequest(BaseModel):
     end: str | None = Field(default=None, description="End date, YYYY-MM-DD.")
     initial_capital: Number | dict[str, Number] = Field(
         default=1_000_000.0,
-        description="The capital the fund starts with, in the book's currency. With "
+        description="The capital the fund starts with, in the portfolio's currency. With "
                     "share classes, by class name, each in its class's currency.")
     transaction_cost_bps: Number = Field(
         default=0.0, ge=0,
@@ -3647,7 +3647,7 @@ class StrategyBacktestRequest(BaseModel):
                     "reported separately; this adds a second comparison.")
     currency: str | None = Field(
         default=None, pattern=r"^[A-Za-z]{3}$",
-        description="The book's currency. Null keeps it in the index's.")
+        description="The portfolio's currency. Null keeps it in the index's.")
     dividends: str = Field(
         default="reinvest",
         description="What happens to cash distributions: 'reinvest', 'cash' "
@@ -3665,13 +3665,13 @@ class StrategyBacktestRequest(BaseModel):
     flows: list[TypedSpec] | dict[str, list[TypedSpec]] = Field(
         default_factory=list,
         description="Money arriving and leaving, added together. Amounts are "
-                    "in the book's currency. With share classes, by class name, "
+                    "in the portfolio's currency. With share classes, by class name, "
                     "each in its class's currency.")
     vehicle: VehicleSpec | None = Field(
         default=None, description="Null for a plain backtest, with no fee.")
     share_classes: list[ShareClassSpec] = Field(
         default_factory=list,
-        description="The fund's share classes, sharing one book. Empty runs one class "
+        description="The fund's share classes, sharing one portfolio. Empty runs one class "
                     "with the request's capital and flows, as without classes.")
     # BN-398.
     analysis: AnalysisRequestSpec | None = Field(
@@ -4160,7 +4160,7 @@ class FlowPayload(BaseModel):
     """One day's flow, as the run dealt it."""
     date: str = Field(description="YYYY-MM-DD.")
     amount: float = Field(
-        description="Paid in (positive) or out (negative), in the book's "
+        description="Paid in (positive) or out (negative), in the portfolio's "
                     "currency.")
     nav_per_unit: float = Field(description="The day's NAV per unit, before it.")
     units: float = Field(description="Units created (positive) or cancelled.")
@@ -4168,7 +4168,7 @@ class FlowPayload(BaseModel):
         description="The price per unit dealt at, after the vehicle's pricing.")
     adjustment: float = Field(
         description="What the dealing investors paid into the fund through "
-                    "the price or a levy, in the book's currency.")
+                    "the price or a levy, in the portfolio's currency.")
     creation_units: float | None = Field(
         default=None, description="For an ETF, the creation units; null otherwise.")
 
@@ -4179,10 +4179,10 @@ class HedgePayload(BaseModel):
     reason: str = Field(description="Why it was made: 'fx hedge'.")
     kind: str = Field(description="What it did: 'open', 'roll' (a new month) or 'band' "
                                   "(the hedge ratio left its band).")
-    notional: float = Field(description="The new forward's notional, in the book's "
+    notional: float = Field(description="The new forward's notional, in the portfolio's "
                                         "currency.")
     rate: float = Field(description="Its contracted rate, class currency per unit of "
-                                    "the book's.")
+                                    "the portfolio's.")
     settled: float = Field(description="What the old forward settled for, in the "
                                        "class's currency; 0 when one was opened.")
 
@@ -4207,8 +4207,9 @@ class ShareClassPayload(BaseModel):
     distribution: str = Field(description="'accumulating' or 'distributing'.")
     management_fee_bps: float = Field(description="Its fee, in basis points a year.")
     net_assets: SeriesPayload = Field(description="Its net assets at each day's end.")
-    book_net_assets: SeriesPayload = Field(
-        description="The same in the book's currency, which add up to the fund's "
+    # BN-479: book_net_assets before 0.11.0.
+    base_net_assets: SeriesPayload = Field(
+        description="The same in the fund's base currency, which add up to the fund's "
                     "across the classes.")
     units: SeriesPayload = Field(description="Its units outstanding.")
     nav_per_unit: SeriesPayload = Field(description="Its NAV per unit.")
@@ -4331,13 +4332,13 @@ class SwapResetPayload(BaseModel):
     """One reset of a synthetic fund's swap."""
     date: str = Field(description="YYYY-MM-DD.")
     settled: float = Field(
-        description="The swap's value paid in cash, in the book's currency: received "
+        description="The swap's value paid in cash, in the portfolio's currency: received "
                     "by the fund when positive, paid by it when negative; 0 when it "
                     "opened.")
     reason: str = Field(description="'limit' (its value owed to the fund reached the "
                                     "exposure limit), 'rebalance' or 'flows'.")
     notional: float = Field(description="The notional it was reset to, the fund's net "
-                                        "assets, in the book's currency.")
+                                        "assets, in the portfolio's currency.")
 
 
 class FuturesRollPayload(BaseModel):
@@ -4350,8 +4351,8 @@ class FuturesRollPayload(BaseModel):
                     "contracts.")
     price: float = Field(description="The new contract's price, at fair value.")
     multiplier: float = Field(default=1.0, description="The value of one index point per "
-                                                       "contract, in the book's currency.")
-    notional: float = Field(description="The exposure carried into it, in the book's "
+                                                       "contract, in the portfolio's currency.")
+    notional: float = Field(description="The exposure carried into it, in the portfolio's "
                                         "currency.")
     cost: float = Field(description="What the roll cost, paid from cash.")
     dividend_yield: Pct = Field(description="The dividend yield it was priced with.")
@@ -4394,7 +4395,7 @@ class RebalanceStepPayload(BaseModel):
     capped: dict[str, float] = Field(
         default_factory=dict, description="Name -> the weight it was capped at.")
     cash_weight: float = Field(
-        default=0.0, description="The share of the book the weights leave in cash.")
+        default=0.0, description="The share of the portfolio the weights leave in cash.")
 
 
 class BacktestRunResult(BaseModel):
@@ -4408,9 +4409,9 @@ class BacktestRunResult(BaseModel):
     level: SeriesPayload = Field(description="Portfolio value, rebased to 100.")
     currency: str | None = Field(
         default=None,
-        description="The book's currency, which `total_costs` and "
+        description="The portfolio's currency, which `total_costs` and "
                     "`initial_capital` are in: the index's. Null on a run "
-                    "saved before this was recorded, whose book was in USD.")
+                    "saved before this was recorded, whose portfolio was in USD.")
     returns: SeriesPayload = Field(description="Period returns of `level`.")
     drawdown: SeriesPayload = Field(
         description="Level against its running peak; 0 at a new high.")
@@ -4467,7 +4468,7 @@ class BacktestRunResult(BaseModel):
         default_factory=list, description="Each flow as dealt. Empty without flows.")
     fees_paid: float = Field(
         default=0.0,
-        description="The vehicle's management fee paid, in the book's currency.")
+        description="The vehicle's management fee paid, in the portfolio's currency.")
     market: MarketPayload | None = Field(
         default=None, description="An ETF's exchange quotes. Null otherwise.")
     replication: list[ReplicationPayload] = Field(
@@ -4490,18 +4491,18 @@ class BacktestRunResult(BaseModel):
                     "share classes.")
     hedge_value: SeriesPayload | None = Field(
         default=None,
-        description="The hedged classes' forwards together, in the book's currency; "
+        description="The hedged classes' forwards together, in the portfolio's currency; "
                     "null without a hedged class.")
     # BN-356.
     dividends_receivable: SeriesPayload | None = Field(
         default=None,
-        description="The dividends the fund is owed at the end of each day, in the book's "
+        description="The dividends the fund is owed at the end of each day, in the portfolio's "
                     "currency: gone ex, not yet paid, net of withholding tax. The NAV "
                     "includes them. Null for a run that is never owed one.")
     # BN-315.
     swap_value: SeriesPayload | None = Field(
         default=None,
-        description="A synthetic fund's swap's value each day, in the book's currency: "
+        description="A synthetic fund's swap's value each day, in the portfolio's currency: "
                     "owed to the fund when positive. The NAV includes it. Null for any "
                     "other fund.")
     counterparty_exposure: SeriesPayload | None = Field(
@@ -4513,7 +4514,7 @@ class BacktestRunResult(BaseModel):
     futures_notional: SeriesPayload | None = Field(
         default=None,
         description="The exposure a fund's index futures carried each day, in the "
-                    "book's currency, 0 before they open: a futures-based fund's, or "
+                    "portfolio's currency, 0 before they open: a futures-based fund's, or "
                     "one equitising its cash buffer. Null for any other fund.")
     futures_exposure: SeriesPayload | None = Field(
         default=None,

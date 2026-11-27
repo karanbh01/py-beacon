@@ -1,6 +1,6 @@
 # src/beacon/analysis/risk/var.py
 """
-Value at risk and expected shortfall, and how each book fared in the run's
+Value at risk and expected shortfall, and how each portfolio fared in the run's
 stress windows.
 
 Both are losses, reported as positive numbers: a one-day 99% value at risk
@@ -22,7 +22,7 @@ of 0.02 says a day's loss is worse than 2% one day in a hundred.
 Ten days is the square root of ten times one day, the Basel convention.
 
 **Stress windows** are the run's crises (`beacon.analysis.performance.crises`:
-the market's falls of 15% or more, or named episodes), and each book's return
+the market's falls of 15% or more, or named episodes), and each portfolio's return
 and deepest fall over each.
 """
 # BN-388. Agreed with Karan on 2026-10-27.
@@ -32,7 +32,7 @@ from statistics import NormalDist
 
 import pandas as pd
 
-from ..._renamed import renamed_keyword
+from ..._renamed import renamed_keyword, warn_renamed
 from ..data import RunData
 from ..performance import formulas
 from ..performance.analytics import PerformanceAnalytics
@@ -150,21 +150,29 @@ class RiskOfLoss:
         self.returns = performance.returns
         self._before = performance.before
 
-    def books(self) -> list[str]:
-        """The books the run can be measured on: the fund, each comparator,
-        and the active return when it has an index."""
+    def portfolios(self) -> list[str]:
+        """The portfolios the run can be measured on: the fund, each
+        comparator, and the active return when it has an index."""
         found = [FUND, *self.run.comparators]
 
         return [*found, ACTIVE] if "index" in self.run.comparators else found
 
+    def books(self) -> list[str]:
+        """Deprecated: `portfolios`, which this was called before 0.11.0.
+        Goes in 0.12.0."""
+        # BN-479: renamed as BN-462 renamed the rest.
+        warn_renamed("RiskOfLoss.books()", "portfolios()")
+
+        return self.portfolios()
+
     @renamed_keyword("book", "of")
     def returns_of(self,
                    of: str = FUND) -> pd.Series:
-        """A book's daily returns over the window: ``fund``, a comparator by
+        """A portfolio's daily returns over the window: ``fund``, a comparator by
         name, or ``active`` (the fund's less its index's).
 
         Raises:
-            KeyError: If the run has no such book.
+            KeyError: If the run has no such portfolio.
         """
         if of == FUND:
             return self.returns
@@ -172,7 +180,7 @@ class RiskOfLoss:
         name = "index" if of == ACTIVE else of
 
         if name not in self.run.comparators:
-            raise KeyError(f"The run has no {of}. Known: {', '.join(self.books())}.")
+            raise KeyError(f"The run has no {of}. Known: {', '.join(self.portfolios())}.")
 
         ours, theirs = aligned(self.returns, self.run.comparators[name], self._before)
 
@@ -183,7 +191,7 @@ class RiskOfLoss:
               of: str = FUND,
               levels: Sequence[float] = LEVELS,
               horizons: Sequence[int] = HORIZONS) -> pd.DataFrame:
-        """The book's value at risk and expected shortfall, every method,
+        """The portfolio's value at risk and expected shortfall, every method,
         level and horizon."""
         return risk_of_loss(self.returns_of(of), levels, horizons)
 
@@ -191,22 +199,23 @@ class RiskOfLoss:
                        market: str | pd.Series | None = None,
                        threshold: float = THRESHOLD,
                        named: Sequence[Episode] | None = None) -> pd.DataFrame:
-        """Each crisis the run saw: its window, and each book's return and
+        """Each crisis the run saw: its window, and each portfolio's return and
         deepest fall over it, a row a crisis."""
         crises = CrisisAnalytics(self.run, market=market, threshold=threshold, named=named,
                                  settings=self.settings)
-        books = {book: self.returns_of(book) for book in self.books() if book != ACTIVE}
+        portfolios = {name: self.returns_of(name) for name in self.portfolios()
+                      if name != ACTIVE}
         rows = []
 
         for crisis in crises.crises():
             row: dict[str, object] = {"crisis": crisis.name, "start": crisis.start,
                                       "end": crisis.end, "partial": crisis.partial}
 
-            for book, returns in books.items():
+            for name, returns in portfolios.items():
                 inside = returns[(returns.index > crisis.start) & (returns.index <= crisis.end)]
                 path = formulas.path_of(inside)
-                row[f"{book}_return"] = float(path.iloc[-1] - 1.0) if len(inside) else None
-                row[f"{book}_drawdown"] = formulas.max_drawdown(path) if len(inside) else None
+                row[f"{name}_return"] = float(path.iloc[-1] - 1.0) if len(inside) else None
+                row[f"{name}_drawdown"] = formulas.max_drawdown(path) if len(inside) else None
 
             rows.append(row)
 

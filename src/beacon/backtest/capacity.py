@@ -7,7 +7,7 @@ Capacity: how much of each name a backtest may hold at its size.
 
 A cap limits a position; it does not exclude the name. Each cap gives the
 largest value a position may have on a rebalance date, and the weight that
-leaves at the book's size then is the name's cap. A name over its cap is cut
+leaves at the portfolio's size then is the name's cap. A name over its cap is cut
 to it, and the excess is spread across the names under their caps in
 proportion to their weights, repeated until none is over. As the fund grows,
 a position shrinks smoothly rather than jumping to zero at a threshold.
@@ -43,7 +43,7 @@ class CapacityCap(ABC):
                   date: pd.Timestamp,
                   book_value: float,
                   context: ScreenContext) -> float | None:
-        """The largest position value in the book's currency, or None when
+        """The largest position value in the portfolio's currency, or None when
         this cap does not limit the name."""
 
 
@@ -132,7 +132,7 @@ class LiquidityCap(CapacityCap):
     "max_weight": Display("Largest weight", unit=FRACTION, minimum=0.0, maximum=1.0),
 })
 class WeightCap(CapacityCap):
-    """At most a share of the book, whatever the name.
+    """At most a share of the portfolio, whatever the name.
 
     Args:
         max_weight: The share, as a decimal.
@@ -163,7 +163,7 @@ class MinimumPosition:
     A position below either is dropped and its weight redistributed.
 
     Args:
-        value: The smallest position value, in the book's currency.
+        value: The smallest position value, in the portfolio's currency.
         weight: The smallest weight, as a decimal.
 
     Raises:
@@ -182,7 +182,7 @@ class MinimumPosition:
     def too_small(self,
                   weight: float,
                   book_value: float) -> bool:
-        """Whether a position of *weight* in a book of *book_value* is."""
+        """Whether a position of *weight* in a portfolio of *book_value* is."""
         if self.weight is not None and weight < self.weight:
             return True
 

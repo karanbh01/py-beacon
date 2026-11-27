@@ -6,14 +6,14 @@ to the shares held.
 What a run decided at each rebalance is saved with it, inside the strategy's
 record under a key of its own: how each rebalance's universe narrowed (the
 index's selection), each name's weight after the implementation's screens,
-and its target and final weights, and the book's units held, recorded only on
+and its target and final weights, and the portfolio's units held, recorded only on
 the days they change, with its daily NAV. The view joins that to the run's own
 index and strategy weights: the index weights before and after the index's
 cap, the strategy's choice, each implementation stage, the weight traded to,
 and, as of the date asked about, the weight held and its drift.
 
-A held weight is the units held times the day's price in the book's currency,
-over the day's NAV: what the book's own record says, without storing every
+A held weight is the units held times the day's price in the portfolio's currency,
+over the day's NAV: what the portfolio's own record says, without storing every
 day's weights.
 """
 # BN-326. Karan's call on 2026-10-19: Holdings Detail shows the whole workflow
@@ -302,7 +302,7 @@ def _held(document: dict[str, Any],
           fetcher: DataFetcher,
           as_of: str,
           currency: str) -> dict[str, tuple[float, float]]:
-    """Each name the book held on *as_of*: its units, and its weight, the
+    """Each name the portfolio held on *as_of*: its units, and its weight, the
     units at the day's price over the day's NAV."""
     units = {name: _units_on(changes, as_of) for name, changes in
              (document.get("units") or {}).items()}

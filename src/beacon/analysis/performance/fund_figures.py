@@ -14,6 +14,8 @@ tiny book does not blow up.
 import numpy as np
 import pandas as pd
 
+from ..._renamed import renamed_keyword
+
 # The characteristics weighted, and how: a mean, or a harmonic mean.
 # BN-426: the growth figures too, a year's.
 MEANS = ("MARKET_CAP", "DIVIDEND_YIELD", "EPS_GROWTH", "SALES_GROWTH")
@@ -25,7 +27,7 @@ YEAR = pd.DateOffset(years=1)
 
 def weighted_characteristics(characteristics: pd.DataFrame,
                              weights: pd.Series) -> dict[str, float | None]:
-    """A book's characteristics on one day, from its weights by name and
+    """A portfolio's characteristics on one day, from its weights by name and
     each name's characteristics (a row a name, ``IDENTIFIER`` and a column
     each)."""
     by_name = characteristics.set_index("IDENTIFIER")
@@ -52,17 +54,18 @@ def weighted_characteristics(characteristics: pd.DataFrame,
     return found
 
 
+@renamed_keyword("books", "portfolios")
 def characteristics_over_time(characteristics: pd.DataFrame,
-                              books: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Each book's characteristics at each date the characteristics were
+                              portfolios: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Each portfolio's characteristics at each date the characteristics were
     taken (the rebalances), from its weights at the end of that day: a row a
-    date, columns by book and characteristic."""
+    date, columns by portfolio and characteristic."""
     rows: dict[pd.Timestamp, dict[tuple[str, str], float | None]] = {}
 
     for date, taken in characteristics.groupby(level=0):
         row: dict[tuple[str, str], float | None] = {}
 
-        for name, weights in books.items():
+        for name, weights in portfolios.items():
             on = weights.index[weights.index <= date]
 
             if not len(on):

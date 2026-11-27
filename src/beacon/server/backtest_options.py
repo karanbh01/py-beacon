@@ -88,14 +88,15 @@ IMPLEMENTATION_DISPLAYS = {
                                        help="Leave blank to estimate it."),
     # BN-358.
     "equitise.multiplier": Display("Value of an index point", unit=MONEY, minimum=0.0,
-                                   help="Per futures contract, in the book's currency."),
+                                   help="Per futures contract, in the portfolio's currency."),
     "equitise.whole_contracts": Display("Whole futures contracts"),
     "equitise.band": Display("Resize futures when exposure drifts by", unit=FRACTION,
                              minimum=0.0, maximum=1.0, help="A share of the net assets."),
     # BN-409.
     "equitise.cost_per_contract": Display("Cost per futures contract", unit=MONEY,
                                           minimum=0.0,
-                                          help="Each contract traded, in the book's currency."),
+                                          help="Each contract traded, in the portfolio's "
+                                               "currency."),
     "equitise.trading_cost_bps": Display("Cost of trading futures between rolls", unit=BPS,
                                          minimum=0.0,
                                          help="On the notional each trade between rolls deals."),
@@ -121,7 +122,7 @@ SHARE_CLASS_DISPLAYS = {
                                   help="Leave blank for the vehicle's."),
     "distribution": Display("Income", choices=tuple(DISTRIBUTIONS)),
     "currency": Display("Currency", help="A three-letter code, such as 'EUR'. Leave "
-                        "blank for the book's."),
+                        "blank for the portfolio's."),
     "hedged": Display("Hedged into its currency"),
     "hedge_ratio": Display("Share hedged", unit=FRACTION, minimum=0.0, maximum=2.0),
     "hedge_band": Display("Hedge drift allowed", unit=FRACTION, minimum=0.0,
@@ -264,7 +265,7 @@ def _run_settings() -> list[ParameterSpec]:
         {"name": "transaction_cost_bps", "type": catalogue.NUMBER, "default": 0.0,
          "label": "Trading cost", "unit": BPS, "minimum": 0.0,
          "help": "Per trade, on its notional."},
-        {"name": "currency", "type": catalogue.STRING, "label": "Book currency",
+        {"name": "currency", "type": catalogue.STRING, "label": "Portfolio currency",
          "help": "A three-letter code, such as 'EUR'. Leave blank for the index's."},
         {"name": "dividends", "type": catalogue.STRING, "default": "reinvest",
          "label": "Dividends", "choices": list(DIVIDEND_POLICIES)},

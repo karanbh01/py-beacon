@@ -18,7 +18,7 @@ index's weights into the weights the portfolio trades to.
   cell at its index weight.
 
 **Optimised.** At each rebalance the covariance of the constituents is
-estimated from their trailing daily returns in the book's currency (a year
+estimated from their trailing daily returns in the portfolio's currency (a year
 by default), shrunk toward constant correlation, and the optimiser finds the
 long-only weights closest to the index in tracking error, within a holdings
 limit and any other constraints. A name with too little history to measure

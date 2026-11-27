@@ -1,9 +1,9 @@
 # src/beacon/analysis/attribution/currency.py
 """
-Currency attribution: how much of a book's return came from its names' own
-markets and how much from the exchange rates into the book's currency.
+Currency attribution: how much of a portfolio's return came from its names' own
+markets and how much from the exchange rates into the portfolio's currency.
 
-A name's daily return in the book's currency ``r`` is its return in its own
+A name's daily return in the portfolio's currency ``r`` is its return in its own
 ``l`` and the move of its currency ``x``: ``1 + r = (1 + l)(1 + x)``, so
 
     r = l + x + l x
@@ -11,11 +11,12 @@ A name's daily return in the book's currency ``r`` is its return in its own
 and each name contributes its weight at the close before times each part:
 the local return, the currency effect, and the cross term on a line of its
 own. Local returns are worked out from the run's own closes and corporate
-actions in each name's currency, as the book's are.
+actions in each name's currency, as the portfolio's are.
 """
 # BN-395. Agreed with Karan on 2026-10-28: the cross term on its own line.
 import pandas as pd
 
+from ..._renamed import renamed_keyword
 from ...data.returns import name_returns
 from ..data import RunData
 from ..packing import StoredSource
@@ -38,15 +39,18 @@ def local_returns(run: RunData) -> pd.DataFrame:
     return found.rename(columns=str).reindex(tables[NAME_RETURNS].index)
 
 
+# BN-479: book= before 0.11.0.
+@renamed_keyword("book", "base")
 def currency_parts(lagged: pd.DataFrame,
-                   book: pd.DataFrame,
+                   base: pd.DataFrame,
                    local: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Each name's daily contribution from each part: its weight at the close
-    before times its local return, its currency effect and the cross term."""
-    names = [name for name in lagged.columns if name in book.columns and name in local.columns]
+    before (*lagged*) times its local return (*local*), its currency effect
+    (from its return in the portfolio's currency, *base*) and the cross term."""
+    names = [name for name in lagged.columns if name in base.columns and name in local.columns]
     weights = lagged[names]
     own = local.reindex(lagged.index)[names]
-    moved = ((1.0 + book.reindex(lagged.index)[names]) / (1.0 + own) - 1.0)
+    moved = ((1.0 + base.reindex(lagged.index)[names]) / (1.0 + own) - 1.0)
 
     return {LOCAL: (weights * own).fillna(0.0), CURRENCY: (weights * moved).fillna(0.0),
             CROSS: (weights * own * moved).fillna(0.0)}

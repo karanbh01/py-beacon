@@ -169,8 +169,8 @@ so a flow is not drawn as a gain.
 With share classes the result carries `share_classes`, one record per class
 in the request's order, and `hedge_value`, the hedged classes' forwards
 together in the portfolio's currency. A class's record is in its own currency, its
-series on `level`'s dates: its net assets (and `book_net_assets`, in the
-portfolio's currency, which add up to the fund's), units, NAV per unit, the fees
+series on `level`'s dates: its net assets (and `base_net_assets`, in the
+fund's base currency, which add up to the fund's), units, NAV per unit, the fees
 and distributions of each day and their totals, its flows as dealt, and for a
 hedged class its `hedge_value` and each trade of its `hedges`. Its `metrics`
 give its total return, tracking difference and tracking error against the

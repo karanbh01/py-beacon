@@ -1,7 +1,7 @@
 # src/beacon/portfolio/valuation.py
 """
-A book's weights from what it holds: each name's units at its price over
-the book's net asset value.
+A portfolio's weights from what it holds: each name's units at its price over
+the portfolio's net asset value.
 """
 # BN-417: moved from the server's holdings view, which now calls this.
 import pandas as pd

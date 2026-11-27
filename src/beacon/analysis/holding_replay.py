@@ -3,10 +3,10 @@
 The fund's holdings worked out again from its trades.
 
 A holding changes only when the fund trades the name or a split changes its
-share count, and the books add each trade to the holding before it, in
+share count, and the run adds each trade to the holding before it, in
 order. So the fund's holdings on the days they changed (as
 `beacon.analysis.holdings.holding_changes` gives them) are worked out again
-by replaying the trades and the splits in the books' own arithmetic: a split
+by replaying the trades and the splits in the run's own arithmetic: a split
 multiplies the holding first, then each buy adds to it and each sell takes
 from it, a holding below 1e-9 ending.
 

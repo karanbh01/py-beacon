@@ -47,7 +47,9 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-SIZES = ("large", "mid", "small")
+from ..._renamed import renamed_keyword
+
+SIZES =("large", "mid", "small")
 STYLES = ("value", "blend", "growth")
 
 # The size scale's anchors, in US dollars, and the positions they take.
@@ -140,7 +142,7 @@ def style_positions(snapshot: pd.DataFrame,
         where it does not hold the name, blank for a portfolio without
         weights).
     """
-    held = {book: found[found > 0] for book, found in weights.items() if found is not None}
+    held = {name: found[found > 0] for name, found in weights.items() if found is not None}
     names = sorted({str(name) for found in held.values() for name in found.index})
     universe = pd.Index([str(name) for name in held.get("index", pd.Series(dtype=float)).index])
 
@@ -157,9 +159,9 @@ def style_positions(snapshot: pd.DataFrame,
     table = pd.DataFrame({"name": placed, "size": size.reindex(placed).to_numpy(),
                           "style": style.reindex(placed).fillna(BLEND).to_numpy()})
 
-    for book, found in weights.items():
-        table[book] = (None if found is None
-                       else found.reindex(placed).fillna(0.0).clip(lower=0.0).to_numpy())
+    for portfolio, found in weights.items():
+        table[portfolio] = (None if found is None
+                            else found.reindex(placed).fillna(0.0).clip(lower=0.0).to_numpy())
 
     return table
 
@@ -169,16 +171,17 @@ def coverage(positions: pd.DataFrame,
     """The share of each portfolio's held weight that was placed."""
     found: dict[str, float | None] = {}
 
-    for book, held in weights.items():
+    for portfolio, held in weights.items():
         total = float(held[held > 0].sum()) if held is not None else 0.0
-        found[book] = (float(positions[book].sum()) / total
-                       if held is not None and total > 0 else None)
+        found[portfolio] = (float(positions[portfolio].sum()) / total
+                            if held is not None and total > 0 else None)
 
     return found
 
 
+@renamed_keyword("books", "portfolios")
 def style_box(positions: pd.DataFrame,
-              books: tuple[str, ...]) -> pd.DataFrame:
+              portfolios: tuple[str, ...]) -> pd.DataFrame:
     """Each portfolio's weight in each of the nine cells, over its placed
     names: a row a cell, ``size`` and ``style``, then a column a portfolio,
     each summing to 1 (blank for a portfolio that holds none)."""
@@ -187,36 +190,37 @@ def style_box(positions: pd.DataFrame,
     size_cells = np.array(SIZES, dtype=object)[cells(positions["size"])]
     style_cells = np.array(STYLES, dtype=object)[cells(positions["style"])]
 
-    for book in books:
-        shares = _shares(positions, book)
+    for portfolio in portfolios:
+        shares = _shares(positions, portfolio)
 
         if shares is None:
-            box[book] = None
+            box[portfolio] = None
             continue
 
         found = pd.Series(shares).groupby([size_cells, style_cells]).sum()
-        box[book] = [float(found.get((size, style), 0.0))
-                     for size, style in zip(box["size"], box["style"], strict=True)]
+        box[portfolio] = [float(found.get((size, style), 0.0))
+                          for size, style in zip(box["size"], box["style"], strict=True)]
 
     return box
 
 
+@renamed_keyword("books", "portfolios")
 def style_classification(positions: pd.DataFrame,
-                         books: tuple[str, ...]) -> pd.DataFrame:
+                         portfolios: tuple[str, ...]) -> pd.DataFrame:
     """Each portfolio's centre, the weighted mean of its placed names'
     positions, and the cell it is in: a row a portfolio that holds names,
-    ``book``, ``size``, ``style``, ``size_centre`` and ``style_centre``."""
+    ``portfolio``, ``size``, ``style``, ``size_centre`` and ``style_centre``."""
     rows = []
 
-    for book in books:
-        shares = _shares(positions, book)
+    for portfolio in portfolios:
+        shares = _shares(positions, portfolio)
 
         if shares is None:
             continue
 
         size = float(np.dot(shares, positions["size"].to_numpy(dtype=float)))
         style = float(np.dot(shares, positions["style"].to_numpy(dtype=float)))
-        rows.append({"portfolio": book, "size": SIZES[cells(pd.Series([size]))[0]],
+        rows.append({"portfolio": portfolio, "size": SIZES[cells(pd.Series([size]))[0]],
                      "style": STYLES[cells(pd.Series([style]))[0]],
                      "size_centre": size, "style_centre": style})
 
@@ -295,13 +299,13 @@ def cells(positions: pd.Series) -> np.ndarray:
 
 
 def _shares(positions: pd.DataFrame,
-            book: str) -> np.ndarray | None:
-    """*book*'s weights over its placed names, summing to 1; None when it
+            portfolio: str) -> np.ndarray | None:
+    """*portfolio*'s weights over its placed names, summing to 1; None when it
     has no weights or holds none of them."""
-    if book not in positions or positions[book].isna().all():
+    if portfolio not in positions or positions[portfolio].isna().all():
         return None
 
-    weights = positions[book].to_numpy(dtype=float)
+    weights = positions[portfolio].to_numpy(dtype=float)
     total = weights.sum()
 
     return weights / total if total > 0 else None

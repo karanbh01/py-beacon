@@ -1,6 +1,6 @@
 # src/beacon/backtest/swap.py
 """
-The total return swap a synthetic fund holds, valued beside its books.
+The total return swap a synthetic fund holds, valued beside its portfolio.
 
 The fund's portfolio holds the substitute basket; the swap is not a holding.
 Its value is kept here, owed to the fund when positive and by it when

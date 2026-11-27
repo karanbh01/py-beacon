@@ -224,7 +224,7 @@ def _positions(assets: Sequence[str],
 
 @register(CONSTRAINT, "Full investment",
           fields={"target": Display("Total weight", order=1,
-                                    help="Normally 1.0 for a fully invested book.")})
+                                    help="Normally 1.0 for a fully invested portfolio.")})
 class FullInvestment(Constraint):
     """The weights must sum to a fixed total, normally one.
 

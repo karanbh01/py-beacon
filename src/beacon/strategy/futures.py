@@ -99,13 +99,13 @@ class IndexFutures:
             priced with. None estimates it (zero for an index that reinvests
             its dividends).
         multiplier: The value of one index point per contract, in the
-            book's currency.
+            portfolio's currency.
         whole_contracts: Hold a whole number of contracts (the default), or
             fractional ones that carry exactly the target.
         band: How far the exposure may drift from its target, as a share of
             the net assets, before the position is resized between
             rebalances.
-        cost_per_contract: What each contract traded costs, in the book's
+        cost_per_contract: What each contract traded costs, in the portfolio's
             currency: commission and fees.
         trading_cost_bps: What a trade between rolls costs, in basis points
             of the notional it trades: the spread paid.
@@ -232,12 +232,12 @@ class IndexFutures:
     "dividend_yield": Display("Dividend yield", unit=FRACTION, minimum=0.0,
                               help="Leave blank to estimate it from the constituents."),
     "multiplier": Display("Value of an index point", unit=MONEY, minimum=0.0,
-                          help="Per contract, in the book's currency."),
+                          help="Per contract, in the portfolio's currency."),
     "whole_contracts": Display("Whole contracts"),
     "band": Display("Resize when exposure drifts by", unit=FRACTION, minimum=0.0,
                     maximum=1.0, help="A share of the net assets."),
     "cost_per_contract": Display("Cost per contract", unit=MONEY, minimum=0.0,
-                                 help="Each contract traded, in the book's currency."),
+                                 help="Each contract traded, in the portfolio's currency."),
     "trading_cost_bps": Display("Cost of trading between rolls", unit=BPS, minimum=0.0,
                                 help="On the notional each trade between rolls deals."),
     "underlying": Display("Index the futures are on",

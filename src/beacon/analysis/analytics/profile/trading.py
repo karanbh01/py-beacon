@@ -97,7 +97,7 @@ def events(name: str,
 def _holding(name: str,
              book: str,
              weights: pd.DataFrame) -> list[Event]:
-    """Each day *book* began or stopped holding *name*."""
+    """Each day *portfolio* began or stopped holding *name*."""
     if name not in weights.columns:
         return []
 

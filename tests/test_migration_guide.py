@@ -36,7 +36,13 @@ def test_each_moved_method_is_listed_with_its_home(guide,
 def test_the_renamed_names_are_listed(guide):
     for old, new in (("Book", "PortfolioRecord"), ("IndexBooks", "IndexRecords"),
                      ("ShareClassBook", "ShareClassRecord"), ("BOOKS", "PORTFOLIOS"),
-                     ("book=", "of=")):
+                     ("book=", "of="), ("book_net_assets", "base_net_assets"),
+                     ("RiskOfLoss.books()", "RiskOfLoss.portfolios()"),
+                     ("class_tracking(book=)", "class_tracking(share_class=)"),
+                     ("books=", "portfolios="),
+                     ("beacon.analysis.risk.forecast.book_returns", "portfolio_returns"),
+                     ("StoredSource(book=)", "currency="),
+                     ("currency_parts(book=)", "base=")):
         assert f"| `{old}`" in guide and f"`{new}`" in guide
 
 

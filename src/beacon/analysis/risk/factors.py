@@ -19,14 +19,14 @@ so a factor's return is what a unit of exposure earned that day with the
 others held fixed. A factor naming its own series (``returns``) takes that
 series' daily change instead.
 
-**Betas** regress a book's daily return over the risk-free rate on the
+**Betas** regress a portfolio's daily return over the risk-free rate on the
 factor returns, with an intercept, by ordinary least squares; the active
 return (the fund's less its index's) is regressed on the same factors.
 
-**Holdings-based exposures** are a book's weights times its names'
+**Holdings-based exposures** are a portfolio's weights times its names'
 exposures: at each rebalance, from its weights at the close that day, or
 each day, from that day's weights and the last rebalance's exposures. Cash
-and names without exposures add nothing. A book's active exposure is its
+and names without exposures add nothing. A portfolio's active exposure is its
 exposure less its index's, or another comparator's.
 """
 # BN-390 added the holdings-based exposures.
@@ -75,7 +75,7 @@ MINIMUM_DAYS = 20
 
 @dataclass(frozen=True)
 class FactorRegression:
-    """A book's returns regressed on the factors.
+    """A portfolio's returns regressed on the factors.
 
     Attributes:
         coefficients: For the intercept (``alpha``, a day) and each factor,
@@ -96,7 +96,7 @@ class FactorRegression:
 
     @property
     def alpha_a_year(self) -> float:
-        """The intercept over a year: what the book earned beyond its
+        """The intercept over a year: what the portfolio earned beyond its
         exposures, a day times the days in a year."""
         return float(self.coefficients.loc[ALPHA, "coefficient"] * self.periods_per_year)
 
@@ -226,7 +226,7 @@ class FactorAnalytics:
     @renamed_keyword("book", "of")
     def regression(self,
                    of: str = FUND) -> FactorRegression:
-        """The book's returns (``fund``, a comparator's name such as
+        """The portfolio's returns (``fund``, a comparator's name such as
         ``index``, or ``active``) regressed on the factor returns over the
         whole run."""
         target, factors = self._paired(of)
@@ -246,11 +246,11 @@ class FactorAnalytics:
     def holdings_exposures(self,
                            of: str = FUND,
                            daily: bool = False) -> pd.DataFrame:
-        """A book's exposure to each factor (``fund``, ``index`` or
+        """A portfolio's exposure to each factor (``fund``, ``index`` or
         ``benchmark``): at each rebalance, or each day when *daily*.
 
         Raises:
-            KeyError: If the run kept no weights for the book.
+            KeyError: If the run kept no weights for the portfolio.
         """
         weights = PortfolioAnalytics(self.run).weights(of)
 
@@ -373,38 +373,38 @@ class FactorAnalytics:
         return estimated
 
     def _paired(self,
-                book: str) -> tuple[pd.Series, pd.DataFrame]:
-        """The book's daily returns to regress, over the risk-free rate but
+                of: str) -> tuple[pd.Series, pd.DataFrame]:
+        """The portfolio's daily returns to regress, over the risk-free rate but
         for the active return, and the factor returns, on the days both
         have."""
         factors = self.factor_returns().dropna()
         rate = formulas.daily_rate(self.run.risk_free_rate, self.run.periods_per_year)
 
-        if book == FUND:
+        if of == FUND:
             target = self.run.returns - rate
-        elif book == ACTIVE:
+        elif of == ACTIVE:
             ours, theirs = aligned(self.run.returns, self._levels(INDEX))
             target = ours - theirs
         else:
-            _, theirs = aligned(self.run.returns, self._levels(book))
+            _, theirs = aligned(self.run.returns, self._levels(of))
             target = theirs - rate
 
         days = target.index.intersection(factors.index)
 
         if len(days) < MINIMUM_DAYS:
-            raise CalculationError("Factor betas", f"{len(days)} days of {book} and factor "
+            raise CalculationError("Factor betas", f"{len(days)} days of {of} and factor "
                                                    f"returns, fewer than {MINIMUM_DAYS}")
 
         return target.loc[days].astype(float), factors.loc[days]
 
     def _levels(self,
-                book: str) -> pd.Series:
+                of: str) -> pd.Series:
         """A comparator's levels."""
-        if book not in self.run.comparators:
-            raise KeyError(f"The run has no {book}: it has "
+        if of not in self.run.comparators:
+            raise KeyError(f"The run has no {of}: it has "
                            f"{', '.join(self.run.comparators) or 'no comparators'}.")
 
-        return self.run.comparators[book]
+        return self.run.comparators[of]
 
 
 def _cross_sections(returns: np.ndarray,

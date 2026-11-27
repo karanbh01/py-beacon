@@ -21,7 +21,7 @@ its strategy, so a saved product and a what-if run are the same computation.
 Each share class has its own management fee and distribution policy, and all
 of them share one pool of assets: `fund.backtest` runs the fund once with
 every class, each with its own capital and flows, and `result.fund.share_classes`
-holds each class's book (see `beacon.backtest.share_classes`).
+holds each class's record (see `beacon.backtest.share_classes`).
 """
 # BN-268, phase 6 of decisions/0006. Until BN-279 (#292) a backtest ran one
 # class at a time, as if it were the whole fund; the classes now share one
@@ -143,7 +143,7 @@ class Fund:
                 `modifiers` or `price_column`.
 
         Returns:
-            BacktestResult: The fund's run, with each class's book in
+            BacktestResult: The fund's run, with each class's record in
             `share_classes`.
         """
         backtest = Backtest(initial_capital=initial_capital,

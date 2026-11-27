@@ -22,6 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from ..._renamed import renamed_keyword
 from ..data import BENCHMARK, INDEX, RunData
 from . import formulas
 from .analytics import PerformanceAnalytics
@@ -242,9 +243,10 @@ class CrisisAnalytics:
                 if (episode.name, episode.start) not in seen]
 
 
+@renamed_keyword("books", "portfolios")
 def crisis_paths(crises: Sequence[Crisis],
-                 books: Mapping[str, pd.Series]) -> pd.DataFrame:
-    """Each book's level through each crisis and after it, rebased to 100
+                 portfolios: Mapping[str, pd.Series]) -> pd.DataFrame:
+    """Each portfolio's level through each crisis and after it, rebased to 100
     at the crisis's start (or the run's first day, for a crisis the run
     joined late).
 
@@ -254,11 +256,11 @@ def crisis_paths(crises: Sequence[Crisis],
 
     Args:
         crises: The crises.
-        books: Each book's daily returns, by name.
+        portfolios: Each portfolio's daily returns, by name.
 
     Returns:
-        pd.DataFrame: A row a crisis, day and book: ``crisis``, ``date``,
-        ``book``, ``level`` and ``phase``, ``crisis`` through the crisis's
+        pd.DataFrame: A row a crisis, day and portfolio: ``crisis``,
+        ``date``, ``portfolio``, ``level`` and ``phase``, ``crisis`` through the crisis's
         end and ``after`` beyond it.
     """
     rows: list[dict[str, object]] = []
@@ -266,8 +268,8 @@ def crisis_paths(crises: Sequence[Crisis],
     for crisis in crises:
         until = _path_end(crisis)
 
-        for book, returns in books.items():
-            rows.extend({"crisis": crisis.name, "date": day, "portfolio": book, "level": level,
+        for name, returns in portfolios.items():
+            rows.extend({"crisis": crisis.name, "date": day, "portfolio": name, "level": level,
                          "phase": IN_CRISIS if day <= crisis.end else AFTER_CRISIS}
                         for day, level in _path(returns, crisis.start, until).items())
 

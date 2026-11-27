@@ -1,10 +1,10 @@
 # src/beacon/analysis/attribution/analytics.py
 """
-A run's attribution: what each name, or each group, contributed to a book's
+A run's attribution: what each name, or each group, contributed to a portfolio's
 return, or to the fund's return over a comparator.
 
 Each day a name contributes its weight at the close before times its return
-that day (the run's own daily total return for it, in the book's currency),
+that day (the run's own daily total return for it, in the portfolio's currency),
 and the days are linked over the window by Carino's factors so the
 contributions add up to the compounded return (see
 `beacon.analysis.attribution.contribution`). A group contributes what its
@@ -64,7 +64,7 @@ class Attribution:
                      start: str | pd.Timestamp | None = None,
                      end: str | pd.Timestamp | None = None) -> AttributionResult:
         """Each name's (or, with *field*, each group's) contribution to a
-        book's return (``fund``, ``index``, ``optimised`` or ``benchmark``)
+        portfolio's return (``fund``, ``index``, ``optimised`` or ``benchmark``)
         over the window,
         the whole run by default."""
         weights = self.weights(of)
@@ -270,15 +270,15 @@ class Attribution:
     @renamed_keyword("book", "of")
     def weights(self,
                 of: str = FUND) -> pd.DataFrame:
-        """A book's daily weights, by name: ``fund``, ``index``,
+        """A portfolio's daily weights, by name: ``fund``, ``index``,
         ``optimised`` or ``benchmark``.
 
         Raises:
-            KeyError: If the book is none of those, or the run kept no
+            KeyError: If the portfolio is none of those, or the run kept no
                 weights for it.
         """
         if of not in PORTFOLIOS:
-            raise KeyError(f"Unknown book {of!r}. Known: {', '.join(PORTFOLIOS)}.")
+            raise KeyError(f"Unknown portfolio {of!r}. Known: {', '.join(PORTFOLIOS)}.")
 
         table = self.run.tables.get(PORTFOLIOS[of])
 
@@ -323,23 +323,23 @@ class Attribution:
         return attribute(returns, held.shift(-1), group_returns, comparator=comparator)
 
     def _returns(self,
-                 book: str) -> pd.Series:
-        """A book's daily returns: the fund's, or a comparator's from its
+                 of: str) -> pd.Series:
+        """A portfolio's daily returns: the fund's, or a comparator's from its
         levels."""
-        if book == FUND:
+        if of == FUND:
             return self.run.returns
 
-        _, theirs = aligned(self.run.returns, self._levels(book))
+        _, theirs = aligned(self.run.returns, self._levels(of))
 
         return theirs
 
     def _levels(self,
-                book: str) -> pd.Series:
-        if book not in self.run.comparators:
-            raise KeyError(f"The run has no {book}: it has "
+                of: str) -> pd.Series:
+        if of not in self.run.comparators:
+            raise KeyError(f"The run has no {of}: it has "
                            f"{', '.join(self.run.comparators) or 'no comparators'}.")
 
-        return self.run.comparators[book]
+        return self.run.comparators[of]
 
 
 def _window(series: pd.Series,

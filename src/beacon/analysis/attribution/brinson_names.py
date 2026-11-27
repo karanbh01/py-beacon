@@ -40,7 +40,7 @@ def name_effects(fund_lagged: pd.DataFrame,
                  comparator_earned: pd.DataFrame,
                  factors: pd.Series) -> pd.DataFrame:
     """Each name's linked selection and interaction within each group it was
-    in, and its mean weights in each book, over the days of *factors* (the
+    in, and its mean weights in each portfolio, over the days of *factors* (the
     days' Carino factors over the window's).
 
     Args:

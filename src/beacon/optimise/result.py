@@ -126,7 +126,7 @@ class OptimisationResult:
 
     @property
     def active_sum(self) -> float:
-        """The active weights' sum: 0 when the book is as invested as its
+        """The active weights' sum: 0 when the portfolio is as invested as its
         target."""
         return float(self.active_weights.sum())
 

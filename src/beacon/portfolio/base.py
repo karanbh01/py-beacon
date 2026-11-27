@@ -136,17 +136,17 @@ class Portfolio:
     Holdings are keyed by string asset identifiers. The accounting needs no
     Asset objects or data source: callers pass simple strings and prices.
 
-    It is also the **store of record**: what it started with, and what the
-    books said on every date something changed them, are kept here rather
+    It is also the **store of record**: what it started with, and what it
+    said on every date something changed them, are kept here rather
     than flattened onto whatever ran it. See :attr:`positions`, :attr:`cash`
     and :attr:`nav`.
 
     Args:
-        portfolio_id: Identifier for these books.
+        portfolio_id: Identifier for this portfolio.
         initial_cash: Opening cash balance. Retained as
             :attr:`initial_capital`, because `cash_balance` goes on mutating
             and without it a portfolio could not say what it started with.
-        inception: Optional day zero. When given, the books open on that date
+        inception: Optional day zero. When given, the portfolio opens on that date
             with NAV and cash equal to the initial capital, before anything
             trades. A backtest passes the business day before its first
             trading day; a hand-built portfolio can leave it out, and its
@@ -212,7 +212,7 @@ class Portfolio:
         """What was held, long-form: DATE, ASSET_ID, QUANTITY, PRICE,
         MARKET_VALUE, WEIGHT.
 
-        A row per held asset per date on which the books changed (a trade or
+        A row per held asset per date on which the portfolio changed (a trade or
         a mark). `WEIGHT` was computed and stored at write time, so it records
         what the portfolio believed then rather than what recomputing it now
         would say.
@@ -224,8 +224,8 @@ class Portfolio:
         """The stored weights, wide: dates by asset.
 
         A pivot of the positions panel's `WEIGHT` column: the same recorded
-        numbers, shaped for cross-book arithmetic. `portfolio.weights`
-        subtracts cleanly against an index book's weights because both are
+        numbers, shaped for cross-portfolio arithmetic. `portfolio.weights`
+        subtracts cleanly against an index portfolio's weights because both are
         date-by-asset frames.
         """
         positions = self.positions
@@ -266,11 +266,11 @@ class Portfolio:
             asset_id: An asset this portfolio holds or has ever held.
 
         Returns:
-            PortfolioAssetView: Position numbers from these books, market
+            PortfolioAssetView: Position numbers from this portfolio, market
             facts from the resolved data source.
 
         Raises:
-            KeyError: If the books have never seen *asset_id*, matching
+            KeyError: If the portfolio has never seen *asset_id*, matching
                 `IndexResult.asset` for a non-constituent.
             DataSourceError: If no source is bound and the process has none.
         """
@@ -282,15 +282,14 @@ class Portfolio:
 
         if asset_id not in known:
             raise KeyError(
-                f"Asset '{asset_id}' does not appear in this portfolio's "
-                f"books.")
+                f"Asset '{asset_id}' does not appear in this portfolio.")
 
         fetcher = self.source if self.source is not None else resolve()
 
         return PortfolioAssetView(asset_id, fetcher, self)
 
     def freeze(self) -> None:
-        """Close the books: from here on, any write raises.
+        """Close the portfolio: from here on, any write raises.
 
         Called by the backtest engine when a run ends. The portfolio is then
         the record of that run, and a later trade against it would restate a
@@ -316,23 +315,23 @@ class Portfolio:
 
     def _record(self,
                 date: pd.Timestamp) -> None:
-        """Snapshot the books as of *date* into the history, or, inside a
+        """Snapshot the portfolio as of *date* into the history, or, inside a
         batch, note that they changed on *date*."""
         if self._batch is None:
             self._history.record(date, self.holdings, self.cash_balance)
             return
 
         if self._batch and self._batch[0] != pd.Timestamp(date):
-            raise ValueError(f"A batch records the books for one date; it holds "
+            raise ValueError(f"A batch records the portfolio for one date; it holds "
                              f"{self._batch[0].date()} and was given {pd.Timestamp(date).date()}.")
 
         self._batch[:] = [pd.Timestamp(date)]
 
     @contextmanager
     def batch(self) -> Iterator[None]:
-        """Record the books once, as the block ends, for every change made in it.
+        """Record the portfolio once, as the block ends, for every change made in it.
 
-        Each call inside still applies at once; only the snapshot of the books
+        Each call inside still applies at once; only the snapshot of the portfolio
         waits. The history keeps the last snapshot written for a date, so a run
         of trades on one date records the same history either way, without
         rewriting every holding after each trade. Every change in the block must
@@ -395,7 +394,7 @@ class Portfolio:
             asset_id: The holding it came from, for a dividend.
 
         Raises:
-            FrozenPortfolioError: If the books are closed.
+            FrozenPortfolioError: If the portfolio is closed.
         """
         self._refuse_if_frozen("receive_cash")
 
@@ -434,7 +433,7 @@ class Portfolio:
 
         Raises:
             ValueError: If *quantity* is not positive or *price* is negative.
-            FrozenPortfolioError: If the books have been frozen.
+            FrozenPortfolioError: If the portfolio has been frozen.
         """
         self._refuse_if_frozen("execute_buy")
 
@@ -514,7 +513,7 @@ class Portfolio:
 
         Raises:
             ValueError: If *quantity* is not positive or *price* is negative.
-            FrozenPortfolioError: If the books have been frozen.
+            FrozenPortfolioError: If the portfolio has been frozen.
         """
         self._refuse_if_frozen("execute_sell")
 
@@ -560,7 +559,7 @@ class Portfolio:
     def apply(self,
               trade: TradeInstruction,
               date: pd.Timestamp | None = None) -> None:
-        """Record one trade in the books.
+        """Record one trade in the portfolio.
 
         The entry point for anything that has already *decided* a trade, such
         as the engine after sizing and pricing it. Dispatches to
@@ -579,7 +578,7 @@ class Portfolio:
                 (case-insensitive). Refused rather than guessed, because
                 silently ignoring an unknown side would drop a trade from the
                 record.
-            FrozenPortfolioError: If the books have been frozen. Checked here
+            FrozenPortfolioError: If the portfolio has been frozen. Checked here
                 as well as in the accounting, so the message names the entry
                 point the caller actually used.
         """
@@ -605,7 +604,7 @@ class Portfolio:
         """
         Update current prices for holdings from a dictionary.
 
-        A mark changes what the books say the portfolio is worth, so it is
+        A mark changes what the portfolio says it is worth, so it is
         recorded like a trade is.
 
         Args:
@@ -615,7 +614,7 @@ class Portfolio:
             date: Optional date to mark as of. Defaults to now.
 
         Raises:
-            FrozenPortfolioError: If the books have been frozen.
+            FrozenPortfolioError: If the portfolio has been frozen.
         """
         self._refuse_if_frozen("update_prices")
 
@@ -650,7 +649,7 @@ class Portfolio:
 
         Raises:
             ValueError: If *ratio* is not positive.
-            FrozenPortfolioError: If the books have been frozen.
+            FrozenPortfolioError: If the portfolio has been frozen.
         """
         self._refuse_if_frozen("apply_ratio")
 

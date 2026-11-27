@@ -1,6 +1,6 @@
 # src/beacon/portfolio/history.py
 """
-The portfolio's books over time: positions, cash and NAV, event by event.
+The portfolio's record over time: positions, cash and NAV, event by event.
 
 The recorder is part of the Portfolio, composed rather than inherited, and
 nothing outside the portfolio layer writes to one. Read the history through
@@ -68,7 +68,7 @@ def _empty_positions() -> pd.DataFrame:
 
 
 class PortfolioHistory:
-    """Records what the books said, on every event that changed them.
+    """Records what the portfolio said, on every event that changed them.
 
     Written as plain dicts during a run and converted to a DataFrame or Series
     on read. There is deliberately no `Position` class: the panel rests as a
@@ -76,7 +76,7 @@ class PortfolioHistory:
 
     Keyed by date, and the **last** write for a date wins. A mark followed by
     a trade on the same day therefore leaves the post-trade state on record,
-    which is what end-of-day books mean; the intermediate state is not
+    which is what an end-of-day record means; the intermediate state is not
     something that survived the day.
     """
     def __init__(self) -> None:
@@ -93,11 +93,11 @@ class PortfolioHistory:
                date: pd.Timestamp,
                holdings: Mapping[str, MarkedHolding],
                cash: float) -> None:
-        """Write the current state of the books, dated *date*.
+        """Write the current state of the portfolio, dated *date*.
 
         The weight on each row is computed here and stored, rather than
         derived on read from the market value and the NAV. That is the point
-        of the panel: it records what the books said at the time, so a later
+        of the panel: it records what the portfolio said at the time, so a later
         change to the derivation, or to the price data underneath, cannot
         silently restate history. A holding with no market value is recorded
         with weight 0.0 and left out of the NAV.
@@ -161,7 +161,7 @@ class PortfolioHistory:
 
     @property
     def nav(self) -> pd.Series:
-        """The total value of the books on each recorded date."""
+        """The total value of the portfolio on each recorded date."""
         return self._series(self._nav, "NAV")
 
     def _build_positions(self) -> pd.DataFrame:
@@ -189,7 +189,7 @@ class PortfolioHistory:
     def _series(self,
                 points: dict[pd.Timestamp, float],
                 name: str) -> pd.Series:
-        """One of the scalar books as a date-indexed Series."""
+        """One of the scalar records as a date-indexed Series."""
         dates = sorted(points)
 
         return pd.Series([points[date] for date in dates],

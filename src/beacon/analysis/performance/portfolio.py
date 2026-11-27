@@ -9,7 +9,7 @@ benchmark's.
 
 A name's group on a day is the one it had at the latest rebalance on or
 before that day, as the run's reference table recorded it. A name with no
-group recorded is in ``Unknown``. A book's group weights add up to its
+group recorded is in ``Unknown``. A portfolio's group weights add up to its
 invested weight each day: the fund's cash is in none of them.
 """
 # BN-382.
@@ -70,8 +70,8 @@ class PortfolioAnalytics:
     @renamed_keyword("book", "of")
     def weights(self,
                 of: str = FUND) -> pd.DataFrame | None:
-        """A book's daily weights, dates by name: ``fund``, ``index`` or
-        ``benchmark``; None for a book the run did not keep weights for (a
+        """A portfolio's daily weights, dates by name: ``fund``, ``index`` or
+        ``benchmark``; None for a portfolio the run did not keep weights for (a
         benchmark given as a level series holds no names)."""
         table = PORTFOLIOS[of]
 
@@ -80,16 +80,16 @@ class PortfolioAnalytics:
     @renamed_keyword("book", "of")
     def holdings_count(self,
                        of: str = FUND) -> pd.Series | None:
-        """How many names a book held each day."""
+        """How many names a portfolio held each day."""
         weights = self.weights(of)
 
         return None if weights is None else (weights.fillna(0.0) > 0).sum(axis=1)
 
     def holdings_range(self) -> pd.DataFrame:
-        """The fewest and most names each book held on any day of the run,
+        """The fewest and most names each portfolio held on any day of the run,
         and how many it held on the last: a row a measure (``least``,
-        ``most``, ``latest``, in the ``measure`` column) and a column a book;
-        blank for a book the run kept no weights for."""
+        ``most``, ``latest``, in the ``measure`` column) and a column a portfolio;
+        blank for a portfolio the run kept no weights for."""
         # BN-423. Every day, not only rebalances: a name that stops trading
         # between them leaves the count until the next.
         found: dict[str, object] = {"measure": [LEAST, MOST, LATEST]}
@@ -120,8 +120,8 @@ class PortfolioAnalytics:
     def group_weights(self,
                       field: str,
                       of: str = FUND) -> pd.DataFrame | None:
-        """A book's weight in each group of *field* each day, dates by
-        group, the groups sorted; None for a book without weights.
+        """A portfolio's weight in each group of *field* each day, dates by
+        group, the groups sorted; None for a portfolio without weights.
 
         Raises:
             KeyError: If the run kept no reference data, or none for *field*.
@@ -160,15 +160,15 @@ class PortfolioAnalytics:
 
     def group_exposures(self,
                         fields: Mapping[str, str]) -> pd.DataFrame:
-        """Each book's weight in each group on the fund's last day, for each
+        """Each portfolio's weight in each group on the fund's last day, for each
         grouping of *fields* (a grouping's name, such as ``sector``, and the
         reference field it is read from).
 
-        Columns ``grouping``, ``group``, then a column a book, blank for a
-        book the run kept no weights for. A grouping's groups are in the
+        Columns ``grouping``, ``group``, then a column a portfolio, blank for a
+        portfolio the run kept no weights for. A grouping's groups are in the
         order of the index's weight, largest first, then those the index does
         not hold by the fund's, then ``Unknown`` and the fund's ``Cash``: its
-        weight in no group, so each book's weights sum to 1 in each grouping.
+        weight in no group, so each portfolio's weights sum to 1 in each grouping.
         A grouping whose field the run did not keep is left out.
 
         Raises:
@@ -197,10 +197,10 @@ class PortfolioAnalytics:
 
     def _latest_groups(self,
                        field: str,
-                       book: str) -> pd.Series | None:
+                       of: str) -> pd.Series | None:
         """*of*'s weight in each group of *field* on the fund's last day,
-        the fund's with its cash; None for a book without weights."""
-        held = self.group_weights(field, book)
+        the fund's with its cash; None for a portfolio without weights."""
+        held = self.group_weights(field, of)
 
         if held is None or held.empty:
             return None
@@ -211,7 +211,7 @@ class PortfolioAnalytics:
         weights = held.iloc[position if position is not None else 0]
         weights = weights[weights.abs() > 0.0]
 
-        if book == FUND and abs(cash := 1.0 - float(weights.sum())) > NEGLIGIBLE_CASH:
+        if of == FUND and abs(cash := 1.0 - float(weights.sum())) > NEGLIGIBLE_CASH:
             weights = pd.concat([weights, pd.Series({CASH_GROUP: cash})])
 
         return weights
@@ -290,7 +290,7 @@ class PortfolioAnalytics:
     def characteristics(self) -> pd.DataFrame:
         """The weighted market cap, P/E, P/B, dividend yield and earnings and
         sales growth of the fund, its index and its benchmark (when it holds
-        names) at each rebalance: a row a rebalance, columns by book and
+        names) at each rebalance: a row a rebalance, columns by portfolio and
         figure."""
         books = {name: weights for name in PORTFOLIOS
                  if (weights := self.weights(name)) is not None}
@@ -369,7 +369,7 @@ class PortfolioAnalytics:
                     by: str = "run") -> pd.DataFrame:
         """Each share class's fees, hedging costs less the carry earned, the
         trading its flows caused less what its dealing investors paid, and
-        its share of the rest of the fund's trading, in the book's currency:
+        its share of the rest of the fund's trading, in the portfolio's currency:
         over the run (``run``) or each year (``year``).
 
         Raises:
@@ -441,7 +441,7 @@ class PortfolioAnalytics:
 
 
 def _exposure_order(latest: Mapping[str, pd.Series | None]) -> list[str]:
-    """The groups any book holds, by the index's weight, then the fund's,
+    """The groups any portfolio holds, by the index's weight, then the fund's,
     with ``Unknown`` and ``Cash`` last."""
     index = latest.get(INDEX)
     fund = latest.get(FUND)

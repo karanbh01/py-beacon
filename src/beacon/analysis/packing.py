@@ -25,6 +25,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .._renamed import renamed_keyword, warn_renamed
 from ..data.corporate_actions import CorporateActions
 from ..data.prices import currencies_of
 
@@ -128,21 +129,31 @@ class StoredSource:
     Args:
         currencies: Each name's currency, indexed by name, in a ``CURRENCY``
             column.
-        rates: Each currency's rate into the book's currency on the kept
+        rates: Each currency's rate into the portfolio's currency on the kept
             days, a column per currency.
         actions: The kept names' corporate actions.
-        book: The book's currency.
+        currency: The portfolio's currency.
     """
 
+    # BN-479: book= before 0.11.0.
+    @renamed_keyword("book", "currency")
     def __init__(self,
                  currencies: pd.DataFrame,
                  rates: pd.DataFrame,
                  actions: pd.DataFrame,
-                 book: str):
+                 currency: str):
         self._currencies = currencies
         self._rates = rates
-        self.book = book.upper()
+        self.currency = currency.upper()
         self.corporate_actions: Any = _Actions(actions)
+
+    @property
+    def book(self) -> str:
+        """Deprecated: `currency`, which this was called before 0.11.0. Goes
+        in 0.12.0."""
+        warn_renamed("StoredSource.book", "currency")
+
+        return self.currency
 
     def fetch_market_data(self,
                           identifier: str | list[str],
@@ -166,9 +177,9 @@ class StoredSource:
                     from_currency: str,
                     to_currency: str,
                     days: pd.Index) -> pd.Series | None:
-        """The kept rate from *from_currency* into the book's currency on
+        """The kept rate from *from_currency* into the portfolio's currency on
         *days*, or None when none was kept."""
-        if to_currency.upper() != self.book or from_currency not in self._rates.columns:
+        if to_currency.upper() != self.currency or from_currency not in self._rates.columns:
             return None
 
         rates = self._rates[from_currency].reindex(days)
@@ -187,7 +198,7 @@ def market_inputs(source: Any,
     Args:
         source: The data the run used.
         closes: The closes kept, dates by name.
-        currency: The book's currency.
+        currency: The portfolio's currency.
     """
     names = [str(name) for name in closes.columns]
     target = currency.upper()

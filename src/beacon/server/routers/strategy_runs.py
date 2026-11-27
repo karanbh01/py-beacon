@@ -372,7 +372,7 @@ def build_strategy_runs_router() -> APIRouter:
         """Every strategy's latest saved run, newest first.
 
         One row per strategy: the record store keeps the latest run only,
-        and `/strategies/{strategy_id}/record` serves its books. A record
+        and `/strategies/{strategy_id}/record` serves its records. A record
         that cannot be read is skipped and counted rather than failing the
         listing.
         """
@@ -472,12 +472,12 @@ def build_strategy_runs_router() -> APIRouter:
     def backtest_record(request: Request,
                         strategy_id: Identifier,
                         reference_fields: ReferenceFieldsQuery = None) -> BacktestResultSummary:
-        """The latest run's books, nested: the record, not the derived view.
+        """The latest run's records, nested: the record, not the derived view.
 
         `BacktestJobStatus.result` carries the run payload (rebased level,
         returns, drawdown), which is what a chart wants. This is the other
-        half: the portfolio book with its day-zero NAV, bounded positions and
-        weights with true totals, and the comparator books, null when the run
+        half: the portfolio with its day-zero NAV, bounded positions and
+        weights with true totals, and the comparator records, null when the run
         had none.
 
         Raises:

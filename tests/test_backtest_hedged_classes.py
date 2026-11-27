@@ -107,11 +107,11 @@ class TestAClassInAnotherCurrency:
         euro = result.share_classes["EUR"]
 
         assert euro.net_assets.iloc[0] == pytest.approx(1e6)
-        assert euro.book_net_assets.iloc[0] == pytest.approx(1e6 / fx(NO_RATES, DAYS[0]))
+        assert euro.base_net_assets.iloc[0] == pytest.approx(1e6 / fx(NO_RATES, DAYS[0]))
         assert euro.flows[0].amount == pytest.approx(100_000.0)
 
     def test_the_classes_still_add_up_in_the_book_currency(self, three):
-        total = sum(book.book_net_assets for book in three.share_classes.values())
+        total = sum(record.base_net_assets for record in three.share_classes.values())
 
         assert total.iloc[1:].to_numpy() == pytest.approx(
             three.trading_nav.reindex(total.index[1:]).to_numpy(), rel=1e-9)

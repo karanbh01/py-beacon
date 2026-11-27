@@ -164,10 +164,10 @@ def assemble_result(result: BacktestResult,
 
 
 def target_cap(definition: AnyIndexDefinition) -> float | None:
-    """The cap that applies to the run's `index.target` book, if any.
+    """The cap that applies to the run's `index.target` portfolio, if any.
 
     Read off the built definition rather than the document because an optimised
-    document has no pipeline of its own to read one from, while its target book
+    document has no pipeline of its own to read one from, while its target portfolio
     is its *parent's* calculation and the parent's cap is the one that shaped
     those weights. A chain whose immediate parent is itself derived has no cap
     at that level, and says so.

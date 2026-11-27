@@ -1,9 +1,9 @@
 # src/beacon/backtest/asset_view.py
 """
-BacktestAssetView: one asset's story inside a backtest, read from the books.
+BacktestAssetView: one asset's story inside a backtest, read from the run's records.
 
 The view reads the run's Portfolio (positions, transactions) and the tracked
-index's book directly: its trades and costs, when it was held, its weight over
+index's portfolio directly: its trades and costs, when it was held, its weight over
 time, and how that weight compared with the index's target.
 """
 # Rebuilt for BN-154: the view reads the Portfolio (positions, transactions)
@@ -33,8 +33,8 @@ class BacktestAssetView(AssetView):
     Args:
         asset_id: The identifier used to look up data in the DataFetcher.
         data_fetcher: The data provider instance.
-        portfolio: The run's books: positions, weights, transactions.
-        index_book: The tracked index's book, when the run tracked one.
+        portfolio: The run's portfolio: positions, weights, transactions.
+        index_book: The tracked index's record, when the run tracked one.
             Target weights come from its `source` snapshots: what each
             rebalance *decided*, which is the comparison slippage is about.
     """
@@ -256,7 +256,7 @@ class BacktestAssetView(AssetView):
         return mine.set_index("DATE").sort_index()
 
     def _calendar(self) -> pd.Index:
-        """Every date the books were written, held or not."""
+        """Every date the portfolio was recorded, held or not."""
         return self._portfolio.nav.index
 
     def _target_snapshots(self) -> dict[pd.Timestamp, dict[str, float]]:

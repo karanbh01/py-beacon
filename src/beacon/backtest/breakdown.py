@@ -6,7 +6,7 @@ A run's money, day by day: what it cost, and where its cash went.
     cash = daily_cash(result)
 
 Each table has a row for every day of the run's NAV and a column for each
-kind, in the book's currency, and is 0 on a day nothing of that kind
+kind, in the portfolio's currency, and is 0 on a day nothing of that kind
 happened. Summed over the run, each column is the run's total of its kind.
 """
 # BN-363. Built from what the run recorded as it went (each trade's cost and
@@ -71,7 +71,7 @@ def daily_costs(result: BacktestResult) -> pd.DataFrame:
         result: The finished run.
 
     Returns:
-        pd.DataFrame: Dates of the NAV by kind, in the book's currency, 0
+        pd.DataFrame: Dates of the NAV by kind, in the portfolio's currency, 0
         where nothing of a kind happened.
     """
     trades = result.portfolio.transactions
@@ -113,7 +113,7 @@ def trades(result: BacktestResult) -> pd.DataFrame:
         pd.DataFrame: Indexed by the trade's date (``DATE``), with the name,
         ``BUY`` or ``SELL``, the quantity, the price, the value traded
         (quantity times price), the cost and the part of it that was market
-        impact, all in the book's currency; why the trade was made
+        impact, all in the portfolio's currency; why the trade was made
         (``REASON``) and every tag it carries, joined by ``"; "`` (``TAGS``),
         as `beacon.portfolio.reasons` names them.
     """
@@ -234,7 +234,7 @@ def daily_cash(result: BacktestResult) -> pd.DataFrame:
 
     Charged or owed without cash moving:
 
-    - ``dividends_gross``: dividends the book became owed on their ex-dates,
+    - ``dividends_gross``: dividends the portfolio became owed on their ex-dates,
       before tax.
     - ``withholding_tax``: the tax withheld from them, on the same days.
     - ``fee_charged``: the management fee charged for the day.
@@ -244,7 +244,7 @@ def daily_cash(result: BacktestResult) -> pd.DataFrame:
         result: The finished run.
 
     Returns:
-        pd.DataFrame: Dates of the NAV by kind, in the book's currency, 0
+        pd.DataFrame: Dates of the NAV by kind, in the portfolio's currency, 0
         where nothing of a kind happened.
     """
     days = result.portfolio.nav.index

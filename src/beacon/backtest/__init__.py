@@ -8,7 +8,7 @@ calculates the index (reusing a cached calculation when it can) and simulates
 a portfolio tracking it. `BacktestEngine` is the engine underneath, which
 trades towards each rebalance's target weights from an `IndexResult` (sells
 before buys, costs in basis points of notional) and returns a
-`BacktestResult` holding the portfolio's books, unfilled orders, price gaps
+`BacktestResult` holding the portfolio's records, unfilled orders, price gaps
 and tracking against the target index. `BacktestModifier` subclasses such as
 `DriftThresholdModifier` can skip a rebalance or adjust its trades, and
 `BacktestAssetView` gives one asset's story through a backtest.

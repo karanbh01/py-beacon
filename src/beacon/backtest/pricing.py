@@ -3,7 +3,7 @@
 PricingMixin: what a price is, to the backtest engine: a date, a session, a
 currency.
 
-Everything here answers one question (*what is this name worth, in the book's
+Everything here answers one question (*what is this name worth, in the portfolio's
 currency, on this day*), and the engine above it decides what to do with the
 answer. Two conversions sit between a stored bar and a usable price:
 
@@ -58,7 +58,7 @@ class PricingMixin:
     def _fetch_price(self,
                      asset_id: str,
                      date: pd.Timestamp) -> float | None:
-        """One closing price for *asset_id* on *date*, in the book's currency.
+        """One closing price for *asset_id* on *date*, in the portfolio's currency.
 
         The conversion is the point. Prices are stored as the company is
         quoted -- yen in Tokyo, sterling in London -- while a portfolio has a
@@ -102,7 +102,7 @@ class PricingMixin:
                     date: pd.Timestamp) -> dict[str, float | None]:
         """:meth:`_fetch_price` for every holding on one day (BN-220).
 
-        The same answers, read the way BN-218 reads the index's book: every
+        The same answers, read the way BN-218 reads the index's portfolio: every
         close from the day's page in one call, and FX once per currency rather
         than once per holding. Only the exact-day close is batched. A name
         without one goes through the same resolution as before -- delisting,
@@ -139,10 +139,10 @@ class PricingMixin:
                      asset_ids: list[str],
                      date: pd.Timestamp,
                      closes: np.ndarray) -> dict[str, float | None]:
-        """:meth:`_priced` for a whole book, on arrays (BN-347).
+        """:meth:`_priced` for a whole portfolio, on arrays (BN-347).
 
         A name with a close is converted at its currency's rate, as one
-        product over the book. A name without one goes through `_priced`.
+        product over the portfolio. A name without one goes through `_priced`.
         Rates are looked up in the order the per-name loop met them, so an
         unknown pair is refused naming the same holding.
         """
@@ -443,10 +443,10 @@ class PricingMixin:
                   asset_id: str,
                   date: pd.Timestamp,
                   rates: dict[str, float] | None = None) -> float:
-        """FX from an asset's listing currency into the book's, on *date*.
+        """FX from an asset's listing currency into the portfolio's, on *date*.
 
         Resolving *which* currencies are involved is the engine's own business
-        — it knows the book's currency and the asset's listing currency — and
+        — it knows the portfolio's currency and the asset's listing currency — and
         the rate lookup is not. Since BN-206 that half delegates to
         `DataFetcher.fx_rate_on`, which is the library's one conversion.
 
@@ -471,19 +471,19 @@ class PricingMixin:
         correct while changing nothing. It is the *drift* in the rate that a
         foreign holding actually experiences, and that only appears if the
         rate moves. That cancellation is also why neither defect above showed
-        up in a NAV-level test: a one-name book comes out identical whether
+        up in a NAV-level test: a one-name portfolio comes out identical whether
         the rate is right, wrong, or invented.
 
         Args:
             asset_id: The holding being converted.
             date: The day of the conversion.
-            rates: The day's rates by currency, when a whole book is being
+            rates: The day's rates by currency, when a whole portfolio is being
                 valued (BN-220). A rate is a fact about a currency on a day,
                 not about a holding, so it is looked up once and read from
                 here for every other holding in that currency.
 
         Raises:
-            CalculationError: If no rate exists on or before *date*. A book
+            CalculationError: If no rate exists on or before *date*. A portfolio
                 that cannot convert a holding cannot state its NAV in its own
                 currency, and saying so is the answer -- the same argument
                 BN-198 settled for a calendar that cannot cover a window.
@@ -508,7 +508,7 @@ class PricingMixin:
             calculation_name="BacktestEngine",
             details=(f"no {currency.upper()}/{self.currency.upper()} rate on "
                      f"or before {date:%Y-%m-%d}, so {asset_id} cannot be "
-                     f"valued in the book's currency. Valuing it unconverted "
+                     f"valued in the portfolio's currency. Valuing it unconverted "
                      f"would carry a {currency.upper()} holding as though it "
                      f"were {self.currency.upper()}, making the NAV wrong by "
                      f"the whole exchange rate. Load the pair, or run the "

@@ -18,7 +18,7 @@ the fund.
 
 ## What a deletion is
 
-The same divisor adjustment a rebalance uses. Value the book on the last day
+The same divisor adjustment a rebalance uses. Value the portfolio on the last day
 the leaver had a price, once including it and once without:
 
     divisor ← divisor × (aggregate without) / (aggregate with)
@@ -29,9 +29,9 @@ renormalise upward in proportion, which is exactly what reinvesting the
 proceeds pro rata across the remainder would have done.
 
 A holding is removed on the first calculation day after its last listed date,
-including a rebalance day, where it leaves before the outgoing book is valued. If
+including a rebalance day, where it leaves before the outgoing portfolio is valued. If
 every holding would be removed, the holdings are kept (and an error is logged)
-rather than emptying the index. If the book cannot be valued on the last day,
+rather than emptying the index. If the portfolio cannot be valued on the last day,
 the leavers are removed without a divisor adjustment and the level steps
 (logged as a warning).
 
@@ -149,7 +149,7 @@ class DeletionMixin:
 
         if before <= 0.0 or after <= 0.0:
             logger.warning(
-                "Cannot value the book on %s to delete %s; removing without "
+                "Cannot value the portfolio on %s to delete %s; removing without "
                 "a divisor adjustment, so the level will step.",
                 valuation_date.strftime("%Y-%m-%d"), ", ".join(removed))
 

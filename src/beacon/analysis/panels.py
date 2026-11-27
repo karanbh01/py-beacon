@@ -40,7 +40,7 @@ from ..data.prices import PRICE_COLUMN, converted
 from ..data.returns import name_returns
 from ..data.store import _read_frame, _write_frame
 from ..exceptions import CalculationError, ConfigurationError, DataNotFoundError
-from .class_panels import class_tables
+from .class_panels import class_tables, with_current_names
 from .holdings import (
     fund_weights_from,
     holding_changes,
@@ -120,11 +120,11 @@ def run_panels(result: BacktestResult) -> dict[str, pd.DataFrame]:
 
     - ``fund_weights``: the fund's weight in each name held on each day
       it was recorded, unabridged.
-    - ``name_returns``: each day's total return, in the book's currency,
+    - ``name_returns``: each day's total return, in the portfolio's currency,
       of every name the fund held or its index or benchmark held, as
       `beacon.data.returns.name_returns` measures it. Left out, with a
       warning, when the run kept no data to read them from or they cannot
-      be measured (a currency with no rate into the book's).
+      be measured (a currency with no rate into the portfolio's).
     - ``market``: for an ETF, its quote on the exchange each day: NAV per
       share, premium, spread, market price, bid, ask, and what creating
       and redeeming cost.
@@ -277,8 +277,8 @@ def on_sessions(returns: pd.DataFrame,
 
 def weights_inputs(result: BacktestResult,
                    tables: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    """What each book's daily weights are worked out again from: the fund's
-    quantities and daily totals, each index's units, and for every book its
+    """What each portfolio's daily weights are worked out again from: the fund's
+    quantities and daily totals, each index's units, and for every portfolio its
     days, its names and the cells that differ from what was recorded."""
     kept: dict[str, pd.DataFrame] = {}
     closes = tables[CLOSES].ffill()
@@ -320,7 +320,7 @@ def _book_tables(name: str,
                  recorded: pd.DataFrame,
                  changes: pd.DataFrame,
                  rebuilt: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """A book's kept holdings, days, names and patch."""
+    """A portfolio's kept holdings, days, names and patch."""
     return {name + HOLDINGS: changes,
             name + DAYS: pd.DataFrame(index=pd.DatetimeIndex(recorded.index)),
             name + NAMES: pd.DataFrame(index=pd.Index([str(item) for item in recorded.columns])),
@@ -332,7 +332,7 @@ def weights_from(name: str,
                  currency: str,
                  dtype: str,
                  last: int | None = None) -> pd.DataFrame:
-    """A book's daily weights, worked out again from what was kept, with the
+    """A portfolio's daily weights, worked out again from what was kept, with the
     recorded cells put back, so they are exactly what was recorded; for its
     *last* days alone when given, which are those days of the whole table."""
     days = pd.DatetimeIndex(tables[name + DAYS].index)
@@ -360,7 +360,7 @@ def weights_from(name: str,
 
 
 def held_names(result: BacktestResult) -> list[str]:
-    """Every name the fund, its index (both books) or its benchmark held at
+    """Every name the fund, its index (both records) or its benchmark held at
     any point in the run, sorted."""
     books = [result.index.target, result.index.optimised, result.benchmark]
     frames = [result.portfolio.weights] + [book.weights for book in books if book is not None]
@@ -469,7 +469,8 @@ def read_panels(folder: Path,
         raise DataNotFoundError(f"the run's {', '.join(missing)} table",
                                 source=f"its tables hold {', '.join(sorted(held)) or 'none'}")
 
-    return {name: _read_panel(folder / f"{name}.parquet", held[name]) for name in wanted}
+    return {name: with_current_names(name, _read_panel(folder / f"{name}.parquet", held[name]))
+            for name in wanted}
 
 
 def _read_panel(path: Path,

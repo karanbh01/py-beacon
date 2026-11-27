@@ -6,7 +6,7 @@ Each trade has one reason, the event that triggered it, and a set of tags:
 the reason, what it implies, and anything else that shaped it. On a
 rebalance the reason is the rebalance, and the tags name the stages that
 changed the name's target (an issuer cap, a liquidity screen). A trade made
-to move cash in or out of the book is tagged a cash raise when it sells and a
+to move cash in or out of the portfolio is tagged a cash raise when it sells and a
 cash spend-down when it buys, whatever moved the cash.
 
 Figures by reason add up to the run's; figures by tag may count a trade more

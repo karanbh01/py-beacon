@@ -39,7 +39,7 @@ def mine(result):
     days = result.run_data.returns.index
     returns = result.run_data.tables[NAME_RETURNS][NAME]
     returns = returns.loc[(returns.index >= days[0]) & (returns.index <= days[-1])]
-    theirs = result.analytics._context.book("index").returns.reindex(returns.index)
+    theirs = result.analytics._context.performance_of("index").returns.reindex(returns.index)
     both = returns.notna() & theirs.notna()
 
     return returns[both], theirs[both]

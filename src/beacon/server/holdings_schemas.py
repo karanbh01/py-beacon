@@ -45,7 +45,7 @@ class HoldingRow(BaseModel):
                     "row then.")
     excluded_at: str | None = Field(
         default=None, description="The key of the stage it left at; null for a name "
-                                  "still in the book.")
+                                  "still in the portfolio.")
     # BN-329.
     universe_weight: float | None = Field(
         default=None,
@@ -75,9 +75,9 @@ class HoldingRow(BaseModel):
         default=None, description="Its held weight less its portfolio weight as of "
                                   "`as_of`; null on the rebalance date itself.")
     current_weight: float | None = Field(
-        default=None, description="Its weight in the book as of `as_of`.")
+        default=None, description="Its weight in the portfolio as of `as_of`.")
     shares_held: float | None = Field(
-        default=None, description="The units of it the book held as of `as_of`.")
+        default=None, description="The units of it the portfolio held as of `as_of`.")
 
 
 class HoldingsView(BaseModel):
@@ -92,4 +92,4 @@ class HoldingsView(BaseModel):
         description="One per name in the universe at the rebalance, those that left "
                     "included, then any name held that the universe did not name.")
     cash_weight: float | None = Field(
-        default=None, description="The share of the book the rebalance left in cash.")
+        default=None, description="The share of the portfolio the rebalance left in cash.")

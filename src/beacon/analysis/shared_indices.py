@@ -3,8 +3,8 @@
 An index's results within a run, kept once for every run that tracked it.
 
 Strategies tracking the same index on the same data store over the same days
-work out the same index: its target book's holdings, days, names and patch
-(`beacon.analysis.holdings`), and its optimised book's when it has one. Kept
+work out the same index: its target portfolio's holdings, days, names and patch
+(`beacon.analysis.holdings`), and its optimised portfolio's when it has one. Kept
 in the store's shared folder (`beacon.analysis.shared_inputs`) under
 ``indices/<fingerprint>``, they are kept once. The fingerprint is of the
 tables themselves, so a changed definition, other data or other days give

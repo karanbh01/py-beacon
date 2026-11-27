@@ -32,7 +32,7 @@ VAR, ES = "var", "es"
 
 def rolling_loss(measure: str) -> Callable[[Context], pd.DataFrame]:
     """Each day's value at risk (``var``) or expected shortfall (``es``) over
-    the window ending that day, by book, method, level and horizon."""
+    the window ending that day, by portfolio, method, level and horizon."""
     def compute(context: Context) -> pd.DataFrame:
         tables = context.kept(("rolling_loss",), lambda: _both(context))
 
@@ -47,14 +47,15 @@ def _both(context: Context) -> dict[str, pd.DataFrame]:
     loss = context.loss
     found: dict[str, dict[str, pd.Series]] = {VAR: {}, ES: {}}
 
-    for book in loss.books():
-        if book not in (FUND, ACTIVE):
+    for name in loss.portfolios():
+        if name not in (FUND, ACTIVE):
             continue
 
-        returns = loss.returns_of(book)
+        returns = loss.returns_of(name)
 
         for measure, figures in _of(returns, window, options.levels, options.horizons).items():
-            found[measure].update({f"{book}/{name}": series for name, series in figures.items()})
+            found[measure].update({f"{name}/{figure}": series
+                                   for figure, series in figures.items()})
 
     days = context.performance.returns.index
 

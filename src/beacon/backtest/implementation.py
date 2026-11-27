@@ -22,7 +22,7 @@ large one, and the difference is the cost of size. See
 3. **Redistribution**: removed weight is spread across the remaining names in
    proportion to their weights (``"pro_rata"``), or held as cash
    (``"cash"``).
-4. **Capacity**: each name is cut to its caps at the book's size, the excess
+4. **Capacity**: each name is cut to its caps at the portfolio's size, the excess
    spread across the names under their caps until none is over (or held as
    cash), and positions too small to keep are dropped and their weight
    redistributed. See `beacon.backtest.capacity`.
@@ -36,7 +36,7 @@ Each rebalance's stages are recorded on the result as a `RebalanceStep`.
 
 ## Cash and flows
 
-A `cash_buffer` keeps that share of the book in cash: each rebalance invests
+A `cash_buffer` keeps that share of the portfolio in cash: each rebalance invests
 the rest, and an outflow is paid from cash before anything is sold. Money
 arriving between rebalances is invested the day it arrives, toward the last
 rebalance's weights (``invest_flows="target"``, the default) or in proportion
@@ -87,9 +87,9 @@ class Implementation:
             trade every order in full on the rebalance day.
         redistribution: Where removed or capped weight goes: ``"pro_rata"``
             (the default) across the remaining names, or ``"cash"``.
-        cash_buffer: The share of the book kept in cash, such as 0.02 for 2%.
+        cash_buffer: The share of the portfolio kept in cash, such as 0.02 for 2%.
             Outflows are paid from cash first.
-        cash_band: The lowest and highest share of the book the cash may
+        cash_band: The lowest and highest share of the portfolio the cash may
             be before it is brought back to *cash_buffer*, checked every
             day; None (the default) leaves it to the next rebalance.
         invest_flows: What money arriving between rebalances buys: the last
@@ -125,7 +125,7 @@ class Implementation:
                              f"Supported: {', '.join(FLOW_INVESTMENTS)}.")
 
         if not 0.0 <= cash_buffer < 1.0:
-            raise ValueError(f"cash_buffer is a share of the book from 0 up "
+            raise ValueError(f"cash_buffer is a share of the portfolio from 0 up "
                              f"to 1, got {cash_buffer!r}.")
 
         if cash_band is not None:
@@ -133,7 +133,7 @@ class Implementation:
 
             if not 0.0 <= lower <= cash_buffer <= upper < 1.0:
                 raise ValueError(f"cash_band runs from a lower to an upper share of the "
-                                 f"book around cash_buffer ({cash_buffer!r}), from 0 up "
+                                 f"portfolio around cash_buffer ({cash_buffer!r}), from 0 up "
                                  f"to 1, got {cash_band!r}.")
 
         self.screens: tuple[Screen, ...] = tuple(screens)
@@ -170,7 +170,7 @@ class RebalanceStep:
         screened: The weights after the screens and redistribution, before
             the cash buffer and the caps.
         weights: What the trades aimed at, after redistribution.
-        cash_weight: The share of the book the weights leave in cash.
+        cash_weight: The share of the portfolio the weights leave in cash.
     """
     date: pd.Timestamp
     target: dict[str, float]
@@ -187,7 +187,7 @@ class RebalanceStep:
 
 def buffered(weights: dict[str, float],
              cash_buffer: float) -> dict[str, float]:
-    """*weights* with *cash_buffer*, a share of the book, set aside in cash:
+    """*weights* with *cash_buffer*, a share of the portfolio, set aside in cash:
     each scaled by the share left invested."""
     invested = 1.0 - cash_buffer
 
@@ -209,10 +209,10 @@ def plan(implementation: Implementation,
         implementation: The screens, caps and redistribution rule.
         target: The strategy's weights.
         date: The rebalance date.
-        held: Names the book holds now, for buffered screens.
+        held: Names the portfolio holds now, for buffered screens.
         stale: Names the data says have gone stale.
-        context: The run's data and book currency.
-        book_value: The book's value before the rebalance, which caps and
+        context: The run's data and portfolio currency.
+        book_value: The portfolio's value before the rebalance, which caps and
             minimum positions are measured against.
         limits: The vehicle's diversification limits, applied with the caps.
 
@@ -315,7 +315,7 @@ def _limits(caps: tuple[CapacityCap, ...],
             date: pd.Timestamp,
             book_value: float,
             context: ScreenContext) -> dict[str, float]:
-    """Each name's largest weight: its tightest cap over the book's value.
+    """Each name's largest weight: its tightest cap over the portfolio's value.
     A name no cap can value has no limit."""
     limits: dict[str, float] = {}
 

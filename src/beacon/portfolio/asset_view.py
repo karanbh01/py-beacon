@@ -2,7 +2,7 @@
 """
 PortfolioAssetView: one asset seen from a portfolio, position and market.
 
-    p.asset("AAA").quantity            # from the books
+    p.asset("AAA").quantity            # from the portfolio
     p.asset("AAA").unrealised_pnl
     p.asset("AAA").prices(start, end)  # from the data source
     p.asset("AAA").sector(on=date)     # point-in-time, not today's
@@ -51,7 +51,7 @@ class PortfolioAssetView(AssetView):
         asset_id: The identifier, as the portfolio and the data source
             both know it.
         data_fetcher: The data provider instance.
-        portfolio: The books the position numbers come from.
+        portfolio: The portfolio the position numbers come from.
     """
 
     def __init__(self,

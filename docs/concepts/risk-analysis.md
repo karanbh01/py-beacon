@@ -144,7 +144,7 @@ Both are losses, reported as positive numbers: a one-day 99% value at risk of
 shortfall is the mean loss on the days worse than that.
 
 ```python
-risk.loss.books()           # ['fund', 'index', 'active']
+risk.loss.portfolios()      # ['fund', 'index', 'active']
 risk.loss.table()           # the fund's, every method, level and horizon
 risk.loss.table("active")   # the fund's return less the index's
 ```

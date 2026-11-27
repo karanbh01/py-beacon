@@ -34,7 +34,7 @@ class IdentifierValues(RootModel[dict[str, float]]):
 
 
 class DatedAmounts(RootModel[dict[datetime.date, float]]):
-    """An amount for each date (YYYY-MM-DD), in the book's currency, positive
+    """An amount for each date (YYYY-MM-DD), in the portfolio's currency, positive
     in and negative out."""
 
 

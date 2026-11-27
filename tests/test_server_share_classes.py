@@ -199,7 +199,7 @@ class TestTheResult:
         dates = result["level"]["index"]
 
         for record in result["share_classes"]:
-            for name in ("net_assets", "book_net_assets", "units", "nav_per_unit", "fees",
+            for name in ("net_assets", "base_net_assets", "units", "nav_per_unit", "fees",
                          "distributions"):
                 assert record[name]["index"] == dates, (record["name"], name)
 
@@ -208,7 +208,7 @@ class TestTheResult:
         """In the book's currency, the classes' net assets are the fund's, its
         hedge's value included. Measured: they agree to about one part in a
         million, the opening day's rounding."""
-        total = sum(record["book_net_assets"]["data"][-1] for record in result["share_classes"])
+        total = sum(record["base_net_assets"]["data"][-1] for record in result["share_classes"])
 
         assert total == pytest.approx(result["initial_capital"] * result["level"]["data"][-1]
                                       / 100.0, rel=1e-5)

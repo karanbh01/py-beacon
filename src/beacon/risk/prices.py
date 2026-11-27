@@ -1,6 +1,6 @@
 # src/beacon/risk/prices.py
 """
-A risk model, and how a book's risk divides among its names, estimated from
+A risk model, and how a portfolio's risk divides among its names, estimated from
 the names' prices.
 
 Each name's daily returns are its prices' changes; a day with no return for
@@ -41,7 +41,7 @@ def risk_of_prices(weights: Mapping[str, float],
                    prices: pd.DataFrame,
                    minimum_observations: int = MINIMUM_OBSERVATIONS
                    ) -> RiskContributions | None:
-    """How the volatility of a book held at *weights* divides among its
+    """How the volatility of a portfolio held at *weights* divides among its
     names, from a risk model of *prices*; None with too few days."""
     returns = returns_of_prices(prices)
 
@@ -60,7 +60,7 @@ def active_risk_of_prices(weights: Mapping[str, float],
                           prices: pd.DataFrame,
                           minimum_observations: int = MINIMUM_OBSERVATIONS
                           ) -> RiskContributions | None:
-    """How a book's tracking error against *benchmark* divides among the
+    """How a portfolio's tracking error against *benchmark* divides among the
     names of either, from a risk model of *prices* (which should cover
     both); None with too few days."""
     returns = returns_of_prices(prices)

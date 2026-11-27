@@ -375,7 +375,7 @@ class AnalysisCatalogue(BaseModel):
     reports: list[ReportSpec] = Field(description="Every report, in order.")
     names: dict[str, dict[str, str]] = Field(
         description="Labels for figure names that are not statistic ids, by dimension: "
-                    "books, methods, confidence levels, horizons, comparators, fields.")
+                    "portfolios, methods, confidence levels, horizons, comparators, fields.")
     tables: list[TableSpec] = Field(description="The large tables a run gives.")
     unavailable: list[UnavailableSpec] = Field(description="Every reason a statistic can "
                                                            "be unavailable.")

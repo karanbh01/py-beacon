@@ -163,7 +163,7 @@ class TestActive:
 
     def test_an_unknown_book(self,
                              attribution):
-        with pytest.raises(KeyError, match="Unknown book 'model'"):
+        with pytest.raises(KeyError, match="Unknown portfolio 'model'"):
             attribution.contribution("model")
 
     def test_an_unknown_comparator(self,

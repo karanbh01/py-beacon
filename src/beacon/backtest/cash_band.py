@@ -2,7 +2,7 @@
 """
 Keeping a fund's cash within a band around its target, every day.
 
-A backtest's `Implementation.cash_buffer` is the share of the book it means to
+A backtest's `Implementation.cash_buffer` is the share of the portfolio it means to
 hold in cash, and each rebalance invests the rest. Between rebalances the cash
 moves: a delisted holding is settled into it, a dividend kept as cash lands in
 it, a fee or a futures margin call is paid from it. With a `cash_band` the run

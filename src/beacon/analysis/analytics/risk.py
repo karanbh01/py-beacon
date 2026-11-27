@@ -222,7 +222,7 @@ class RiskCategory(Category):
                          step=step)
 
     def stress_windows(self) -> Any:
-        """Each book's return and deepest fall in each crisis window."""
+        """Each portfolio's return and deepest fall in each crisis window."""
         return self._get("stress_windows")
 
     # -- risk and return ------------------------------------------------------
@@ -250,7 +250,7 @@ class RiskCategory(Category):
                          *,
                          of: str = FUND,
                          as_of: Day = None) -> Any:
-        """Each book's standardised exposure to the factors at each
+        """Each portfolio's standardised exposure to the factors at each
         rebalance, and the active exposures."""
         return self._get("factor_exposures", of=of, as_of=as_of)
 
@@ -318,7 +318,7 @@ class RiskCategory(Category):
     def diversification_ratio(self,
                               *,
                               as_of: Day = None) -> Any:
-        """The weighted sum of names' volatilities over the book's, at each
+        """The weighted sum of names' volatilities over the portfolio's, at each
         rebalance."""
         return self._get("diversification_ratio", as_of=as_of)
 
@@ -393,7 +393,7 @@ class RiskCategory(Category):
     def drift(self,
               *,
               as_of: Day = None) -> Any:
-        """The share of the book that would trade to return to the last
+        """The share of the portfolio that would trade to return to the last
         rebalance's weights, each day."""
         return self._get("drift", as_of=as_of)
 
@@ -402,6 +402,6 @@ class RiskCategory(Category):
     def days_to_sell(self,
                      *,
                      as_of: Day = None) -> Any:
-        """Days to sell the book at its participation in daily traded value,
+        """Days to sell the portfolio at its participation in daily traded value,
         and the share sellable in 1, 5 and 20 days."""
         return self._get("days_to_sell", as_of=as_of)

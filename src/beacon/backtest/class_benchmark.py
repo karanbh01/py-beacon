@@ -35,6 +35,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from .._renamed import renamed_keyword
 from ..analysis.performance import formulas
 from ..assumptions import DEFAULT_PERIODS_PER_YEAR
 from ..data.fetcher import DataFetcher
@@ -82,7 +83,8 @@ def index_in_class_currency(levels: pd.Series,
                    cash_rate)
 
 
-def class_tracking(book: ShareClassRecord,
+@renamed_keyword("book", "share_class")
+def class_tracking(share_class: ShareClassRecord,
                    benchmark: pd.Series,
                    periods_per_year: int = DEFAULT_PERIODS_PER_YEAR) -> dict[str, float | None]:
     """A class's total return, and its tracking against its benchmark.
@@ -93,7 +95,7 @@ def class_tracking(book: ShareClassRecord,
     the two's daily return difference on their common dates, annualised.
 
     Args:
-        book: The class's record of the run.
+        share_class: The class's record of the run.
         benchmark: Its benchmark's levels, in its currency (see
             :func:`index_in_class_currency`).
         periods_per_year: How many daily returns make a year.
@@ -102,7 +104,7 @@ def class_tracking(book: ShareClassRecord,
         dict: total_return, tracking_difference and tracking_error; the last
         two None without a benchmark.
     """
-    total_return = book.total_return()
+    total_return = share_class.total_return()
 
     if benchmark.empty:
         return {"total_return": total_return, "tracking_difference": None,
@@ -111,7 +113,7 @@ def class_tracking(book: ShareClassRecord,
     # The benchmark's first day returns nothing from its starting level, as
     # the class's first return runs from its launch price.
     benchmark_returns = formulas.returns_from_start(benchmark)
-    active = (book.get_returns() - benchmark_returns).dropna()
+    active = (share_class.get_returns() - benchmark_returns).dropna()
     benchmark_total = formulas.total_return(float(benchmark.iloc[0]), float(benchmark.iloc[-1]))
     tracking_error = formulas.tracking_error(active, periods_per_year)
 

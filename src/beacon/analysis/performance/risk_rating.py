@@ -3,7 +3,7 @@
 A risk rating: the factsheet's 1 to 7 scale on volatility, and a band on
 tracking error.
 
-    risk_rating(returns, tracked, books, settings, periods_per_year)
+    risk_rating(returns, tracked, portfolios, settings, periods_per_year)
     risk_distribution(returns, tracked, settings, periods_per_year)
 
 ## The rating
@@ -43,6 +43,7 @@ from itertools import pairwise
 import numpy as np
 import pandas as pd
 
+from ..._renamed import renamed_keyword
 from . import formulas
 from .comparisons import aligned
 
@@ -116,9 +117,10 @@ def weekly(returns: pd.Series) -> pd.Series:
     return compounded - 1.0
 
 
+@renamed_keyword("books", "portfolios")
 def risk_rating(returns: pd.Series,
                 tracked: pd.Series | None,
-                books: Mapping[str, pd.Series],
+                portfolios: Mapping[str, pd.Series],
                 settings: RiskRatingSettings,
                 periods_per_year: int) -> pd.DataFrame | None:
     """The fund's rating and band, and each comparator's rating.
@@ -127,12 +129,12 @@ def risk_rating(returns: pd.Series,
         returns: The fund's daily returns.
         tracked: The levels of the comparator the band is measured against;
             None for a run without one.
-        books: The levels of each comparator to rate too, by name.
+        portfolios: The levels of each comparator to rate too, by name.
         settings: The bounds and the years measured.
         periods_per_year: How many daily returns make a year.
 
     Returns:
-        pd.DataFrame | None: A row a portfolio: ``book``, ``rating``,
+        pd.DataFrame | None: A row a portfolio: ``portfolio``, ``rating``,
         ``band``, ``volatility`` and ``tracking_error``, the last two
         annualised; a comparator's band and tracking error are blank. None
         for a run with under a year of returns.
@@ -145,7 +147,7 @@ def risk_rating(returns: pd.Series,
     error = _weekly_tracking_error(recent, tracked)
     rows = [_rating_row(FUND, recent, error, settings)]
 
-    for name, levels in books.items():
+    for name, levels in portfolios.items():
         _, theirs = aligned(recent, levels)
 
         if len(theirs) > 1:
@@ -192,7 +194,7 @@ def risk_distribution(returns: pd.Series,
                          for rating, band in order], columns=DISTRIBUTION_COLUMNS)
 
 
-def _rating_row(book: str,
+def _rating_row(name: str,
                 returns: pd.Series,
                 tracking_error: float | None,
                 settings: RiskRatingSettings) -> dict[str, object]:
@@ -200,7 +202,7 @@ def _rating_row(book: str,
     band = (None if tracking_error is None
             else str(bands(tracking_error, settings.tracking_bounds)[0]))
 
-    return {"portfolio": book, "rating": int(ratings(volatility, settings.volatility_bounds)[0]),
+    return {"portfolio": name, "rating": int(ratings(volatility, settings.volatility_bounds)[0]),
             "band": band, "volatility": volatility, "tracking_error": tracking_error}
 
 

@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ..._renamed import renamed_keyword
+from ..._renamed import renamed_keyword, renamed_names
 from ..data import RunData
 from ..performance.comparisons import aligned
 
@@ -35,9 +35,9 @@ COLUMNS = ("days", "expected_volatility", "realised_volatility", "volatility_rat
 
 
 @renamed_keyword("book", "of")
-def book_returns(run: RunData,
-                 of: str) -> pd.Series:
-    """A book's daily returns: the fund's, or a comparator's from its levels."""
+def portfolio_returns(run: RunData,
+                      of: str) -> pd.Series:
+    """A portfolio's daily returns: the fund's, or a comparator's from its levels."""
     if of == FUND:
         return run.returns.dropna().astype(float)
 
@@ -54,8 +54,8 @@ def book_returns(run: RunData,
 def active_returns(run: RunData,
                    of: str,
                    against: str) -> pd.Series:
-    """A book's daily returns less *against*'s, on the days both have."""
-    ours, theirs = book_returns(run, of), book_returns(run, against)
+    """A portfolio's daily returns less *against*'s, on the days both have."""
+    ours, theirs = portfolio_returns(run, of), portfolio_returns(run, against)
     days = ours.index.intersection(theirs.index)
 
     return ours.loc[days] - theirs.loc[days]
@@ -71,7 +71,7 @@ def forecast_check(expected: dict[pd.Timestamp, dict[str, float]],
     Args:
         expected: Each rebalance's expected figures, as
             `RiskOverTime.expected` gives them.
-        returns: The book's daily returns.
+        returns: The portfolio's daily returns.
         active: Its daily returns less the comparator's; None for no
             tracking error.
         periods_per_year: The days in a year the figures are annualised by.
@@ -135,3 +135,7 @@ def _compared(forecast: float,
     ratio = realised / forecast if realised is not None and forecast > 0.0 else None
 
     return {f"expected_{name}": forecast, f"realised_{name}": realised, f"{name}_ratio": ratio}
+
+
+# BN-479: the name before 0.11.0.
+__getattr__ = renamed_names(__name__, {"book_returns": ("portfolio_returns", portfolio_returns)})

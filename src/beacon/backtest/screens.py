@@ -23,7 +23,7 @@ exit level, both are the entry level.
 
 ## Currency
 
-Money thresholds (market cap, traded value, price) are in the book's
+Money thresholds (market cap, traded value, price) are in the portfolio's
 currency, and every value is converted into it before it is compared, so a
 threshold means the same money for every name.
 
@@ -63,7 +63,7 @@ class ScreenContext:
 
     Attributes:
         fetcher: The data the run reads.
-        currency: The book's currency, which money thresholds are in.
+        currency: The portfolio's currency, which money thresholds are in.
     """
     fetcher: DataFetcher
     currency: str
@@ -92,9 +92,9 @@ class Screen(ABC):
         Args:
             asset_id: The name.
             date: The rebalance date.
-            held: Whether the book holds it now, which decides whether a
+            held: Whether the portfolio holds it now, which decides whether a
                 buffered screen applies its entry or its exit level.
-            context: The run's data and book currency.
+            context: The run's data and portfolio currency.
         """
 
 
@@ -152,7 +152,7 @@ class ThresholdScreen(Screen):
     "exit": Display("Exit level for a held name", unit=MONEY, minimum=0.0),
 })
 class MarketCapScreen(ThresholdScreen):
-    """A minimum market cap, in the book's currency.
+    """A minimum market cap, in the portfolio's currency.
 
     Args:
         min_cap: The entry level.
@@ -186,7 +186,7 @@ class MarketCapScreen(ThresholdScreen):
     "exit": Display("Exit level for a held name", unit=MONEY, minimum=0.0),
 })
 class MinimumPriceScreen(ThresholdScreen):
-    """A minimum price, in the book's currency.
+    """A minimum price, in the portfolio's currency.
 
     Args:
         min_price: The entry level.
@@ -215,13 +215,13 @@ class MinimumPriceScreen(ThresholdScreen):
     "min_volume": Display("Minimum average volume", unit=COUNT, minimum=0.0),
 })
 class LiquidityScreen(ThresholdScreen):
-    """A minimum average traded value (book currency) or volume (shares).
+    """A minimum average traded value (portfolio currency) or volume (shares).
 
     Exactly one of *min_traded_value* and *min_volume* is given.
 
     Args:
         min_traded_value: The entry level for the average of close times
-            volume, converted into the book's currency day by day.
+            volume, converted into the portfolio's currency day by day.
         min_volume: The entry level for the average share volume.
         exit: The exit level for a held name, on the same measure.
         lookback_days: How many of the name's most recent trading days are
@@ -340,7 +340,7 @@ class ExpressionScreen(Screen):
     """Names that pass an expression, resolved at each rebalance.
 
     Money fields in the expression, such as `data.market.market_cap`, are in
-    the book's currency.
+    the portfolio's currency.
 
     Args:
         expression: The screen.
@@ -379,7 +379,7 @@ def average_traded(asset_id: str,
                    context: ScreenContext,
                    lookback_days: int = DEFAULT_LIQUIDITY_DAYS,
                    by_value: bool = True) -> float | None:
-    """A name's average daily traded value in the book's currency (close
+    """A name's average daily traded value in the portfolio's currency (close
     times volume, converted day by day), or its average share volume, over
     its last *lookback_days* trading days to *date*. None when it has no
     volume."""
@@ -395,7 +395,7 @@ def converted_closes(asset_id: str,
                       start: pd.Timestamp,
                       end: pd.Timestamp,
                       context: ScreenContext) -> pd.Series:
-    """*asset_id*'s closes in the book's currency, blanks dropped."""
+    """*asset_id*'s closes in the portfolio's currency, blanks dropped."""
     return history(context.fetcher, asset_id, context.currency).closes_between(start, end)
 
 

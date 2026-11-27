@@ -4,7 +4,7 @@ A return split into named effects each day (local, currency and cross term;
 market, factors and specific), linked over the days so the effects add up to
 the compounded return, with what they leave unexplained as the residual.
 
-A book's own return links by Carino's factor ``ln(1 + R) / R``; a return over
+A portfolio's own return links by Carino's factor ``ln(1 + R) / R``; a return over
 a comparator by the active factor ``(ln(1 + R) - ln(1 + R^b)) / (R - R^b)``,
 as Brinson-Fachler links (`beacon.analysis.attribution.brinson`).
 """
@@ -24,7 +24,7 @@ class EffectsResult:
         start: The first day attributed.
         end: The last.
         periods: The days.
-        total_return: The return explained: a book's compounded return, or
+        total_return: The return explained: a portfolio's compounded return, or
             the fund's less a comparator's.
         effects: Each effect, linked, largest first.
         explained: What the effects add up to.

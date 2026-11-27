@@ -116,7 +116,7 @@ def page_of(report: Any) -> Page:
               if len(returns) else BLANK)
     facts = [("Level", report.level.capitalize()), ("Window", window),
              ("Currency", str(context.run.currency or BLANK)),
-             ("Portfolios", ", ".join(_book_label(book) for book in context.books()))]
+             ("Portfolios", ", ".join(_book_label(book) for book in context.portfolios()))]
     sections = [Section(PART_LABELS.get(part, part), _blocks(report, ids))
                 for part, ids in _by_part(report).items()]
     unavailable = [(CATALOGUE[statistic_id].label, reason)
@@ -275,7 +275,7 @@ def _listed(spec: Any,
 
 
 def _parts(name: Any) -> list[str]:
-    """The names *name* is made of: a tuple's, or a ``book/field``'s."""
+    """The names *name* is made of: a tuple's, or a ``portfolio/field``'s."""
     if isinstance(name, tuple):
         return [part for item in name for part in _parts(item)]
 

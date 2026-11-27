@@ -74,7 +74,7 @@ class Pricing(ABC):
         """Price a flow.
 
         Args:
-            amount: The flow at NAV, in the book's currency: positive for
+            amount: The flow at NAV, in the portfolio's currency: positive for
                 money paid in, negative for the value of units redeemed.
             nav_per_unit: Today's NAV per unit, before the flow.
             net_assets: The fund's net assets before the flow.

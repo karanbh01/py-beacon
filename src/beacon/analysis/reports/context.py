@@ -5,7 +5,7 @@ analysis makes, and each analysis of it, built the first time a statistic
 asks for it.
 
     context = Context(run, options, source)
-    context.book("index").headline()
+    context.performance_of("index").headline()
     context.relative("benchmark").regression()
 
 A statistic asks the context for what it needs; one the run cannot give,
@@ -135,26 +135,26 @@ class Context:
 
         return [] if days is None or days.empty else list(pd.unique(days["CLASS"].astype(str)))
 
-    def books(self) -> list[str]:
-        """Every book a figure of returns is given for: the fund, each
+    def portfolios(self) -> list[str]:
+        """Every portfolio a figure of returns is given for: the fund, each
         comparator and each share class."""
         return [FUND, *self.comparators, *(CLASS + name for name in self.classes)]
 
-    def book(self,
-             name: str) -> PerformanceAnalytics:
-        """The performance of book *name*: the fund, a comparator, or a
+    def performance_of(self,
+                       name: str) -> PerformanceAnalytics:
+        """The performance of portfolio *name*: the fund, a comparator, or a
         share class (``class/<name>``)."""
         if name == FUND:
             return self.performance
 
-        return self._books[name] if name in self._books else self._book(name)
+        return self._performances[name] if name in self._performances else self._built(name)
 
     @cached_property
-    def _books(self) -> dict[str, PerformanceAnalytics]:
+    def _performances(self) -> dict[str, PerformanceAnalytics]:
         return {}
 
-    def _book(self,
-              name: str) -> PerformanceAnalytics:
+    def _built(self,
+               name: str) -> PerformanceAnalytics:
         if name.startswith(CLASS):
             returns = self._class_returns(name[len(CLASS):])
         else:
@@ -164,7 +164,7 @@ class Context:
         run = RunData.of_returns(returns, self.run.periods_per_year, self.run.risk_free_rate,
                                  currency=self.run.currency)
         found = PerformanceAnalytics(run, replace(self.options.window, tracked=None))
-        self._books[name] = found
+        self._performances[name] = found
 
         return found
 
@@ -317,7 +317,7 @@ class Context:
 
     @cached_property
     def liquidity(self) -> LiquidityAnalytics:
-        """How fast the run's books could be sold."""
+        """How fast the run's portfolios could be sold."""
         options = self.options.liquidity
 
         return LiquidityAnalytics(self.run, self.require_source(),

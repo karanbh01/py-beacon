@@ -110,7 +110,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
         currency: The portfolio's currency. Prices quoted in another currency
             are converted into it with the FX rate on or before each day.
             None, the default, uses the index's currency, or USD when the
-            index does not record one. Pass another to keep the book in a
+            index does not record one. Pass another to keep the portfolio in a
             different currency from the index, such as a dollar investor
             tracking a euro index.
         modelling_assumptions: What the run takes as given about markets and
@@ -125,7 +125,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             paid: ``"reinvest"`` (the default) buys the current holdings
             with them the day they arrive, ``"cash"`` keeps them as cash
             until the next rebalance, and ``"distribute"`` pays them out of
-            the book, with returns adding them back. See
+            the portfolio, with returns adding them back. See
             :mod:`beacon.backtest.dividends`.
         reinvest_into: Where reinvested dividends go: ``"payer"`` (the
             default) buys more of the name that paid each one, and
@@ -152,7 +152,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             :class:`~beacon.strategy.FuturesReplication`). None otherwise; a
             physical fund equitises its cash buffer through
             `Implementation(equitise=...)` instead.
-        share_classes: The fund's share classes, sharing one book, each with
+        share_classes: The fund's share classes, sharing one portfolio, each with
             its own fee, flows and distribution policy (see
             :mod:`beacon.backtest.share_classes`). None runs the fund as one
             class. With classes, *dividends* applies to the accumulating
@@ -165,7 +165,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
             derived-index shape): *index_result* is an optimised
             calculation and this is its parent, and they land in
             `index.optimised` and `index.target` respectively. Omitted on a
-            plain run, whose own calculation fills the target book.
+            plain run, whose own calculation fills the target portfolio.
         calendar: The exchange MIC the traded index schedules on, which every
             index definition carries. It decides which days the run steps
             onto and how a missing bar on one of them is read: on a day the
@@ -363,7 +363,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
         """Screen and redistribute one rebalance's target, and record how.
 
         Stale names (BN-211) are the first screen: applied to the target
-        rather than the book, so the ordinary rebalance sells them, which a
+        rather than the portfolio, so the ordinary rebalance sells them, which a
         stale name allows because it still has a last price. A delisted one
         does not, which is why `_dispose_delisted` is a separate path.
         """
@@ -400,7 +400,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
         calculated by Beacon can no longer produce such a date — its schedule
         and the loop read the same calendar — so this covers the schedule
         handed in from outside: a weight dict written by hand, or one built on
-        a different venue's calendar from the one the book is priced against.
+        a different venue's calendar from the one the portfolio is priced against.
 
         Dropping the date would put back exactly the defect BN-183 fixed: a
         rebalance in the record on which nothing moved. Executing it on the
@@ -462,7 +462,7 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
                 from, checked before the first trade rather than discovered at
                 it. Also raised when a position cannot be priced: a date
                 outside the market data's coverage, or a holding with no FX
-                rate into the book's currency on or before the day.
+                rate into the portfolio's currency on or before the day.
         """
         require_price_column(self.data_provider, self.price_column,
                              "The backtest")
@@ -720,10 +720,10 @@ class BacktestEngine(PricingMixin, ShareClassesMixin, DividendsMixin, ExecutionM
     def _build_result(self,
                       portfolio: Portfolio,
                       unfilled: list[UnfilledOrder]) -> BacktestResult:
-        """Assemble the result: the portfolio kept whole, plus the books.
+        """Assemble the result: the portfolio kept whole, plus the records.
 
         Nothing is flattened -- the portfolio recorded its own history as the
-        run marked and traded, and the comparators become books so every one
+        run marked and traded, and the comparators become records so every one
         answers through the same spelling (decision 5).
         """
         # Bound to the run's own data (decision 16): asset-level views on

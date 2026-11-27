@@ -462,7 +462,7 @@ class AccountingMixin:
                        date: pd.Timestamp) -> None:
         """Invest the cash that is free, keeping the buffer, as the
         implementation says: at once, or as working orders under an
-        execution limit. The books are recorded once, after (BN-344)."""
+        execution limit. The portfolio is recorded once, after (BN-344)."""
         with portfolio.batch():
             self._invest_free_cash(portfolio, date)
 

@@ -76,7 +76,7 @@ def _share_classes(request: StrategyBacktestRequest,
 
         if spec.hedged and spec.currency is not None and spec.currency.upper() == book:
             report(f"{path}.currency", "invalid_value",
-                   f"A class cannot hedge into the book's own currency, {book}.")
+                   f"A class cannot hedge into the portfolio's own currency, {book}.")
 
         try:
             built.append(ShareClass(**spec.model_dump()))

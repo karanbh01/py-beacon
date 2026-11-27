@@ -1,7 +1,7 @@
 # src/beacon/backtest/settings.py
 """
 How a backtest engine's settings are resolved and checked before it runs:
-the book's currency, whether the index was calculated under the same
+the portfolio's currency, whether the index was calculated under the same
 modelling assumptions, and that no screen was passed as a modifier.
 """
 # Moved out of engine.py when it was split (BN-268).
@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 
 def book_currency(currency: str | None,
                   index_result: IndexResult) -> str:
-    """The book's currency: the one asked for, else the index's, else USD.
+    """The portfolio's currency: the one asked for, else the index's, else USD.
 
-    A book in a different currency from its index is a real case (a dollar
+    A portfolio in a different currency from its index is a real case (a dollar
     investor tracking a euro index) and is allowed, but said, because its
     tracking figures then include exchange-rate moves the index does not see.
     """
@@ -31,7 +31,7 @@ def book_currency(currency: str | None,
 
     if currency is None:
         if index_currency is None:
-            logger.info("The index does not record its currency; the book is "
+            logger.info("The index does not record its currency; the portfolio is "
                         "kept in USD.")
 
         return index_currency or "USD"
@@ -39,7 +39,7 @@ def book_currency(currency: str | None,
     book = currency.upper()
 
     if index_currency is not None and book != index_currency:
-        logger.info("The book is kept in %s and the index is in %s, so the "
+        logger.info("The portfolio is kept in %s and the index is in %s, so the "
                     "tracking figures include exchange-rate moves.", book,
                     index_currency)
 

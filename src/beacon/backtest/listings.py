@@ -39,7 +39,7 @@ class ListingsMixin:
         empty mapping with a WARNING (BN-197). Empty does not mean "unknown"
         here, it means "nothing is ever delisted", and the engine acts on it:
         the price read stops declining to carry a dead name forward, and
-        disposal never settles the holding. So the book ran to the end holding
+        disposal never settles the holding. So the portfolio ran to the end holding
         names that no longer existed, each marked at its last close, and
         published a NAV as though that were real — with the only record of it
         in a log nobody reads after the fact.

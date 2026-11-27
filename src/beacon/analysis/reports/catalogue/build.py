@@ -1,6 +1,6 @@
 # src/beacon/analysis/reports/catalogue/build.py
 """
-The shapes most statistics take: a figure of each book's returns, a figure of
+The shapes most statistics take: a figure of each portfolio's returns, a figure of
 the fund against each comparator, and tables from one call.
 """
 # BN-398.
@@ -25,16 +25,16 @@ Reader = Callable[[PerformanceAnalytics, Context], Any]
 RelativeReader = Callable[[RelativeAnalytics, Context], Any]
 
 
-def per_book(read: Reader,
+def per_portfolio(read: Reader,
              active: bool = False) -> Callable[[Context], dict[str, Any]]:
-    """A statistic of each book's returns: the fund's, each comparator's and
+    """A statistic of each portfolio's returns: the fund's, each comparator's and
     each share class's; with *active*, the fund's less the tracked
     comparator's too."""
     def compute(context: Context) -> dict[str, Any]:
         found: dict[str, Any] = {FUND: read(context.performance, context)}
 
-        for book in context.books()[1:]:
-            found[book] = _quietly(book, partial(_read_book, read, context, book))
+        for name in context.portfolios()[1:]:
+            found[name] = _quietly(name, partial(_read_portfolio, read, context, name))
 
         tracked = context.tracked
 
@@ -60,7 +60,7 @@ def per_comparator(read: RelativeReader) -> Callable[[Context], dict[str, Any]]:
 def memo(analytics: Any,
          name: str,
          build: Callable[[], Any]) -> Any:
-    """*build*'s answer, worked out once for *analytics* (a book's or a
+    """*build*'s answer, worked out once for *analytics* (a portfolio's or a
     comparator's), so statistics read from the same call share it."""
     kept: dict[str, Any] = analytics.__dict__.setdefault("_statistics", {})
 
@@ -93,22 +93,22 @@ def _joined(parts: Any) -> str:
     return "/".join(str(part) for part in parts if str(part))
 
 
-def _read_book(read: Reader,
-               context: Context,
-               book: str) -> Any:
-    return read(context.book(book), context)
+def _read_portfolio(read: Reader,
+                    context: Context,
+                    name: str) -> Any:
+    return read(context.performance_of(name), context)
 
 
-def _quietly(book: str,
+def _quietly(name: str,
              read: Callable[[], Any]) -> Any:
     """A comparator's or class's figure, None when its returns cannot give
-    it; the fund's figure is not held back by another book's."""
+    it; the fund's figure is not held back by another portfolio's."""
     try:
         return read()
     except Unavailable:
         return None
     except (ValueError, ZeroDivisionError, KeyError) as error:
-        logger.debug(f"{book}: no figure ({error}).")
+        logger.debug(f"{name}: no figure ({error}).")
         return None
 
 

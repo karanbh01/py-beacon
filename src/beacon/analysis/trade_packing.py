@@ -2,7 +2,7 @@
 """
 A run's trades, kept small: what was traded, and the rest worked out again.
 
-A trade's price is its name's close in the book's currency that day, its
+A trade's price is its name's close in the portfolio's currency that day, its
 value is quantity times price, and its cost is the run's fixed rate on that
 value, with any market impact. So a stored run keeps each trade's date,
 name, side, quantity, reason and tags, and the fixed rate; the price, value,
@@ -67,10 +67,10 @@ def pack_trades(trades: pd.DataFrame,
     Args:
         trades: The run's trades (`beacon.backtest.breakdown.trades`).
         tables: The run's closes, currencies, rates and actions.
-        currency: The book's currency.
+        currency: The portfolio's currency.
     """
     rate = fixed_rate(trades)
-    prices = book_prices(trades, tables, currency)
+    prices = portfolio_prices(trades, tables, currency)
     whole, rows, columns, values = [], [], [], []
     frame = trades.copy()
 
@@ -113,7 +113,7 @@ def unpack_trades(packed: Mapping[str, pd.DataFrame],
     *order*."""
     kept, patch = packed[TRADES_KEPT], packed[TRADES_PATCH]
     frame = kept.copy()
-    prices = book_prices(frame, tables, currency)
+    prices = portfolio_prices(frame, tables, currency)
 
     for column in WORKED_OUT:
         if column in kept.columns:
@@ -127,11 +127,12 @@ def unpack_trades(packed: Mapping[str, pd.DataFrame],
     return frame[order]
 
 
-def book_prices(trades: pd.DataFrame,
-                tables: Mapping[str, pd.DataFrame],
-                currency: str) -> np.ndarray:
-    """Each trade's name's close on its day, carried over gaps, in the book's
-    currency, as the books priced it; missing where the run kept none."""
+def portfolio_prices(trades: pd.DataFrame,
+                     tables: Mapping[str, pd.DataFrame],
+                     currency: str) -> np.ndarray:
+    """Each trade's name's close on its day, carried over gaps, in the
+    portfolio's currency, as the run priced it; missing where the run kept
+    none."""
     if trades.empty:
         return np.array([], dtype=float)
 

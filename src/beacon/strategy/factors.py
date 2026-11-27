@@ -18,7 +18,7 @@ how its scores are standardised.
 **Standardising.** Each part's values (made larger-is-better, then
 transformed) are centred and scaled across the *universe*: centred on its
 cap-weighted mean by default (``centre="cap_weighted"``), so the market
-portfolio has no exposure and a book's exposure reads as its tilt against the
+portfolio has no exposure and a portfolio's exposure reads as its tilt against the
 market, or on its equally weighted mean (``"equal"``); and scaled by the
 standard deviation of the centred values, then capped at 3 either side. With
 *centre_by* naming grouping fields (``"sector"``, or ``["region", "sector"]``)
@@ -79,7 +79,7 @@ class FactorInputs:
     market cap and groups, and the groups that fell back to a wider one.
 
     Attributes:
-        context: The run's data and book currency.
+        context: The run's data and portfolio currency.
         date: The day.
         names: Every name scored.
         fallbacks: For each factor by name, the groups too small to centre
@@ -94,7 +94,7 @@ class FactorInputs:
     _groups: dict[str, dict[str, str | None]] = field(default_factory=dict)
 
     def raw_caps(self) -> dict[str, float | None]:
-        """Each name's market cap in the book's currency, None when unknown,
+        """Each name's market cap in the portfolio's currency, None when unknown,
         read once for every factor that weights or scores by it."""
         if self._raw_caps is None:
             self._raw_caps = FieldSignal(MARKET_CAP).values(self.names, self.date, self.context)
@@ -102,7 +102,7 @@ class FactorInputs:
         return self._raw_caps
 
     def caps(self) -> dict[str, float]:
-        """Each name's market cap in the book's currency, 0 when unknown."""
+        """Each name's market cap in the portfolio's currency, 0 when unknown."""
         if self._caps is None:
             self._caps = {name: value if value is not None and value > 0 else 0.0
                           for name, value in self.raw_caps().items()}

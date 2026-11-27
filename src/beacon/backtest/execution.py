@@ -21,7 +21,7 @@ not depend on its size; with it, the same trade costs a large fund more.
 
 A rebalance sells first and buys with what is left. Buys are sized so that
 they and their costs fit the cash the sells leave, so a rebalance fills in
-full and the book ends fully invested, short of its target weights only by
+full and the portfolio ends fully invested, short of its target weights only by
 the costs.
 
 ## Execution limits
@@ -291,7 +291,7 @@ class ExecutionMixin:
                      portfolio: Portfolio,
                      date: pd.Timestamp) -> None:
         """Trade what the execution limit allows of each working order today,
-        sells before buys, buys no further than the cash. The books are
+        sells before buys, buys no further than the cash. The portfolio is
         recorded once, after (BN-344)."""
         with portfolio.batch():
             self._work_each_order(portfolio, date)

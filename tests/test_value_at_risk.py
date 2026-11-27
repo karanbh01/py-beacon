@@ -129,7 +129,7 @@ class TestARun:
                        run):
         risk = RiskOfLoss(run)
 
-        assert risk.books() == ["fund", "index", "active"]
+        assert risk.portfolios() == ["fund", "index", "active"]
         assert risk.table("index").loc[("var", "historical"), (0.95, 1)] == pytest.approx(
             value_at_risk(risk.returns_of("index"), 0.95))
         assert risk.table("active").loc[("var", "normal"), (0.99, 1)] < risk.table().loc[

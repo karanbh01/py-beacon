@@ -171,17 +171,18 @@ def _stepped(table: pd.DataFrame,
 
 def _own(column: str,
          active: bool = False) -> Callable[[Context], pd.DataFrame]:
-    """A figure of each book's returns, rolled in one pass a book."""
+    """A figure of each portfolio's returns, rolled in one pass a portfolio."""
     def compute(context: Context) -> pd.DataFrame:
         window = context.options.rolling.window
-        books = {}
+        portfolios = {}
 
-        for name in context.books():
-            book = context.book(name)
-            books[name] = rolling_figures(book.returns, window, book.periods_per_year,
-                                          book.risk_free_rate)[column]
+        for name in context.portfolios():
+            performance = context.performance_of(name)
+            portfolios[name] = rolling_figures(performance.returns, window,
+                                               performance.periods_per_year,
+                                               performance.risk_free_rate)[column]
 
-        table = pd.DataFrame(books)
+        table = pd.DataFrame(portfolios)
 
         if active and context.tracked is not None:
             table[ACTIVE] = table[FUND] - table[context.tracked]

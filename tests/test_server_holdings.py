@@ -352,8 +352,8 @@ class TestStageDescriptions:
         assert stages["ExclusionScreen"]["description"] == "Drops CCC."
         assert stages["cash_buffer"]["params"] == [{"label": "Cash buffer", "value": "2%"}]
         assert stages["implementation_cap"]["description"] == (
-            "Cuts each position to at most 45% of the book and spreads what it moves across "
-            "the rest.")
+            "Cuts each position to at most 45% of the portfolio and spreads what it moves "
+            "across the rest.")
 
     def test_the_preview_s_steps_say_so_too(self,
                                             client):

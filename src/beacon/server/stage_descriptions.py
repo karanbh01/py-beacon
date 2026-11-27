@@ -187,7 +187,7 @@ def cash_buffer(share: float) -> Described:
     text = formatted(share, FRACTION, "")
 
     return Described(type="CashBuffer",
-                     description=f"Keeps {text} of the book in cash and scales every other "
+                     description=f"Keeps {text} of the portfolio in cash and scales every other "
                                  f"weight down to match.",
                      params=[{"label": "Cash buffer", "value": text}])
 
@@ -331,7 +331,7 @@ _SCREENS: dict[str, Callable[[Values], str]] = {
         f"Drops names priced below {values.text('min_price')}{_held_exit(values, 'exit')}"),
 }
 _CAPS: dict[str, Callable[[Values], str]] = {
-    "WeightCap": lambda values: f"at most {values.text('max_weight')} of the book",
+    "WeightCap": lambda values: f"at most {values.text('max_weight')} of the portfolio",
     "LiquidityCap": lambda values: (f"what could be sold in {values.text('days')} at "
                                     f"{values.text('participation')} of the day's volume"),
     "OwnershipCap": lambda values: (f"at most {values.text('max_share')} of the company's "

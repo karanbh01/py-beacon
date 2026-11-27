@@ -1,7 +1,7 @@
 # src/beacon/backtest/books.py
 """
-A book: one series of levels and weights, compared the same way whatever it
-is. A backtest's result holds one for the portfolio's target index, one for
+A portfolio record: one series of levels and weights, compared the same way
+whatever it is. A backtest's result holds one for the portfolio's target index, one for
 an optimised index when there is one, and one for its benchmark.
 """
 # Moved out of result.py when it was split (BN-268).
@@ -18,8 +18,8 @@ class PortfolioRecord:
 
     The uniform surface every comparator answers through, so
     `result.index.target.weights` and `result.benchmark.levels` are the
-    same spelling on every book. A book built from an `IndexResult` keeps it as
-    `source`, because the snapshots it holds (what each rebalance *decided*)
+    same spelling on every portfolio. A record built from an `IndexResult`
+    keeps it as `source`, because the snapshots it holds (what each rebalance *decided*)
     are a different fact from the daily panel (what happened between).
 
     A benchmark supplied as a bare level series has no weights; its
@@ -37,7 +37,7 @@ class PortfolioRecord:
     @classmethod
     def from_index(cls,
                    result: IndexResult) -> "PortfolioRecord":
-        """A book over an index result.
+        """A portfolio over an index result.
 
         The result's daily weights panel becomes the wide weights frame
         (dates by identifiers). A result with no daily weights panel yields
@@ -59,12 +59,12 @@ class PortfolioRecord:
     @classmethod
     def from_levels(cls,
                     levels: pd.Series) -> "PortfolioRecord":
-        """A book over a bare level series, such as a benchmark from raw data."""
+        """A portfolio over a bare level series, such as a benchmark from raw data."""
         return cls(levels=pd.Series(levels).astype(float))
 
     @property
     def returns(self) -> pd.Series:
-        """Daily returns of the levels; empty when the book is."""
+        """Daily returns of the levels; empty when the portfolio is."""
         if self.levels.empty:
             return pd.Series(dtype=float)
 
@@ -83,7 +83,7 @@ class PortfolioRecord:
 class IndexRecords:
     """The run's calculated indices, one home each.
 
-    The **container is always present**; its books are what can be None.
+    The **container is always present**; its records are what can be None.
     That distinction reads as safe and is not: a guard written against
     `result.index` rather than `result.index.target` never fires.
 
@@ -100,18 +100,18 @@ class IndexRecords:
 
     @property
     def tracked(self) -> PortfolioRecord | None:
-        """The book the engine traded toward: optimised when solved, else target."""
+        """The portfolio the engine traded toward: optimised when solved, else target."""
         return self.optimised if self.optimised is not None else self.target
 
 
 def index_records(index_result: IndexResult,
                 target_index: IndexResult | None) -> IndexRecords:
-    """A run's calculated indices, one book each.
+    """A run's calculated indices, one record each.
 
     Given *index_result* alone, the run traded a plain calculation: it is the
-    `target` book. Given *target_index* as well, the schedule the engine
+    `target` record. Given *target_index* as well, the schedule the engine
     traded is an optimised calculation and *target_index* is the parent it was
-    solved from, so they are the `target` and `optimised` books.
+    solved from, so they are the `target` and `optimised` records.
     """
     if target_index is not None:
         return IndexRecords(target=PortfolioRecord.from_index(target_index),
@@ -121,7 +121,7 @@ def index_records(index_result: IndexResult,
 
 
 def benchmark_record(benchmark: IndexResult | pd.Series | None) -> PortfolioRecord | None:
-    """The benchmark of record as a book, whichever form it was given in."""
+    """The benchmark of record as a portfolio, whichever form it was given in."""
     if benchmark is None:
         return None
 

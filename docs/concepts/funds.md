@@ -73,11 +73,11 @@ The same works without a `Fund`: pass `share_classes=` to `Backtest`, with
 
 ### Classes in another currency, hedged or not
 
-A class can be denominated in another currency from the fund's portfolio:
+A class can be denominated in a currency other than the fund's base currency:
 `ShareClass("EUR", currency="EUR")`. Its capital, flows, fees and distributions
 are in its own currency, converted at each day's rate, and its NAV per unit
 moves with the portfolio's return and the exchange rate together. Its
-`book_net_assets` gives its net assets in the portfolio's currency, so the classes
+`base_net_assets` gives its net assets in the fund's base currency, so the classes
 still add up to the fund.
 
 A hedged class takes the currency move out:

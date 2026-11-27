@@ -4,7 +4,7 @@ The fund's and its comparators' risk and return, measured as each name's is
 in the per-name table at weekly returns, and the efficient frontier through
 the names in hindsight.
 
-    portfolio_risk_return(books, settings)
+    portfolio_risk_return(portfolios, settings)
     hindsight_frontier(name_returns, index_weights, settings)
 
 ## Risk and return
@@ -37,6 +37,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from ..._renamed import renamed_keyword
 from ...exceptions import CalculationError
 from ...optimise.frontier import efficient_frontier
 from ...risk.model import estimate_risk_model
@@ -129,14 +130,15 @@ def risk_return(periods: pd.DataFrame,
                         index=periods.columns)
 
 
-def portfolio_risk_return(books: Mapping[str, pd.Series],
+@renamed_keyword("books", "portfolios")
+def portfolio_risk_return(portfolios: Mapping[str, pd.Series],
                           settings: RiskReturnSettings) -> pd.DataFrame:
     """Each portfolio's risk and return, from its daily returns by name,
     measured as the names' are."""
-    if not books:
+    if not portfolios:
         return pd.DataFrame(columns=PORTFOLIO_COLUMNS)
 
-    daily = pd.DataFrame(dict(books))
+    daily = pd.DataFrame(dict(portfolios))
     figures = risk_return(compounded(daily, settings.frequency), settings.per_year)
 
     return figures.rename_axis("portfolio").reset_index()[PORTFOLIO_COLUMNS]

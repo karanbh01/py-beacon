@@ -56,7 +56,7 @@ APP_NAME = "beacon"
 SCHEMA_VERSION_KEY = "schema_version"
 
 # Bump when a stored shape changes, and add the matching entry to MIGRATIONS.
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 # The field an index document is discriminated by. One version chain covers
 # every collection — watchlists, indices, constraint sets — so a migration that
@@ -139,12 +139,31 @@ def _portfolio_named_job(document: dict[str, Any]) -> dict[str, Any]:
     return document
 
 
+def _base_named_share_classes(document: dict[str, Any]) -> dict[str, Any]:
+    """v4 -> v5: a stored backtest's share classes give their net assets in
+    the fund's base currency as ``base_net_assets``.
+
+    BN-479 renamed the field, which was ``book_net_assets`` before 0.11.0.
+    Documents from other collections, and jobs without share classes, pass
+    through untouched.
+    """
+    result = document.get("result") if _JOB_MARKER in document else None
+    classes = result.get("share_classes") if isinstance(result, dict) else None
+
+    for share_class in classes if isinstance(classes, list) else []:
+        if isinstance(share_class, dict) and "book_net_assets" in share_class:
+            share_class["base_net_assets"] = share_class.pop("book_net_assets")
+
+    return document
+
+
 # version -> function producing the next version's shape. Keyed by the version
 # being migrated FROM, so applying 1 turns a v1 document into a v2 one.
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: _add_default_calendar,
     2: _wrap_job_error,
     3: _portfolio_named_job,
+    4: _base_named_share_classes,
 }
 
 

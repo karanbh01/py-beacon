@@ -40,6 +40,14 @@ def renamed_names(module: str,
     return read
 
 
+def warn_renamed(old: str,
+                 new: str) -> None:
+    """Warn the caller of the method or property that called this that
+    *old* is now *new*."""
+    warnings.warn(f"{old} is deprecated and will be removed in {REMOVED_IN}; use {new}.",
+                  DeprecationWarning, stacklevel=3)
+
+
 def renamed_keyword(old: str,
                     new: str) -> Callable[[F], F]:
     """A function whose keyword *old* is now *new*: given as *old*, it warns
@@ -64,4 +72,4 @@ def renamed_keyword(old: str,
     return wrap
 
 
-__all__ = ["renamed_keyword", "renamed_names"]
+__all__ = ["renamed_keyword", "renamed_names", "warn_renamed"]

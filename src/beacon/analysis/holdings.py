@@ -2,9 +2,9 @@
 """
 Daily weights worked out again from what was held and the closes.
 
-A book's daily weights repeat information its holdings and the prices
+A portfolio's daily weights repeat information its holdings and the prices
 already carry: a weight is a holding's value over the day's total, and a
-holding changes only when the book trades or the index rebalances. So a
+holding changes only when the portfolio trades or the index rebalances. So a
 stored run keeps the holdings on the days they change, and the weights are
 worked out again from them and the closes, in the same arithmetic as the
 code that first recorded them.
@@ -96,13 +96,13 @@ def fund_weights_from(changes: pd.DataFrame,
                       dates: pd.DatetimeIndex,
                       names: list[str]) -> pd.DataFrame:
     """The fund's daily weights: each holding's quantity times its price in
-    the book's currency, over the day's total, as the books recorded them.
+    the portfolio's currency, over the day's total, as the run recorded them.
 
     Args:
         changes: The fund's quantities on the days they changed.
-        totals: The books' total value (holdings and cash) on each day.
-        prices: Each name's close in the book's currency, carried over gaps.
-        dates: The days the books held anything.
+        totals: The portfolio's total value (holdings and cash) on each day.
+        prices: Each name's close in the portfolio's currency, carried over gaps.
+        dates: The days the portfolio held anything.
         names: The names, in the recorded weights' order.
     """
     quantities = held_amounts(changes, dates, names)
@@ -127,7 +127,7 @@ def index_weights_from(changes: pd.DataFrame,
     Args:
         changes: The index's units on the days they changed.
         closes: Each name's close in its own currency, carried over gaps.
-        rates: Each name's rate into the book's currency, by date and name.
+        rates: Each name's rate into the portfolio's currency, by date and name.
         dates: The days the index held anything.
         names: The names, in the recorded weights' order.
         dtype: The weights table's dtype.
@@ -154,8 +154,8 @@ def rate_grid(currencies: pd.DataFrame,
               rates: pd.DataFrame,
               dates: pd.DatetimeIndex,
               names: list[str]) -> pd.DataFrame:
-    """Each name's rate into the book's currency on each of *dates*: its
-    currency's kept rate, or 1 for a name in the book's own currency."""
+    """Each name's rate into the portfolio's currency on each of *dates*: its
+    currency's kept rate, or 1 for a name in the portfolio's own currency."""
     grid = np.ones((len(dates), len(names)))
     quoted = currencies["CURRENCY"]
 

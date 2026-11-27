@@ -122,7 +122,7 @@ def _crises(context: Context) -> pd.DataFrame:
 
 def _crisis_paths(context: Context) -> pd.DataFrame:
     books = {FUND: context.performance.returns}
-    books.update({name: context.book(name).returns for name in (INDEX, BENCHMARK)
+    books.update({name: context.performance_of(name).returns for name in (INDEX, BENCHMARK)
                   if name in context.run.comparators})
 
     return crisis_paths(context.crises.crises(), books)

@@ -75,23 +75,23 @@ def _rolling_betas(context: Context) -> pd.DataFrame:
 
 
 def _loss(measure: str) -> Callable[[Context], dict[str, Any]]:
-    """Value at risk or expected shortfall, by book, method, level and
+    """Value at risk or expected shortfall, by portfolio, method, level and
     horizon."""
     def compute(context: Context) -> dict[str, Any]:
         options = context.options.value_at_risk
         found: dict[str, Any] = {}
 
-        for book in context.loss.books():
-            if book != FUND and book != ACTIVE:
+        for name in context.loss.portfolios():
+            if name != FUND and name != ACTIVE:
                 continue
 
-            table = context.kept(("loss", book), partial(context.loss.table, book,
+            table = context.kept(("loss", name), partial(context.loss.table, name,
                                                          options.levels, options.horizons))
             rows = table.xs(measure, level="measure")
 
             for method, values in rows.iterrows():
                 for (level, horizon), value in values.items():
-                    found[f"{book}/{method}/{level}/{horizon}"] = value
+                    found[f"{name}/{method}/{level}/{horizon}"] = value
 
         return found
 
@@ -193,7 +193,7 @@ def statistics() -> list[StatisticSpec]:
                 "tracking_error", "factor_tracking_error", "specific_tracking_error"]
 
     return [
-        stat("factor_exposures", "Factor exposures", FACTORS, TABLE, "Each book's "
+        stat("factor_exposures", "Factor exposures", FACTORS, TABLE, "Each portfolio's "
              "standardised exposure to the factors at each rebalance, and the active "
              "exposures.", _exposures, unit="ratio", settings=("window.tracked",)),
         stat("factor_returns", "Factor returns", FACTORS, TABLE, "Each day's return to each "
@@ -211,7 +211,7 @@ def statistics() -> list[StatisticSpec]:
              "days worse than the value at risk: historical and normal.", _loss(ES),
              unit="fraction", rolling=MODERATE, settings=LOSS_SETTINGS,
              figure_names=("portfolio", "method", "confidence", "horizon")),
-        stat("stress_windows", "Stress windows", LOSS, TABLE, "Each book's return and "
+        stat("stress_windows", "Stress windows", LOSS, TABLE, "Each portfolio's return and "
              "deepest fall in each crisis window.",
              lambda context: frame(context.loss.stress_windows(
                  context.market(), context.options.crises.threshold)),
@@ -237,7 +237,7 @@ def statistics() -> list[StatisticSpec]:
              "Each name's share of the fund's measured variance over the run.",
              lambda context: context.risk_over_time.measured()),
         stat("diversification_ratio", "Diversification ratio", CONTRIBUTIONS, TABLE,
-             "The weighted sum of names' volatilities over the book's, at each rebalance.",
+             "The weighted sum of names' volatilities over the portfolio's, at each rebalance.",
              _expected(["diversification_ratio"]), unit="ratio", settings=MODEL),
         stat("average_correlation", "Average correlation", CONTRIBUTIONS, TABLE,
              "The correlation between holdings the weights and volatilities imply, at each "
@@ -275,11 +275,11 @@ def statistics() -> list[StatisticSpec]:
              "Top contributors' share of the return, and breadth.",
              lambda context: context.concentration.by_outcome(*context.window()),
              unit="fraction", figure_names=("field",)),
-        stat("drift", "Drift", CONCENTRATION, SERIES, "The share of the book that would trade "
+        stat("drift", "Drift", CONCENTRATION, SERIES, "The share of the portfolio that would trade "
              "to return to the last rebalance's weights, each day.",
              lambda context: context.concentration.drift(), unit="fraction"),
         stat("days_to_sell", "Days to sell and sellable share", LIQUIDITY, TABLE, "Days to "
-             "sell the book at its participation in daily traded value, and the share "
+             "sell the portfolio at its participation in daily traded value, and the share "
              "sellable in 1, 5 and 20 days.", _days_to_sell,
              settings=("liquidity.participation", "liquidity.lookback_days",
                        "liquidity.horizons")),

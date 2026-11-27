@@ -181,7 +181,7 @@ class SessionPanel:
                name: str) -> dict[str, object]:
         """Every instrument's value in one column, identifier to value.
 
-        The whole day in one call, for a caller valuing a book rather than a
+        The whole day in one call, for a caller valuing a portfolio rather than a
         name. Values are as stored, NaN included, because deciding what a
         missing value means is the caller's business; `DataFetcher.prices_on`
         turns NaN into None. Empty for a column the panel does not hold, on

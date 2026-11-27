@@ -85,7 +85,7 @@ class ModellingAssumptions:
         periods_per_year: How many periods make a year when returns are
             annualised. Unset is 252.
         withholding_tax_rate: The share of each dividend withheld before the
-            book receives it, as a decimal. Unset is 0.
+            portfolio receives it, as a decimal. Unset is 0.
         volume_backfill_days: How many calendar days a name's last reported
             volume stands in for a blank one when an execution limit reads
             the day's volume. Past that, its average daily volume is used. A

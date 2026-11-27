@@ -68,7 +68,7 @@ def _tables(context: Context) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 def _portfolios(context: Context) -> pd.DataFrame:
     books = {"fund": context.performance.returns}
-    books.update({name: context.book(name).returns for name in (INDEX, BENCHMARK)
+    books.update({name: context.performance_of(name).returns for name in (INDEX, BENCHMARK)
                   if name in context.run.comparators})
 
     return members.portfolio_risk_return(books, context.options.risk_return)

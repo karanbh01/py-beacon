@@ -2,14 +2,14 @@
 """
 The currency hedge a hedged share class carries.
 
-A hedged class is denominated in another currency from the fund's book and
-hedges its share of the assets back into its own: it sells the book's
-currency forward, for its own, in the amount of its net assets times its
+A hedged class is denominated in a currency other than the fund's base
+currency and hedges its share of the assets back into its own: it sells the
+base currency forward, for its own, in the amount of its net assets times its
 hedge ratio. The forward's gains and losses are the class's alone; the other
 classes never see them.
 
 **Pricing.** A forward to *T* is priced at covered interest parity, from the
-day's spot rate *X* (class currency per unit of the book's) and the two
+day's spot rate *X* (class currency per unit of the portfolio's) and the two
 currencies' short-term interest rates over the days left, each on its own day
 count (ACT/360 unless its reference data says ACT/365):
 
@@ -27,18 +27,18 @@ rolls the hedge ratio drifts as the assets move, and when it leaves the
 class's band (its hedge ratio plus or minus *hedge_band*) the forward is
 settled and reopened to the same date at the right size.
 
-**Settlement** moves the forward's value into the book's cash, and the class
+**Settlement** moves the forward's value into the portfolio's cash, and the class
 keeps it: its net assets do not change, because the value was already
 counted in them.
 
 The carry this earns or costs is the interest rate differential: a class in
-a higher-rate currency than the book's earns about the difference a year.
+a higher-rate currency than the portfolio's earns about the difference a year.
 Each trade records the carry it locks in over its term: its notional times
-the forward rate less spot, in the book's currency.
+the forward rate less spot, in the portfolio's currency.
 
 **Costs.** A class's *hedge_cost_bps* is charged on the notional each trade
 deals: all of it when a forward is opened or rolled, the change in it when
-one is resized. It is paid from the book's cash and borne by the class alone.
+one is resized. It is paid from the portfolio's cash and borne by the class alone.
 """
 # BN-307. Decided with Karan on 2026-10-12: interest rates from series in the
 # data, a monthly roll with a tolerance band, and unhedged classes in another
@@ -72,13 +72,13 @@ SHORTFALL = 1e-6
 
 @dataclass
 class Forward:
-    """An open forward: the book's currency sold for the class's.
+    """An open forward: the portfolio's currency sold for the class's.
 
     Attributes:
-        notional: How much of the book's currency is sold forward.
-        rate: The contracted rate, class currency per unit of the book's.
+        notional: How much of the portfolio's currency is sold forward.
+        rate: The contracted rate, class currency per unit of the portfolio's.
         expiry: The day it settles.
-        value: What it is worth to the class today, in the book's currency.
+        value: What it is worth to the class today, in the portfolio's currency.
     """
     notional: float
     rate: float
@@ -96,18 +96,18 @@ class HedgeTrade:
             ``fx hedge``.
         kind: What it did: ``"open"``, ``"roll"`` (a new month) or
             ``"band"`` (the hedge ratio left its band).
-        notional: The new forward's notional, in the book's currency.
+        notional: The new forward's notional, in the portfolio's currency.
         rate: The new forward's contracted rate, class currency per unit of
-            the book's.
+            the portfolio's.
         settled: What the old forward was settled for, in the class's
             currency: gained when positive. 0 when one was opened.
         spot: The spot rate when it was struck, class currency per unit of
-            the book's.
+            the portfolio's.
         expiry: The day the new forward settles.
         carry: The carry the new forward locks in over its term, in the
-            book's currency: its notional times the forward rate less spot,
+            portfolio's currency: its notional times the forward rate less spot,
             over spot. Earned when positive.
-        cost: What the trade cost, in the book's currency.
+        cost: What the trade cost, in the portfolio's currency.
     """
     date: pd.Timestamp
     reason: str
@@ -202,7 +202,7 @@ class HedgingMixin:
     def _record_hedges(self,
                        date: pd.Timestamp) -> None:
         """Each hedged class's forward value at the close, in its currency,
-        and all of them together in the book's."""
+        and all of them together in the portfolio's."""
         if any(ledger.share_class.hedged for ledger in self._ledgers):
             self._hedge_history[date] = self._hedge_value
 
@@ -219,7 +219,7 @@ class HedgingMixin:
               expiry: pd.Timestamp) -> float:
         """Settle the class's forward, if it has one, and open another to
         *expiry* sized to its net assets. Returns what the settlement
-        received, in the book's currency: 0 for a loss."""
+        received, in the portfolio's currency: 0 for a loss."""
         old = ledger.hedge.notional if ledger.hedge is not None else 0.0
         settled = self._settle(ledger, portfolio, date)
         notional = ledger.share_class.hedge_ratio * max(ledger.net, 0.0)
@@ -244,8 +244,8 @@ class HedgingMixin:
                 ledger: Any,
                 portfolio: Portfolio,
                 date: pd.Timestamp) -> float:
-        """Move the forward's value into the book's cash. Returns it, in the
-        book's currency."""
+        """Move the forward's value into the portfolio's cash. Returns it, in the
+        portfolio's currency."""
         forward = ledger.hedge
 
         if forward is None:
@@ -279,7 +279,7 @@ class HedgingMixin:
                         portfolio: Portfolio,
                         date: pd.Timestamp,
                         cost: float) -> float:
-        """Pay *cost*, in the book's currency, from the book's cash, selling
+        """Pay *cost*, in the portfolio's currency, from the portfolio's cash, selling
         holdings for any shortfall, and take it from the class's net assets.
         Returns what was paid."""
         if cost <= 0.0:
@@ -301,7 +301,7 @@ class HedgingMixin:
                ledger: Any,
                forward: Forward,
                date: pd.Timestamp) -> float:
-        """What *forward* is worth to the class on *date*, in the book's
+        """What *forward* is worth to the class on *date*, in the portfolio's
         currency."""
         days = max((forward.expiry - date).days, 0)
         current = self._forward_rate(ledger, date, forward.expiry)
@@ -315,7 +315,7 @@ class HedgingMixin:
                       date: pd.Timestamp,
                       expiry: pd.Timestamp) -> float:
         """The forward rate to *expiry*, class currency per unit of the
-        book's, at covered interest parity."""
+        portfolio's, at covered interest parity."""
         days = max((expiry - date).days, 0)
 
         return float(ledger.fx * (1.0 + self._interest(ledger.currency, date, days))

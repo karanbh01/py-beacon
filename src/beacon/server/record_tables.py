@@ -2,12 +2,12 @@
 """
 A backtest record's large parts, kept as tables beside it.
 
-Almost all of a stored record is a handful of large parts: each book's daily
+Almost all of a stored record is a handful of large parts: each portfolio's daily
 weights, the fund's positions and transactions, each index's rebalance
 snapshots and the holdings document. The record keeps its own shape with
 those parts left empty, and says under `TABLES_KEY` where each one is kept:
 
-- a book's daily weights, in the run's own weights tables, which the run's
+- a portfolio's daily weights, in the run's own weights tables, which the run's
   analysis keeps anyway;
 - the fund's units in the holdings document, in the fund's holdings, which
   the run keeps for the same reason;
@@ -94,7 +94,7 @@ def slim_record(document: dict[str, Any],
     """*document* with its large parts left empty and kept as tables in
     *folder*, the run's tables folder, where `whole_record` finds them.
 
-    A book's daily weights are served from *run*'s weights tables, so the
+    A portfolio's daily weights are served from *run*'s weights tables, so the
     document may carry them empty already: what is kept is how many of the
     latest days it serves, `weights_dates_total` of them up to the record's
     bound. Every other part is moved only when what it reads back as is the
@@ -175,7 +175,7 @@ def _weights_part(slim: dict[str, Any],
                   path: Where,
                   table: str,
                   run: RunData) -> list[dict[str, Any]]:
-    """Where a book's daily weights are served from, if it has any."""
+    """Where a portfolio's daily weights are served from, if it has any."""
     book = _get(slim, path[:-1])
     total = int((book or {}).get("weights_dates_total") or 0)
 

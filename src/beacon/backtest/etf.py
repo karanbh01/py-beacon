@@ -60,7 +60,7 @@ class EtfMarket:
             passes on: 1 adds the whole cost.
         volatility_sensitivity: How much the spread widens per unit of the
             NAV's daily volatility: 0.05 adds 5 basis points at 1% a day.
-        tick: The smallest price step, in the book's currency.
+        tick: The smallest price step, in the portfolio's currency.
         persistence: How much of yesterday's premium remains today, from 0
             up to 1: 0.5 halves it each day.
         flow_sensitivity: The premium per unit of the day's net creations
@@ -148,7 +148,7 @@ class EtfVehicle(Vehicle):
         creation_unit: Shares in a creation unit.
         in_kind: Create and redeem by delivering the holdings, so the fund
             does not trade, rather than in cash.
-        ap_fee: What an AP pays per creation or redemption, in the book's
+        ap_fee: What an AP pays per creation or redemption, in the portfolio's
             currency. It covers the fund's administration, so it is not paid
             into the fund, but it is part of the cost of arbitrage.
         creation_fee_bps: For cash creations, the variable fee charged to the

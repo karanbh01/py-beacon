@@ -9,7 +9,7 @@ Money arriving in a backtest and leaving it, as a scenario.
 Flows are their own part of a run, separate from the strategy, the
 implementation and the vehicle, so the same flows can go into different
 vehicles. Each scenario says how much arrives (positive) or leaves (negative)
-on a simulated day, in the book's currency; several are added together.
+on a simulated day, in the portfolio's currency; several are added together.
 
 | Scenario | A flow day's amount |
 | --- | --- |
@@ -62,7 +62,7 @@ class FlowContext:
     Attributes:
         previous: The last simulated day, or the eve of the run on the first.
         date: Today.
-        aum: The fund's net assets before today's flows, in the book's
+        aum: The fund's net assets before today's flows, in the portfolio's
             currency.
         nav_per_unit: NAV per unit on each simulated day so far, today's
             before its flows included.
@@ -79,7 +79,7 @@ class FlowRecord:
 
     Attributes:
         date: The day it was dealt.
-        amount: What was paid in (positive) or out (negative), in the book's
+        amount: What was paid in (positive) or out (negative), in the portfolio's
             currency. A redemption larger than the fund is cut to the fund.
         nav_per_unit: The day's NAV per unit, before the flow.
         units: Units created (positive) or cancelled (negative).
@@ -110,7 +110,7 @@ class Flows(ABC):
     @abstractmethod
     def amount(self,
                context: FlowContext) -> float:
-        """Today's flow in the book's currency: positive in, negative out."""
+        """Today's flow in the portfolio's currency: positive in, negative out."""
 
 
 @register(FLOW, "Dated amounts", fields={
@@ -178,7 +178,7 @@ class PeriodicFlows(_Periodic):
     """A fixed amount, or a fixed share of the fund's assets, each period.
 
     Args:
-        amount: In the book's currency, positive in and negative out.
+        amount: In the portfolio's currency, positive in and negative out.
         fraction: A share of the fund's assets, such as 0.01 for 1% in or
             -0.01 for 1% out.
         frequency: ``"DAILY"``, ``"WEEKLY"``, ``"MONTHLY"`` (the default),

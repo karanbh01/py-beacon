@@ -1,6 +1,6 @@
 # src/beacon/analysis/attribution/model.py
 """
-Factor attribution: how much of a book's return its factor exposures explain,
+Factor attribution: how much of a portfolio's return its factor exposures explain,
 from the run's factors (`beacon.analysis.risk.factors`).
 
 **Holdings-based.** Each day every name's return is the market's, plus its
@@ -9,12 +9,12 @@ what is its own:
 
     r_i = f_market + sum_k z_ik f_k + e_i
 
-with ``e_i`` defined as what is left, so the split is exact. A book, holding
+with ``e_i`` defined as what is left, so the split is exact. A portfolio, holding
 ``w`` at the close before, earns ``(sum w) f_market`` from the market,
 ``X_k f_k`` from each factor (``X_k = sum w_i z_ik``) and ``sum w_i e_i`` of
 its own: the specific return.
 
-**Returns-based.** The book's daily return over the risk-free rate,
+**Returns-based.** The portfolio's daily return over the risk-free rate,
 regressed on the factor returns over the window (``alpha + sum beta_k f_k +
 e``), splits into the risk-free return, the alpha, each beta times its
 factor's return, and the regression's residual.
@@ -41,7 +41,7 @@ METHODS = (HOLDINGS, RETURNS)
 def holdings_parts(factors: FactorAnalytics,
                    lagged: pd.DataFrame,
                    name_returns: pd.DataFrame) -> pd.DataFrame:
-    """Each day's market, factor and specific contributions of a book held
+    """Each day's market, factor and specific contributions of a portfolio held
     at *lagged* (its weights at the close before), by day and part.
 
     Worked out a stretch between rebalances at a time, over which the
@@ -89,7 +89,7 @@ def returns_parts(target: pd.Series,
                   rate: float,
                   periods_per_year: int) -> pd.DataFrame:
     """Each day's risk-free, alpha, factor and residual parts of *target*
-    (a book's daily return), from its regression on the factor returns."""
+    (a portfolio's daily return), from its regression on the factor returns."""
     days = target.index.intersection(factor_returns.dropna().index)
     excess = target.loc[days] - rate
     fit = regressed(excess, factor_returns.loc[days], periods_per_year)

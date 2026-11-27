@@ -8,11 +8,11 @@ Share classes: several classes of one fund, sharing one pool of assets.
              flows={"Dist": PeriodicFlows(fraction=0.01)},
              vehicle=uk_oeic(management_fee_bps=50))
 
-A fund's classes own slices of one book. Every class's money is traded in
-that book, so capacity caps, market impact and execution limits see the whole
+A fund's classes own slices of one portfolio. Every class's money is traded
+in that portfolio, so capacity caps, market impact and execution limits see the whole
 fund's size, and each class keeps its own units, net assets and NAV per unit.
 
-**Each day** the book's gains, losses and income (price moves, dividends,
+**Each day** the portfolio's gains, losses and income (price moves, dividends,
 interest, trading costs) are split between the classes in proportion to their
 net assets at the previous close, the usual method for a multi-class fund.
 What belongs to one class is then applied to it alone:
@@ -23,17 +23,17 @@ What belongs to one class is then applied to it alone:
   assets, and moved by the vehicle's pricing (a swing or a levy) as the
   fund's net flow sets it;
 - **its distributions**: a distributing class's share of the dividends is
-  paid out, while an accumulating class's stays in the book, invested as the
-  run's dividend policy says.
+  paid out, while an accumulating class's stays in the portfolio, invested
+  as the run's dividend policy says.
 
-**A class's currency.** A class may be denominated in another currency
-from the book's (`currency=`): its NAV per unit, capital, flows, fees and
+**A class's currency.** A class may be denominated in a currency other
+than the fund's base currency (`currency=`): its NAV per unit, capital, flows, fees and
 distributions are in that currency, converted at each day's rate, so its
 returns carry the currency's moves. A hedged class (`hedged=True`) carries a
 currency forward that takes those moves out, and earns or pays the interest
 rate differential instead (see `beacon.backtest.hedging`).
 
-`result.fund.share_classes` holds each class's book. The result's own NAV and
+`result.fund.share_classes` holds each class's record. The result's own NAV and
 metrics are the whole fund's.
 """
 # BN-279 (#292). Decided with Karan on 2026-10-12: the engine models the
@@ -47,7 +47,7 @@ from typing import Any
 
 import pandas as pd
 
-from .._renamed import renamed_names
+from .._renamed import renamed_names, warn_renamed
 from ..exceptions import CalculationError
 from ..portfolio.base import Portfolio
 from .flows import FlowContext, FlowRecord, Flows
@@ -73,7 +73,7 @@ class ShareClass:
         distribution: ``"accumulating"`` (the default) keeps its income in
             the fund, ``"distributing"`` pays it out.
         currency: The class's currency, such as ``"EUR"``. None for the
-            book's.
+            fund's base currency.
         hedged: Whether it hedges its share of the assets into its currency
             with a monthly forward.
         hedge_ratio: The share of its net assets it hedges, 1.0 for all.
@@ -147,8 +147,8 @@ class ShareClassRecord:
         flows: Its own flows as dealt.
         currency: The currency its NAV, flows, fees and distributions are in.
         hedged: Whether it hedged into that currency.
-        book_net_assets: Its net assets in the book's currency, which add up
-            to the fund's across the classes.
+        base_net_assets: Its net assets in the fund's base currency, which
+            add up to the fund's across the classes.
         hedge_value: Its forward's value at the end of each day, in its
             currency. Empty for an unhedged class.
         hedges: Each trade of its hedge: opened, rolled or resized.
@@ -165,9 +165,18 @@ class ShareClassRecord:
     flows: list[FlowRecord] = field(default_factory=list)
     currency: str = ""
     hedged: bool = False
-    book_net_assets: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    base_net_assets: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     hedge_value: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
     hedges: list[HedgeTrade] = field(default_factory=list)
+
+    @property
+    def book_net_assets(self) -> pd.Series:
+        """Deprecated: `base_net_assets`, which this was called before
+        0.11.0. Goes in 0.12.0."""
+        # BN-479: renamed as BN-462 renamed the rest.
+        warn_renamed("ShareClassRecord.book_net_assets", "base_net_assets")
+
+        return self.base_net_assets
 
     def get_returns(self) -> pd.Series:
         """The class's daily returns per unit: its NAV per unit from one day
@@ -198,7 +207,7 @@ class ShareClassRecord:
 
 @dataclass
 class _Ledger:
-    """One class's running books."""
+    """One class's running record."""
     share_class: ShareClass
     fee_bps: float
     capital: float
@@ -214,12 +223,13 @@ class _Ledger:
     paid: dict[pd.Timestamp, float] = field(default_factory=dict)
     paid_per_unit: dict[pd.Timestamp, float] = field(default_factory=dict)
     records: list[FlowRecord] = field(default_factory=list)
-    # BN-307: the class's currency (the book's when None), the day's rate
-    # into it from the book's, and its hedge. `net` stays in the book's.
+    # BN-307: the class's currency (the base currency when None), the day's
+    # rate into it from the base currency, and its hedge. `net` stays in the
+    # base currency.
     currency: str = ""
     fx: float = 1.0
     hedge: Forward | None = None
-    book_history: dict[pd.Timestamp, float] = field(default_factory=dict)
+    base_history: dict[pd.Timestamp, float] = field(default_factory=dict)
     hedge_history: dict[pd.Timestamp, float] = field(default_factory=dict)
     hedge_trades: list[HedgeTrade] = field(default_factory=list)
 
@@ -296,7 +306,7 @@ def _as_list(flows: object) -> list[Flows]:
 
 
 class ShareClassesMixin:
-    """Keeps each share class's books beside the fund's.
+    """Keeps each share class's record beside the fund's.
 
     Before AccountingMixin and DividendsMixin in BacktestEngine's bases,
     whose declarations of these methods it provides; what it uses from them
@@ -318,7 +328,7 @@ class ShareClassesMixin:
             ledger.currency = ledger.share_class.currency or self.currency
 
             if ledger.share_class.hedged and ledger.currency == self.currency:
-                raise ValueError(f"{ledger.share_class.name} is hedged into the book's own "
+                raise ValueError(f"{ledger.share_class.name} is hedged into the fund's base "
                                  f"currency, {self.currency}; there is nothing to hedge.")
 
             ledger.fx = self._class_rate(ledger, first_day)
@@ -326,7 +336,7 @@ class ShareClassesMixin:
             ledger.units = ledger.capital / launch_price
             ledger.per_unit = {eve: launch_price}
             ledger.net_history = {eve: ledger.capital}
-            ledger.book_history = {eve: ledger.net}
+            ledger.base_history = {eve: ledger.net}
             ledger.units_history = {eve: ledger.units}
             ledger.fees, ledger.paid, ledger.paid_per_unit = {}, {}, {}
             ledger.records, ledger.hedge_trades = [], []
@@ -334,7 +344,7 @@ class ShareClassesMixin:
 
     def _book_capital(self,
                       first_day: pd.Timestamp) -> float:
-        """The classes' capital in the book's currency, at the first day's
+        """The classes' capital in the base currency, at the first day's
         rates."""
         total = 0.0
 
@@ -347,7 +357,7 @@ class ShareClassesMixin:
     def _class_rate(self,
                     ledger: _Ledger,
                     date: pd.Timestamp) -> float:
-        """The rate converting the book's currency into the class's on
+        """The rate converting the base currency into the class's on
         *date*."""
         if ledger.currency == self.currency:
             return 1.0
@@ -381,7 +391,7 @@ class ShareClassesMixin:
 
     def _allocate_classes(self,
                           portfolio: Portfolio) -> None:
-        """Split what the book gained or lost since the last split between
+        """Split what the portfolio gained or lost since the last split between
         the classes, by the day's shares."""
         if not self._ledgers:
             return
@@ -502,7 +512,7 @@ class ShareClassesMixin:
         for ledger in self._ledgers:
             ledger.per_unit[date] = ledger.unit_price()
             ledger.net_history[date] = ledger.net * ledger.fx
-            ledger.book_history[date] = ledger.net
+            ledger.base_history[date] = ledger.net
             ledger.units_history[date] = ledger.units
 
     def _class_books(self) -> dict[str, ShareClassRecord]:
@@ -520,7 +530,7 @@ class ShareClassesMixin:
                     flows=list(ledger.records),
                     currency=ledger.currency,
                     hedged=ledger.share_class.hedged,
-                    book_net_assets=pd.Series(ledger.book_history, dtype=float),
+                    base_net_assets=pd.Series(ledger.base_history, dtype=float),
                     hedge_value=pd.Series(ledger.hedge_history, dtype=float),
                     hedges=list(ledger.hedge_trades))
                 for ledger in self._ledgers}

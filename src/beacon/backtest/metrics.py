@@ -42,7 +42,7 @@ class MetricsMixin:
 
         The first runs from the initial capital to the first day's close, so
         it carries the cost of the opening trades; each later one is from one
-        close to the next. Cash paid out of the book (a ``"distribute"``
+        close to the next. Cash paid out of the portfolio (a ``"distribute"``
         dividend policy) is added back on the day it was paid, so returns
         stay total returns.
 
@@ -132,7 +132,7 @@ class MetricsMixin:
                          index=pd.DatetimeIndex([date for date, _ in investor]), dtype=float)
 
     def _paid_out(self) -> pd.Series:
-        """Cash paid out of the book to its investors, by date, as positive
+        """Cash paid out of the portfolio to its investors, by date, as positive
         amounts. Empty unless the run distributed dividends."""
         paid = [(flow.date, -flow.amount) for flow in self.portfolio.cash_flows
                 if flow.kind == DISTRIBUTION]
@@ -253,7 +253,7 @@ class MetricsMixin:
         rate, over the volatility. Both come from the run's modelling
         assumptions: 252 and 0 unless they say otherwise. Total return is
         measured against the portfolio's initial capital, with any dividends
-        paid out of the book added back.
+        paid out of the portfolio added back.
 
         With flows every figure is a unit's, and the money-weighted return
         is added. The figures are `beacon.analysis.performance.PerformanceAnalytics`'s

@@ -4,7 +4,7 @@ What every strategy shares: what it may read at a rebalance, and the returns
 and covariance it measures risk with.
 
 The covariance is re-estimated at each rebalance from the names' trailing
-daily returns in the book's currency (a year by default), shrunk toward
+daily returns in the portfolio's currency (a year by default), shrunk toward
 constant correlation. A name with too few returns to measure is left out of
 it; each strategy says what it does with such a name.
 """
@@ -30,7 +30,7 @@ class StrategyContext:
 
     Attributes:
         fetcher: The run's data.
-        currency: The book's currency, which returns and money fields are in.
+        currency: The portfolio's currency, which returns and money fields are in.
     """
     fetcher: DataFetcher
     currency: str
@@ -40,7 +40,7 @@ def trailing_returns(names: list[str],
                      date: pd.Timestamp,
                      context: StrategyContext,
                      lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> pd.DataFrame:
-    """Daily returns in the book's currency over the trading days before and
+    """Daily returns in the portfolio's currency over the trading days before and
     including *date*, one column per name."""
     start = date - pd.Timedelta(days=int(lookback_days * 1.6) + 10)
     prices = context.fetcher.fetch_prices(names, start.strftime("%Y-%m-%d"),

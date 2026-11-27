@@ -107,7 +107,7 @@ class RunData:
     """A run, as its analysis reads it.
 
     Attributes:
-        currency: The book's currency, which every amount is in.
+        currency: The portfolio's currency, which every amount is in.
         returns: The fund's daily returns, as its metrics measure them: of a
             unit when the run had flows, with cash paid out added back.
         nav: The fund's net assets at the end of each day, net of fees owed.

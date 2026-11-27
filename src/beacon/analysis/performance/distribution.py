@@ -18,6 +18,7 @@ from statistics import NormalDist
 import numpy as np
 import pandas as pd
 
+from ..._renamed import renamed_keyword
 from . import formulas
 
 # How many serial correlations are given, in days.
@@ -166,30 +167,31 @@ def over_horizon(returns: pd.Series,
     return growth
 
 
-def return_distribution(books: Mapping[str, pd.Series],
+@renamed_keyword("books", "portfolios")
+def return_distribution(portfolios: Mapping[str, pd.Series],
                         bins: int = BINS,
                         horizon: int = 1,
                         fund: str = "fund") -> pd.DataFrame:
-    """Each book's returns counted into the same bins, as shares.
+    """Each portfolio's returns counted into the same bins, as shares.
 
     Args:
-        books: Each book's daily returns, by name.
-        bins: How many bins of equal width span every book's returns.
+        portfolios: Each portfolio's daily returns, by name.
+        bins: How many bins of equal width span every portfolio's returns.
         horizon: The days each return is compounded over.
-        fund: The book the normal distribution is fitted to.
+        fund: The portfolio the normal distribution is fitted to.
 
     Returns:
-        pd.DataFrame: A row a bin: ``low`` and ``high`` edges, a book's
+        pd.DataFrame: A row a bin: ``low`` and ``high`` edges, a portfolio's
         share of its returns in it by name, and ``normal``, the share a
         normal distribution of the fund's mean and standard deviation would
-        put in it. Empty when no book has a return.
+        put in it. Empty when no portfolio has a return.
     """
     found = {name: over_horizon(returns, horizon).to_numpy(dtype=float)
-             for name, returns in books.items()}
+             for name, returns in portfolios.items()}
     every = np.concatenate(list(found.values())) if found else np.array([])
 
     if not len(every):
-        return pd.DataFrame(columns=["low", "high", *books, "normal"])
+        return pd.DataFrame(columns=["low", "high", *portfolios, "normal"])
 
     edges = np.histogram_bin_edges(every, bins=bins)
     table = pd.DataFrame({"low": edges[:-1], "high": edges[1:]})
