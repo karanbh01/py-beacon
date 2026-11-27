@@ -50,7 +50,7 @@ from beacon.server.schemas import (
     BacktestMetrics,
     BacktestResultSummary,
     ConstraintSet,
-    PortfolioBookPayload,
+    PortfolioRecordPayload,
     ReportTemplateDocument,
     SeriesPayload,
     TableFrame,
@@ -136,7 +136,7 @@ def record_document(document_id: str = GOOD) -> dict:
     the listing builds its row from.
     """
     return BacktestResultSummary(
-        portfolio=PortfolioBookPayload(portfolio_id=document_id,
+        portfolio=PortfolioRecordPayload(portfolio_id=document_id,
                                        initial_capital=1_000_000.0,
                                        nav=EMPTY_SERIES,
                                        cash=EMPTY_SERIES,

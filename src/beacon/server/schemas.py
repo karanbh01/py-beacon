@@ -642,7 +642,7 @@ MAX_WEIGHT_DATES = 1_000
 MAX_REBALANCES = 250
 
 
-# BN-173. Its own model rather than a shared base with `BookPayload`, which is
+# BN-173. Its own model rather than a shared base with `RecordPayload`, which is
 # what keeps the omission of `rebalances` simple.
 class ReferenceWindow(BaseModel):
     """A span over which a name's reference columns held."""
@@ -651,7 +651,7 @@ class ReferenceWindow(BaseModel):
     reference: dict[str, Any] = Field(description="The columns that held over it.")
 
 
-class PortfolioBookPayload(BaseModel):
+class PortfolioRecordPayload(BaseModel):
     """The portfolio's record on the wire.
 
     No `rebalances` here, unlike the index records: a portfolio makes no
@@ -691,7 +691,7 @@ class PortfolioBookPayload(BaseModel):
 
 
 # BN-173.
-class BookPayload(BaseModel):
+class RecordPayload(BaseModel):
     """One comparator's record on the wire.
 
     Two different facts about weights, not two copies of one: `weights` is
@@ -752,8 +752,8 @@ class IndexBooksPayload(BaseModel):
     at, pre-optimisation; `optimised` is the solved index's own
     calculation, null until an optimised run fills it.
     """
-    target: BookPayload | None = None
-    optimised: BookPayload | None = None
+    target: RecordPayload | None = None
+    optimised: RecordPayload | None = None
 
 
 class UnfilledOrderPayload(BaseModel):
@@ -848,9 +848,9 @@ class BacktestResultSummary(BaseModel):
     `index` is a container of two records, `{target, optimised}`, matching the
     library's `IndexRecords`.
     """
-    portfolio: PortfolioBookPayload
+    portfolio: PortfolioRecordPayload
     index: IndexBooksPayload = Field(default_factory=IndexBooksPayload)
-    benchmark: BookPayload | None = None
+    benchmark: RecordPayload | None = None
     unfilled: list[UnfilledOrderPayload] = Field(default_factory=list)
     price_gaps: list[PriceGapPayload] = Field(
         default_factory=list, description=PRICE_GAPS_DESCRIPTION)
@@ -948,7 +948,7 @@ def rebalance_pricing_payloads(result: BacktestResult) -> list[RebalancePricingP
 
 
 def _portfolio_payload(portfolio: Any,
-                       weights: bool = True) -> PortfolioBookPayload:
+                       weights: bool = True) -> PortfolioRecordPayload:
     """The portfolio's record, bounded; its daily weights empty unless
     *weights*."""
     rows = [
@@ -969,7 +969,7 @@ def _portfolio_payload(portfolio: Any,
     positions = portfolio.positions
     panel = portfolio.weights
 
-    return PortfolioBookPayload(
+    return PortfolioRecordPayload(
         portfolio_id=portfolio.portfolio_id,
         initial_capital=portfolio.initial_capital,
         nav=SeriesPayload.from_series(portfolio.nav),
@@ -990,7 +990,7 @@ def _weights_payload(panel: pd.DataFrame,
 
 def _book_payload(book: Any,
                   cap: float | None = None,
-                  weights: bool = True) -> BookPayload | None:
+                  weights: bool = True) -> RecordPayload | None:
     """One comparator's record, or None when the run had none.
 
     The decided weights come off the portfolio's `source` — the `IndexResult` a
@@ -1017,7 +1017,7 @@ def _book_payload(book: Any,
     # it to have narrowed anything (BN-200).
     coverage = None if book.source is None else book.source.calendar_coverage
 
-    return BookPayload(
+    return RecordPayload(
         levels=SeriesPayload.from_series(book.levels),
         weights=_weights_payload(book.weights, weights),
         weights_dates_total=len(book.weights),

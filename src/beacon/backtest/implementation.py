@@ -53,6 +53,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from .._renamed import renamed_keyword
 from ..strategy.futures import IndexFutures
 from .capacity import CapacityCap, MinimumPosition
 from .costs import ExecutionLimit, MarketImpact
@@ -194,13 +195,15 @@ def buffered(weights: dict[str, float],
     return {name: weight * invested for name, weight in weights.items()}
 
 
+# BN-480: book_value was renamed portfolio_value.
+@renamed_keyword("book_value", "portfolio_value")
 def plan(implementation: Implementation,
          target: dict[str, float],
          date: pd.Timestamp,
          held: set[str],
          stale: set[str],
          context: ScreenContext,
-         book_value: float = 0.0,
+         portfolio_value: float = 0.0,
          limits: Iterable[DiversificationLimit] = ()) -> RebalanceStep:
     """Run the screening, redistribution and capacity stages for one
     rebalance.
@@ -212,8 +215,8 @@ def plan(implementation: Implementation,
         held: Names the portfolio holds now, for buffered screens.
         stale: Names the data says have gone stale.
         context: The run's data and portfolio currency.
-        book_value: The portfolio's value before the rebalance, which caps and
-            minimum positions are measured against.
+        portfolio_value: The portfolio's value before the rebalance, which
+            caps and minimum positions are measured against.
         limits: The vehicle's diversification limits, applied with the caps.
 
     Returns:
@@ -243,7 +246,7 @@ def plan(implementation: Implementation,
         total *= 1.0 - implementation.cash_buffer
 
     weights, capped, diversified = _within_capacity(implementation, weights, total, date,
-                                                    book_value, context, removed,
+                                                    portfolio_value, context, removed,
                                                     tuple(limits))
 
     return RebalanceStep(date=date, target=dict(target), removed=removed,
@@ -256,7 +259,7 @@ def _within_capacity(implementation: Implementation,
                      weights: dict[str, float],
                      total: float,
                      date: pd.Timestamp,
-                     book_value: float,
+                     portfolio_value: float,
                      context: ScreenContext,
                      removed: dict[str, str],
                      diversification: tuple[DiversificationLimit, ...] = ()
@@ -274,10 +277,10 @@ def _within_capacity(implementation: Implementation,
     caps = (*implementation.caps,
             *(cap for limit in diversification for cap in limit.caps()))
 
-    if (not caps and minimum is None and not diversification) or book_value <= 0.0:
+    if (not caps and minimum is None and not diversification) or portfolio_value <= 0.0:
         return weights, {}, {}
 
-    limits = _limits(caps, weights, date, book_value, context)
+    limits = _limits(caps, weights, date, portfolio_value, context)
     rule = implementation.redistribution
     capped: dict[str, float] = {}
     diversified: dict[str, float] = {}
@@ -293,7 +296,7 @@ def _within_capacity(implementation: Implementation,
                                 if before.get(name) != weight})
 
         small = ([name for name, weight in weights.items()
-                  if minimum.too_small(weight, book_value)]
+                  if minimum.too_small(weight, portfolio_value)]
                  if minimum is not None else [])
 
         if not small:
@@ -313,7 +316,7 @@ def _within_capacity(implementation: Implementation,
 def _limits(caps: tuple[CapacityCap, ...],
             weights: dict[str, float],
             date: pd.Timestamp,
-            book_value: float,
+            portfolio_value: float,
             context: ScreenContext) -> dict[str, float]:
     """Each name's largest weight: its tightest cap over the portfolio's value.
     A name no cap can value has no limit."""
@@ -321,10 +324,10 @@ def _limits(caps: tuple[CapacityCap, ...],
 
     for name in weights:
         values = [value for cap in caps
-                  if (value := cap.max_value(name, date, book_value, context))
+                  if (value := cap.max_value(name, date, portfolio_value, context))
                   is not None]
 
         if values:
-            limits[name] = max(min(values), 0.0) / book_value
+            limits[name] = max(min(values), 0.0) / portfolio_value
 
     return limits

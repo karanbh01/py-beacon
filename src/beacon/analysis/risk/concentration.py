@@ -121,9 +121,9 @@ def lorenz(weights: pd.Series) -> pd.DataFrame:
     held = np.sort(weights.fillna(0.0)[weights.fillna(0.0) > 0.0].to_numpy(dtype=float))
     total = held.sum()
     names = np.arange(len(held) + 1) / max(len(held), 1)
-    book = np.concatenate([[0.0], np.cumsum(held) / total]) if total > 0 else names * 0.0
+    portfolio = np.concatenate([[0.0], np.cumsum(held) / total]) if total > 0 else names * 0.0
 
-    return pd.DataFrame({"share_of_names": names, "share_of_book": book})
+    return pd.DataFrame({"share_of_names": names, "share_of_portfolio": portfolio})
 
 
 def concentration_curve(weights: pd.Series) -> pd.DataFrame:

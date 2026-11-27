@@ -36,7 +36,7 @@ from beacon.server.schemas import (
     BacktestMetrics,
     BacktestResultSummary,
     BacktestRunResult,
-    BookPayload,
+    RecordPayload,
     metrics_from,
 )
 from beacon.testing import dataset
@@ -92,7 +92,7 @@ DESCRIBED_DATE_FIELDS = {
     ("AttributionView", "start"), ("AttributionView", "end"),
     ("AttributionView", "requested_start"), ("AttributionView", "requested_end"),
     ("BacktestResultSummary", "run_at"),
-    ("BookPayload", "weights_dates_total"),
+    ("RecordPayload", "weights_dates_total"),
     ("CompareView", "start"), ("CompareView", "end"),
     ("FeatureBatchResponse", "as_of"), ("FeatureResponse", "as_of"),
     ("FuturesPriceResponse", "time_to_expiry"),
@@ -152,7 +152,7 @@ BACKTEST_RUN_REQUIRED = {"level", "returns", "drawdown", "annual_returns",
 # The record's per-book fields (BN-173): the daily panel — what was HELD — and
 # the rebalance snapshots — what was DECIDED — side by side. Written out for the
 # same reason as the list above.
-RECORD_BOOK_FIELDS = {"levels", "weights", "weights_dates_total",
+RECORD_FIELDS = {"levels", "weights", "weights_dates_total",
                       "rebalances", "rebalances_total",
                       # BN-200. Defaults to null, so records written before it
                       # still validate; present only when the index's calendar
@@ -916,16 +916,16 @@ class TestTheRecordBookIsPublished:
     def test_the_book_publishes_both_faces_of_weights(self,
                                                       exported):
         spec, _ = exported
-        published = spec["components"]["schemas"]["BookPayload"]
+        published = spec["components"]["schemas"]["RecordPayload"]
 
-        assert set(published["properties"]) == RECORD_BOOK_FIELDS
+        assert set(published["properties"]) == RECORD_FIELDS
         # The daily panel stays required; the snapshots default, so a record
         # written before this existed still validates rather than 500ing.
         assert set(published["required"]) == {"levels", "weights",
                                               "weights_dates_total"}
 
     def test_the_model_and_the_pinned_list_agree(self):
-        assert set(BookPayload.model_fields) == RECORD_BOOK_FIELDS
+        assert set(RecordPayload.model_fields) == RECORD_FIELDS
 
     def test_the_snapshot_row_is_the_run_payload_s_own_schema(self,
                                                               exported):
@@ -933,7 +933,7 @@ class TestTheRecordBookIsPublished:
         an inlined twin: one wire shape for one fact, because two shapes for
         the decided weights is how the two drift apart."""
         spec, _ = exported
-        rebalances = (spec["components"]["schemas"]["BookPayload"]
+        rebalances = (spec["components"]["schemas"]["RecordPayload"]
                       ["properties"]["rebalances"])
 
         assert rebalances["items"] == {
@@ -1042,11 +1042,11 @@ class TestAPublishedModelReachesARoute:
                                                       spec):
         """The specific field BN-200 is about, pinned where a client reads it.
 
-        On `BookPayload` rather than `IndexResultSummary`: a book is what a
+        On `RecordPayload` rather than `IndexResultSummary`: a record is what a
         client actually receives for a calculated index, and it already carries
         the `source` the coverage comes off.
         """
-        book = spec["components"]["schemas"]["BookPayload"]["properties"]
+        book = spec["components"]["schemas"]["RecordPayload"]["properties"]
 
         assert "calendar_coverage" in book
         assert "CalendarCoveragePayload" in spec["components"]["schemas"]

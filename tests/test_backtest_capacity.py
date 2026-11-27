@@ -49,10 +49,10 @@ def fetcher() -> DataFetcher:
 
 def stepped(implementation: Implementation,
             target: dict[str, float],
-            book_value: float = 1e6):
+            portfolio_value: float = 1e6):
     return plan(implementation, target, FIRST, held=set(), stale=set(),
                 context=ScreenContext(fetcher(), "USD"),
-                book_value=book_value)
+                portfolio_value=portfolio_value)
 
 
 def run(capital: float,
@@ -119,9 +119,9 @@ class TestTheCappingArithmetic:
         implementation = Implementation(
             minimum_position=MinimumPosition(value=50_000))
 
-        assert stepped(implementation, target, book_value=1e6).removed == {}
+        assert stepped(implementation, target, portfolio_value=1e6).removed == {}
         assert stepped(implementation, target,
-                       book_value=1e5).removed == {"B": "MinimumPosition"}
+                       portfolio_value=1e5).removed == {"B": "MinimumPosition"}
 
     def test_dropping_a_small_position_respects_the_caps(self):
         """C's weight goes to A and B, but A is already at its cap."""

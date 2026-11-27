@@ -41,7 +41,7 @@ class CapacityCap(ABC):
     def max_value(self,
                   asset_id: str,
                   date: pd.Timestamp,
-                  book_value: float,
+                  portfolio_value: float,
                   context: ScreenContext) -> float | None:
         """The largest position value in the portfolio's currency, or None when
         this cap does not limit the name."""
@@ -77,7 +77,7 @@ class OwnershipCap(CapacityCap):
     def max_value(self,
                   asset_id: str,
                   date: pd.Timestamp,
-                  book_value: float,
+                  portfolio_value: float,
                   context: ScreenContext) -> float | None:
         field = (data.market.free_float_market_cap if self.free_float
                  else data.market.market_cap)
@@ -121,7 +121,7 @@ class LiquidityCap(CapacityCap):
     def max_value(self,
                   asset_id: str,
                   date: pd.Timestamp,
-                  book_value: float,
+                  portfolio_value: float,
                   context: ScreenContext) -> float | None:
         traded = average_traded(asset_id, date, context, self.lookback_days)
 
@@ -152,9 +152,9 @@ class WeightCap(CapacityCap):
     def max_value(self,
                   asset_id: str,
                   date: pd.Timestamp,
-                  book_value: float,
+                  portfolio_value: float,
                   context: ScreenContext) -> float | None:
-        return self.max_weight * book_value
+        return self.max_weight * portfolio_value
 
 
 class MinimumPosition:
@@ -181,9 +181,9 @@ class MinimumPosition:
 
     def too_small(self,
                   weight: float,
-                  book_value: float) -> bool:
-        """Whether a position of *weight* in a portfolio of *book_value* is."""
+                  portfolio_value: float) -> bool:
+        """Whether a position of *weight* in a portfolio worth *portfolio_value* is."""
         if self.weight is not None and weight < self.weight:
             return True
 
-        return self.value is not None and weight * book_value < self.value
+        return self.value is not None and weight * portfolio_value < self.value

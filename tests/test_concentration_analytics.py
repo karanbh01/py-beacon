@@ -64,7 +64,7 @@ class TestByWeight:
     def test_the_lorenz_curve(self):
         curve = lorenz(KNOWN.iloc[0])
 
-        assert curve["share_of_book"].tolist() == pytest.approx([0.0, 0.1, 0.3, 0.6, 1.0])
+        assert curve["share_of_portfolio"].tolist() == pytest.approx([0.0, 0.1, 0.3, 0.6, 1.0])
         assert curve["share_of_names"].tolist() == pytest.approx([0.0, 0.25, 0.5, 0.75, 1.0])
 
 

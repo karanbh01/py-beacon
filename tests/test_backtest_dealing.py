@@ -131,7 +131,7 @@ def limited(limit,
     step = plan(Implementation(redistribution=rule), target, DAYS[0],
                 held=set(), stale=set(),
                 context=ScreenContext(fetcher(), "USD"),
-                book_value=1e6, limits=[limit])
+                portfolio_value=1e6, limits=[limit])
 
     return step.weights
 

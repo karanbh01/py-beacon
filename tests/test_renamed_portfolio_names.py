@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 import warnings
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
@@ -25,9 +26,17 @@ from beacon.analysis.performance.members import RiskReturnSettings, portfolio_ri
 from beacon.analysis.performance.risk_rating import RiskRatingSettings, risk_rating
 from beacon.analysis.performance.style import style_box, style_classification
 from beacon.analysis.risk import forecast
+from beacon.analysis.risk.concentration import lorenz
 from beacon.analysis.risk.var import RiskOfLoss
-from beacon.backtest import ShareClassRecord
+from beacon.backtest import (
+    CapacityCap,
+    Implementation,
+    ScreenContext,
+    ShareClassRecord,
+    WeightCap,
+)
 from beacon.backtest.class_benchmark import class_tracking
+from beacon.backtest.implementation import plan
 from beacon.server.store import SCHEMA_VERSION_KEY, DocumentStore
 
 DAYS = pd.bdate_range("2024-01-01", periods=300)
@@ -237,3 +246,41 @@ class TestSavedBefore:
 
         assert found is not None
         assert found["result"] == {"nav": []}
+
+
+class TestTheCapacityValue:
+    """BN-480: the capacity caps' ``book_value`` is ``portfolio_value``."""
+
+    @staticmethod
+    def _plan(**value):
+        context = ScreenContext(MagicMock(), "USD")
+
+        return plan(Implementation(caps=[WeightCap(0.4)]), {"A": 0.6, "B": 0.4},
+                    pd.Timestamp("2024-01-02"), held=set(), stale=set(), context=context,
+                    **value)
+
+    def test_plan_s_book_value_warns_and_gives_the_same_step(self):
+        with pytest.warns(DeprecationWarning, match=r"plan\(book_value=\) is deprecated"):
+            old = self._plan(book_value=1e6)
+
+        assert old.weights == self._plan(portfolio_value=1e6).weights
+
+    def test_a_cap_that_still_names_it_book_value_works(self):
+        class Fixed(CapacityCap):
+            def max_value(self,
+                          asset_id,
+                          date,
+                          book_value,
+                          context):
+                return 0.25 * book_value
+
+        step = plan(Implementation(caps=[Fixed()]), {"A": 0.6, "B": 0.4},
+                    pd.Timestamp("2024-01-02"), held=set(), stale=set(),
+                    context=ScreenContext(MagicMock(), "USD"), portfolio_value=1e6)
+
+        assert step.capped == pytest.approx({"A": 0.25, "B": 0.25})
+
+    def test_the_lorenz_curve_s_column_is_share_of_portfolio(self):
+        curve = lorenz(pd.Series({"A": 0.5, "B": 0.5}))
+
+        assert list(curve.columns) == ["share_of_names", "share_of_portfolio"]
