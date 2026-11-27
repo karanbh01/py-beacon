@@ -17,6 +17,7 @@ import pytest
 from beacon.analysis.analytics import Analytics
 from beacon.analysis.analytics.profile import Profile, columns_of
 from beacon.analysis.analytics.profile.columns import PERIODS
+from beacon.analysis.analytics.profile.period_statistics import _Rows, _Spans
 from beacon.analysis.panels import BENCHMARK_WEIGHTS, FUND_WEIGHTS, NAME_RETURNS
 from beacon.analysis.performance.settings import AnalysisSettings
 from beacon.analysis.reports.options import AnalysisOptions, AttributionOptions
@@ -372,3 +373,36 @@ class TestThroughTheServer:
         assert found["parts"]["daily_weights"]["unavailable"] is None
         assert part["columns"][0]["labels"] == PERIODS
         InstrumentProfile.model_validate(found)
+
+
+class TestFromRunningTotals:
+    """BN-481: each period's figures from running totals over the window's
+    days, a few subtractions a row."""
+
+    DAYS = pd.bdate_range("2024-01-01", periods=10)
+    PERIODS = (("run", DAYS[0], DAYS[-1]), ("year", DAYS[0], DAYS[4]),
+               ("month", DAYS[5], DAYS[-1]))
+
+    def rows(self) -> _Rows:
+        return _Rows(list(self.PERIODS), 252, 3)
+
+    def test_a_loss_of_everything_compounds_to_minus_one(self):
+        returns = pd.Series([0.01, 0.02, -1.0, 0.0, 0.0, 0.03, -0.01, 0.02, 0.0, 0.01],
+                            index=self.DAYS)
+        found = self.rows().own(returns)["return"]
+
+        assert found[:2] == [-1.0, -1.0]
+        assert found[2] == pytest.approx((1.0 + returns.iloc[5:]).prod() - 1.0, rel=1e-14)
+
+    def test_a_name_that_did_not_move_has_no_volatility(self):
+        returns = pd.Series([0.0] * 5 + [0.01, -0.02, 0.03, 0.0, 0.01], index=self.DAYS)
+        found = self.rows().own(returns)["volatility"]
+
+        assert found[1] == 0.0
+        assert found[2] == pytest.approx(returns.iloc[5:].std() * np.sqrt(252), rel=1e-12)
+
+    def test_a_period_s_bounds_are_its_first_and_last_days_given(self):
+        spans = _Spans(list(self.PERIODS), self.DAYS[1:-1])
+
+        assert spans.lo.tolist() == [0, 0, 4]
+        assert spans.hi.tolist() == [8, 4, 8]

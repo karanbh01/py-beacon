@@ -276,7 +276,7 @@ class Profile:
         """
         # BN-477.
         return period_statistics.period_statistics(self.name, self._context, self.days(),
-                                       self.rebalances(), list(self.portfolios()))
+                                                   self.rebalances(), list(self.portfolios()))
 
     @cached_property
     def risk(self) -> pd.DataFrame:
