@@ -91,6 +91,8 @@ What a run held and traded, and what it cost. See [Portfolio](../concepts/portfo
 
 ::: beacon.analysis.performance.portfolio
 
+::: beacon.analysis.performance.style_store
+
 ## Risk
 
 A run's factors, value at risk, risk over time, concentration and liquidity. See [Risk analysis](../concepts/risk-analysis.md).

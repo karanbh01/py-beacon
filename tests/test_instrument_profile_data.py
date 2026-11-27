@@ -15,7 +15,11 @@ from beacon.analysis import RunData
 from beacon.analysis.analytics import Analytics
 from beacon.analysis.analytics.profile import columns_of
 from beacon.analysis.panels import ACTIONS, CHARACTERISTICS, REFERENCE
+from beacon.analysis.performance import style, style_store
+from beacon.analysis.performance.portfolio import PORTFOLIOS
+from beacon.analysis.reports.options import AnalysisOptions
 from beacon.analysis.reports.statistics import RUN_PREDATES, Unavailable
+from beacon.analysis.request import AnalysisRequest
 
 NAME = "N0"
 SPLIT = pd.Timestamp("2024-06-03")
@@ -83,6 +87,75 @@ class TestItsStyle:
             _ = older.instrument.profile(NAME).style
 
         assert raised.value.code == RUN_PREDATES
+
+
+class TestTheStyleBoxKeptWithTheRun:
+    """BN-481: every name's place at each rebalance, worked out once and kept
+    beside the run."""
+
+    @pytest.fixture(scope="class")
+    def folder(self,
+               result,
+               tmp_path_factory):
+        folder = tmp_path_factory.mktemp("style")
+        result.analytics.run_data.write(folder)
+
+        assert result.analytics._context.keep_work(folder)
+
+        return folder
+
+    def test_each_rebalance_is_where_the_names_held_that_day_put_it(self,
+                                                                    result,
+                                                                    profile):
+        context = result.analytics._context
+        snapshots = result.analytics.run_data.tables[CHARACTERISTICS]
+        weights = {book: context.portfolio.weights(book) for book in PORTFOLIOS}
+
+        for day in profile.style.index:
+            snapshot = snapshots.loc[[day]].set_index("IDENTIFIER")
+            held = {book: None if found is None else style_store.weights_on(found, day)
+                    for book, found in weights.items()}
+            placed = style.style_positions(snapshot, held, context.options.style,
+                                           1.0).set_index("name")
+
+            assert profile.style.loc[day, "size_position"] == placed.loc[NAME, "size"]
+            assert profile.style.loc[day, "style_position"] == placed.loc[NAME, "style"]
+
+    def test_a_stored_run_reads_it_rather_than_placing_the_names(self,
+                                                                 result,
+                                                                 profile,
+                                                                 folder,
+                                                                 monkeypatch):
+        def refused(*args):
+            raise AssertionError("placed again")
+
+        monkeypatch.setattr(style_store, "style_positions", refused)
+        stored = Analytics(RunData.from_record(folder), None, None, folder)
+
+        pd.testing.assert_frame_equal(stored.instrument.profile(NAME).style, profile.style,
+                                      check_freq=False)
+        # The run's own analytics placed every name once, keeping them.
+        pd.testing.assert_frame_equal(stored.instrument.profile("N1").style,
+                                      result.analytics.instrument.profile("N1").style,
+                                      check_freq=False)
+
+    def test_other_style_settings_are_worked_out_again(self,
+                                                       folder):
+        settings = style.StyleSettings(growth=style.THREE_YEARS)
+        other = AnalysisRequest(options=AnalysisOptions(style=settings))
+
+        assert style_store.restore(settings, folder) is None
+        assert style_store.restore(style.StyleSettings(), folder) is not None
+        assert not Analytics(RunData.from_record(folder), other, None,
+                             folder).instrument.profile(NAME).style.empty
+
+    def test_a_run_without_characteristics_keeps_none(self,
+                                                      result,
+                                                      tmp_path):
+        older = replaced(result, **{CHARACTERISTICS: None})
+
+        assert not older._context._keep_style(tmp_path)
+        assert not (tmp_path / style_store.FOLDER).exists()
 
 
 class TestItsKeyData:

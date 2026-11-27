@@ -10,12 +10,12 @@ from typing import Any
 import pandas as pd
 
 from ....data.base import as_of_position
-from ...panels import CHARACTERISTICS, RATES
+from ...panels import CHARACTERISTICS
 from ...performance import style
 from ...performance.portfolio import FUND, PORTFOLIOS
+from ...performance.style_store import weights_on
 from ..context import Context
 from ..statistics import (
-    NO_DOLLAR_RATE,
     PORTFOLIO,
     RUN_PREDATES,
     TABLE,
@@ -27,7 +27,6 @@ from ..statistics import (
 from .build import memo
 
 HOLDINGS = "portfolio"
-USD = "USD"
 
 STYLE_SETTINGS = ("style.large_from", "style.mid_from", "style.top", "style.bottom",
                   "style.growth")
@@ -79,45 +78,9 @@ def _work_out(context: Context) -> tuple[pd.DataFrame, dict[str, float | None]]:
     held = {book: (None if found is None else weights_on(found, last))
             for book, found in weights.items()}
     positions = style.style_positions(snapshot, held, context.options.style,
-                                      usd_rate(context, taken))
+                                      context.usd_rate(taken))
 
     return positions, style.coverage(positions, held)
-
-
-def weights_on(weights: pd.DataFrame,
-        day: pd.Timestamp) -> pd.Series:
-    """A portfolio's weights on *day*, or its latest before it."""
-    position = as_of_position(weights.index, day)
-    row = weights.iloc[position if position is not None else 0].fillna(0.0)
-    row.index = row.index.astype(str)
-
-    return row
-
-
-def usd_rate(context: Context,
-              day: pd.Timestamp) -> float:
-    """A US dollar in the run's currency on *day*: 1 for a dollar run, else
-    the rate the run kept, else the data store's."""
-    if context.run.currency == USD:
-        return 1.0
-
-    rates = context.run.tables.get(RATES)
-
-    if rates is not None and USD in rates.columns:
-        kept = rates[USD].dropna()
-        position = as_of_position(kept.index, day)
-
-        if position is not None:
-            return float(kept.iloc[position])
-
-    if context.source is not None:
-        found = context.source.fetch_fx_rates(USD, context.run.currency,
-                                              end_date=str(day.date())).dropna()
-
-        if not found.empty:
-            return float(found.iloc[-1])
-
-    raise Unavailable(NO_DOLLAR_RATE)
 
 
 def _positions(context: Context) -> pd.DataFrame:

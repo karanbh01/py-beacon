@@ -164,7 +164,10 @@ gives the part as unavailable.
 A stored run's risk and exposures are read from what its analysis kept for
 the same factors and risk model (`beacon.analysis.risk.risk_store`);
 otherwise the model is fitted at every rebalance, and the factor betas read
-the factor returns, both of which need the data store.
+the factor returns, both of which need the data store. Its style is read
+from what its analysis kept for the same style settings
+(`beacon.analysis.performance.style_store`); otherwise every name held is
+placed at every rebalance, once for all the names.
 """
 # BN-468 (Karan, 2026-11-25): the first of the enhanced Drilldown's
 # sections; BN-469..BN-474 add theirs to the same profile. A package since

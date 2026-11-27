@@ -20,15 +20,18 @@ from typing import Any
 
 import pandas as pd
 
+from ...data.base import as_of_position
 from ...data.fetcher import DataFetcher
 from ...strategy.factors import Factor, default_factors
 from ..attribution.analytics import Attribution
 from ..class_panels import CLASS_DAYS
 from ..data import RunData
+from ..panels import CHARACTERISTICS, RATES
+from ..performance import style_store
 from ..performance.analytics import PerformanceAnalytics
 from ..performance.comparisons import aligned
 from ..performance.crises import NAMED_CRISES, CrisisAnalytics
-from ..performance.portfolio import PortfolioAnalytics
+from ..performance.portfolio import PORTFOLIOS, PortfolioAnalytics
 from ..performance.regimes import RegimeAnalytics
 from ..performance.relative_analytics import RelativeAnalytics
 from ..risk import factor_store, risk_store
@@ -41,13 +44,16 @@ from .options import BENCHMARK, INDEX, NAMED, OPTIMISED, AnalysisOptions
 from .statistics import (
     NO_BENCHMARK,
     NO_DATA_STORE,
+    NO_DOLLAR_RATE,
     NO_INDEX,
     NO_SHARE_CLASSES,
+    RUN_PREDATES,
     Unavailable,
 )
 
 FUND = "fund"
 CLASS = "class/"
+USD = "USD"
 
 # The comparators, in the order their figures are given.
 COMPARATORS = (INDEX, OPTIMISED, BENCHMARK)
@@ -254,10 +260,14 @@ class Context:
         the risk model, each name's expected risk at every rebalance
         (`name_risk`); False when it did none, or its factors cannot be
         kept."""
-        if "factor_analytics" not in self.__dict__:
-            return False
+        # BN-481: the style box at each rebalance, worked out here so a
+        # name's profile never places every name held again.
+        kept = self._keep_style(folder)
 
-        kept = factor_store.keep(self.factor_analytics, folder)
+        if "factor_analytics" not in self.__dict__:
+            return kept
+
+        kept = factor_store.keep(self.factor_analytics, folder) or kept
 
         # BN-470: when the analysis fitted the risk model, the rebalances it
         # did not fit are fitted here, so a name's profile never waits.
@@ -291,6 +301,73 @@ class Context:
                 return kept
 
         return risk_store.rebalance_risk(self.risk_over_time)
+
+    @cached_property
+    def rebalance_style(self) -> dict[str, pd.DataFrame]:
+        """Where each name held sat in the style box at each rebalance
+        (`beacon.analysis.performance.style_store`): as kept with a stored
+        run for these style settings, else worked out.
+
+        Raises:
+            Unavailable: If the run was kept before its characteristics
+                were, or a rebalance has no dollar rate for its caps.
+        """
+        settings = self.options.style
+
+        if self.folder is not None:
+            kept = style_store.restore(settings, self.folder)
+
+            if kept is not None:
+                return kept
+
+        snapshots = self.run.tables.get(CHARACTERISTICS)
+
+        if snapshots is None:
+            raise Unavailable(RUN_PREDATES)
+
+        weights = {book: self.portfolio.weights(book) for book in PORTFOLIOS}
+
+        return style_store.rebalance_positions(snapshots, weights, settings, self.usd_rate)
+
+    def usd_rate(self,
+                 day: pd.Timestamp) -> float:
+        """A US dollar in the run's currency on *day*: 1 for a dollar run,
+        else the rate the run kept, else the data store's.
+
+        Raises:
+            Unavailable: If neither has the rate.
+        """
+        if self.run.currency == USD:
+            return 1.0
+
+        rates = self.run.tables.get(RATES)
+
+        if rates is not None and USD in rates.columns:
+            kept = rates[USD].dropna()
+            position = as_of_position(kept.index, day)
+
+            if position is not None:
+                return float(kept.iloc[position])
+
+        if self.source is not None:
+            found = self.source.fetch_fx_rates(USD, self.run.currency,
+                                               end_date=str(day.date())).dropna()
+
+            if not found.empty:
+                return float(found.iloc[-1])
+
+        raise Unavailable(NO_DOLLAR_RATE)
+
+    def _keep_style(self,
+                    folder: Path) -> bool:
+        """Keep the style box at each rebalance with the run in *folder*;
+        False when the run cannot place its names."""
+        try:
+            tables = self.rebalance_style
+        except Unavailable:
+            return False
+
+        return style_store.keep(tables, self.options.style, folder)
 
     @property
     def name_risk(self) -> pd.DataFrame:

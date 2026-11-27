@@ -8,9 +8,7 @@ import numpy as np
 import pandas as pd
 
 from ...panels import ACTIONS, CHARACTERISTICS, REFERENCE, TRADED_VALUES
-from ...performance import style
-from ...performance.portfolio import PORTFOLIOS
-from ...reports.catalogue.style import usd_rate, weights_on
+from ...performance import style_store
 from ...reports.statistics import RUN_PREDATES, TOO_SHORT, Unavailable
 
 IDENTIFIER = "IDENTIFIER"
@@ -29,26 +27,18 @@ def style_positions(name: str,
     Raises:
         Unavailable: If the run was kept before its characteristics were.
     """
-    tables = context.run.tables
-
-    if CHARACTERISTICS not in tables:
-        raise Unavailable(RUN_PREDATES)
-
-    snapshots = tables[CHARACTERISTICS]
-    dates = _within(snapshots.index, days)
-    weights = {book: context.portfolio.weights(book) for book in PORTFOLIOS}
-    rows = {}
-
-    for day in dates:
-        snapshot = snapshots.loc[[day]].set_index(IDENTIFIER)
-        snapshot.index = snapshot.index.astype(str)
-        held = {book: None if found is None else weights_on(found, day)
-                for book, found in weights.items()}
-        placed = style.style_positions(snapshot, held, context.options.style,
-                                       usd_rate(context, day)).set_index("name")
-        rows[day] = _placed(placed, name)
-
-    found = pd.DataFrame.from_dict(rows, orient="index", columns=STYLE_COLUMNS)
+    # BN-481: the name's rows of the style box at each rebalance, worked out
+    # once for every name.
+    kept = context.rebalance_style
+    dates = _within(kept[style_store.DATES].index, days)
+    placed = kept[style_store.TABLE]
+    found = (placed[placed[IDENTIFIER] == name][STYLE_COLUMNS].reindex(dates)
+             .astype({"size_position": float, "style_position": float,
+                      "size": object, "style": object}))
+    # Read back from the kept table, its column names are strings.
+    found.columns = pd.Index(STYLE_COLUMNS, dtype=object)
+    found[["size", "style"]] = found[["size", "style"]].where(found[["size", "style"]].notna(),
+                                                             None)
     boxes = pd.Series([None if size is None else f"{size} {cell}"
                        for size, cell in zip(found["size"], found["style"], strict=True)],
                       index=found.index, dtype=object)
@@ -114,18 +104,6 @@ def corporate_actions(name: str,
                          index=pd.DatetimeIndex(pd.to_datetime(mine["EX_DATE"]), name="DATE"))
 
     return found.sort_index(kind="stable")
-
-
-def _placed(placed: pd.DataFrame,
-            name: str) -> list[Any]:
-    """*name*'s positions and cells, blank when it was not placed."""
-    if name not in placed.index:
-        return [np.nan, np.nan, None, None]
-
-    size, position = float(placed.at[name, "size"]), float(placed.at[name, "style"])
-    cells = style.cells(pd.Series([size, position]))
-
-    return [size, position, style.SIZES[cells[0]], style.STYLES[cells[1]]]
 
 
 def _within(index: pd.Index,
