@@ -29,7 +29,7 @@ from collections.abc import Iterable
 import numpy as np
 import pandas as pd
 
-from .corporate_actions import CASH, RATIO, kind_of, without_cancelled
+from .corporate_actions import CASH, RATIO, each_distinct, kind_of, without_cancelled
 from .prices import PRICE_COLUMN, _Source, converted, prices_in
 
 
@@ -83,7 +83,7 @@ def name_returns(source: _Source,
 
     values[~(np.isfinite(previous) & (previous > 0) & np.isfinite(close))] = np.nan
 
-    return pd.DataFrame(values, index=local.index, columns=local.columns)
+    return pd.DataFrame(values, index=local.index, columns=local.columns, copy=False)
 
 
 def _actions_of(source: _Source) -> pd.DataFrame:
@@ -120,7 +120,7 @@ def _events(actions: pd.DataFrame,
 
     rows = dates.searchsorted(pd.to_datetime(frame["EX_DATE"]).to_numpy())
     columns = frame["IDENTIFIER"].astype(str).map(column).to_numpy()
-    kinds = frame["TYPE"].map(kind_of).to_numpy()
+    kinds = each_distinct(frame["TYPE"], kind_of)
     values = pd.to_numeric(frame["VALUE"], errors="coerce").to_numpy(dtype=float)
     inside = (rows < len(dates)) & np.isfinite(values)
 

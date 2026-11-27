@@ -34,7 +34,8 @@ paid on the anniversary would be counted in two consecutive years' figures.
 # Before this store, `IndexCalculator` could adjust a divisor for an action it
 # was *handed*, but nothing stored a series of them.
 import logging
-from typing import Literal
+from collections.abc import Callable
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -137,7 +138,25 @@ def without_cancelled(actions: pd.DataFrame) -> pd.DataFrame:
     if actions.empty or STATUS_COLUMN not in actions.columns:
         return actions
 
-    return actions[actions[STATUS_COLUMN].map(status_of) != CANCELLED]
+    return actions[each_distinct(actions[STATUS_COLUMN], status_of) != CANCELLED]
+
+
+def each_distinct(values: pd.Series,
+                  read: Callable[[Any], Any]) -> np.ndarray:
+    """*read* of each of *values*, called once for each distinct value
+    rather than once a row; a missing value read as NaN."""
+    # BN-481: a run's tens of thousands of actions have a handful of types
+    # and statuses, each read row by row.
+    codes, distinct = pd.factorize(values)
+    found = [read(value) for value in distinct]
+
+    if (codes < 0).any():
+        found.append(read(np.nan))
+
+    answers = np.empty(len(found), dtype=object)
+    answers[:] = found
+
+    return answers[codes] if len(answers) else np.empty(0, dtype=object)
 
 
 def status_of(value: object) -> Status | None:

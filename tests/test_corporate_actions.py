@@ -14,6 +14,9 @@ from beacon.data.corporate_actions import (
     SPECIAL_DIVIDEND,
     SPLIT,
     CorporateActions,
+    each_distinct,
+    kind_of,
+    status_of,
 )
 from beacon.data.fetcher import (
     FX_CARRY_FORWARD,
@@ -430,3 +433,24 @@ class TestTheDividendConversionObeysTheFxPolicy:
         source = inspect.getsource(CorporateActionsMixin)
 
         assert "fx_policy" in source
+
+
+class TestEachDistinct:
+    """BN-481: a column read once a distinct value, as it was row by row."""
+
+    def test_the_same_as_row_by_row(self):
+        import numpy as np
+
+        types = pd.Series(["SPLIT", "DIVIDEND", "SPLIT", None, "DIVIDEND", "MERGER"])
+        statuses = pd.Series(["confirmed", np.nan, "CANCELLED", "cancelled", "confirmed", None])
+
+        assert list(each_distinct(types, kind_of)) == [kind_of(value) for value in types]
+        assert list(each_distinct(statuses, status_of)) == [status_of(value) for value in statuses]
+
+    def test_each_value_read_once(self):
+        read = []
+
+        each_distinct(pd.Series(["a", "b", "a", "a"]), lambda value: read.append(value) or value)
+
+        assert read == ["a", "b"]
+        assert len(each_distinct(pd.Series([], dtype=object), str)) == 0
